@@ -1,6 +1,6 @@
 ---
 title: FreerForMac — Migration Plan
-status: Phase 1 complete; Phase 2 next
+status: Phases 1 & 2 complete; Phase 3 (FCStorage) next
 last_updated: 2026-04-24
 ---
 
@@ -101,14 +101,23 @@ All primitives are live in Swift and cross-verified byte-for-byte against Java-g
 
 **Golden tests are non-negotiable.** We feed the same inputs as Android and byte-compare outputs. No parity → no build.
 
-### Phase 2 — `FCCore` tx layer · 4d
-- `PrivateKey`, `PublicKey`, `Address` (FCH mainnet params).
-- `Script`, `ScriptBuilder` — P2PKH, P2SH, multisig.
-- `Transaction`, `TxInput`, `TxOutput`, `Coin`, `VarInt`.
-- **Byte-exact serialization parity** with freecashj (BCH fork ~2019-11-15). Sighash algorithm, input/output ordering, varint encoding all need to match.
-- `TxHandler` — UTXO selection, fee estimation, signing (ECDSA + Schnorr).
-- Multisig / P2SH construction + signing.
-- **Parity harness:** a test fixture that loads `(inputs, expectedHex)` tuples produced by freecashj, builds the same tx in Swift, asserts byte-equality. This is the single highest-risk phase.
+### Phase 2 — `FCCore` tx layer · ✅ complete
+
+Shipped as sub-phases 2.1 → 2.4, commits `1b0dc8c` → `9e41b4d`. The wallet can now build and sign FCH transactions entirely in Swift.
+
+| Sub-phase | Deliverable | Parity status |
+|---|---|---|
+| 2.1 | `VarInt`, `FchAddress` (mainnet version byte `0x23`, Base58Check) | byte-exact vs bitcoinj's `VarInt` |
+| 2.2 | `Script`, `ScriptBuilder` (P2PKH/P2SH/multisig outputs, P2PKH input) | byte-exact vs `org.bitcoinj.script.ScriptBuilder` |
+| 2.3a | `Transaction`, classic pre-SegWit serialization, txid (natural + display) | byte-exact vs `tx.bitcoinSerialize()` |
+| 2.3b | BCH sighash — BIP-143 preimage with `SIGHASH_FORKID` (`0x41`) | byte-exact vs freecashj's `hashForSignatureWitness` |
+| 2.4 | `TxHandler.signP2pkhInput` — compose scriptCode / sighash / sign / scriptSig / replace | scriptSig-composition byte-exact given the same DER sig; Swift-signed txs verify under both libraries |
+
+**Not implemented — pushed out of Phase 2, added when a caller needs them:**
+- Coin selection + fee estimation (depend on a live UTXO set; belong in the domain layer).
+- Multisig / P2SH *input* signing (structurally similar to P2PKH signing; uses the same sighash primitives).
+- `SIGHASH_NONE` / `SIGHASH_SINGLE` / `SIGHASH_ANYONECANPAY` sighash variants (zero out different preimage fields; we reject them with a typed error until a real caller appears).
+- Tx deserialization (parse tx hex → `Transaction`). We only build/serialize today; parsing lands when we need to inspect received txs.
 
 ### Phase 3 — `FCStorage` · 2d
 - Keychain wrapper for: password-derived master key, per-identity private keys.
