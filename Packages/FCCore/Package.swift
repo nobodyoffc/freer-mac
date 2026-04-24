@@ -25,7 +25,10 @@ let package = Package(
         ),
         .testTarget(
             name: "FCCoreTests",
-            dependencies: ["FCCore"]
+            dependencies: ["FCCore"],
+            resources: [
+                .process("Resources/testVectors.json")
+            ]
         )
     ]
 )

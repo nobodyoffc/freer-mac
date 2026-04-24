@@ -1,0 +1,117 @@
+{
+  "generated_at": "2026-04-24T05:04:52.800276Z",
+  "schema_version": 1,
+  "generator": "FreerForMac VectorGen (freecashj v0.16 + BouncyCastle)",
+  "sample_key": {
+    "note": "Leaked test key — safe to publish. Canonical identity used throughout the test suite.",
+    "privkey_hex": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575",
+    "privkey_wif": "L2bHRej6Fxxipvb4TiR5bu1rkT3tRp8yWEsUy4R1Zb8VMm2x7sd8",
+    "pubkey_hex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",
+    "fid": "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK",
+    "pubkey_hash160_hex": "61c42abb6e3435e63bd88862f3746a3f8b863542"
+  },
+  "argon2id": [
+    {
+      "label": "ascii password, Freer params",
+      "password_utf8": "password",
+      "password_hex": "70617373776f7264",
+      "salt_utf8": "01234567",
+      "salt_hex": "3031323334353637",
+      "iterations": 3,
+      "memory_kib": 65536,
+      "parallelism": 1,
+      "output_length": 32,
+      "output_hex": "52f02343237b1042dc02fbd41a6e90914d00f7c96a5f8306b529eaee72143100"
+    },
+    {
+      "label": "utf-8 multi-byte password, Freer params",
+      "password_utf8": "秘密パスワード",
+      "password_hex": "e7a798e5af86e38391e382b9e383afe383bce38389",
+      "salt_utf8": "saltsaltsaltsalt",
+      "salt_hex": "73616c7473616c7473616c7473616c74",
+      "iterations": 3,
+      "memory_kib": 65536,
+      "parallelism": 1,
+      "output_length": 32,
+      "output_hex": "4f3ffe80d1c33026b69e3319fc8f72e65efabe83757bc0e10db3a343e75f8d02"
+    },
+    {
+      "label": "quick profile — matches the Swift Self.quick profile",
+      "password_utf8": "hunter2",
+      "password_hex": "68756e74657232",
+      "salt_utf8": "01234567",
+      "salt_hex": "3031323334353637",
+      "iterations": 1,
+      "memory_kib": 32,
+      "parallelism": 1,
+      "output_length": 32,
+      "output_hex": "a00620da9de69030ee13fd1eef9355688096f5ea00ab97f3d4d1e799288219d3"
+    }
+  ],
+  "sha256": [
+    {
+      "label": "empty input",
+      "input_hex": "",
+      "sha256_hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "double_sha256_hex": "5df6e0e2761359d30a8275058e299fcc0381534545f55cf43e41983f5d4c9456"
+    },
+    {
+      "label": "ascii abc",
+      "input_hex": "616263",
+      "sha256_hex": "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+      "double_sha256_hex": "4f8b42c22dd3729b519ba6f68d2da7cc5b2d606d05daed5ad5128cc03e6c6358"
+    },
+    {
+      "label": "brown fox",
+      "input_hex": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+      "sha256_hex": "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592",
+      "double_sha256_hex": "6d37795021e544d82b41850edf7aabab9a0ebe274e54a519840c4666f35b3937"
+    },
+    {
+      "label": "64 zero bytes (SHA-256 block boundary)",
+      "input_hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_hex": "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+      "double_sha256_hex": "e2f61c3f71d1defd3fa999dfa36953755c690689799962b48bebd836974e8cf9"
+    },
+    {
+      "label": "65 zero bytes (one past block)",
+      "input_hex": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+      "sha256_hex": "98ce42deef51d40269d542f5314bef2c7468d401ad5d85168bfab4c0108f75f7",
+      "double_sha256_hex": "e5e56eb140267eed24376476d8917369d655dbd6b31bfc8c3e97ac2bd9cd72d7"
+    }
+  ],
+  "ripemd160": [
+    {
+      "label": "empty input",
+      "input_hex": "",
+      "output_hex": "9c1185a5c5e9fc54612808977ee8f548b2258d31"
+    },
+    {
+      "label": "ascii abc",
+      "input_hex": "616263",
+      "output_hex": "8eb208f7e05d987a9b044a8e98c6b087f15a0bfc"
+    },
+    {
+      "label": "brown fox",
+      "input_hex": "54686520717569636b2062726f776e20666f78206a756d7073206f76657220746865206c617a7920646f67",
+      "output_hex": "37f332f68db77bd9d7edd4969571ad671cf9dd3b"
+    }
+  ],
+  "hash160": [
+    {
+      "label": "sample pubkey → pubkey hash (feeds into FID derivation)",
+      "input_hex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",
+      "output_hex": "61c42abb6e3435e63bd88862f3746a3f8b863542"
+    },
+    {
+      "label": "empty input",
+      "input_hex": "",
+      "output_hex": "b472a266d0bd89c13706a4132ccfb16f7c3b9fcb"
+    },
+    {
+      "label": "ascii abc",
+      "input_hex": "616263",
+      "output_hex": "bb1be98c142444d7a56aa3981c3942a978e4dc33"
+    }
+  ]
+}

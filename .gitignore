@@ -26,6 +26,10 @@ Package.resolved
 Pods/
 Carthage/
 
+# Gradle (for tools/vector-gen/)
+.gradle/
+tools/vector-gen/build/
+
 # fastlane
 fastlane/report.xml
 fastlane/Preview.html

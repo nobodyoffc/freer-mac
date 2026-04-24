@@ -67,4 +67,25 @@ final class Argon2Tests: XCTestCase {
         )
         XCTAssertEqual(out.count, 64)
     }
+
+    /// Golden-vector parity against freecashj + BouncyCastle's Argon2BytesGenerator.
+    /// Every Swift output must match the Java-produced hex byte-for-byte.
+    func testMatchesFreecashjVectors() throws {
+        let vectors = try TestVectors.load()
+        XCTAssertFalse(vectors.argon2id.isEmpty, "no Argon2id vectors in testVectors.json")
+        for vector in vectors.argon2id {
+            let params = Argon2.Params(
+                iterations: vector.iterations,
+                memoryKiB: vector.memoryKib,
+                parallelism: vector.parallelism,
+                outputLength: vector.outputLength
+            )
+            let out = try Argon2.hashID(
+                password: Data(fromHex: vector.passwordHex),
+                salt: Data(fromHex: vector.saltHex),
+                params: params
+            )
+            XCTAssertEqual(out.hex, vector.outputHex, "Argon2 case '\(vector.label)'")
+        }
+    }
 }
