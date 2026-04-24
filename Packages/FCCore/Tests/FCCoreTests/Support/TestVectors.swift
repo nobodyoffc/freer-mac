@@ -26,6 +26,7 @@ enum TestVectors {
         let schnorrBch: [SchnorrBchCase]
         let base58: [Base58Case]
         let base58check: [Base58CheckCase]
+        let phraseToPrivkey: [PhraseKeyCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -45,6 +46,33 @@ enum TestVectors {
             case schnorrBch = "schnorr_bch"
             case base58
             case base58check
+            case phraseToPrivkey = "phrase_to_privkey"
+        }
+    }
+
+    struct PhraseKeyCase: Decodable {
+        let phraseUtf8: String
+        let phraseHex: String
+        let legacy: SchemeResult
+        let argon2id: SchemeResult
+
+        enum CodingKeys: String, CodingKey {
+            case phraseUtf8 = "phrase_utf8"
+            case phraseHex = "phrase_hex"
+            case legacy
+            case argon2id
+        }
+
+        struct SchemeResult: Decodable {
+            let scheme: String
+            let privkeyHex: String
+            let pubkeyHex: String
+
+            enum CodingKeys: String, CodingKey {
+                case scheme
+                case privkeyHex = "privkey_hex"
+                case pubkeyHex = "pubkey_hex"
+            }
         }
     }
 

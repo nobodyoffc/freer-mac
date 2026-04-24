@@ -89,6 +89,7 @@ public final class VectorGen {
         root.add("schnorr_bch", buildSchnorrBchVectors());
         root.add("base58", buildBase58Vectors());
         root.add("base58check", buildBase58CheckVectors());
+        root.add("phrase_to_privkey", buildPhraseToPrivkeyVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(out.toAbsolutePath().getParent());
@@ -570,6 +571,74 @@ public final class VectorGen {
         } catch (NoSuchAlgorithmException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    /**
+     * Protocol-constant salt for the argon2id phrase → privkey derivation.
+     * A fixed salt is required so the same phrase always yields the same key
+     * (this is a deterministic-recovery scheme, not password storage). The
+     * Mac and Android sides must agree on this string byte-for-byte.
+     */
+    private static final String PHRASE_ARGON2ID_SALT = "fc.freer.phrase.v1";
+
+    private static JsonArray buildPhraseToPrivkeyVectors() {
+        JsonArray arr = new JsonArray();
+        arr.add(phraseCase("correct horse battery staple"));
+        arr.add(phraseCase("my freer wallet phrase 2026 🔐"));
+        arr.add(phraseCase("short"));
+        return arr;
+    }
+
+    private static JsonObject phraseCase(String phrase) {
+        byte[] phraseBytes = phrase.getBytes(StandardCharsets.UTF_8);
+
+        // Legacy: plain SHA-256 of the phrase bytes. Matches current Android.
+        byte[] legacyPrivkey;
+        try {
+            legacyPrivkey = MessageDigest.getInstance("SHA-256").digest(phraseBytes);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+
+        // Argon2id with Freer params and the fixed protocol salt.
+        byte[] salt = PHRASE_ARGON2ID_SALT.getBytes(StandardCharsets.UTF_8);
+        Argon2Parameters params = new Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
+                .withVersion(Argon2Parameters.ARGON2_VERSION_13)
+                .withIterations(3)
+                .withMemoryAsKB(65_536)
+                .withParallelism(1)
+                .withSalt(salt)
+                .build();
+        Argon2BytesGenerator gen = new Argon2BytesGenerator();
+        gen.init(params);
+        byte[] argonPrivkey = new byte[32];
+        gen.generateBytes(phraseBytes, argonPrivkey);
+
+        ECKey legacyKey = ECKey.fromPrivate(legacyPrivkey, true);
+        ECKey argonKey = ECKey.fromPrivate(argonPrivkey, true);
+
+        JsonObject o = new JsonObject();
+        o.addProperty("phrase_utf8", phrase);
+        o.addProperty("phrase_hex", Hex.toHexString(phraseBytes));
+
+        JsonObject legacy = new JsonObject();
+        legacy.addProperty("scheme", "legacy_sha256");
+        legacy.addProperty("privkey_hex", Hex.toHexString(legacyPrivkey));
+        legacy.addProperty("pubkey_hex", Hex.toHexString(legacyKey.getPubKey()));
+        o.add("legacy", legacy);
+
+        JsonObject argon = new JsonObject();
+        argon.addProperty("scheme", "argon2id");
+        argon.addProperty("salt_utf8", PHRASE_ARGON2ID_SALT);
+        argon.addProperty("salt_hex", Hex.toHexString(salt));
+        argon.addProperty("argon2id_iterations", 3);
+        argon.addProperty("argon2id_memory_kib", 65_536);
+        argon.addProperty("argon2id_parallelism", 1);
+        argon.addProperty("privkey_hex", Hex.toHexString(argonPrivkey));
+        argon.addProperty("pubkey_hex", Hex.toHexString(argonKey.getPubKey()));
+        o.add("argon2id", argon);
+
+        return o;
     }
 
     private static byte[] patternBytes(int length, byte value) {

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-24T06:44:28.783336Z",
+  "generated_at": "2026-04-24T06:49:45.750756Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (freecashj v0.16 + BouncyCastle)",
   "sample_key": {
@@ -357,6 +357,65 @@
       "label": "arbitrary 8-byte payload",
       "payload_hex": "deadbeef12345678",
       "encoded": "5CizhMnDjUp35zbFq"
+    }
+  ],
+  "phrase_to_privkey": [
+    {
+      "phrase_utf8": "correct horse battery staple",
+      "phrase_hex": "636f727265637420686f727365206261747465727920737461706c65",
+      "legacy": {
+        "scheme": "legacy_sha256",
+        "privkey_hex": "c4bbcb1fbec99d65bf59d85c8cb62ee2db963f0fe106f483d9afa73bd4e39a8a",
+        "pubkey_hex": "0378d430274f8c5ec1321338151e9f27f4c676a008bdf8638d07c0b6be9ab35c71"
+      },
+      "argon2id": {
+        "scheme": "argon2id",
+        "salt_utf8": "fc.freer.phrase.v1",
+        "salt_hex": "66632e66726565722e7068726173652e7631",
+        "argon2id_iterations": 3,
+        "argon2id_memory_kib": 65536,
+        "argon2id_parallelism": 1,
+        "privkey_hex": "7ef2e239b0f1dc435f22cc6a02a19290e5b92753550b77d48797e8689c28de0d",
+        "pubkey_hex": "035e38e4b65094867ac29544aba026b020dcc6f02f9e9dc463c057001a0244686c"
+      }
+    },
+    {
+      "phrase_utf8": "my freer wallet phrase 2026 🔐",
+      "phrase_hex": "6d792066726565722077616c6c657420706872617365203230323620f09f9490",
+      "legacy": {
+        "scheme": "legacy_sha256",
+        "privkey_hex": "583c8ea47fe43ddd8b9298beb18c9eccd1345d44b9ac0e4b2896e428a79068ed",
+        "pubkey_hex": "021261911782be45a7962e726d1fa217c630947b3554550ae1179298fe3019bf8c"
+      },
+      "argon2id": {
+        "scheme": "argon2id",
+        "salt_utf8": "fc.freer.phrase.v1",
+        "salt_hex": "66632e66726565722e7068726173652e7631",
+        "argon2id_iterations": 3,
+        "argon2id_memory_kib": 65536,
+        "argon2id_parallelism": 1,
+        "privkey_hex": "fcec179e99398a4759e3a96686b651ed5d264ca947a32e3fa21eecccaf7c17f6",
+        "pubkey_hex": "03a945905e91919074262979ceeb73a3eb0ce0dacb57bf1f4543c0b153597ccb1b"
+      }
+    },
+    {
+      "phrase_utf8": "short",
+      "phrase_hex": "73686f7274",
+      "legacy": {
+        "scheme": "legacy_sha256",
+        "privkey_hex": "f9b0078b5df596d2ea19010c001bbd009e651de2c57e8fb7e355f31eb9d3f739",
+        "pubkey_hex": "0336f3eb3e3e7305c8703a141849969ba465a6aa3459e9a4ce6d645d3335cde56b"
+      },
+      "argon2id": {
+        "scheme": "argon2id",
+        "salt_utf8": "fc.freer.phrase.v1",
+        "salt_hex": "66632e66726565722e7068726173652e7631",
+        "argon2id_iterations": 3,
+        "argon2id_memory_kib": 65536,
+        "argon2id_parallelism": 1,
+        "privkey_hex": "6690c2d1ea37d3b43c20a2714e0f107b05ca883e5e2270aa6ee843b876eca592",
+        "pubkey_hex": "03491de2c07a1f53f8ada5c6ca5b062d1e705e6ad2bf5a48e3df5ce1f42a72f1a7"
+      }
     }
   ]
 }
