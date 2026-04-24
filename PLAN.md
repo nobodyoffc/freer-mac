@@ -1,6 +1,6 @@
 ---
 title: FreerForMac — Migration Plan
-status: approved scaffold; phases pending execution
+status: Phase 1 complete; Phase 2 next
 last_updated: 2026-04-24
 ---
 
@@ -79,15 +79,25 @@ Each phase ends with a runnable / testable artifact. Day estimates are working d
 - Add SwiftLint config, `swift test` target, `.gitignore`.
 - First commit.
 
-### Phase 1 — `FCCore` crypto foundation · 3d
-Port/implement with golden tests against Android-produced vectors:
-- `Hash` — SHA256, double-SHA256, RIPEMD160, Hash160.
-- `AES-256-GCM`, `AES-256-CBC+HMAC-SHA256`, `ChaCha20-Poly1305`.
-- `Argon2id` with the locked params (3 / 65536 KiB / 1 / 32-byte).
-- `HKDF-SHA256`.
-- `secp256k1` — key gen, ECDSA sign/verify, Schnorr (BIP340) sign/verify, ECDH.
-- `Base58`, `Bech32`, `CashAddr`.
-- Passphrase → private key: `Argon2id(passphrase, salt=<protocol const>) → 32-byte privkey`.
+### Phase 1 — `FCCore` crypto foundation · ✅ complete
+
+All primitives are live in Swift and cross-verified byte-for-byte against Java-generated vectors produced by `tools/vector-gen/` (freecashj v0.16 + BouncyCastle). Commits 7738391 → 260843f.
+
+| Primitive | Scheme | Parity |
+|---|---|---|
+| Hashes | SHA-256, double-SHA-256, RIPEMD-160, Hash-160 | byte-exact |
+| KDF (password) | Argon2id (iter=3, mem=64 MiB, par=1, 32 B) | byte-exact |
+| KDF (key) | HKDF-SHA256, HKDF-SHA512 | byte-exact |
+| AEAD | AES-256-GCM, ChaCha20-Poly1305 | byte-exact |
+| secp256k1 | pubkey derivation, ECDSA sign / verify, ECDH | byte-exact for ECDH + verify; ECDSA sign round-trips (libsecp256k1 and BouncyCastle disagree on RFC 6979 internals — either side verifies the other) |
+| Schnorr (BCH-2019, pre-BIP-340) | sign / verify | byte-exact |
+| Encoding | Base58, Base58Check | byte-exact |
+| Passphrase → privkey | `.legacySha256` (for Android import) and `.argon2id` (recommended, fixed protocol salt `fc.freer.phrase.v1`) | byte-exact both |
+
+**Not implemented — intentionally out of scope:**
+- **CashAddr** — FCH does not use CashAddr. FCH addresses are Base58Check only.
+- **Bech32 / SegWit** — not used by FCH at all.
+- **AES-256-CBC + HMAC-SHA256 "Bundle" format** — Android's legacy wire format with known weaknesses (S6–S8 in the Android bug log). If peer-to-peer IM with Android users ever needs this format, it can be built on top of the existing AES-GCM + HKDF primitives.
 
 **Golden tests are non-negotiable.** We feed the same inputs as Android and byte-compare outputs. No parity → no build.
 
