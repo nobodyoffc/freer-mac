@@ -8,7 +8,24 @@ let package = Package(
         .library(name: "FCCore", targets: ["FCCore"])
     ],
     targets: [
-        .target(name: "FCCore"),
-        .testTarget(name: "FCCoreTests", dependencies: ["FCCore"])
+        // Vendored Argon2 reference implementation — see Sources/CArgon2/UPSTREAM.md
+        .target(
+            name: "CArgon2",
+            exclude: [
+                "LICENSE",
+                "UPSTREAM.md"
+            ],
+            cSettings: [
+                .headerSearchPath(".")
+            ]
+        ),
+        .target(
+            name: "FCCore",
+            dependencies: ["CArgon2"]
+        ),
+        .testTarget(
+            name: "FCCoreTests",
+            dependencies: ["FCCore"]
+        )
     ]
 )
