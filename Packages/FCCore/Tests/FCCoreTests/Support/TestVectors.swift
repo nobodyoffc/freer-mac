@@ -17,6 +17,10 @@ enum TestVectors {
         let sha256: [ShaCase]
         let ripemd160: [SimpleHashCase]
         let hash160: [SimpleHashCase]
+        let aesGcm256: [AeadCase]
+        let chacha20Poly1305: [AeadCase]
+        let hkdfSha256: [HkdfCase]
+        let hkdfSha512: [HkdfCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -27,6 +31,48 @@ enum TestVectors {
             case sha256
             case ripemd160
             case hash160
+            case aesGcm256 = "aes_gcm_256"
+            case chacha20Poly1305 = "chacha20_poly1305"
+            case hkdfSha256 = "hkdf_sha256"
+            case hkdfSha512 = "hkdf_sha512"
+        }
+    }
+
+    struct AeadCase: Decodable {
+        let label: String
+        let keyHex: String
+        let ivHex: String
+        let plaintextHex: String
+        let aadHex: String
+        let ciphertextHex: String
+        let tagHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case keyHex = "key_hex"
+            case ivHex = "iv_hex"
+            case plaintextHex = "plaintext_hex"
+            case aadHex = "aad_hex"
+            case ciphertextHex = "ciphertext_hex"
+            case tagHex = "tag_hex"
+        }
+    }
+
+    struct HkdfCase: Decodable {
+        let label: String
+        let ikmHex: String
+        let saltHex: String
+        let infoHex: String
+        let outputLength: Int
+        let outputHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case ikmHex = "ikm_hex"
+            case saltHex = "salt_hex"
+            case infoHex = "info_hex"
+            case outputLength = "output_length"
+            case outputHex = "output_hex"
         }
     }
 

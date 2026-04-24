@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-24T05:04:52.800276Z",
+  "generated_at": "2026-04-24T05:29:51.569838Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (freecashj v0.16 + BouncyCastle)",
   "sample_key": {
@@ -112,6 +112,134 @@
       "label": "ascii abc",
       "input_hex": "616263",
       "output_hex": "bb1be98c142444d7a56aa3981c3942a978e4dc33"
+    }
+  ],
+  "aes_gcm_256": [
+    {
+      "label": "plaintext with empty AAD",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "iv_hex": "202122232425262728292a2b",
+      "plaintext_hex": "46726565722077616c6c657420656e6372797074696f6e2074657374",
+      "aad_hex": "",
+      "ciphertext_hex": "9448c3151eb86d6f761027bae17d9a9aa2309ce8eeef0dce18931f66",
+      "tag_hex": "7161ca061aa3ef65daf57897bfc58c62"
+    },
+    {
+      "label": "plaintext + 8-byte AAD",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "iv_hex": "202122232425262728292a2b",
+      "plaintext_hex": "0102030405060708090a0b0c0d0e0f00",
+      "aad_hex": "6d65746164617461",
+      "ciphertext_hex": "d338a574699e1d06137649c2cc16fbf9",
+      "tag_hex": "eb7215581bbf98860b3d637574313a00"
+    },
+    {
+      "label": "empty plaintext + 16-byte AAD (auth-only)",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "iv_hex": "202122232425262728292a2b",
+      "plaintext_hex": "",
+      "aad_hex": "ffeeddccbbaa99887766554433221100",
+      "ciphertext_hex": "",
+      "tag_hex": "45f6e3713334ea57b2766081ecc06235"
+    },
+    {
+      "label": "100-byte plaintext, empty AAD",
+      "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "iv_hex": "202122232425262728292a2b",
+      "plaintext_hex": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+      "aad_hex": "",
+      "ciphertext_hex": "8860fc2a36c24054402618949b42aea38a13b6c6ddda39b436ac364813d004532fd4bf5ed47f6f804ea734c802534592b870b6d4c066773b9438254716e85087827c9751cccdbfccd130b37de107633b8fcd695eeda1dc44951598704046c486580e740c",
+      "tag_hex": "cfdc1d1d3307f757df048ee3c9045557"
+    }
+  ],
+  "chacha20_poly1305": [
+    {
+      "label": "plaintext with empty AAD",
+      "key_hex": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "iv_hex": "606162636465666768696a6b",
+      "plaintext_hex": "46726565722077616c6c657420656e6372797074696f6e2074657374",
+      "aad_hex": "",
+      "ciphertext_hex": "908d62397dc01a79c8292146420524760ada537b7e42b00082c84381",
+      "tag_hex": "9e6058cb30bc658b7f60c276344d1bb9"
+    },
+    {
+      "label": "plaintext + 8-byte AAD",
+      "key_hex": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "iv_hex": "606162636465666768696a6b",
+      "plaintext_hex": "0102030405060708090a0b0c0d0e0f00",
+      "aad_hex": "6d65746164617461",
+      "ciphertext_hex": "d7fd04580ae66a10ad4f4f3e6f6e4515",
+      "tag_hex": "3e59c349b5235d11f2109e82004ed7e7"
+    },
+    {
+      "label": "empty plaintext + 16-byte AAD (auth-only)",
+      "key_hex": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "iv_hex": "606162636465666768696a6b",
+      "plaintext_hex": "",
+      "aad_hex": "ffeeddccbbaa99887766554433221100",
+      "ciphertext_hex": "",
+      "tag_hex": "588bfa8c8284a59683b1edf28c20c4dd"
+    },
+    {
+      "label": "100-byte plaintext, empty AAD",
+      "key_hex": "404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f",
+      "iv_hex": "606162636465666768696a6b",
+      "plaintext_hex": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+      "aad_hex": "",
+      "ciphertext_hex": "8ca55d0655ba3742fe1f1e68383a104f22f979554d77847aacf76aafb317657f4f203883463784b649712f80acf67a3eb5208fd45b4ca8696ee2371ebca293e0e100168dd73a59e47f996f92cba1d45c85a84c3d1b6db6cf832547e90c1a5efd2c6a62d6",
+      "tag_hex": "be998e246d7c5d1474c380facebf63e3"
+    }
+  ],
+  "hkdf_sha256": [
+    {
+      "label": "32B ikm, 16B salt, 'hkdf' info, 32B output",
+      "ikm_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "salt_hex": "22222222222222222222222222222222",
+      "info_hex": "686b6466",
+      "output_length": 32,
+      "output_hex": "977160761675bf8fbbf9bc305e404094921a7b9af8c253539b6866c3b1f255a4"
+    },
+    {
+      "label": "extended output (64B)",
+      "ikm_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "salt_hex": "22222222222222222222222222222222",
+      "info_hex": "686b6466",
+      "output_length": 64,
+      "output_hex": "977160761675bf8fbbf9bc305e404094921a7b9af8c253539b6866c3b1f255a499e4b972cffaeb6b061e19dbcdc2c4f8965d133b8bbbbf063bcc5f763d1d7a7f"
+    },
+    {
+      "label": "context-specific info string",
+      "ikm_hex": "3333333333333333333333333333333333333333333333333333333333333333",
+      "salt_hex": "44444444444444444444444444444444",
+      "info_hex": "667564702d73657373696f6e2d6b6579",
+      "output_length": 32,
+      "output_hex": "af7072767ee798415c95af203ea18ba686d05043bcfef349309c2fdf8065f55d"
+    }
+  ],
+  "hkdf_sha512": [
+    {
+      "label": "32B ikm, 16B salt, 'hkdf' info, 32B output",
+      "ikm_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "salt_hex": "22222222222222222222222222222222",
+      "info_hex": "686b6466",
+      "output_length": 32,
+      "output_hex": "68e32de3c91151294fea3deda4fc5a294b6cb54437a06c21ec537e1f49cd2ab1"
+    },
+    {
+      "label": "extended output (64B)",
+      "ikm_hex": "1111111111111111111111111111111111111111111111111111111111111111",
+      "salt_hex": "22222222222222222222222222222222",
+      "info_hex": "686b6466",
+      "output_length": 64,
+      "output_hex": "68e32de3c91151294fea3deda4fc5a294b6cb54437a06c21ec537e1f49cd2ab1fdc47fdcac958c7f9894f553ad1b2f144b6a9384691f1de387d5038e3e1ecce4"
+    },
+    {
+      "label": "context-specific info string",
+      "ikm_hex": "3333333333333333333333333333333333333333333333333333333333333333",
+      "salt_hex": "44444444444444444444444444444444",
+      "info_hex": "667564702d73657373696f6e2d6b6579",
+      "output_length": 32,
+      "output_hex": "592c28f6a6ec45b92f16076300c2c9cd26777a46a61a15e76d21394219c5dca0"
     }
   ]
 }

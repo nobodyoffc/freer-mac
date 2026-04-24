@@ -10,10 +10,20 @@ import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.NetworkParameters;
 import org.bitcoinj.fch.FchMainNetwork;
 
+import org.bouncycastle.crypto.Digest;
 import org.bouncycastle.crypto.digests.RIPEMD160Digest;
+import org.bouncycastle.crypto.digests.SHA256Digest;
+import org.bouncycastle.crypto.digests.SHA512Digest;
 import org.bouncycastle.crypto.generators.Argon2BytesGenerator;
+import org.bouncycastle.crypto.generators.HKDFBytesGenerator;
 import org.bouncycastle.crypto.params.Argon2Parameters;
+import org.bouncycastle.crypto.params.HKDFParameters;
 import org.bouncycastle.util.encoders.Hex;
+
+import javax.crypto.Cipher;
+import javax.crypto.spec.GCMParameterSpec;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -63,6 +73,10 @@ public final class VectorGen {
         root.add("sha256", buildSha256Vectors());
         root.add("ripemd160", buildRipemd160Vectors());
         root.add("hash160", buildHash160Vectors());
+        root.add("aes_gcm_256", buildAesGcm256Vectors());
+        root.add("chacha20_poly1305", buildChaCha20Poly1305Vectors());
+        root.add("hkdf_sha256", buildHkdfVectors(new SHA256Digest()));
+        root.add("hkdf_sha512", buildHkdfVectors(new SHA512Digest()));
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(out.toAbsolutePath().getParent());
@@ -212,6 +226,126 @@ public final class VectorGen {
             arr.add(o);
         }
         return arr;
+    }
+
+    private static JsonArray buildAesGcm256Vectors() {
+        JsonArray arr = new JsonArray();
+        byte[] key = Hex.decode("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+        byte[] iv = Hex.decode("202122232425262728292a2b");
+
+        arr.add(aeadCase("AES-256-GCM", "plaintext with empty AAD", key, iv,
+                "Freer wallet encryption test".getBytes(StandardCharsets.UTF_8),
+                new byte[0]));
+        arr.add(aeadCase("AES-256-GCM", "plaintext + 8-byte AAD", key, iv,
+                Hex.decode("0102030405060708090a0b0c0d0e0f00"),
+                "metadata".getBytes(StandardCharsets.UTF_8)));
+        arr.add(aeadCase("AES-256-GCM", "empty plaintext + 16-byte AAD (auth-only)", key, iv,
+                new byte[0],
+                Hex.decode("ffeeddccbbaa99887766554433221100")));
+        arr.add(aeadCase("AES-256-GCM", "100-byte plaintext, empty AAD", key, iv,
+                patternBytes(100, (byte) 0x5a),
+                new byte[0]));
+        return arr;
+    }
+
+    private static JsonArray buildChaCha20Poly1305Vectors() {
+        JsonArray arr = new JsonArray();
+        byte[] key = Hex.decode("404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f");
+        byte[] nonce = Hex.decode("606162636465666768696a6b");
+
+        arr.add(aeadCase("ChaCha20-Poly1305", "plaintext with empty AAD", key, nonce,
+                "Freer wallet encryption test".getBytes(StandardCharsets.UTF_8),
+                new byte[0]));
+        arr.add(aeadCase("ChaCha20-Poly1305", "plaintext + 8-byte AAD", key, nonce,
+                Hex.decode("0102030405060708090a0b0c0d0e0f00"),
+                "metadata".getBytes(StandardCharsets.UTF_8)));
+        arr.add(aeadCase("ChaCha20-Poly1305", "empty plaintext + 16-byte AAD (auth-only)", key, nonce,
+                new byte[0],
+                Hex.decode("ffeeddccbbaa99887766554433221100")));
+        arr.add(aeadCase("ChaCha20-Poly1305", "100-byte plaintext, empty AAD", key, nonce,
+                patternBytes(100, (byte) 0x5a),
+                new byte[0]));
+        return arr;
+    }
+
+    private static JsonObject aeadCase(String algorithm, String label,
+                                        byte[] key, byte[] iv,
+                                        byte[] plaintext, byte[] aad) {
+        try {
+            Cipher cipher;
+            if ("AES-256-GCM".equals(algorithm)) {
+                cipher = Cipher.getInstance("AES/GCM/NoPadding");
+                cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "AES"), new GCMParameterSpec(128, iv));
+            } else if ("ChaCha20-Poly1305".equals(algorithm)) {
+                cipher = Cipher.getInstance("ChaCha20-Poly1305");
+                cipher.init(Cipher.ENCRYPT_MODE, new SecretKeySpec(key, "ChaCha20"), new IvParameterSpec(iv));
+            } else {
+                throw new IllegalArgumentException(algorithm);
+            }
+            if (aad.length > 0) {
+                cipher.updateAAD(aad);
+            }
+            byte[] ctWithTag = cipher.doFinal(plaintext);
+            int tagLen = 16;
+            byte[] ct = new byte[ctWithTag.length - tagLen];
+            byte[] tag = new byte[tagLen];
+            System.arraycopy(ctWithTag, 0, ct, 0, ct.length);
+            System.arraycopy(ctWithTag, ct.length, tag, 0, tagLen);
+
+            JsonObject o = new JsonObject();
+            o.addProperty("label", label);
+            o.addProperty("key_hex", Hex.toHexString(key));
+            o.addProperty("iv_hex", Hex.toHexString(iv));
+            o.addProperty("plaintext_hex", Hex.toHexString(plaintext));
+            o.addProperty("aad_hex", Hex.toHexString(aad));
+            o.addProperty("ciphertext_hex", Hex.toHexString(ct));
+            o.addProperty("tag_hex", Hex.toHexString(tag));
+            return o;
+        } catch (Exception e) {
+            throw new RuntimeException("AEAD case '" + label + "' failed", e);
+        }
+    }
+
+    private static JsonArray buildHkdfVectors(Digest digest) {
+        JsonArray arr = new JsonArray();
+        byte[] ikm = patternBytes(32, (byte) 0x11);
+        byte[] salt = patternBytes(16, (byte) 0x22);
+
+        arr.add(hkdfCase(digest, "32B ikm, 16B salt, 'hkdf' info, 32B output",
+                ikm, salt, "hkdf".getBytes(StandardCharsets.UTF_8), 32));
+        arr.add(hkdfCase(digest, "extended output (64B)",
+                ikm, salt, "hkdf".getBytes(StandardCharsets.UTF_8), 64));
+        arr.add(hkdfCase(digest, "context-specific info string",
+                patternBytes(32, (byte) 0x33),
+                patternBytes(16, (byte) 0x44),
+                "fudp-session-key".getBytes(StandardCharsets.UTF_8),
+                32));
+        return arr;
+    }
+
+    private static JsonObject hkdfCase(Digest digest, String label,
+                                        byte[] ikm, byte[] salt, byte[] info, int length) {
+        HKDFBytesGenerator gen = new HKDFBytesGenerator(digest);
+        gen.init(new HKDFParameters(ikm, salt, info));
+        byte[] out = new byte[length];
+        gen.generateBytes(out, 0, length);
+
+        JsonObject o = new JsonObject();
+        o.addProperty("label", label);
+        o.addProperty("ikm_hex", Hex.toHexString(ikm));
+        o.addProperty("salt_hex", Hex.toHexString(salt));
+        o.addProperty("info_hex", Hex.toHexString(info));
+        o.addProperty("output_length", length);
+        o.addProperty("output_hex", Hex.toHexString(out));
+        return o;
+    }
+
+    private static byte[] patternBytes(int length, byte value) {
+        byte[] out = new byte[length];
+        for (int i = 0; i < length; i++) {
+            out[i] = value;
+        }
+        return out;
     }
 
     private static byte[] ripemd160(byte[] data) {
