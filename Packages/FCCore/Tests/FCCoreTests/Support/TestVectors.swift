@@ -30,6 +30,7 @@ enum TestVectors {
         let varint: [VarIntCase]
         let fchAddress: [FchAddressCase]
         let script: [ScriptCase]
+        let transaction: [TransactionCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -53,6 +54,59 @@ enum TestVectors {
             case varint
             case fchAddress = "fch_address"
             case script
+            case transaction
+        }
+    }
+
+    struct TransactionCase: Decodable {
+        let label: String
+        let version: UInt32
+        let locktime: UInt32
+        let inputs: [TxInputCase]
+        let outputs: [TxOutputCase]
+        let serializedHex: String
+        let txidNaturalHex: String
+        let txidDisplayHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case version
+            case locktime
+            case inputs
+            case outputs
+            case serializedHex = "serialized_hex"
+            case txidNaturalHex = "txid_natural_hex"
+            case txidDisplayHex = "txid_display_hex"
+        }
+
+        struct TxInputCase: Decodable {
+            let prevTxHashHex: String
+            let prevOutputIndex: UInt32
+            let scriptSigHex: String
+            let sequence: UInt32
+            let prevValueSats: UInt64
+            let spentScriptPubkeyHex: String
+
+            enum CodingKeys: String, CodingKey {
+                case prevTxHashHex = "prev_tx_hash_hex"
+                case prevOutputIndex = "prev_output_index"
+                case scriptSigHex = "script_sig_hex"
+                case sequence
+                case prevValueSats = "prev_value_sats"
+                case spentScriptPubkeyHex = "spent_script_pubkey_hex"
+            }
+        }
+
+        struct TxOutputCase: Decodable {
+            let valueSats: UInt64
+            let scriptPubkeyHex: String
+            let address: String
+
+            enum CodingKeys: String, CodingKey {
+                case valueSats = "value_sats"
+                case scriptPubkeyHex = "script_pubkey_hex"
+                case address
+            }
         }
     }
 

@@ -10,6 +10,11 @@ import org.bitcoinj.core.Base58;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.NetworkParameters;
 import org.bitcoinj.core.Sha256Hash;
+import org.bitcoinj.core.Coin;
+import org.bitcoinj.core.Sha256Hash;
+import org.bitcoinj.core.Transaction;
+import org.bitcoinj.core.TransactionInput;
+import org.bitcoinj.core.TransactionOutPoint;
 import org.bitcoinj.core.VarInt;
 import org.bitcoinj.fch.FchMainNetwork;
 import org.bitcoinj.script.Script;
@@ -96,6 +101,7 @@ public final class VectorGen {
         root.add("varint", buildVarIntVectors());
         root.add("fch_address", buildFchAddressVectors());
         root.add("script", buildScriptVectors());
+        root.add("transaction", buildTransactionVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(out.toAbsolutePath().getParent());
@@ -741,6 +747,92 @@ public final class VectorGen {
         arr.add(inObj);
 
         return arr;
+    }
+
+    private static JsonArray buildTransactionVectors() {
+        JsonArray arr = new JsonArray();
+        NetworkParameters params = FchMainNetwork.MAINNETWORK;
+
+        ECKey sampleKey = ECKey.fromPrivate(Hex.decode(SAMPLE_PRIVKEY_HEX), true);
+        ECKey recipientKey = ECKey.fromPrivate(patternBytes(32, (byte) 0x42), true);
+        Address sampleAddr = Address.fromKey(params, sampleKey);
+        Address recipientAddr = Address.fromKey(params, recipientKey);
+
+        // Previous UTXO. Natural-order prev hash = 32 bytes of 0x7a.
+        byte[] prevHashBytes = patternBytes(32, (byte) 0x7a);
+        Sha256Hash prevHash = Sha256Hash.wrap(prevHashBytes);
+        long prevIndex = 0L;
+        long prevValueSats = 100_000L;
+        long sendSats = 80_000L;
+        long changeSats = 15_000L;  // implicit 5 000-sat fee
+
+        Transaction tx = new Transaction(params);
+        tx.setVersion(2);
+
+        TransactionOutPoint outpoint = new TransactionOutPoint(params, prevIndex, prevHash);
+        TransactionInput in = new TransactionInput(params, tx, new byte[0], outpoint, Coin.valueOf(prevValueSats));
+        in.setSequenceNumber(0xFFFFFFFFL);
+        tx.addInput(in);
+
+        tx.addOutput(Coin.valueOf(sendSats), ScriptBuilder.createOutputScript(recipientAddr));
+        tx.addOutput(Coin.valueOf(changeSats), ScriptBuilder.createOutputScript(sampleAddr));
+
+        byte[] serialized = tx.bitcoinSerialize();
+        byte[] txidNatural = doubleSha256(serialized);
+        byte[] txidDisplay = reverseBytes(txidNatural);
+
+        JsonObject o = new JsonObject();
+        o.addProperty("label", "unsigned 1-in 2-out P2PKH tx");
+        o.addProperty("version", 2);
+        o.addProperty("locktime", 0);
+
+        JsonArray inputs = new JsonArray();
+        JsonObject inputObj = new JsonObject();
+        inputObj.addProperty("prev_tx_hash_hex", Hex.toHexString(prevHashBytes));
+        inputObj.addProperty("prev_output_index", prevIndex);
+        inputObj.addProperty("script_sig_hex", "");
+        inputObj.addProperty("sequence", 0xFFFFFFFFL);
+        inputObj.addProperty("prev_value_sats", prevValueSats);
+        inputObj.addProperty("spent_script_pubkey_hex",
+                Hex.toHexString(ScriptBuilder.createOutputScript(sampleAddr).getProgram()));
+        inputs.add(inputObj);
+        o.add("inputs", inputs);
+
+        JsonArray outputs = new JsonArray();
+        outputs.add(outputObj(sendSats, recipientAddr));
+        outputs.add(outputObj(changeSats, sampleAddr));
+        o.add("outputs", outputs);
+
+        o.addProperty("serialized_hex", Hex.toHexString(serialized));
+        o.addProperty("txid_natural_hex", Hex.toHexString(txidNatural));
+        o.addProperty("txid_display_hex", Hex.toHexString(txidDisplay));
+        arr.add(o);
+
+        return arr;
+    }
+
+    private static JsonObject outputObj(long valueSats, Address address) {
+        JsonObject o = new JsonObject();
+        o.addProperty("value_sats", valueSats);
+        o.addProperty("script_pubkey_hex",
+                Hex.toHexString(ScriptBuilder.createOutputScript(address).getProgram()));
+        o.addProperty("address", address.toString());
+        return o;
+    }
+
+    private static byte[] doubleSha256(byte[] input) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            return md.digest(md.digest(input));
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static byte[] reverseBytes(byte[] input) {
+        byte[] out = new byte[input.length];
+        for (int i = 0; i < input.length; i++) out[i] = input[input.length - 1 - i];
+        return out;
     }
 
     private static JsonObject scriptBase(String label, String kind, byte[] programBytes) {

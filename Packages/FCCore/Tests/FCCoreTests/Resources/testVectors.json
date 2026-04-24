@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-24T07:02:07.392554Z",
+  "generated_at": "2026-04-24T07:08:37.668757Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (freecashj v0.16 + BouncyCastle)",
   "sample_key": {
@@ -510,6 +510,38 @@
       "der_sig_hex": "3044022058f2d82305446e042ef880510f45604f2f5f327dca37984876e3a4049301fb1c02203e2477ecfb9981a8ff5a0c62634bdd9131ed629b310c49c6edef5b9e94956538",
       "sighash_flag": 65,
       "pubkey_hex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+    }
+  ],
+  "transaction": [
+    {
+      "label": "unsigned 1-in 2-out P2PKH tx",
+      "version": 2,
+      "locktime": 0,
+      "inputs": [
+        {
+          "prev_tx_hash_hex": "7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a",
+          "prev_output_index": 0,
+          "script_sig_hex": "",
+          "sequence": 4294967295,
+          "prev_value_sats": 100000,
+          "spent_script_pubkey_hex": "76a91461c42abb6e3435e63bd88862f3746a3f8b86354288ac"
+        }
+      ],
+      "outputs": [
+        {
+          "value_sats": 80000,
+          "script_pubkey_hex": "76a91414db4138d56a2ecfb10881a9be394d9f321985b288ac",
+          "address": "F7jPdj6vopRsfaxFACduiLqmZgy1dZGCjh"
+        },
+        {
+          "value_sats": 15000,
+          "script_pubkey_hex": "76a91461c42abb6e3435e63bd88862f3746a3f8b86354288ac",
+          "address": "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK"
+        }
+      ],
+      "serialized_hex": "02000000017a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a0000000000ffffffff0280380100000000001976a91414db4138d56a2ecfb10881a9be394d9f321985b288ac983a0000000000001976a91461c42abb6e3435e63bd88862f3746a3f8b86354288ac00000000",
+      "txid_natural_hex": "15d793a607cf82eea77c057b66415cb9ed16c8033f29b838354c6181ff010a1f",
+      "txid_display_hex": "1f0a01ff81614c3538b8293f03c816edb95c41667b057ca7ee82cf07a693d715"
     }
   ]
 }
