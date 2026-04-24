@@ -10,6 +10,7 @@ import org.bitcoinj.core.Base58;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.NetworkParameters;
 import org.bitcoinj.core.Sha256Hash;
+import org.bitcoinj.core.VarInt;
 import org.bitcoinj.fch.FchMainNetwork;
 
 import org.bouncycastle.crypto.agreement.ECDHBasicAgreement;
@@ -90,6 +91,8 @@ public final class VectorGen {
         root.add("base58", buildBase58Vectors());
         root.add("base58check", buildBase58CheckVectors());
         root.add("phrase_to_privkey", buildPhraseToPrivkeyVectors());
+        root.add("varint", buildVarIntVectors());
+        root.add("fch_address", buildFchAddressVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(out.toAbsolutePath().getParent());
@@ -638,6 +641,63 @@ public final class VectorGen {
         argon.addProperty("pubkey_hex", Hex.toHexString(argonKey.getPubKey()));
         o.add("argon2id", argon);
 
+        return o;
+    }
+
+    private static JsonArray buildVarIntVectors() {
+        JsonArray arr = new JsonArray();
+        // Boundary values where the VarInt prefix byte changes.
+        long[] values = {
+                0L,
+                1L,
+                0xFCL,                  // last 1-byte form
+                0xFDL,                  // first 0xFD-prefixed form
+                0xFFFFL,                // last 0xFD-prefixed form
+                0x10000L,               // first 0xFE-prefixed form
+                0xFFFFFFFFL,            // last 0xFE-prefixed form
+                0x100000000L,           // first 0xFF-prefixed form
+                0x0123456789ABCDEFL     // arbitrary 64-bit value
+        };
+        for (long v : values) {
+            byte[] encoded = new VarInt(v).encode();
+            JsonObject o = new JsonObject();
+            o.addProperty("value", v);
+            o.addProperty("encoded_hex", Hex.toHexString(encoded));
+            arr.add(o);
+        }
+        return arr;
+    }
+
+    private static JsonArray buildFchAddressVectors() {
+        JsonArray arr = new JsonArray();
+
+        byte[] samplePrivkey = Hex.decode(SAMPLE_PRIVKEY_HEX);
+        ECKey sampleKey = ECKey.fromPrivate(samplePrivkey, true);
+        arr.add(addrCase("sample key", sampleKey.getPubKey()));
+
+        // Two more deterministic keys so we're not relying on a single identity.
+        ECKey k2 = ECKey.fromPrivate(patternBytes(32, (byte) 0x11), true);
+        arr.add(addrCase("deterministic 0x11 key", k2.getPubKey()));
+
+        ECKey k3 = ECKey.fromPrivate(patternBytes(32, (byte) 0x42), true);
+        arr.add(addrCase("counterparty (0x42) key", k3.getPubKey()));
+
+        return arr;
+    }
+
+    private static JsonObject addrCase(String label, byte[] pubkeyCompressed) {
+        byte[] h160 = hash160(pubkeyCompressed);
+        byte[] payload = new byte[21];
+        payload[0] = 0x23;  // FCH mainnet P2PKH version byte
+        System.arraycopy(h160, 0, payload, 1, 20);
+        String fid = base58CheckEncode(payload);
+
+        JsonObject o = new JsonObject();
+        o.addProperty("label", label);
+        o.addProperty("pubkey_hex", Hex.toHexString(pubkeyCompressed));
+        o.addProperty("pubkey_hash160_hex", Hex.toHexString(h160));
+        o.addProperty("version_byte", 0x23);
+        o.addProperty("fid", fid);
         return o;
     }
 

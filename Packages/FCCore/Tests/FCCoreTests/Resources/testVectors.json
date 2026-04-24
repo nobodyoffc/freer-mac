@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-24T06:49:45.750756Z",
+  "generated_at": "2026-04-24T06:57:48.328983Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (freecashj v0.16 + BouncyCastle)",
   "sample_key": {
@@ -416,6 +416,67 @@
         "privkey_hex": "6690c2d1ea37d3b43c20a2714e0f107b05ca883e5e2270aa6ee843b876eca592",
         "pubkey_hex": "03491de2c07a1f53f8ada5c6ca5b062d1e705e6ad2bf5a48e3df5ce1f42a72f1a7"
       }
+    }
+  ],
+  "varint": [
+    {
+      "value": 0,
+      "encoded_hex": "00"
+    },
+    {
+      "value": 1,
+      "encoded_hex": "01"
+    },
+    {
+      "value": 252,
+      "encoded_hex": "fc"
+    },
+    {
+      "value": 253,
+      "encoded_hex": "fdfd00"
+    },
+    {
+      "value": 65535,
+      "encoded_hex": "fdffff"
+    },
+    {
+      "value": 65536,
+      "encoded_hex": "fe00000100"
+    },
+    {
+      "value": 4294967295,
+      "encoded_hex": "feffffffff"
+    },
+    {
+      "value": 4294967296,
+      "encoded_hex": "ff0000000001000000"
+    },
+    {
+      "value": 81985529216486895,
+      "encoded_hex": "ffefcdab8967452301"
+    }
+  ],
+  "fch_address": [
+    {
+      "label": "sample key",
+      "pubkey_hex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",
+      "pubkey_hash160_hex": "61c42abb6e3435e63bd88862f3746a3f8b863542",
+      "version_byte": 35,
+      "fid": "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK"
+    },
+    {
+      "label": "deterministic 0x11 key",
+      "pubkey_hex": "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+      "pubkey_hash160_hex": "fc7250a211deddc70ee5a2738de5f07817351cef",
+      "version_byte": 35,
+      "fid": "FUqvgtMU7YT2TbVXH3G39heb4C7QvpgJag"
+    },
+    {
+      "label": "counterparty (0x42) key",
+      "pubkey_hex": "0324653eac434488002cc06bbfb7f10fe18991e35f9fe4302dbea6d2353dc0ab1c",
+      "pubkey_hash160_hex": "14db4138d56a2ecfb10881a9be394d9f321985b2",
+      "version_byte": 35,
+      "fid": "F7jPdj6vopRsfaxFACduiLqmZgy1dZGCjh"
     }
   ]
 }
