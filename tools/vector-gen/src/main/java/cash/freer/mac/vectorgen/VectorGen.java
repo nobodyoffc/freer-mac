@@ -12,6 +12,8 @@ import org.bitcoinj.core.NetworkParameters;
 import org.bitcoinj.core.Sha256Hash;
 import org.bitcoinj.core.VarInt;
 import org.bitcoinj.fch.FchMainNetwork;
+import org.bitcoinj.script.Script;
+import org.bitcoinj.script.ScriptBuilder;
 
 import org.bouncycastle.crypto.agreement.ECDHBasicAgreement;
 import org.bouncycastle.crypto.params.ECPrivateKeyParameters;
@@ -93,6 +95,7 @@ public final class VectorGen {
         root.add("phrase_to_privkey", buildPhraseToPrivkeyVectors());
         root.add("varint", buildVarIntVectors());
         root.add("fch_address", buildFchAddressVectors());
+        root.add("script", buildScriptVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(out.toAbsolutePath().getParent());
@@ -683,6 +686,69 @@ public final class VectorGen {
         arr.add(addrCase("counterparty (0x42) key", k3.getPubKey()));
 
         return arr;
+    }
+
+    private static JsonArray buildScriptVectors() {
+        JsonArray arr = new JsonArray();
+        NetworkParameters params = FchMainNetwork.MAINNETWORK;
+
+        // 1) P2PKH output for the sample key's address.
+        ECKey sampleKey = ECKey.fromPrivate(Hex.decode(SAMPLE_PRIVKEY_HEX), true);
+        Address sampleAddr = Address.fromKey(params, sampleKey);
+        Script p2pkh = ScriptBuilder.createOutputScript(sampleAddr);
+        JsonObject p2pkhObj = scriptBase("sample key P2PKH output", "p2pkh", p2pkh.getProgram());
+        p2pkhObj.addProperty("hash160_hex", Hex.toHexString(hash160(sampleKey.getPubKey())));
+        arr.add(p2pkhObj);
+
+        // 2) P2SH output with a deterministic script hash.
+        byte[] redeemHash = patternBytes(20, (byte) 0x7e);
+        Script p2sh = ScriptBuilder.createP2SHOutputScript(redeemHash);
+        JsonObject p2shObj = scriptBase("P2SH output (script hash = 0x7e * 20)", "p2sh", p2sh.getProgram());
+        p2shObj.addProperty("script_hash_hex", Hex.toHexString(redeemHash));
+        arr.add(p2shObj);
+
+        // 3) 2-of-3 multisig output.
+        ECKey k1 = ECKey.fromPrivate(patternBytes(32, (byte) 0x11), true);
+        ECKey k2 = ECKey.fromPrivate(patternBytes(32, (byte) 0x22), true);
+        ECKey k3 = ECKey.fromPrivate(patternBytes(32, (byte) 0x33), true);
+        java.util.List<ECKey> keyList = java.util.Arrays.asList(k1, k2, k3);
+        Script multisig = ScriptBuilder.createMultiSigOutputScript(2, keyList);
+        JsonObject msObj = scriptBase("2-of-3 multisig output", "multisig", multisig.getProgram());
+        msObj.addProperty("required", 2);
+        JsonArray pubs = new JsonArray();
+        for (ECKey k : keyList) pubs.add(Hex.toHexString(k.getPubKey()));
+        msObj.add("pubkeys_hex", pubs);
+        arr.add(msObj);
+
+        // 4) P2PKH input scriptSig (sig+hashType push, then pubkey push).
+        // Uses a real ECDSA sig from an earlier vector just so bytes are
+        // realistic-looking; the Script layer only cares about length/push
+        // encoding, not sig validity.
+        byte[] fakeDerSig = Hex.decode("3044022058f2d82305446e042ef880510f45604f2f5f327dca37984876e3a4049301fb1c02203e2477ecfb9981a8ff5a0c62634bdd9131ed629b310c49c6edef5b9e94956538");
+        byte sighashFlag = (byte) 0x41;  // SIGHASH_ALL | SIGHASH_FORKID
+        byte[] sigPlusFlag = new byte[fakeDerSig.length + 1];
+        System.arraycopy(fakeDerSig, 0, sigPlusFlag, 0, fakeDerSig.length);
+        sigPlusFlag[fakeDerSig.length] = sighashFlag;
+        Script inputScript = new ScriptBuilder()
+                .data(sigPlusFlag)
+                .data(sampleKey.getPubKey())
+                .build();
+        JsonObject inObj = scriptBase("sample key P2PKH scriptSig (ALL|FORKID)",
+                "p2pkh_input", inputScript.getProgram());
+        inObj.addProperty("der_sig_hex", Hex.toHexString(fakeDerSig));
+        inObj.addProperty("sighash_flag", sighashFlag & 0xff);
+        inObj.addProperty("pubkey_hex", Hex.toHexString(sampleKey.getPubKey()));
+        arr.add(inObj);
+
+        return arr;
+    }
+
+    private static JsonObject scriptBase(String label, String kind, byte[] programBytes) {
+        JsonObject o = new JsonObject();
+        o.addProperty("label", label);
+        o.addProperty("kind", kind);
+        o.addProperty("program_hex", Hex.toHexString(programBytes));
+        return o;
     }
 
     private static JsonObject addrCase(String label, byte[] pubkeyCompressed) {

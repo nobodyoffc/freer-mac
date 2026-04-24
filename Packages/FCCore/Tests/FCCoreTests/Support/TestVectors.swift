@@ -29,6 +29,7 @@ enum TestVectors {
         let phraseToPrivkey: [PhraseKeyCase]
         let varint: [VarIntCase]
         let fchAddress: [FchAddressCase]
+        let script: [ScriptCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -51,6 +52,33 @@ enum TestVectors {
             case phraseToPrivkey = "phrase_to_privkey"
             case varint
             case fchAddress = "fch_address"
+            case script
+        }
+    }
+
+    struct ScriptCase: Decodable {
+        let label: String
+        let kind: String
+        let programHex: String
+        let hash160Hex: String?
+        let scriptHashHex: String?
+        let required: Int?
+        let pubkeysHex: [String]?
+        let derSigHex: String?
+        let sighashFlag: UInt8?
+        let pubkeyHex: String?
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case kind
+            case programHex = "program_hex"
+            case hash160Hex = "hash160_hex"
+            case scriptHashHex = "script_hash_hex"
+            case required
+            case pubkeysHex = "pubkeys_hex"
+            case derSigHex = "der_sig_hex"
+            case sighashFlag = "sighash_flag"
+            case pubkeyHex = "pubkey_hex"
         }
     }
 

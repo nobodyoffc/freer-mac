@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-24T06:57:48.328983Z",
+  "generated_at": "2026-04-24T07:02:07.392554Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (freecashj v0.16 + BouncyCastle)",
   "sample_key": {
@@ -477,6 +477,39 @@
       "pubkey_hash160_hex": "14db4138d56a2ecfb10881a9be394d9f321985b2",
       "version_byte": 35,
       "fid": "F7jPdj6vopRsfaxFACduiLqmZgy1dZGCjh"
+    }
+  ],
+  "script": [
+    {
+      "label": "sample key P2PKH output",
+      "kind": "p2pkh",
+      "program_hex": "76a91461c42abb6e3435e63bd88862f3746a3f8b86354288ac",
+      "hash160_hex": "61c42abb6e3435e63bd88862f3746a3f8b863542"
+    },
+    {
+      "label": "P2SH output (script hash = 0x7e * 20)",
+      "kind": "p2sh",
+      "program_hex": "a9147e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e87",
+      "script_hash_hex": "7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e7e"
+    },
+    {
+      "label": "2-of-3 multisig output",
+      "kind": "multisig",
+      "program_hex": "5221034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa2102466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f2721023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b153ae",
+      "required": 2,
+      "pubkeys_hex": [
+        "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+        "02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27",
+        "023c72addb4fdf09af94f0c94d7fe92a386a7e70cf8a1d85916386bb2535c7b1b1"
+      ]
+    },
+    {
+      "label": "sample key P2PKH scriptSig (ALL|FORKID)",
+      "kind": "p2pkh_input",
+      "program_hex": "473044022058f2d82305446e042ef880510f45604f2f5f327dca37984876e3a4049301fb1c02203e2477ecfb9981a8ff5a0c62634bdd9131ed629b310c49c6edef5b9e949565384121030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",
+      "der_sig_hex": "3044022058f2d82305446e042ef880510f45604f2f5f327dca37984876e3a4049301fb1c02203e2477ecfb9981a8ff5a0c62634bdd9131ed629b310c49c6edef5b9e94956538",
+      "sighash_flag": 65,
+      "pubkey_hex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
     }
   ]
 }
