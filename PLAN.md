@@ -1,8 +1,15 @@
 ---
 title: FreerForMac — Migration Plan
-status: Phases 1 / 2 / 3 complete; Phase 4 (FCTransport / FUDP) next
+status: Phases 1 / 2 / 3 complete; Phase 4 (FCTransport / FUDP) **paused pending FUDP v2 repair in FC-JDK / FC-AJDK**
 last_updated: 2026-04-24
 ---
+
+> **⏸ Phase 4 paused.** The FUDP protocol has design-level issues (unauthenticated packet header, unbounded ECDH cache, 500 s replay-window tolerance, no version negotiation, implicit-length last frame) that surfaced during port planning. Cementing these into a third codebase (Mac client) would make them much harder to fix. Repair happens first on the Linux server (`/Users/liuchangyong/Desktop/Freeverse/FC-JDK/`), then Android (`FC-AJDK`), then the Mac client lands on FUDP v2.
+>
+> Full analysis and proposed spec: `/Users/liuchangyong/Desktop/Freeverse/FC-JDK/Docs/FUDP_V2_REPAIR_PLAN.md`.
+>
+> When FUDP v2 is stable across Linux + Android, Phase 4 of this plan resumes against the new spec.
+
 
 # FreerForMac — Migration Plan
 
