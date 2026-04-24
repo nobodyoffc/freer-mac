@@ -1,6 +1,6 @@
 ---
 title: FreerForMac — Migration Plan
-status: Phases 1 & 2 complete; Phase 3 (FCStorage) next
+status: Phases 1 / 2 / 3 complete; Phase 4 (FCTransport / FUDP) next
 last_updated: 2026-04-24
 ---
 
@@ -119,13 +119,16 @@ Shipped as sub-phases 2.1 → 2.4, commits `1b0dc8c` → `9e41b4d`. The wallet c
 - `SIGHASH_NONE` / `SIGHASH_SINGLE` / `SIGHASH_ANYONECANPAY` sighash variants (zero out different preimage fields; we reject them with a typed error until a real caller appears).
 - Tx deserialization (parse tx hex → `Transaction`). We only build/serialize today; parsing lands when we need to inspect received txs.
 
-### Phase 3 — `FCStorage` · 2d
-- Keychain wrapper for: password-derived master key, per-identity private keys.
-- `GRDB` database per identity at `~/Library/Application Support/FreerForMac/<fid>/db.sqlite` (sandboxed).
-- Row-level encryption with AES-GCM using a Keychain-held key — cleaner than bundling SQLCipher.
-- `KVStore` (single `kv` table via GRDB) replaces the dual Hawk + MMKV system from Android.
-- Schema: `settings`, `keys`, `utxos`, `txs`, `contacts`, `secrets`, `mail`, `im_rooms`, `im_messages`.
-- Fresh start — no migration from Android data.
+### Phase 3 — `FCStorage` · ✅ complete
+
+Shipped as 3.1 + 3.2, commits `3879ecb` → `4fdf5ef`.
+
+| Sub-phase | Deliverable |
+|---|---|
+| 3.1 | `Keychain` — typed wrapper around `Security.framework` generic-password items, `whenUnlockedThisDeviceOnly`, service+account scoped. |
+| 3.2 | `EncryptedKVStore` — GRDB-backed SQLite with row-level AES-256-GCM. Vault key generated on first open, held in Keychain. AAD-bound to `(namespace, key)`. |
+
+**Deferred:** typed domain stores (Settings/Keys/UTXOs/Contacts/Secrets/Mail/IM). The `EncryptedKVStore` is already generic enough that each typed wrapper is ~20 lines — they land in Phase 5 (FCDomain) alongside the services that use them, when we have the use-case surface to design the models against.
 
 ### Phase 4 — `FCTransport` (FUDP + FAPI) · 8d · **highest risk**
 Biggest single chunk of work. FUDP is a custom UDP protocol; byte-level parity with the Android reference is required for interop with existing servers.
