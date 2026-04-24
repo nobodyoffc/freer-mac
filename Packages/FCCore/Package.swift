@@ -7,6 +7,10 @@ let package = Package(
     products: [
         .library(name: "FCCore", targets: ["FCCore"])
     ],
+    dependencies: [
+        // Bitcoin Core's libsecp256k1 vendored as a Swift package.
+        .package(url: "https://github.com/GigaBitcoin/secp256k1.swift", from: "0.18.0")
+    ],
     targets: [
         // Vendored Argon2 reference implementation — see Sources/CArgon2/UPSTREAM.md
         .target(
@@ -21,7 +25,10 @@ let package = Package(
         ),
         .target(
             name: "FCCore",
-            dependencies: ["CArgon2"]
+            dependencies: [
+                "CArgon2",
+                .product(name: "P256K", package: "secp256k1.swift")
+            ]
         ),
         .testTarget(
             name: "FCCoreTests",

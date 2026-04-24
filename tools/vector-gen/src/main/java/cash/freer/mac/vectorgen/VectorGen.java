@@ -8,7 +8,12 @@ import com.google.gson.JsonObject;
 import org.bitcoinj.core.Address;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.NetworkParameters;
+import org.bitcoinj.core.Sha256Hash;
 import org.bitcoinj.fch.FchMainNetwork;
+
+import org.bouncycastle.crypto.agreement.ECDHBasicAgreement;
+import org.bouncycastle.crypto.params.ECPrivateKeyParameters;
+import org.bouncycastle.crypto.params.ECPublicKeyParameters;
 
 import org.bouncycastle.crypto.Digest;
 import org.bouncycastle.crypto.digests.RIPEMD160Digest;
@@ -25,6 +30,7 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -77,6 +83,8 @@ public final class VectorGen {
         root.add("chacha20_poly1305", buildChaCha20Poly1305Vectors());
         root.add("hkdf_sha256", buildHkdfVectors(new SHA256Digest()));
         root.add("hkdf_sha512", buildHkdfVectors(new SHA512Digest()));
+        root.add("ecdsa", buildEcdsaVectors());
+        root.add("ecdh", buildEcdhVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(out.toAbsolutePath().getParent());
@@ -338,6 +346,96 @@ public final class VectorGen {
         o.addProperty("output_length", length);
         o.addProperty("output_hex", Hex.toHexString(out));
         return o;
+    }
+
+    private static JsonArray buildEcdsaVectors() {
+        ECKey key = ECKey.fromPrivate(Hex.decode(SAMPLE_PRIVKEY_HEX), true);
+        JsonArray arr = new JsonArray();
+        arr.add(ecdsaCase(key, "Hello, Freer!"));
+        arr.add(ecdsaCase(key, ""));
+        arr.add(ecdsaCase(key, "Test transaction payload #42"));
+        return arr;
+    }
+
+    private static JsonObject ecdsaCase(ECKey key, String messageUtf8) {
+        try {
+            byte[] message = messageUtf8.getBytes(StandardCharsets.UTF_8);
+            byte[] hash = MessageDigest.getInstance("SHA-256").digest(message);
+            ECKey.ECDSASignature sig = key.sign(Sha256Hash.wrap(hash));
+            byte[] der = sig.encodeToDER();
+            byte[] compact = new byte[64];
+            System.arraycopy(toFixed32(sig.r), 0, compact, 0, 32);
+            System.arraycopy(toFixed32(sig.s), 0, compact, 32, 32);
+
+            JsonObject o = new JsonObject();
+            o.addProperty("label", "sample key signs: \"" + messageUtf8 + "\"");
+            o.addProperty("message_utf8", messageUtf8);
+            o.addProperty("message_hex", Hex.toHexString(message));
+            o.addProperty("message_hash_hex", Hex.toHexString(hash));
+            o.addProperty("signature_der_hex", Hex.toHexString(der));
+            o.addProperty("signature_compact_hex", Hex.toHexString(compact));
+            o.addProperty("signature_r_hex", Hex.toHexString(toFixed32(sig.r)));
+            o.addProperty("signature_s_hex", Hex.toHexString(toFixed32(sig.s)));
+            o.addProperty("is_canonical_low_s", sig.isCanonical());
+            return o;
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static JsonArray buildEcdhVectors() {
+        ECKey alice = ECKey.fromPrivate(Hex.decode(SAMPLE_PRIVKEY_HEX), true);
+
+        // Deterministic counterparty key so the vectors are reproducible.
+        // 0x42 x 32 is a valid scalar (well below the curve order).
+        byte[] bobPrivBytes = patternBytes(32, (byte) 0x42);
+        ECKey bob = ECKey.fromPrivate(bobPrivBytes, true);
+
+        byte[] sharedAB = computeEcdh(Hex.decode(SAMPLE_PRIVKEY_HEX), bob.getPubKey());
+        byte[] sharedBA = computeEcdh(bobPrivBytes, alice.getPubKey());
+        require(java.util.Arrays.equals(sharedAB, sharedBA),
+                "ECDH is not symmetric — aborting");
+
+        JsonArray arr = new JsonArray();
+
+        JsonObject o = new JsonObject();
+        o.addProperty("label", "sample_key (alice) × counterparty (bob)");
+        o.addProperty("alice_privkey_hex", SAMPLE_PRIVKEY_HEX);
+        o.addProperty("alice_pubkey_hex", Hex.toHexString(alice.getPubKey()));
+        o.addProperty("bob_privkey_hex", Hex.toHexString(bobPrivBytes));
+        o.addProperty("bob_pubkey_hex", Hex.toHexString(bob.getPubKey()));
+        o.addProperty("shared_x_hex", Hex.toHexString(sharedAB));
+        arr.add(o);
+
+        return arr;
+    }
+
+    private static byte[] computeEcdh(byte[] privkey, byte[] pubkeyCompressed) {
+        ECPrivateKeyParameters priv = new ECPrivateKeyParameters(
+                new BigInteger(1, privkey), ECKey.CURVE);
+        ECPublicKeyParameters pub = new ECPublicKeyParameters(
+                ECKey.CURVE.getCurve().decodePoint(pubkeyCompressed), ECKey.CURVE);
+        ECDHBasicAgreement agreement = new ECDHBasicAgreement();
+        agreement.init(priv);
+        BigInteger shared = agreement.calculateAgreement(pub);
+        return toFixed32(shared);
+    }
+
+    private static byte[] toFixed32(BigInteger value) {
+        byte[] raw = value.toByteArray();
+        if (raw.length == 32) return raw;
+        if (raw.length == 33 && raw[0] == 0x00) {
+            byte[] out = new byte[32];
+            System.arraycopy(raw, 1, out, 0, 32);
+            return out;
+        }
+        if (raw.length < 32) {
+            byte[] out = new byte[32];
+            System.arraycopy(raw, 0, out, 32 - raw.length, raw.length);
+            return out;
+        }
+        throw new IllegalArgumentException(
+                "BigInteger does not fit in 32 bytes: " + raw.length);
     }
 
     private static byte[] patternBytes(int length, byte value) {

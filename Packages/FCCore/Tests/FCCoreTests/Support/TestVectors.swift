@@ -21,6 +21,8 @@ enum TestVectors {
         let chacha20Poly1305: [AeadCase]
         let hkdfSha256: [HkdfCase]
         let hkdfSha512: [HkdfCase]
+        let ecdsa: [EcdsaCase]
+        let ecdh: [EcdhCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -35,6 +37,42 @@ enum TestVectors {
             case chacha20Poly1305 = "chacha20_poly1305"
             case hkdfSha256 = "hkdf_sha256"
             case hkdfSha512 = "hkdf_sha512"
+            case ecdsa
+            case ecdh
+        }
+    }
+
+    struct EcdsaCase: Decodable {
+        let label: String
+        let messageHex: String
+        let messageHashHex: String
+        let signatureDerHex: String
+        let signatureCompactHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case messageHex = "message_hex"
+            case messageHashHex = "message_hash_hex"
+            case signatureDerHex = "signature_der_hex"
+            case signatureCompactHex = "signature_compact_hex"
+        }
+    }
+
+    struct EcdhCase: Decodable {
+        let label: String
+        let alicePrivkeyHex: String
+        let alicePubkeyHex: String
+        let bobPrivkeyHex: String
+        let bobPubkeyHex: String
+        let sharedXHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case alicePrivkeyHex = "alice_privkey_hex"
+            case alicePubkeyHex = "alice_pubkey_hex"
+            case bobPrivkeyHex = "bob_privkey_hex"
+            case bobPubkeyHex = "bob_pubkey_hex"
+            case sharedXHex = "shared_x_hex"
         }
     }
 

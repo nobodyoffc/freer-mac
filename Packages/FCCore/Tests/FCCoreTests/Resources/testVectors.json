@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-24T05:29:51.569838Z",
+  "generated_at": "2026-04-24T05:51:50.304358Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (freecashj v0.16 + BouncyCastle)",
   "sample_key": {
@@ -240,6 +240,51 @@
       "info_hex": "667564702d73657373696f6e2d6b6579",
       "output_length": 32,
       "output_hex": "592c28f6a6ec45b92f16076300c2c9cd26777a46a61a15e76d21394219c5dca0"
+    }
+  ],
+  "ecdsa": [
+    {
+      "label": "sample key signs: \"Hello, Freer!\"",
+      "message_utf8": "Hello, Freer!",
+      "message_hex": "48656c6c6f2c20467265657221",
+      "message_hash_hex": "108814d6e85ef4e0d677af5ca788b90fec55291adb37bb60d739c30d7ef6ab12",
+      "signature_der_hex": "3044022058f2d82305446e042ef880510f45604f2f5f327dca37984876e3a4049301fb1c02203e2477ecfb9981a8ff5a0c62634bdd9131ed629b310c49c6edef5b9e94956538",
+      "signature_compact_hex": "58f2d82305446e042ef880510f45604f2f5f327dca37984876e3a4049301fb1c3e2477ecfb9981a8ff5a0c62634bdd9131ed629b310c49c6edef5b9e94956538",
+      "signature_r_hex": "58f2d82305446e042ef880510f45604f2f5f327dca37984876e3a4049301fb1c",
+      "signature_s_hex": "3e2477ecfb9981a8ff5a0c62634bdd9131ed629b310c49c6edef5b9e94956538",
+      "is_canonical_low_s": true
+    },
+    {
+      "label": "sample key signs: \"\"",
+      "message_utf8": "",
+      "message_hex": "",
+      "message_hash_hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature_der_hex": "3045022100863fa36c56181708fbcbc6a8bfbee627ba873927853b21dde5e71e327fa19c3f02204804d55dacabe48bdbac268d89e304c7e0dd9e5400e0125dedf9339cb8395ec4",
+      "signature_compact_hex": "863fa36c56181708fbcbc6a8bfbee627ba873927853b21dde5e71e327fa19c3f4804d55dacabe48bdbac268d89e304c7e0dd9e5400e0125dedf9339cb8395ec4",
+      "signature_r_hex": "863fa36c56181708fbcbc6a8bfbee627ba873927853b21dde5e71e327fa19c3f",
+      "signature_s_hex": "4804d55dacabe48bdbac268d89e304c7e0dd9e5400e0125dedf9339cb8395ec4",
+      "is_canonical_low_s": true
+    },
+    {
+      "label": "sample key signs: \"Test transaction payload #42\"",
+      "message_utf8": "Test transaction payload #42",
+      "message_hex": "54657374207472616e73616374696f6e207061796c6f616420233432",
+      "message_hash_hex": "77a49f7298eb40a4eff8289a36aba5e633870874dc1a8c0ebbb5380c0b85187e",
+      "signature_der_hex": "304402203c1870ff4f8f933dc943829729b28278e601724b2a3f71534ce82442447c6a3f02207a9f7a42fcbea52fec198e12cf31ad06d1143e850af56926a13f7168b4053e8d",
+      "signature_compact_hex": "3c1870ff4f8f933dc943829729b28278e601724b2a3f71534ce82442447c6a3f7a9f7a42fcbea52fec198e12cf31ad06d1143e850af56926a13f7168b4053e8d",
+      "signature_r_hex": "3c1870ff4f8f933dc943829729b28278e601724b2a3f71534ce82442447c6a3f",
+      "signature_s_hex": "7a9f7a42fcbea52fec198e12cf31ad06d1143e850af56926a13f7168b4053e8d",
+      "is_canonical_low_s": true
+    }
+  ],
+  "ecdh": [
+    {
+      "label": "sample_key (alice) × counterparty (bob)",
+      "alice_privkey_hex": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575",
+      "alice_pubkey_hex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",
+      "bob_privkey_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+      "bob_pubkey_hex": "0324653eac434488002cc06bbfb7f10fe18991e35f9fe4302dbea6d2353dc0ab1c",
+      "shared_x_hex": "2353fe312fdcf6cc8bd8057c4fb766fa38c014d9a5f641e2ca65c28e4fa8641b"
     }
   ]
 }
