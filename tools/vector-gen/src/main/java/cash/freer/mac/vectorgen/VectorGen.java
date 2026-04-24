@@ -6,6 +6,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
 import org.bitcoinj.core.Address;
+import org.bitcoinj.core.Base58;
 import org.bitcoinj.core.ECKey;
 import org.bitcoinj.core.NetworkParameters;
 import org.bitcoinj.core.Sha256Hash;
@@ -86,6 +87,8 @@ public final class VectorGen {
         root.add("ecdsa", buildEcdsaVectors());
         root.add("ecdh", buildEcdhVectors());
         root.add("schnorr_bch", buildSchnorrBchVectors());
+        root.add("base58", buildBase58Vectors());
+        root.add("base58check", buildBase58CheckVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(out.toAbsolutePath().getParent());
@@ -471,6 +474,102 @@ public final class VectorGen {
         }
         throw new IllegalArgumentException(
                 "BigInteger does not fit in 32 bytes: " + raw.length);
+    }
+
+    private static JsonArray buildBase58Vectors() {
+        JsonArray arr = new JsonArray();
+        arr.add(b58Case("empty", new byte[0]));
+        arr.add(b58Case("single zero byte", new byte[]{0x00}));
+        arr.add(b58Case("two leading zeros preserved", new byte[]{0x00, 0x00, 0x01, 0x02, 0x03}));
+        arr.add(b58Case("ascii string payload",
+                "The quick brown fox".getBytes(StandardCharsets.UTF_8)));
+        arr.add(b58Case("sample privkey bytes (no checksum)",
+                Hex.decode(SAMPLE_PRIVKEY_HEX)));
+        return arr;
+    }
+
+    private static JsonObject b58Case(String label, byte[] input) {
+        String encoded = Base58.encode(input);
+        byte[] roundTrip;
+        try {
+            roundTrip = Base58.decode(encoded);
+        } catch (Exception e) {
+            throw new RuntimeException("Base58 round-trip failed: " + label, e);
+        }
+        require(java.util.Arrays.equals(input, roundTrip),
+                "Base58 round-trip mismatch for '" + label + "'");
+
+        JsonObject o = new JsonObject();
+        o.addProperty("label", label);
+        o.addProperty("input_hex", Hex.toHexString(input));
+        o.addProperty("encoded", encoded);
+        return o;
+    }
+
+    private static JsonArray buildBase58CheckVectors() {
+        JsonArray arr = new JsonArray();
+
+        // WIF: payload = 0x80 (mainnet) || privkey(32) || 0x01 (compressed flag)
+        byte[] wifPayload;
+        try {
+            wifPayload = Base58.decodeChecked(EXPECTED_SAMPLE_WIF);
+        } catch (Exception e) {
+            throw new RuntimeException("failed to decode sample WIF", e);
+        }
+        arr.add(b58CheckCase("sample key WIF (0x80 || privkey || 0x01)",
+                wifPayload, EXPECTED_SAMPLE_WIF));
+
+        // FID: payload = version_byte || hash160(20)
+        byte[] fidPayload;
+        try {
+            fidPayload = Base58.decodeChecked(EXPECTED_SAMPLE_FID);
+        } catch (Exception e) {
+            throw new RuntimeException("failed to decode sample FID", e);
+        }
+        arr.add(b58CheckCase("sample FID (FCH version || pubkeyhash)",
+                fidPayload, EXPECTED_SAMPLE_FID));
+
+        arr.add(b58CheckCase("all-zero 5-byte payload",
+                new byte[]{0x00, 0x00, 0x00, 0x00, 0x00}, null));
+        arr.add(b58CheckCase("arbitrary 8-byte payload",
+                Hex.decode("deadbeef12345678"), null));
+
+        return arr;
+    }
+
+    private static JsonObject b58CheckCase(String label, byte[] payload, String expectedEncoded) {
+        String encoded = base58CheckEncode(payload);
+        if (expectedEncoded != null) {
+            require(encoded.equals(expectedEncoded),
+                    "Base58Check encode mismatch for '" + label + "': got " + encoded + ", expected " + expectedEncoded);
+        }
+        byte[] decoded;
+        try {
+            decoded = Base58.decodeChecked(encoded);
+        } catch (Exception e) {
+            throw new RuntimeException("Base58Check round-trip decode failed: " + label, e);
+        }
+        require(java.util.Arrays.equals(decoded, payload),
+                "Base58Check round-trip payload mismatch for '" + label + "'");
+
+        JsonObject o = new JsonObject();
+        o.addProperty("label", label);
+        o.addProperty("payload_hex", Hex.toHexString(payload));
+        o.addProperty("encoded", encoded);
+        return o;
+    }
+
+    private static String base58CheckEncode(byte[] payload) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] checksum = md.digest(md.digest(payload));
+            byte[] out = new byte[payload.length + 4];
+            System.arraycopy(payload, 0, out, 0, payload.length);
+            System.arraycopy(checksum, 0, out, payload.length, 4);
+            return Base58.encode(out);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static byte[] patternBytes(int length, byte value) {
