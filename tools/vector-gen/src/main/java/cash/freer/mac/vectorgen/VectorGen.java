@@ -106,6 +106,7 @@ public final class VectorGen {
         root.add("script", buildScriptVectors());
         root.add("transaction", buildTransactionVectors());
         root.add("bch_sighash", buildBchSighashVectors());
+        root.add("bch_signed_tx", buildBchSignedTxVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(out.toAbsolutePath().getParent());
@@ -872,6 +873,64 @@ public final class VectorGen {
         o.addProperty("hash_type", hashType);
         o.addProperty("preimage_hex", Hex.toHexString(preimage));
         o.addProperty("sighash_hex", Hex.toHexString(sighash));
+        arr.add(o);
+
+        return arr;
+    }
+
+    private static JsonArray buildBchSignedTxVectors() {
+        JsonArray arr = new JsonArray();
+        NetworkParameters params = FchMainNetwork.MAINNETWORK;
+
+        ECKey sampleKey = ECKey.fromPrivate(Hex.decode(SAMPLE_PRIVKEY_HEX), true);
+        ECKey recipientKey = ECKey.fromPrivate(patternBytes(32, (byte) 0x42), true);
+        Address sampleAddr = Address.fromKey(params, sampleKey);
+        Address recipientAddr = Address.fromKey(params, recipientKey);
+
+        byte[] prevHashBytes = patternBytes(32, (byte) 0x7a);
+        long prevIndex = 0L;
+        long prevValueSats = 100_000L;
+
+        Transaction tx = new Transaction(params);
+        tx.setVersion(2);
+        TransactionOutPoint outpoint = new TransactionOutPoint(params, prevIndex, Sha256Hash.wrap(prevHashBytes));
+        TransactionInput in = new TransactionInput(params, tx, new byte[0], outpoint, Coin.valueOf(prevValueSats));
+        in.setSequenceNumber(0xFFFFFFFFL);
+        tx.addInput(in);
+        tx.addOutput(Coin.valueOf(80_000L), ScriptBuilder.createOutputScript(recipientAddr));
+        tx.addOutput(Coin.valueOf(15_000L), ScriptBuilder.createOutputScript(sampleAddr));
+
+        byte[] scriptCode = ScriptBuilder.createOutputScript(sampleAddr).getProgram();
+        int hashType = 0x41;
+        byte[] preimage = buildBchPreimage(tx, 0, scriptCode, prevValueSats, hashType);
+        byte[] sighash = doubleSha256(preimage);
+
+        // Sign with sample key (RFC 6979 deterministic, low-S normalized DER).
+        ECKey.ECDSASignature ecSig = sampleKey.sign(Sha256Hash.wrap(sighash));
+        byte[] der = ecSig.encodeToDER();
+        byte[] sigPlusFlag = new byte[der.length + 1];
+        System.arraycopy(der, 0, sigPlusFlag, 0, der.length);
+        sigPlusFlag[der.length] = (byte) hashType;
+
+        // scriptSig = <push sig+flag> <push pubkey>
+        Script scriptSig = new ScriptBuilder()
+                .data(sigPlusFlag)
+                .data(sampleKey.getPubKey())
+                .build();
+        tx.getInput(0).setScriptSig(scriptSig);
+
+        byte[] signedBytes = tx.bitcoinSerialize();
+        byte[] signedTxidNatural = doubleSha256(signedBytes);
+        byte[] signedTxidDisplay = reverseBytes(signedTxidNatural);
+
+        JsonObject o = new JsonObject();
+        o.addProperty("label", "signed 1-in 2-out P2PKH tx (sample key, ALL|FORKID)");
+        o.addProperty("der_sig_hex", Hex.toHexString(der));
+        o.addProperty("script_sig_hex", Hex.toHexString(scriptSig.getProgram()));
+        o.addProperty("hash_type", hashType);
+        o.addProperty("signed_tx_hex", Hex.toHexString(signedBytes));
+        o.addProperty("signed_txid_natural_hex", Hex.toHexString(signedTxidNatural));
+        o.addProperty("signed_txid_display_hex", Hex.toHexString(signedTxidDisplay));
         arr.add(o);
 
         return arr;

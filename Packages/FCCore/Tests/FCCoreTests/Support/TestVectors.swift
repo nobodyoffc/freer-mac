@@ -32,6 +32,7 @@ enum TestVectors {
         let script: [ScriptCase]
         let transaction: [TransactionCase]
         let bchSighash: [BchSighashCase]
+        let bchSignedTx: [BchSignedTxCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -57,6 +58,27 @@ enum TestVectors {
             case script
             case transaction
             case bchSighash = "bch_sighash"
+            case bchSignedTx = "bch_signed_tx"
+        }
+    }
+
+    struct BchSignedTxCase: Decodable {
+        let label: String
+        let derSigHex: String
+        let scriptSigHex: String
+        let hashType: UInt32
+        let signedTxHex: String
+        let signedTxidNaturalHex: String
+        let signedTxidDisplayHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case derSigHex = "der_sig_hex"
+            case scriptSigHex = "script_sig_hex"
+            case hashType = "hash_type"
+            case signedTxHex = "signed_tx_hex"
+            case signedTxidNaturalHex = "signed_txid_natural_hex"
+            case signedTxidDisplayHex = "signed_txid_display_hex"
         }
     }
 

@@ -1,6 +1,35 @@
 import Foundation
 import P256K
 
+/// A `Digest`-conforming wrapper around a pre-computed 32-byte hash.
+/// Lets us hand a raw sighash to
+/// `P256K.Signing.PrivateKey.signature(for:)` without making
+/// swift-secp256k1 re-hash it internally.
+///
+/// We intentionally do **not** `import CryptoKit` in this file: both
+/// `CryptoKit.Digest` and `P256K.Digest` exist (with identical shapes),
+/// and the signing API requires the P256K one. Importing only P256K
+/// makes the name resolve unambiguously.
+struct RawSighashDigest: Digest {
+    static let byteCount: Int = 32
+    let storage: Data
+
+    init(_ bytes: Data) {
+        precondition(bytes.count == Self.byteCount, "sighash must be \(Self.byteCount) bytes")
+        self.storage = Data(bytes)
+    }
+
+    func makeIterator() -> Data.Iterator {
+        storage.makeIterator()
+    }
+
+    func withUnsafeBytes<R>(_ body: (UnsafeRawBufferPointer) throws -> R) rethrows -> R {
+        try storage.withUnsafeBytes(body)
+    }
+
+    var description: String { "RawSighashDigest(\(storage.count) bytes)" }
+}
+
 /// secp256k1 elliptic-curve operations: key derivation, ECDSA, ECDH.
 ///
 /// Wraps `swift-secp256k1` (Bitcoin Core's libsecp256k1) with a Data-in /
@@ -49,6 +78,42 @@ public enum Secp256k1 {
         let key = try signingKey(privateKey)
         let sig = key.signature(for: message)
         return sig.dataRepresentation
+    }
+
+    /// Sign a pre-computed 32-byte hash (e.g. a BCH sighash) directly —
+    /// does *not* re-hash. Deterministic RFC 6979; output is low-S
+    /// normalized DER.
+    public static func signSighash(privateKey: Data, sighash: Data) throws -> Data {
+        guard sighash.count == 32 else {
+            throw Failure.invalidSignature
+        }
+        let key = try signingKey(privateKey)
+        let sig = key.signature(for: RawSighashDigest(sighash))
+        return sig.derRepresentation
+    }
+
+    /// Verify a DER-encoded ECDSA signature against a pre-computed 32-byte hash.
+    public static func verifySighashSig(
+        publicKey pubkey: Data,
+        sighash: Data,
+        signatureDER: Data
+    ) throws -> Bool {
+        guard sighash.count == 32 else {
+            throw Failure.invalidSignature
+        }
+        let pub: P256K.Signing.PublicKey
+        do {
+            pub = try P256K.Signing.PublicKey(dataRepresentation: pubkey, format: .compressed)
+        } catch {
+            throw Failure.invalidPublicKey
+        }
+        let sig: P256K.Signing.ECDSASignature
+        do {
+            sig = try P256K.Signing.ECDSASignature(derRepresentation: Array(signatureDER))
+        } catch {
+            throw Failure.invalidSignature
+        }
+        return pub.isValidSignature(sig, for: RawSighashDigest(sighash))
     }
 
     /// Verify a DER-encoded ECDSA signature against `message` (hashed with SHA-256).
