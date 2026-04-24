@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-24T07:08:37.668757Z",
+  "generated_at": "2026-04-24T07:25:53.636192Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (freecashj v0.16 + BouncyCastle)",
   "sample_key": {
@@ -542,6 +542,17 @@
       "serialized_hex": "02000000017a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a0000000000ffffffff0280380100000000001976a91414db4138d56a2ecfb10881a9be394d9f321985b288ac983a0000000000001976a91461c42abb6e3435e63bd88862f3746a3f8b86354288ac00000000",
       "txid_natural_hex": "15d793a607cf82eea77c057b66415cb9ed16c8033f29b838354c6181ff010a1f",
       "txid_display_hex": "1f0a01ff81614c3538b8293f03c816edb95c41667b057ca7ee82cf07a693d715"
+    }
+  ],
+  "bch_sighash": [
+    {
+      "label": "BCH BIP-143 + FORKID sighash for input 0, ALL|FORKID (0x41)",
+      "input_index": 0,
+      "script_code_hex": "76a91461c42abb6e3435e63bd88862f3746a3f8b86354288ac",
+      "prev_value_sats": 100000,
+      "hash_type": 65,
+      "preimage_hex": "02000000da57d184f722c37da578571174929a7d772462e70a539005d61e77a8fd43648f3bb13029ce7b1f559ef5e747fcac439f1455a2ec7c5f09b72290795e706650447a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a000000001976a91461c42abb6e3435e63bd88862f3746a3f8b86354288aca086010000000000ffffffffce36c864a33f9edc89cdd3b409d45ffab36b53525afe9805ea6f5cb63ede20760000000041000000",
+      "sighash_hex": "0490fae43f1c09c430a17dc6cb652c16d5ddbfc753acee8516ccd3caf7649bb5"
     }
   ]
 }

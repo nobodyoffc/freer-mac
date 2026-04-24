@@ -15,6 +15,7 @@ import org.bitcoinj.core.Sha256Hash;
 import org.bitcoinj.core.Transaction;
 import org.bitcoinj.core.TransactionInput;
 import org.bitcoinj.core.TransactionOutPoint;
+import org.bitcoinj.core.TransactionOutput;
 import org.bitcoinj.core.VarInt;
 import org.bitcoinj.fch.FchMainNetwork;
 import org.bitcoinj.script.Script;
@@ -39,6 +40,8 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -102,6 +105,7 @@ public final class VectorGen {
         root.add("fch_address", buildFchAddressVectors());
         root.add("script", buildScriptVectors());
         root.add("transaction", buildTransactionVectors());
+        root.add("bch_sighash", buildBchSighashVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(out.toAbsolutePath().getParent());
@@ -809,6 +813,134 @@ public final class VectorGen {
         arr.add(o);
 
         return arr;
+    }
+
+    private static JsonArray buildBchSighashVectors() {
+        JsonArray arr = new JsonArray();
+        NetworkParameters params = FchMainNetwork.MAINNETWORK;
+
+        // Reuse the exact tx shape buildTransactionVectors() produces so
+        // the Swift side can re-build it from the earlier 'transaction'
+        // vector and verify sighash against this section.
+        ECKey sampleKey = ECKey.fromPrivate(Hex.decode(SAMPLE_PRIVKEY_HEX), true);
+        ECKey recipientKey = ECKey.fromPrivate(patternBytes(32, (byte) 0x42), true);
+        Address sampleAddr = Address.fromKey(params, sampleKey);
+        Address recipientAddr = Address.fromKey(params, recipientKey);
+
+        byte[] prevHashBytes = patternBytes(32, (byte) 0x7a);
+        long prevIndex = 0L;
+        long prevValueSats = 100_000L;
+
+        Transaction tx = new Transaction(params);
+        tx.setVersion(2);
+        TransactionOutPoint outpoint = new TransactionOutPoint(params, prevIndex, Sha256Hash.wrap(prevHashBytes));
+        TransactionInput in = new TransactionInput(params, tx, new byte[0], outpoint, Coin.valueOf(prevValueSats));
+        in.setSequenceNumber(0xFFFFFFFFL);
+        tx.addInput(in);
+        tx.addOutput(Coin.valueOf(80_000L), ScriptBuilder.createOutputScript(recipientAddr));
+        tx.addOutput(Coin.valueOf(15_000L), ScriptBuilder.createOutputScript(sampleAddr));
+
+        byte[] scriptCode = ScriptBuilder.createOutputScript(sampleAddr).getProgram();
+        int hashType = 0x41;  // SIGHASH_ALL | SIGHASH_FORKID
+        byte[] preimage = buildBchPreimage(tx, 0, scriptCode, prevValueSats, hashType);
+        byte[] sighash = doubleSha256(preimage);
+
+        // Cross-check against bitcoinj's built-in method (freecashj is BCH-aware,
+        // so hashForSignatureWitness already applies FORKID).
+        try {
+            Sha256Hash bjSighash = tx.hashForSignatureWitness(
+                    0,
+                    scriptCode,
+                    Coin.valueOf(prevValueSats),
+                    Transaction.SigHash.ALL,
+                    false
+            );
+            require(java.util.Arrays.equals(sighash, bjSighash.getBytes()),
+                    "manual BCH preimage sighash does not match freecashj's: "
+                            + Hex.toHexString(sighash) + " vs " + bjSighash);
+        } catch (NoSuchMethodError e) {
+            // Method signature differs on this bitcoinj build — skip the
+            // cross-check. Manual preimage is still the spec authority.
+            System.err.println("[warn] hashForSignatureWitness not found; skipping freecashj cross-check");
+        }
+
+        JsonObject o = new JsonObject();
+        o.addProperty("label", "BCH BIP-143 + FORKID sighash for input 0, ALL|FORKID (0x41)");
+        o.addProperty("input_index", 0);
+        o.addProperty("script_code_hex", Hex.toHexString(scriptCode));
+        o.addProperty("prev_value_sats", prevValueSats);
+        o.addProperty("hash_type", hashType);
+        o.addProperty("preimage_hex", Hex.toHexString(preimage));
+        o.addProperty("sighash_hex", Hex.toHexString(sighash));
+        arr.add(o);
+
+        return arr;
+    }
+
+    private static byte[] buildBchPreimage(Transaction tx, int inputIndex, byte[] scriptCode, long prevValueSats, int hashType) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+
+            // 1. version (4 bytes LE)
+            writeUInt32LE(out, tx.getVersion());
+
+            // 2. hashPrevouts = double-sha256 of concat(outpoint serializations)
+            ByteArrayOutputStream po = new ByteArrayOutputStream();
+            for (TransactionInput input : tx.getInputs()) {
+                po.write(input.getOutpoint().bitcoinSerialize());
+            }
+            out.write(doubleSha256(po.toByteArray()));
+
+            // 3. hashSequence = double-sha256 of concat(sequence LE)
+            ByteArrayOutputStream so = new ByteArrayOutputStream();
+            for (TransactionInput input : tx.getInputs()) {
+                writeUInt32LE(so, input.getSequenceNumber());
+            }
+            out.write(doubleSha256(so.toByteArray()));
+
+            // 4. outpoint being signed (32+4)
+            out.write(tx.getInput(inputIndex).getOutpoint().bitcoinSerialize());
+
+            // 5. scriptCode (varInt || bytes)
+            out.write(new VarInt(scriptCode.length).encode());
+            out.write(scriptCode);
+
+            // 6. prev value (8 bytes LE)
+            writeUInt64LE(out, prevValueSats);
+
+            // 7. nSequence of input being signed (4 bytes LE)
+            writeUInt32LE(out, tx.getInput(inputIndex).getSequenceNumber());
+
+            // 8. hashOutputs = double-sha256 of concat(serialized outputs)
+            ByteArrayOutputStream oo = new ByteArrayOutputStream();
+            for (TransactionOutput output : tx.getOutputs()) {
+                oo.write(output.bitcoinSerialize());
+            }
+            out.write(doubleSha256(oo.toByteArray()));
+
+            // 9. locktime (4 bytes LE)
+            writeUInt32LE(out, tx.getLockTime());
+
+            // 10. hashType (4 bytes LE)
+            writeUInt32LE(out, hashType & 0xFFFFFFFFL);
+
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void writeUInt32LE(ByteArrayOutputStream out, long value) {
+        out.write((int) (value & 0xFF));
+        out.write((int) ((value >> 8) & 0xFF));
+        out.write((int) ((value >> 16) & 0xFF));
+        out.write((int) ((value >> 24) & 0xFF));
+    }
+
+    private static void writeUInt64LE(ByteArrayOutputStream out, long value) {
+        for (int i = 0; i < 8; i++) {
+            out.write((int) ((value >> (8 * i)) & 0xFF));
+        }
     }
 
     private static JsonObject outputObj(long valueSats, Address address) {

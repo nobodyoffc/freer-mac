@@ -31,6 +31,7 @@ enum TestVectors {
         let fchAddress: [FchAddressCase]
         let script: [ScriptCase]
         let transaction: [TransactionCase]
+        let bchSighash: [BchSighashCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -55,6 +56,27 @@ enum TestVectors {
             case fchAddress = "fch_address"
             case script
             case transaction
+            case bchSighash = "bch_sighash"
+        }
+    }
+
+    struct BchSighashCase: Decodable {
+        let label: String
+        let inputIndex: Int
+        let scriptCodeHex: String
+        let prevValueSats: UInt64
+        let hashType: UInt32
+        let preimageHex: String
+        let sighashHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case inputIndex = "input_index"
+            case scriptCodeHex = "script_code_hex"
+            case prevValueSats = "prev_value_sats"
+            case hashType = "hash_type"
+            case preimageHex = "preimage_hex"
+            case sighashHex = "sighash_hex"
         }
     }
 
