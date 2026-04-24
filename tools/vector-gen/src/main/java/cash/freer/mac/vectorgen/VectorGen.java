@@ -85,6 +85,7 @@ public final class VectorGen {
         root.add("hkdf_sha512", buildHkdfVectors(new SHA512Digest()));
         root.add("ecdsa", buildEcdsaVectors());
         root.add("ecdh", buildEcdhVectors());
+        root.add("schnorr_bch", buildSchnorrBchVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(out.toAbsolutePath().getParent());
@@ -408,6 +409,40 @@ public final class VectorGen {
         arr.add(o);
 
         return arr;
+    }
+
+    private static JsonArray buildSchnorrBchVectors() {
+        byte[] privkeyBytes = Hex.decode(SAMPLE_PRIVKEY_HEX);
+        BigInteger seckey = new BigInteger(1, privkeyBytes);
+        ECKey key = ECKey.fromPrivate(privkeyBytes, true);
+        byte[] pubkey = key.getPubKey();
+
+        JsonArray arr = new JsonArray();
+        arr.add(schnorrCase(seckey, pubkey, "Hello, Freer!"));
+        arr.add(schnorrCase(seckey, pubkey, ""));
+        arr.add(schnorrCase(seckey, pubkey, "Test transaction payload #42"));
+        return arr;
+    }
+
+    private static JsonObject schnorrCase(BigInteger seckey, byte[] pubkey, String messageUtf8) {
+        try {
+            byte[] message = messageUtf8.getBytes(StandardCharsets.UTF_8);
+            byte[] msgHash = MessageDigest.getInstance("SHA-256").digest(message);
+            byte[] sig = BchSchnorr.sign(msgHash, seckey);
+            if (!BchSchnorr.verify(msgHash, pubkey, sig)) {
+                throw new IllegalStateException("Self-verify failed — generator bug");
+            }
+
+            JsonObject o = new JsonObject();
+            o.addProperty("label", "sample key schnorr-signs: \"" + messageUtf8 + "\"");
+            o.addProperty("message_utf8", messageUtf8);
+            o.addProperty("message_hex", Hex.toHexString(message));
+            o.addProperty("message_hash_hex", Hex.toHexString(msgHash));
+            o.addProperty("signature_hex", Hex.toHexString(sig));
+            return o;
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static byte[] computeEcdh(byte[] privkey, byte[] pubkeyCompressed) {

@@ -23,6 +23,7 @@ enum TestVectors {
         let hkdfSha512: [HkdfCase]
         let ecdsa: [EcdsaCase]
         let ecdh: [EcdhCase]
+        let schnorrBch: [SchnorrBchCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -39,6 +40,21 @@ enum TestVectors {
             case hkdfSha512 = "hkdf_sha512"
             case ecdsa
             case ecdh
+            case schnorrBch = "schnorr_bch"
+        }
+    }
+
+    struct SchnorrBchCase: Decodable {
+        let label: String
+        let messageHex: String
+        let messageHashHex: String
+        let signatureHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case messageHex = "message_hex"
+            case messageHashHex = "message_hash_hex"
+            case signatureHex = "signature_hex"
         }
     }
 

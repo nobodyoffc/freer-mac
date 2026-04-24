@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-24T05:51:50.304358Z",
+  "generated_at": "2026-04-24T06:33:00.664101Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (freecashj v0.16 + BouncyCastle)",
   "sample_key": {
@@ -285,6 +285,29 @@
       "bob_privkey_hex": "4242424242424242424242424242424242424242424242424242424242424242",
       "bob_pubkey_hex": "0324653eac434488002cc06bbfb7f10fe18991e35f9fe4302dbea6d2353dc0ab1c",
       "shared_x_hex": "2353fe312fdcf6cc8bd8057c4fb766fa38c014d9a5f641e2ca65c28e4fa8641b"
+    }
+  ],
+  "schnorr_bch": [
+    {
+      "label": "sample key schnorr-signs: \"Hello, Freer!\"",
+      "message_utf8": "Hello, Freer!",
+      "message_hex": "48656c6c6f2c20467265657221",
+      "message_hash_hex": "108814d6e85ef4e0d677af5ca788b90fec55291adb37bb60d739c30d7ef6ab12",
+      "signature_hex": "75aeef5578f9ae51a7719691806b56ed8a87279748c794144e937a3f7dd4f1bb84620d961217885ea065b4993664bf646e32369087770b7ede7bff4f7c43ce71"
+    },
+    {
+      "label": "sample key schnorr-signs: \"\"",
+      "message_utf8": "",
+      "message_hex": "",
+      "message_hash_hex": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature_hex": "bd532dab0e65421fda61b89e811e5d29195d4cd3fd9871a2a08a60c00b4f73bfbbb4c5a35190e9cbd05dfd7edad5467214d7d05f780c7d943834888b7e3e1a4d"
+    },
+    {
+      "label": "sample key schnorr-signs: \"Test transaction payload #42\"",
+      "message_utf8": "Test transaction payload #42",
+      "message_hex": "54657374207472616e73616374696f6e207061796c6f616420233432",
+      "message_hash_hex": "77a49f7298eb40a4eff8289a36aba5e633870874dc1a8c0ebbb5380c0b85187e",
+      "signature_hex": "47b047dfb7690964d9bc0b16218811ba9123a3a88f282ac4453025d313172bd957bbef3c10d3ca5a4261e7ad9b13848d0547f25fa46f7e2e55d0711526f03978"
     }
   ]
 }
