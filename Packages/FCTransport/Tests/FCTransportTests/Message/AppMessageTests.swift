@@ -63,35 +63,12 @@ final class AppMessageTests: XCTestCase {
         }
     }
 
-    func testRequestPayloadRoundTrips() throws {
-        let vectors = try FudpVectors.load()
-        for v in vectors.appMessage where v.kind == "request" {
-            let req = RequestMessage(
-                sid: try XCTUnwrap(v.sid),
-                data: Data(fromHex: try XCTUnwrap(v.dataHex))
-            )
-            XCTAssertEqual(req.payload().hex, v.payloadHex,
-                           "request payload '\(v.label)'")
-            let parsed = try RequestMessage.parse(payload: Data(fromHex: v.payloadHex))
-            XCTAssertEqual(parsed.sid, v.sid)
-            XCTAssertEqual(parsed.data.hex, v.dataHex)
-        }
-    }
-
-    func testResponsePayloadRoundTrips() throws {
-        let vectors = try FudpVectors.load()
-        for v in vectors.appMessage where v.kind == "response" {
-            let resp = ResponseMessage(
-                statusCode: try XCTUnwrap(v.statusCode),
-                data: Data(fromHex: try XCTUnwrap(v.dataHex))
-            )
-            XCTAssertEqual(resp.payload().hex, v.payloadHex,
-                           "response payload '\(v.label)'")
-            let parsed = try ResponseMessage.parse(payload: Data(fromHex: v.payloadHex))
-            XCTAssertEqual(parsed.statusCode, v.statusCode)
-            XCTAssertEqual(parsed.data.hex, v.dataHex)
-        }
-    }
+    // The old sid+data RequestMessage / ResponseMessage stubs were
+    // removed — the actual wire format is `UnifiedCodec` (4B BE
+    // headerLen + JSON + binary). Codec parity is exercised by
+    // UnifiedCodecTests; the Java vector-gen still emits "request"/
+    // "response" entries here but they describe a format no real
+    // server speaks, so we no longer consume them.
 
     // MARK: - end-to-end (envelope + per-type)
 
@@ -104,22 +81,6 @@ final class AppMessageTests: XCTestCase {
             messageId: v.messageId,
             flags: AppMessageEnvelope.Flags(rawValue: v.flags),
             payload: ping.payload()
-        )
-        XCTAssertEqual(AppMessageCodec.encode(env).hex, v.encodedHex)
-    }
-
-    func testFullEncodePipelineForRequest() throws {
-        let vectors = try FudpVectors.load()
-        let v = vectors.appMessage.first { $0.kind == "request" }!
-        let req = RequestMessage(
-            sid: try XCTUnwrap(v.sid),
-            data: Data(fromHex: try XCTUnwrap(v.dataHex))
-        )
-        let env = AppMessageEnvelope(
-            type: .request,
-            messageId: v.messageId,
-            flags: [],
-            payload: req.payload()
         )
         XCTAssertEqual(AppMessageCodec.encode(env).hex, v.encodedHex)
     }

@@ -22,9 +22,9 @@ public enum MessageType: UInt8, Sendable, CaseIterable {
 ///   N B    payload (per-type)
 /// ```
 ///
-/// Concrete types live in sibling files (`PingMessage.swift`,
-/// `RequestMessage.swift`, etc.) and provide their own payload codecs.
-/// `AppMessageCodec` handles the envelope.
+/// Concrete types live in sibling files: `PingPong.swift` for control,
+/// `FapiMessage.swift` for the FAPI request/response payload, encoded
+/// via `UnifiedCodec`. `AppMessageCodec` handles only the envelope.
 public struct AppMessageEnvelope: Equatable, Sendable {
 
     /// Flag bits, mirroring `FC-AJDK/.../message/AppMessage.java`.

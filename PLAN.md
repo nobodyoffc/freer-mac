@@ -167,7 +167,7 @@ Subphase budgets: handshake 2d, datagram + crypto 2d, congestion/retry 2d, FAPI 
 |---|---|---|
 | 5.1 | Identity lifecycle — `IdentityRecord`/`IdentityIndex`, `Identity` (active session, lockable), `IdentityVault` (register/login/logout/delete). Vault key derived from privkey via HKDF — never persisted, so a stolen disk reveals nothing without the passphrase. Added a `vaultKey:`-direct `EncryptedKVStore` initializer. | ✅ |
 | 5.2 | Typed stores — `TypedStore<Value>` generic + `SettingsStore` (single-row prefs), `ContactsStore` (FID address book), `KeysStore` (cached pubkey-for-FID with on-insert FID/pubkey validation). | ✅ |
-| 5.3 | `FapiClient` — request/response correlation over `FudpClient`, timeout + retry, typed error mapping. | |
+| 5.3 | FAPI message layer + `FapiClient` — `UnifiedCodec` (4B BE headerLen + JSON + optional binary), `FapiRequest`/`FapiResponse` mirroring the Java fields, `FudpClient.receive(matching:)` helper, `FapiClient.call()` with two-level (transport `messageId` + app `id`/`requestId`) correlation. Retired the obsolete `RequestMessage`/`ResponseMessage` `sid+data` stub. | ✅ |
 | 5.4 | `WalletService` — UTXO listing (FAPI + cache), balance, send (sign via `FCCore.TxHandler`, broadcast via FAPI). | |
 | 5.5 | `SecretService`, `ContactService` — minimum surface needed by Phase 7 wallet UI; deeper work pushed to phase 8. | |
 

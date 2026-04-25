@@ -102,15 +102,42 @@ public final class FudpClient: @unchecked Sendable {
     public func ping(timeoutMs: Int = 3_000) async throws -> PongMessage {
         let messageId = Int64.random(in: 1...Int64.max)
         let pingTs = ReplayProtection.currentTimeMillis()
-        let envelope = AppMessageEnvelope(
+        try await send(AppMessageEnvelope(
             type: .ping,
             messageId: messageId,
             payload: PingMessage(timestamp: pingTs).payload()
-        )
-        try await send(envelope)
+        ))
         log("sent PING messageId=\(messageId) ts=\(pingTs)")
 
-        return try await withThrowingTaskGroup(of: PongMessage.self) { group in
+        let envelope = try await receive(
+            matching: { $0.type == .pong && $0.messageId == messageId },
+            timeoutMs: timeoutMs
+        )
+        return try PongMessage.parse(payload: envelope.payload)
+    }
+
+    /// Wait for the next inbound `AppMessageEnvelope` whose
+    /// `messageId` equals `id`. Throws ``Failure/timeout`` if nothing
+    /// matches in `timeoutMs`. Datagrams that fail to decode, that come
+    /// from the wrong sender, or that don't match the predicate are
+    /// dropped (logged when ``debugLogging`` is on).
+    ///
+    /// **Concurrency:** the underlying datagram stream is a single
+    /// consumer source. Don't issue overlapping `receive` calls — they
+    /// will race for arrivals. Phase 5 callers serialize at the
+    /// FapiClient layer; multi-call multiplexing comes later if needed.
+    public func receive(
+        matching messageId: Int64,
+        timeoutMs: Int = 3_000
+    ) async throws -> AppMessageEnvelope {
+        try await receive(matching: { $0.messageId == messageId }, timeoutMs: timeoutMs)
+    }
+
+    public func receive(
+        matching predicate: @escaping @Sendable (AppMessageEnvelope) -> Bool,
+        timeoutMs: Int = 3_000
+    ) async throws -> AppMessageEnvelope {
+        return try await withThrowingTaskGroup(of: AppMessageEnvelope.self) { group in
             group.addTask { [self] in
                 for await datagram in self.transport.datagrams {
                     if Task.isCancelled { throw Failure.timeout }
@@ -124,8 +151,8 @@ public final class FudpClient: @unchecked Sendable {
                     }
                     guard let received else { continue }
                     self.log("got envelope type=\(received.envelope.type) id=\(received.envelope.messageId)")
-                    if received.envelope.type == .pong, received.envelope.messageId == messageId {
-                        return try PongMessage.parse(payload: received.envelope.payload)
+                    if predicate(received.envelope) {
+                        return received.envelope
                     }
                 }
                 throw Failure.timeout
