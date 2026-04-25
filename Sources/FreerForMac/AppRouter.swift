@@ -9,7 +9,6 @@ struct AppRouter: View {
     var body: some View {
         Group {
             switch appState.route {
-            case .welcome:      WelcomeView()
             case .password:     PasswordView()
             case .chooseMain:   ChooseMainView()
             case .addMain:      AddMainView()

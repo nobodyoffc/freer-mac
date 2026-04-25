@@ -1,7 +1,16 @@
 import SwiftUI
+import AppKit
 
 @main
 struct FreerForMacApp: App {
+
+    /// SwiftPM-built executables ship without an Info.plist, so the
+    /// process defaults to a `.prohibited` activation policy — the
+    /// window draws but never becomes the focused application, and
+    /// keyboard input goes nowhere. The delegate forces `.regular`
+    /// + an explicit activate at launch so SecureField/TextField get
+    /// first responder normally.
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     @State private var appState = AppState()
 
@@ -27,5 +36,16 @@ struct FreerForMacApp: App {
                 .disabled(appState.configureSession == nil)
             }
         }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        true
     }
 }

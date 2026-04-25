@@ -5,15 +5,13 @@ import FCDomain
 import FCTransport
 
 /// Top-level UI route. Mutually exclusive screens; navigation happens
-/// by reassigning ``AppState/route``.
+/// by reassigning ``AppState/route``. There is intentionally **no
+/// "first-launch" state** — showing a different screen when the
+/// vault index is empty would leak whether the device has any
+/// vaults at all to a shoulder-surfer.
 enum AppRoute: Equatable {
-    /// First launch — no Configures exist yet. Shown to nudge the
-    /// user toward setting a password.
-    case welcome
-
-    /// Single password field. The submit action either opens an
-    /// existing Configure (matched by `passwordName`) or — if no
-    /// Configure has that `passwordName` — offers to create one.
+    /// Single password field with explicit `Check` and
+    /// `Create new` actions. Default entry point at every launch.
     case password
 
     /// Configure is unlocked; pick which main FID to operate as
@@ -73,15 +71,16 @@ final class AppState {
             self.manager = resolved
             self.fapiFactory = fapiFactory
             self.configures = []
-            self.route = .welcome
-            self.lastError = "Couldn't open Configure storage: \(error). Data won't persist."
+            self.route = .password
+            self.lastError = "Couldn't open vault storage: \(error). Data won't persist."
             return
         }
         self.manager = resolved
         self.fapiFactory = fapiFactory
-        let loaded = (try? resolved.listConfigures()) ?? []
-        self.configures = loaded
-        self.route = loaded.isEmpty ? .welcome : .password
+        // Always start at the password view — never reveal whether
+        // the vault index is empty.
+        self.configures = (try? resolved.listConfigures()) ?? []
+        self.route = .password
     }
 
     // MARK: - password flow
@@ -89,10 +88,13 @@ final class AppState {
     /// Try to open the Configure whose `passwordName` matches this
     /// password. Falls through to creating a new Configure when none
     /// exists yet (`createIfMissing == true`).
+    ///
+    /// Errors are deliberately generic — "Couldn't open vault" /
+    /// "Couldn't create vault" — so a wrong password vs. an unknown
+    /// password are indistinguishable on screen.
     func openOrCreate(
         password: Data,
         createIfMissing: Bool,
-        newLabel: String = "",
         kdfKind: KdfKind = .argon2id
     ) async {
         lastError = nil
@@ -108,26 +110,26 @@ final class AppState {
                 self.configureSession = cs
                 self.route = .chooseMain
             } catch {
-                lastError = String(describing: error)
+                lastError = "Couldn't open vault."
             }
             return
         }
 
         // No Configure with this passwordName.
         guard createIfMissing else {
-            lastError = "No vault matched that password. Tap 'Create new vault' to make one."
+            lastError = "Couldn't open vault."
             return
         }
 
         do {
             let cs = try await Task.detached(priority: .userInitiated) {
-                try manager.createConfigure(password: password, label: newLabel, kdfKind: kdfKind)
+                try manager.createConfigure(password: password, label: "", kdfKind: kdfKind)
             }.value
             self.configureSession = cs
             self.configures = (try? manager.listConfigures()) ?? configures
             self.route = .chooseMain
         } catch {
-            lastError = String(describing: error)
+            lastError = "Couldn't create vault."
         }
     }
 
@@ -140,7 +142,7 @@ final class AppState {
         configureSession?.lock()
         configureSession = nil
         configures = (try? manager.listConfigures()) ?? configures
-        route = configures.isEmpty ? .welcome : .password
+        route = .password
     }
 
     // MARK: - main FID flow

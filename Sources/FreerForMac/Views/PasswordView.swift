@@ -2,152 +2,118 @@ import SwiftUI
 import FCCore
 import FCDomain
 
-/// Single password field. Two paths:
+/// Single password field plus two explicit actions: **Check** opens
+/// an existing vault, **Create new** mints a fresh one. The view
+/// shows nothing about how many vaults already exist on this Mac —
+/// observable state would leak whether the device has any vaults
+/// without the password.
 ///
-/// 1. **Existing vault**: the password's `passwordName` matches a
-///    Configure in the index. We try to unlock it; wrong-password
-///    surfaces inline.
-/// 2. **New vault**: no Configure has that `passwordName`. The form
-///    flips to a "create new vault" mode where the user can also
-///    label the vault and pick a KDF.
-///
-/// The user never types the `passwordName` themselves — it's
-/// derived from the password they're already entering.
+/// Errors are deliberately generic ("Couldn't open" / "Couldn't
+/// create") so a wrong password vs. an unknown password are
+/// indistinguishable to a shoulder-surfer.
 struct PasswordView: View {
     @Environment(AppState.self) private var appState
 
     @State private var password: String = ""
-    @State private var working: Bool = false
-    @State private var newVaultLabel: String = ""
-    @State private var newVaultKdf: KdfKind = .argon2id
+    @State private var working: Working = .none
 
-    private var hasExisting: Bool {
-        !appState.configures.isEmpty
-    }
-
-    /// Recompute as the user types. Read-only for the UI; never sent
-    /// to disk in plaintext.
-    private var passwordName: String? {
-        guard !password.isEmpty else { return nil }
-        return ConfigureCrypto.passwordName(from: Data(password.utf8))
-    }
-
-    /// Does the typed password match an existing Configure by name?
-    /// Doesn't verify cryptographically — that happens on submit.
-    private var matchesExistingConfigure: Bool {
-        guard let pn = passwordName else { return false }
-        return appState.configures.contains(where: { $0.passwordName == pn })
-    }
+    enum Working: Equatable { case none, checking, creating }
 
     var body: some View {
-        Form {
-            Section {
+        VStack(spacing: 24) {
+            Spacer()
+
+            Image(systemName: "lock.shield")
+                .font(.system(size: 56))
+                .foregroundStyle(.secondary)
+
+            Text("Freer")
+                .font(.largeTitle).bold()
+
+            VStack(spacing: 12) {
                 SecureField("Password", text: $password)
                     .textContentType(.password)
-                    .onSubmit { Task { await submit() } }
-                if let pn = passwordName {
-                    HStack(spacing: 6) {
-                        Text("Vault hint:")
-                        Text(pn).font(.system(.body, design: .monospaced)).bold()
-                        Spacer()
-                        if matchesExistingConfigure {
-                            Label("matches existing vault", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                        } else if hasExisting {
-                            Label("would create a new vault", systemImage: "plus.circle")
-                                .foregroundStyle(.orange)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 360)
+                    .onSubmit {
+                        if working == .none && !password.isEmpty {
+                            Task { await runCheck() }
                         }
                     }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                }
-            } header: {
-                Text(hasExisting ? "Enter your password" : "Set a password")
-            } footer: {
-                Text("Each password unlocks one vault. The first 6 hex characters of dSHA-256(password) identify which vault — type the matching password and you'll unlock it.")
-                    .font(.caption)
-            }
+                    .disabled(working != .none)
 
-            // Show the "new vault" sub-form only when we'd actually
-            // create one (the password doesn't match anything).
-            if !matchesExistingConfigure {
-                Section {
-                    TextField("Vault label (optional)", text: $newVaultLabel)
-                    Picker("Key derivation", selection: $newVaultKdf) {
-                        Text("Argon2id (recommended)").tag(KdfKind.argon2id)
-                        Text("Legacy SHA-256 (Android import)").tag(KdfKind.legacySha256)
-                    }
-                    if let advisory = newVaultKdf.advisory {
-                        Text(advisory)
-                            .font(.callout)
-                            .foregroundStyle(.orange)
-                    }
-                } header: {
-                    Text("New vault")
-                }
-            }
-
-            if let err = appState.lastError {
-                Section {
+                if let err = appState.lastError {
                     Text(err)
-                        .foregroundStyle(.red)
                         .font(.callout)
+                        .foregroundStyle(.red)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 400)
                 }
-            }
 
-            Section {
-                HStack {
-                    if hasExisting {
-                        Button("Show known vaults") {
-                            // Tiny hint toggle — we just print the
-                            // labels here for now. Could become a
-                            // sheet in 6.x.
-                        }
-                        .disabled(true)
-                        .help(appState.configures
-                            .map { "\($0.passwordName) — \($0.label.isEmpty ? "(no label)" : $0.label)" }
-                            .joined(separator: "\n"))
-                    }
-                    Spacer()
+                HStack(spacing: 12) {
                     Button {
-                        Task { await submit() }
+                        Task { await runCreate() }
                     } label: {
-                        if working {
+                        if working == .creating {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small)
-                                Text(matchesExistingConfigure ? "Unlocking…" : "Creating…")
+                                Text("Creating…")
                             }
-                            .frame(width: 140)
+                            .frame(width: 150)
                         } else {
-                            Text(matchesExistingConfigure ? "Unlock" : "Create vault")
-                                .frame(width: 140)
+                            Text("Create new password").frame(width: 150)
+                        }
+                    }
+                    .disabled(working != .none || password.isEmpty)
+
+                    Button {
+                        Task { await runCheck() }
+                    } label: {
+                        if working == .checking {
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small)
+                                Text("Checking…")
+                            }
+                            .frame(width: 150)
+                        } else {
+                            Text("Check password").frame(width: 150)
                         }
                     }
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
-                    .disabled(working || password.isEmpty)
+                    .disabled(working != .none || password.isEmpty)
                 }
             }
+
+            Spacer()
         }
-        .formStyle(.grouped)
-        .frame(minWidth: 540, maxWidth: 620)
-        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(40)
     }
 
     @MainActor
-    private func submit() async {
-        guard !password.isEmpty, !working else { return }
-        working = true
-        defer { working = false }
+    private func runCheck() async {
+        guard working == .none, !password.isEmpty else { return }
+        working = .checking
+        defer { working = .none }
         let pwd = Data(password.utf8)
-        let createIfMissing = !matchesExistingConfigure
         await appState.openOrCreate(
             password: pwd,
-            createIfMissing: createIfMissing,
-            newLabel: newVaultLabel,
-            kdfKind: newVaultKdf
+            createIfMissing: false
         )
-        // Wipe the field on success or failure — same hygiene as 6.1.
+        password = ""
+    }
+
+    @MainActor
+    private func runCreate() async {
+        guard working == .none, !password.isEmpty else { return }
+        working = .creating
+        defer { working = .none }
+        let pwd = Data(password.utf8)
+        await appState.openOrCreate(
+            password: pwd,
+            createIfMissing: true
+        )
         password = ""
     }
 }
