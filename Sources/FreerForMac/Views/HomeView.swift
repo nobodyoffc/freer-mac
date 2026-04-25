@@ -105,16 +105,6 @@ struct HomeView: View {
 
             HStack(alignment: .center, spacing: 14) {
                 FidAvatarView(fid: session.liveFid, size: 56)
-                    .overlay(
-                        // Tint a tiny corner badge so the can-sign /
-                        // watch-only state is still glanceable.
-                        Circle()
-                            .fill(session.canSign ? Color.blue : Color.orange)
-                            .frame(width: 14, height: 14)
-                            .overlay(Circle().strokeBorder(Color(NSColor.windowBackgroundColor), lineWidth: 2))
-                            .offset(x: 18, y: 18),
-                        alignment: .topLeading
-                    )
 
                 VStack(alignment: .leading, spacing: 4) {
                     Text(session.liveKeyInfo.label.isEmpty
@@ -138,7 +128,7 @@ struct HomeView: View {
                              : "\(session.liveKeyInfo.kind.rawValue) — watch only")
                     }
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(session.canSign ? Color.blue : Color.orange)
                 }
 
                 Spacer(minLength: 0)
