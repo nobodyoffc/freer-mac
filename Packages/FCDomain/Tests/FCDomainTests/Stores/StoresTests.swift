@@ -68,35 +68,60 @@ final class StoresTests: XCTestCase {
 
     // MARK: - Contacts
 
+    /// Build a real (Base58Check) FID by deriving from a fixed
+    /// privkey. The string-FID literals from the earlier test pass
+    /// would fail FCH address validation now that ContactsStore
+    /// enforces it.
+    private func realFid(byte: UInt8) throws -> String {
+        let priv = Data(repeating: byte, count: 32)
+        let pub = try Secp256k1.publicKey(fromPrivateKey: priv)
+        return try FchAddress(publicKey: pub).fid
+    }
+
     func testContactsUpsertAndDelete() throws {
         let (a, _, _) = try makeTwoIdentities()
         let store = try ContactsStore(a)
 
-        try store.upsert(Contact(fid: "FFriend1", nickname: "Friend1"))
-        try store.upsert(Contact(fid: "FFriend2", nickname: "Friend2", pinnedAt: Date()))
-        try store.upsert(Contact(fid: "FFriend3", nickname: "AAA")) // sorts first by name
+        let f1 = try realFid(byte: 0xA1)
+        let f2 = try realFid(byte: 0xA2)
+        let f3 = try realFid(byte: 0xA3)
+
+        try store.upsert(Contact(fid: f1, nickname: "Friend1"))
+        try store.upsert(Contact(fid: f2, nickname: "Friend2", pinnedAt: Date()))
+        try store.upsert(Contact(fid: f3, nickname: "AAA")) // sorts first by name
 
         let listed = try store.all()
         XCTAssertEqual(listed.count, 3)
         // Pinned bubbles to top regardless of nickname order.
-        XCTAssertEqual(listed.first?.fid, "FFriend2")
+        XCTAssertEqual(listed.first?.fid, f2)
         // Then alphabetical by nickname (case-insensitive).
         XCTAssertEqual(listed[1].nickname, "AAA")
 
         // Re-upserting the same FID overwrites instead of duplicating.
-        try store.upsert(Contact(fid: "FFriend1", nickname: "RenamedFriend"))
+        try store.upsert(Contact(fid: f1, nickname: "RenamedFriend"))
         XCTAssertEqual(try store.all().count, 3)
-        XCTAssertEqual(try store.get(fid: "FFriend1")?.nickname, "RenamedFriend")
+        XCTAssertEqual(try store.get(fid: f1)?.nickname, "RenamedFriend")
 
-        XCTAssertTrue(try store.remove(fid: "FFriend1"))
-        XCTAssertNil(try store.get(fid: "FFriend1"))
-        XCTAssertFalse(try store.remove(fid: "FFriend1")) // idempotent
+        XCTAssertTrue(try store.remove(fid: f1))
+        XCTAssertNil(try store.get(fid: f1))
+        XCTAssertFalse(try store.remove(fid: f1)) // idempotent
     }
 
     func testContactsAreIsolatedPerIdentity() throws {
         let (a, b, _) = try makeTwoIdentities()
-        try ContactsStore(a).upsert(Contact(fid: "FAlice", nickname: "alice"))
+        try ContactsStore(a).upsert(Contact(fid: try realFid(byte: 0xB0), nickname: "alice"))
         XCTAssertEqual(try ContactsStore(b).all().count, 0)
+    }
+
+    func testContactsRejectsInvalidFid() throws {
+        let (a, _, _) = try makeTwoIdentities()
+        let store = try ContactsStore(a)
+        XCTAssertThrowsError(try store.upsert(Contact(fid: "not-a-fid", nickname: "x"))) { error in
+            guard case ContactsStore.Failure.invalidFid = error else {
+                XCTFail("expected invalidFid, got \(error)"); return
+            }
+        }
+        XCTAssertThrowsError(try store.upsert(Contact(fid: "", nickname: "x")))
     }
 
     // MARK: - KeysStore (validation matters here)

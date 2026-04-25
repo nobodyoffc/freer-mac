@@ -1,6 +1,6 @@
 ---
 title: FreerForMac — Migration Plan
-status: Phases 1 / 2 / 3 / 4 complete; Phase 5 (FCDomain) in progress — 5.1 done
+status: Phases 1 / 2 / 3 / 4 / 5 complete; Phase 6 (app shell) starts next
 last_updated: 2026-04-25
 ---
 
@@ -170,7 +170,7 @@ Subphase budgets: handshake 2d, datagram + crypto 2d, congestion/retry 2d, FAPI 
 | 5.3 | FAPI message layer + `FapiClient` — `UnifiedCodec` (4B BE headerLen + JSON + optional binary), `FapiRequest`/`FapiResponse` mirroring the Java fields, `FudpClient.receive(matching:)` helper, `FapiClient.call()` with two-level (transport `messageId` + app `id`/`requestId`) correlation. Retired the obsolete `RequestMessage`/`ResponseMessage` `sid+data` stub. | ✅ |
 | 5.4 | `WalletService` (read path) — `FapiCalling` protocol (so domain services can be unit-tested with a stub), `Utxo`/`Balance`/`UtxoSnapshot` Codable models, `UtxosStore` per-identity cache, `WalletService.{health, balance(forFid:), balances(forFids:), refreshUtxos(forAddress:)}`. Send/coin-selection split out to 5.5. | ✅ |
 | 5.5 | `WalletService` (send path) — `CoinSelector` (greedy largest-first, iterative fee re-estimation, dust handling), `TxBuilder` (display-txid → natural-order prevTxHash, P2PKH output script construction), `WalletService.send(from:to:amount:)` orchestrator that refreshes UTXOs, selects, builds, signs every input via `FCCore.TxHandler`, and broadcasts via `base.broadcastTx`. | ✅ |
-| 5.6 | `SecretService`, `ContactService` — minimum surface needed by Phase 7 wallet UI; deeper work pushed to phase 8. | |
+| 5.6 | Composition + polish — `IdentitySession` (per-identity service container; lazy-instantiates Settings/Contacts/Keys/Utxos/WalletService over a single `Identity` + `FapiCalling`, locks chain through). FID validation in `ContactsStore.upsert` so malformed strings can't reach the tx builder. `SecretsStore`/`SecretService` deferred to Phase 8 where the UI lives. | ✅ |
 
 **Design notes:**
 - Per-identity isolation enforced at the type level: every domain service takes an `Identity` and pulls its `EncryptedKVStore` from there. No global "current identity" singleton.

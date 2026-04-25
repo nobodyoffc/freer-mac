@@ -1,4 +1,5 @@
 import Foundation
+import FCCore
 import FCStorage
 
 /// One entry in the identity's local address book. Maps an FID to a
@@ -41,6 +42,17 @@ public struct Contact: Codable, Equatable, Hashable, Sendable {
 /// idempotent without a separate uniqueness check.
 public struct ContactsStore {
 
+    public enum Failure: Error, CustomStringConvertible {
+        case invalidFid(String, underlying: Error)
+
+        public var description: String {
+            switch self {
+            case let .invalidFid(fid, e):
+                return "ContactsStore: '\(fid)' is not a valid FID — \(e)"
+            }
+        }
+    }
+
     public static let namespace = "contacts"
 
     private let inner: TypedStore<Contact>
@@ -51,7 +63,15 @@ public struct ContactsStore {
 
     /// Insert or replace a contact. `updatedAt` is bumped so callers
     /// don't need to remember to set it.
+    /// FID is validated against the FCH Base58Check encoding — silently
+    /// storing a malformed string would break `send()` later when
+    /// `TxBuilder` tries to derive a recipient hash160 from it.
     public func upsert(_ contact: Contact) throws {
+        do {
+            _ = try FchAddress(fid: contact.fid)
+        } catch {
+            throw Failure.invalidFid(contact.fid, underlying: error)
+        }
         var c = contact
         c.updatedAt = Date()
         try inner.put(c, key: c.fid)
