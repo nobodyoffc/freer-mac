@@ -53,15 +53,28 @@ public final class EncryptedKVStore {
     /// Open a store at `databasePath`. If the Keychain has no vault key
     /// at `(keychainService, keychainAccount)`, one is generated and
     /// written transparently. The DB schema is created on first open.
-    public init(
+    public convenience init(
         databasePath: String,
         keychainService: String,
         keychainAccount: String
     ) throws {
-        self.vaultKey = try EncryptedKVStore.loadOrCreateVaultKey(
+        let key = try EncryptedKVStore.loadOrCreateVaultKey(
             service: keychainService,
             account: keychainAccount
         )
+        try self.init(databasePath: databasePath, vaultKey: key)
+    }
+
+    /// Open a store at `databasePath` with a caller-supplied 32-byte
+    /// vault key. Used by the domain layer when the vault key is
+    /// derived from the user's passphrase (via Argon2id → privkey →
+    /// HKDF) and never persisted — losing the passphrase loses the
+    /// data, which is the desired property.
+    public init(databasePath: String, vaultKey: Data) throws {
+        guard vaultKey.count == 32 else {
+            throw Failure.vaultKeyWrongSize(got: vaultKey.count)
+        }
+        self.vaultKey = vaultKey
         do {
             self.dbQueue = try DatabaseQueue(path: databasePath)
         } catch {

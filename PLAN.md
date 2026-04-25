@@ -1,6 +1,6 @@
 ---
 title: FreerForMac — Migration Plan
-status: Phases 1 / 2 / 3 complete; Phase 4 (FCTransport / FUDP) in progress against repaired FC-JDK
+status: Phases 1 / 2 / 3 / 4 complete; Phase 5 (FCDomain) in progress — 5.1 done
 last_updated: 2026-04-25
 ---
 
@@ -161,11 +161,20 @@ Reference implementation lives at `FC-JDK/src/main/java/fudp/` (post-repair). Su
 
 Subphase budgets: handshake 2d, datagram + crypto 2d, congestion/retry 2d, FAPI layer 1d, interop harness 1d.
 
-### Phase 5 — `FCDomain` services · 4d
-- `IdentityService` — password verify → identity selection → session
-- `WalletService`, `KeysService`, `SecretService`, `ContactService`, `MultisigService`, `ToolsService`
-- Each initialised with `StorageHandle` + `FapiClient` — no global state
-- Use cases = `async` functions returning typed results (`Result<T, DomainError>` or `throws`)
+### Phase 5 — `FCDomain` services · 4d · in progress
+
+| # | Scope | Status |
+|---|---|---|
+| 5.1 | Identity lifecycle — `IdentityRecord`/`IdentityIndex`, `Identity` (active session, lockable), `IdentityVault` (register/login/logout/delete). Vault key derived from privkey via HKDF — never persisted, so a stolen disk reveals nothing without the passphrase. Added a `vaultKey:`-direct `EncryptedKVStore` initializer. | ✅ |
+| 5.2 | Typed stores — `SettingsStore`, `KeysStore`, `ContactsStore` (thin wrappers over `EncryptedKVStore` per identity). | next |
+| 5.3 | `FapiClient` — request/response correlation over `FudpClient`, timeout + retry, typed error mapping. | |
+| 5.4 | `WalletService` — UTXO listing (FAPI + cache), balance, send (sign via `FCCore.TxHandler`, broadcast via FAPI). | |
+| 5.5 | `SecretService`, `ContactService` — minimum surface needed by Phase 7 wallet UI; deeper work pushed to phase 8. | |
+
+**Design notes:**
+- Per-identity isolation enforced at the type level: every domain service takes an `Identity` and pulls its `EncryptedKVStore` from there. No global "current identity" singleton.
+- Use cases = `async` functions returning typed results (`throws` rather than `Result<T,E>` — Swift's typed-throws still requires opt-in and Result fights `try`).
+- Each store namespaces its keys (`settings:*`, `keys:*`, `contacts:*`) inside the shared per-identity `EncryptedKVStore` — one DB per identity, not one per concern.
 
 ### Phase 6 — App shell + auth flow · 2d
 - `@main App` with single window, sidebar + detail (`NavigationSplitView`)
