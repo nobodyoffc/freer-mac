@@ -12,6 +12,12 @@ let package = Package(
     ],
     targets: [
         .target(name: "FCTransport", dependencies: ["FCCore"]),
-        .testTarget(name: "FCTransportTests", dependencies: ["FCTransport"])
+        .testTarget(
+            name: "FCTransportTests",
+            dependencies: ["FCTransport"],
+            resources: [
+                .process("Resources/fudpVectors.json")
+            ]
+        )
     ]
 )

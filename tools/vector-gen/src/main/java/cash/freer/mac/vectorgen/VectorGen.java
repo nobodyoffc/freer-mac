@@ -75,43 +75,59 @@ public final class VectorGen {
             "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK";
 
     public static void main(String[] args) throws Exception {
-        if (args.length < 1) {
-            System.err.println("Usage: gradle run --args=\"<output.json>\"");
+        if (args.length < 2) {
+            System.err.println("Usage: gradle run --args=\"<crypto.json> <fudp.json>\"");
             System.exit(64);
         }
-        Path out = Paths.get(args[0]);
+        Path cryptoOut = Paths.get(args[0]);
+        Path fudpOut = Paths.get(args[1]);
 
-        JsonObject root = new JsonObject();
-        root.addProperty("generated_at", Instant.now().toString());
-        root.addProperty("schema_version", 1);
-        root.addProperty("generator", "FreerForMac VectorGen (freecashj v0.16 + BouncyCastle)");
+        JsonObject cryptoRoot = new JsonObject();
+        cryptoRoot.addProperty("generated_at", Instant.now().toString());
+        cryptoRoot.addProperty("schema_version", 1);
+        cryptoRoot.addProperty("generator", "FreerForMac VectorGen (freecashj v0.16 + BouncyCastle)");
 
-        root.add("sample_key", buildSampleKey());
-        root.add("argon2id", buildArgon2idVectors());
-        root.add("sha256", buildSha256Vectors());
-        root.add("ripemd160", buildRipemd160Vectors());
-        root.add("hash160", buildHash160Vectors());
-        root.add("aes_gcm_256", buildAesGcm256Vectors());
-        root.add("chacha20_poly1305", buildChaCha20Poly1305Vectors());
-        root.add("hkdf_sha256", buildHkdfVectors(new SHA256Digest()));
-        root.add("hkdf_sha512", buildHkdfVectors(new SHA512Digest()));
-        root.add("ecdsa", buildEcdsaVectors());
-        root.add("ecdh", buildEcdhVectors());
-        root.add("schnorr_bch", buildSchnorrBchVectors());
-        root.add("base58", buildBase58Vectors());
-        root.add("base58check", buildBase58CheckVectors());
-        root.add("phrase_to_privkey", buildPhraseToPrivkeyVectors());
-        root.add("varint", buildVarIntVectors());
-        root.add("fch_address", buildFchAddressVectors());
-        root.add("script", buildScriptVectors());
-        root.add("transaction", buildTransactionVectors());
-        root.add("bch_sighash", buildBchSighashVectors());
-        root.add("bch_signed_tx", buildBchSignedTxVectors());
+        cryptoRoot.add("sample_key", buildSampleKey());
+        cryptoRoot.add("argon2id", buildArgon2idVectors());
+        cryptoRoot.add("sha256", buildSha256Vectors());
+        cryptoRoot.add("ripemd160", buildRipemd160Vectors());
+        cryptoRoot.add("hash160", buildHash160Vectors());
+        cryptoRoot.add("aes_gcm_256", buildAesGcm256Vectors());
+        cryptoRoot.add("chacha20_poly1305", buildChaCha20Poly1305Vectors());
+        cryptoRoot.add("hkdf_sha256", buildHkdfVectors(new SHA256Digest()));
+        cryptoRoot.add("hkdf_sha512", buildHkdfVectors(new SHA512Digest()));
+        cryptoRoot.add("ecdsa", buildEcdsaVectors());
+        cryptoRoot.add("ecdh", buildEcdhVectors());
+        cryptoRoot.add("schnorr_bch", buildSchnorrBchVectors());
+        cryptoRoot.add("base58", buildBase58Vectors());
+        cryptoRoot.add("base58check", buildBase58CheckVectors());
+        cryptoRoot.add("phrase_to_privkey", buildPhraseToPrivkeyVectors());
+        cryptoRoot.add("varint", buildVarIntVectors());
+        cryptoRoot.add("fch_address", buildFchAddressVectors());
+        cryptoRoot.add("script", buildScriptVectors());
+        cryptoRoot.add("transaction", buildTransactionVectors());
+        cryptoRoot.add("bch_sighash", buildBchSighashVectors());
+        cryptoRoot.add("bch_signed_tx", buildBchSignedTxVectors());
+
+        JsonObject fudpRoot = new JsonObject();
+        fudpRoot.addProperty("generated_at", Instant.now().toString());
+        fudpRoot.addProperty("schema_version", 1);
+        fudpRoot.addProperty("generator", "FreerForMac VectorGen (FUDP wire format mirrored from FC-JDK/src/main/java/fudp)");
+        fudpRoot.add("quic_varint", buildQuicVarintVectors());
+        fudpRoot.add("packet_header", buildPacketHeaderVectors());
+        fudpRoot.add("stream_frame", buildStreamFrameVectors());
+        fudpRoot.add("ack_frame", buildAckFrameVectors());
+        fudpRoot.add("padding_frame", buildPaddingFrameVectors());
+        fudpRoot.add("plaintext_payload", buildPlaintextPayloadVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
-        Files.createDirectories(out.toAbsolutePath().getParent());
-        Files.writeString(out, gson.toJson(root));
-        System.out.println("Wrote " + out.toAbsolutePath());
+        Files.createDirectories(cryptoOut.toAbsolutePath().getParent());
+        Files.writeString(cryptoOut, gson.toJson(cryptoRoot));
+        System.out.println("Wrote " + cryptoOut.toAbsolutePath());
+
+        Files.createDirectories(fudpOut.toAbsolutePath().getParent());
+        Files.writeString(fudpOut, gson.toJson(fudpRoot));
+        System.out.println("Wrote " + fudpOut.toAbsolutePath());
     }
 
     private static JsonObject buildSampleKey() {
@@ -1048,6 +1064,165 @@ public final class VectorGen {
         o.addProperty("version_byte", 0x23);
         o.addProperty("fid", fid);
         return o;
+    }
+
+    // FUDP wire-format vectors (Phase 4.1) -------------------------------
+
+    private static JsonArray buildQuicVarintVectors() {
+        long[] values = {
+                0, 1, 63,                       // 1-byte boundary
+                64, 100, 16383,                 // 2-byte boundary
+                16384, 1_000_000, 1073741823L,  // 4-byte boundary
+                1073741824L, 0x0123456789ABCDEFL, FudpRef.VARINT_MAX_8
+        };
+        JsonArray arr = new JsonArray();
+        for (long v : values) {
+            JsonObject o = new JsonObject();
+            o.addProperty("value", v);
+            o.addProperty("encoded_hex", Hex.toHexString(FudpRef.varintEncode(v)));
+            arr.add(o);
+        }
+        return arr;
+    }
+
+    private static JsonArray buildPacketHeaderVectors() {
+        JsonArray arr = new JsonArray();
+        arr.add(headerCase("data, no flags",
+                FudpRef.makeFlags(FudpRef.PACKET_TYPE_DATA, false, false, false),
+                FudpRef.CURRENT_VERSION, 0L, 0L));
+        arr.add(headerCase("data, ts+epoch flags, large ids",
+                FudpRef.makeFlags(FudpRef.PACKET_TYPE_DATA, false, true, true),
+                FudpRef.CURRENT_VERSION,
+                0x0123456789ABCDEFL, 0xFEDCBA9876543210L));
+        arr.add(headerCase("ack, fin flag",
+                FudpRef.makeFlags(FudpRef.PACKET_TYPE_ACK, true, false, false),
+                FudpRef.CURRENT_VERSION, 1L, 42L));
+        arr.add(headerCase("control, no flags",
+                FudpRef.makeFlags(FudpRef.PACKET_TYPE_CONTROL, false, false, false),
+                FudpRef.CURRENT_VERSION, 7L, 7L));
+        arr.add(headerCase("error, all flags",
+                FudpRef.makeFlags(FudpRef.PACKET_TYPE_ERROR, true, true, true),
+                FudpRef.CURRENT_VERSION, -1L, -1L));
+        return arr;
+    }
+
+    private static JsonObject headerCase(String label, byte flags, int version, long connId, long pktNum) {
+        byte[] bytes = FudpRef.headerToBytes(flags, version, connId, pktNum);
+        JsonObject o = new JsonObject();
+        o.addProperty("label", label);
+        o.addProperty("flags", flags & 0xff);
+        o.addProperty("version", version);
+        o.addProperty("connection_id", connId);
+        o.addProperty("packet_number", pktNum);
+        o.addProperty("encoded_hex", Hex.toHexString(bytes));
+        return o;
+    }
+
+    private static JsonArray buildStreamFrameVectors() {
+        JsonArray arr = new JsonArray();
+        arr.add(streamCase("simple, no offset, no fin",
+                1L, 0L, "hello, freer!".getBytes(java.nio.charset.StandardCharsets.UTF_8), false));
+        arr.add(streamCase("with offset",
+                7L, 4096L, patternBytes(64, (byte) 0xab), false));
+        arr.add(streamCase("fin set, last chunk",
+                7L, 65536L, "tail".getBytes(java.nio.charset.StandardCharsets.UTF_8), true));
+        arr.add(streamCase("empty data with fin (stream-close marker)",
+                42L, 0L, new byte[0], true));
+        return arr;
+    }
+
+    private static JsonObject streamCase(String label, long streamId, long offset, byte[] data, boolean fin) {
+        byte[] frame = FudpRef.streamFrame(streamId, offset, data, fin);
+        JsonObject o = new JsonObject();
+        o.addProperty("label", label);
+        o.addProperty("stream_id", streamId);
+        o.addProperty("offset", offset);
+        o.addProperty("fin", fin);
+        o.addProperty("data_hex", Hex.toHexString(data));
+        o.addProperty("encoded_hex", Hex.toHexString(frame));
+        return o;
+    }
+
+    private static JsonArray buildAckFrameVectors() {
+        JsonArray arr = new JsonArray();
+        arr.add(ackCase("ack of single packet",
+                10L, 0L, new long[][]{{0, 0}}));
+        arr.add(ackCase("ack range of 5 contiguous",
+                10L, 1500L, new long[][]{{0, 4}}));
+        arr.add(ackCase("multiple ranges with gaps",
+                100L, 2500L, new long[][]{{0, 4}, {1, 2}, {3, 0}}));
+        arr.add(ackCase("ack-only no ranges",
+                0L, 0L, new long[0][]));
+        return arr;
+    }
+
+    private static JsonObject ackCase(String label, long largest, long delay, long[][] rangesArr) {
+        java.util.List<long[]> ranges = new java.util.ArrayList<>();
+        for (long[] r : rangesArr) ranges.add(r);
+        byte[] frame = FudpRef.ackFrame(largest, delay, ranges);
+        JsonObject o = new JsonObject();
+        o.addProperty("label", label);
+        o.addProperty("largest_acknowledged", largest);
+        o.addProperty("ack_delay", delay);
+        JsonArray rangesJson = new JsonArray();
+        for (long[] r : rangesArr) {
+            JsonObject ro = new JsonObject();
+            ro.addProperty("gap", r[0]);
+            ro.addProperty("length", r[1]);
+            rangesJson.add(ro);
+        }
+        o.add("ranges", rangesJson);
+        o.addProperty("encoded_hex", Hex.toHexString(frame));
+        return o;
+    }
+
+    private static JsonArray buildPaddingFrameVectors() {
+        JsonArray arr = new JsonArray();
+        JsonObject o = new JsonObject();
+        o.addProperty("label", "single padding frame");
+        o.addProperty("encoded_hex", Hex.toHexString(FudpRef.paddingFrame()));
+        arr.add(o);
+        return arr;
+    }
+
+    private static JsonArray buildPlaintextPayloadVectors() {
+        JsonArray arr = new JsonArray();
+        long timestamp = 1_700_000_000_000L;
+        long epoch = 0xCAFEBABE12345678L;
+
+        // Single STREAM frame with both ts + epoch headers.
+        java.util.List<byte[]> frames = new java.util.ArrayList<>();
+        frames.add(FudpRef.streamFrame(1L, 0L, "hello".getBytes(java.nio.charset.StandardCharsets.UTF_8), false));
+        byte[] payload = FudpRef.payload(true, timestamp, true, epoch, frames);
+        JsonObject o = new JsonObject();
+        o.addProperty("label", "ts + epoch + 1 stream frame");
+        o.addProperty("include_timestamp", true);
+        o.addProperty("timestamp", timestamp);
+        o.addProperty("include_epoch", true);
+        o.addProperty("session_epoch", epoch);
+        JsonArray framesJson = new JsonArray();
+        for (byte[] f : frames) framesJson.add(Hex.toHexString(f));
+        o.add("frames_hex", framesJson);
+        o.addProperty("encoded_hex", Hex.toHexString(payload));
+        arr.add(o);
+
+        // ACK-only payload (no ts, no epoch).
+        java.util.List<byte[]> ackFrames = new java.util.ArrayList<>();
+        java.util.List<long[]> ranges = new java.util.ArrayList<>();
+        ranges.add(new long[]{0, 4});
+        ackFrames.add(FudpRef.ackFrame(10L, 1500L, ranges));
+        byte[] ackPayload = FudpRef.payload(false, 0L, false, 0L, ackFrames);
+        JsonObject o2 = new JsonObject();
+        o2.addProperty("label", "ack-only, no ts no epoch");
+        o2.addProperty("include_timestamp", false);
+        o2.addProperty("include_epoch", false);
+        JsonArray ackFramesJson = new JsonArray();
+        for (byte[] f : ackFrames) ackFramesJson.add(Hex.toHexString(f));
+        o2.add("frames_hex", ackFramesJson);
+        o2.addProperty("encoded_hex", Hex.toHexString(ackPayload));
+        arr.add(o2);
+
+        return arr;
     }
 
     private static byte[] patternBytes(int length, byte value) {

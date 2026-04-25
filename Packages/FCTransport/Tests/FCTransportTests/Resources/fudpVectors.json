@@ -1,0 +1,212 @@
+{
+  "generated_at": "2026-04-25T05:20:18.063213Z",
+  "schema_version": 1,
+  "generator": "FreerForMac VectorGen (FUDP wire format mirrored from FC-JDK/src/main/java/fudp)",
+  "quic_varint": [
+    {
+      "value": 0,
+      "encoded_hex": "00"
+    },
+    {
+      "value": 1,
+      "encoded_hex": "01"
+    },
+    {
+      "value": 63,
+      "encoded_hex": "3f"
+    },
+    {
+      "value": 64,
+      "encoded_hex": "4040"
+    },
+    {
+      "value": 100,
+      "encoded_hex": "4064"
+    },
+    {
+      "value": 16383,
+      "encoded_hex": "7fff"
+    },
+    {
+      "value": 16384,
+      "encoded_hex": "80004000"
+    },
+    {
+      "value": 1000000,
+      "encoded_hex": "800f4240"
+    },
+    {
+      "value": 1073741823,
+      "encoded_hex": "bfffffff"
+    },
+    {
+      "value": 1073741824,
+      "encoded_hex": "c000000040000000"
+    },
+    {
+      "value": 81985529216486895,
+      "encoded_hex": "c123456789abcdef"
+    },
+    {
+      "value": 4611686018427387903,
+      "encoded_hex": "ffffffffffffffff"
+    }
+  ],
+  "packet_header": [
+    {
+      "label": "data, no flags",
+      "flags": 0,
+      "version": 1,
+      "connection_id": 0,
+      "packet_number": 0,
+      "encoded_hex": "000000000100000000000000000000000000000000"
+    },
+    {
+      "label": "data, ts+epoch flags, large ids",
+      "flags": 96,
+      "version": 1,
+      "connection_id": 81985529216486895,
+      "packet_number": -81985529216486896,
+      "encoded_hex": "60000000010123456789abcdeffedcba9876543210"
+    },
+    {
+      "label": "ack, fin flag",
+      "flags": 17,
+      "version": 1,
+      "connection_id": 1,
+      "packet_number": 42,
+      "encoded_hex": "11000000010000000000000001000000000000002a"
+    },
+    {
+      "label": "control, no flags",
+      "flags": 2,
+      "version": 1,
+      "connection_id": 7,
+      "packet_number": 7,
+      "encoded_hex": "020000000100000000000000070000000000000007"
+    },
+    {
+      "label": "error, all flags",
+      "flags": 115,
+      "version": 1,
+      "connection_id": -1,
+      "packet_number": -1,
+      "encoded_hex": "7300000001ffffffffffffffffffffffffffffffff"
+    }
+  ],
+  "stream_frame": [
+    {
+      "label": "simple, no offset, no fin",
+      "stream_id": 1,
+      "offset": 0,
+      "fin": false,
+      "data_hex": "68656c6c6f2c20667265657221",
+      "encoded_hex": "0a010d68656c6c6f2c20667265657221"
+    },
+    {
+      "label": "with offset",
+      "stream_id": 7,
+      "offset": 4096,
+      "fin": false,
+      "data_hex": "abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab",
+      "encoded_hex": "0e0750004040abababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababababab"
+    },
+    {
+      "label": "fin set, last chunk",
+      "stream_id": 7,
+      "offset": 65536,
+      "fin": true,
+      "data_hex": "7461696c",
+      "encoded_hex": "0f0780010000047461696c"
+    },
+    {
+      "label": "empty data with fin (stream-close marker)",
+      "stream_id": 42,
+      "offset": 0,
+      "fin": true,
+      "data_hex": "",
+      "encoded_hex": "0b2a00"
+    }
+  ],
+  "ack_frame": [
+    {
+      "label": "ack of single packet",
+      "largest_acknowledged": 10,
+      "ack_delay": 0,
+      "ranges": [
+        {
+          "gap": 0,
+          "length": 0
+        }
+      ],
+      "encoded_hex": "010a000100"
+    },
+    {
+      "label": "ack range of 5 contiguous",
+      "largest_acknowledged": 10,
+      "ack_delay": 1500,
+      "ranges": [
+        {
+          "gap": 0,
+          "length": 4
+        }
+      ],
+      "encoded_hex": "010a45dc0104"
+    },
+    {
+      "label": "multiple ranges with gaps",
+      "largest_acknowledged": 100,
+      "ack_delay": 2500,
+      "ranges": [
+        {
+          "gap": 0,
+          "length": 4
+        },
+        {
+          "gap": 1,
+          "length": 2
+        },
+        {
+          "gap": 3,
+          "length": 0
+        }
+      ],
+      "encoded_hex": "01406449c4030401020300"
+    },
+    {
+      "label": "ack-only no ranges",
+      "largest_acknowledged": 0,
+      "ack_delay": 0,
+      "ranges": [],
+      "encoded_hex": "01000000"
+    }
+  ],
+  "padding_frame": [
+    {
+      "label": "single padding frame",
+      "encoded_hex": "00"
+    }
+  ],
+  "plaintext_payload": [
+    {
+      "label": "ts + epoch + 1 stream frame",
+      "include_timestamp": true,
+      "timestamp": 1700000000000,
+      "include_epoch": true,
+      "session_epoch": -3819410108451629448,
+      "frames_hex": [
+        "0a010568656c6c6f"
+      ],
+      "encoded_hex": "0000018bcfe56800cafebabe123456780a010568656c6c6f"
+    },
+    {
+      "label": "ack-only, no ts no epoch",
+      "include_timestamp": false,
+      "include_epoch": false,
+      "frames_hex": [
+        "010a45dc0104"
+      ],
+      "encoded_hex": "010a45dc0104"
+    }
+  ]
+}
