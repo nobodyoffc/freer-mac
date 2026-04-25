@@ -2,10 +2,12 @@ import SwiftUI
 import FCDomain
 import FCUI
 
-/// The unlocked landing screen. Phase 5.7d ships a simple two-pane
-/// layout: sidebar of (currently inert) feature labels, and a detail
-/// pane that shows the live FID with a switcher and quick lock.
-/// Phase 7 fills the detail with real wallet UI.
+/// The unlocked landing screen. Two-pane layout: sidebar of (currently
+/// inert) feature labels, and a detail pane that shows the live FID.
+/// The window's top-right toolbar holds Switch-live-FID, Switch-
+/// identity, and Lock-vault as icon buttons — that lets the header
+/// breathe and stops the FID from wrapping into the buttons.
+/// Phase 7 fills the detail pane with real wallet UI.
 struct HomeView: View {
     @Environment(AppState.self) private var appState
 
@@ -30,6 +32,7 @@ struct HomeView: View {
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         } detail: {
             detail(for: session)
+                .toolbar { toolbar(for: session) }
         }
     }
 
@@ -54,16 +57,57 @@ struct HomeView: View {
         .listStyle(.sidebar)
     }
 
+    @ToolbarContentBuilder
+    private func toolbar(for session: ActiveSession) -> some ToolbarContent {
+        ToolbarItemGroup(placement: .primaryAction) {
+            // Switch the live FID without re-auth.
+            Menu {
+                ForEach(switchableEntries(in: session), id: \.fid) { info in
+                    Button {
+                        appState.switchLive(fid: info.fid)
+                    } label: {
+                        if info.fid == session.liveFid {
+                            Label(displayLabel(info), systemImage: "checkmark")
+                        } else {
+                            Text(displayLabel(info))
+                        }
+                    }
+                }
+            } label: {
+                Image(systemName: "arrow.triangle.2.circlepath")
+            }
+            .help("Switch live FID")
+            .disabled(switchableEntries(in: session).count < 2)
+
+            // Drop the active session, return to ChooseMain.
+            // Configure stays unlocked.
+            Button {
+                appState.returnToChooseMain()
+            } label: {
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+            }
+            .help("Switch identity")
+
+            // Full lock — symkey wiped, back to PasswordView.
+            Button {
+                appState.lockAll()
+            } label: {
+                Image(systemName: "lock.fill")
+            }
+            .keyboardShortcut("l", modifiers: [.command])
+            .help("Lock vault (⌘L)")
+        }
+    }
+
     @ViewBuilder
     private func detail(for session: ActiveSession) -> some View {
         VStack(alignment: .leading, spacing: 16) {
 
-            HStack(spacing: 12) {
+            HStack(alignment: .center, spacing: 14) {
                 FidAvatarView(fid: session.liveFid, size: 56)
                     .overlay(
                         // Tint a tiny corner badge so the can-sign /
-                        // watch-only state is still glanceable now
-                        // that the avatar replaced the colored icon.
+                        // watch-only state is still glanceable.
                         Circle()
                             .fill(session.canSign ? Color.blue : Color.orange)
                             .frame(width: 14, height: 14)
@@ -71,15 +115,22 @@ struct HomeView: View {
                             .offset(x: 18, y: 18),
                         alignment: .topLeading
                     )
-                VStack(alignment: .leading, spacing: 2) {
+
+                VStack(alignment: .leading, spacing: 4) {
                     Text(session.liveKeyInfo.label.isEmpty
                          ? "Live: \(session.liveKeyInfo.kind.rawValue)"
                          : session.liveKeyInfo.label)
                         .font(.title2).bold()
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
                     Text(session.liveFid)
                         .font(.system(.callout, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
                     HStack(spacing: 6) {
                         Image(systemName: session.canSign ? "key.fill" : "eye")
                         Text(session.canSign
@@ -89,42 +140,17 @@ struct HomeView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 }
-                Spacer()
 
-                Menu {
-                    Section("Switch live FID") {
-                        ForEach(switchableEntries(in: session), id: \.fid) { info in
-                            Button {
-                                appState.switchLive(fid: info.fid)
-                            } label: {
-                                if info.fid == session.liveFid {
-                                    Label(displayLabel(info), systemImage: "checkmark")
-                                } else {
-                                    Text(displayLabel(info))
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    Label("Switch", systemImage: "arrow.triangle.2.circlepath")
-                }
-
-                Button("Switch identity") {
-                    appState.returnToChooseMain()
-                }
-                Button("Lock vault") {
-                    appState.lockAll()
-                }
-                .keyboardShortcut("l", modifiers: [.command])
+                Spacer(minLength: 0)
             }
 
             Divider()
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Phase 5.7d landing").font(.headline)
+                Text("Phase 5.8 landing").font(.headline)
                 Text(
                     """
-                    The new auth flow is live. Vault → Main FID → Live FID — \
+                    Avatar module is wired. Vault → Main FID → Live FID — \
                     switching live without re-auth, watch-only sub-identities \
                     blocked from operations that need a privkey.
 
@@ -137,8 +163,8 @@ struct HomeView: View {
 
                     Networking is currently stubbed (`StubFapiClient` throws on \
                     every call). The `FudpClient` / `FapiClient` plumbing is \
-                    already in `FCTransport`; Phase 6 wires it once we have \
-                    the FAPI server's pubkey for `localhost:8500`.
+                    already in `FCTransport`; the real client wires in once we \
+                    have the FAPI server's pubkey for `localhost:8500`.
                     """
                 )
                 .foregroundStyle(.secondary)
