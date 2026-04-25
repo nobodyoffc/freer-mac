@@ -177,11 +177,13 @@ Subphase budgets: handshake 2d, datagram + crypto 2d, congestion/retry 2d, FAPI 
 - Use cases = `async` functions returning typed results (`throws` rather than `Result<T,E>` — Swift's typed-throws still requires opt-in and Result fights `try`).
 - Each store namespaces its keys (`settings:*`, `keys:*`, `contacts:*`) inside the shared per-identity `EncryptedKVStore` — one DB per identity, not one per concern.
 
-### Phase 6 — App shell + auth flow · 2d
-- `@main App` with single window, sidebar + detail (`NavigationSplitView`)
-- `PasswordView` (create/verify) → `ChooseIdentityView` → `HomeView`
-- Auto-lock via `ScenePhase` (replaces Android `BackgroundTimeoutManager`)
-- Menu bar, Dock badge, about panel
+### Phase 6 — App shell + auth flow · 2d · in progress
+
+| # | Scope | Status |
+|---|---|---|
+| 6.1 | Auth flow scaffold — `AppState` (@Observable, owns vault + session + route), `AppRouter`, `WelcomeView` / `CreateIdentityView` / `ChooseIdentityView` / `UnlockView` / `HomeView` placeholder. Argon2id runs on a background `Task.detached` so the UI stays responsive during ~300 ms KDF. ⌘L lock + menu-bar entry. | ✅ |
+| 6.2 | Wire a real `FapiClient` factory into `AppState` (replacing `StubFapiClient`); WIF privkey import (`L`-prefix Base58Check → `IdentityVault.registerWithPrivkey`). | next |
+| 6.3 | Auto-lock via `ScenePhase`, About panel polish, Dock badge. | |
 
 ### Phase 7 — Wallet features · 6d
 - `AccountView` — send / receive / expense / income / import / reorg (cash UTXOs)
