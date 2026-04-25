@@ -1,4 +1,5 @@
 import Foundation
+import FCCore
 import FCTransport
 
 /// Read path of the wallet. Wraps a ``FapiCalling`` (production:
@@ -153,5 +154,105 @@ public struct WalletService {
     /// last-known balance immediately on app open" UI flows.
     public func cachedSnapshot(forAddress addr: String) throws -> UtxoSnapshot? {
         try utxos?.snapshot(forAddress: addr)
+    }
+
+    // MARK: - send (Phase 5.5)
+
+    /// Result of a successful ``send`` call.
+    public struct SendResult: Sendable {
+        /// The fully-signed transaction. Inspect `.serialized` for the
+        /// raw bytes or `.txidDisplay` for the explorer-friendly hex.
+        public let transaction: Transaction
+        /// Server-reported txid string. Should equal
+        /// `transaction.txidDisplay` when the server agrees with us.
+        /// Surfaced separately so callers can detect server-side
+        /// rewriting if it ever happens.
+        public let remoteTxid: String
+        public let plan: CoinSelector.Plan
+
+        public init(transaction: Transaction, remoteTxid: String, plan: CoinSelector.Plan) {
+            self.transaction = transaction
+            self.remoteTxid = remoteTxid
+            self.plan = plan
+        }
+    }
+
+    /// Send `amount` satoshis from `identity`'s address to `toFid`.
+    /// Refreshes UTXOs (or uses the cache when `useCache` is true and
+    /// a snapshot exists), runs greedy coin selection, builds the tx,
+    /// signs each P2PKH input, and broadcasts via `base.broadcastTx`.
+    ///
+    /// `feePerByte` defaults to 1 sat/byte — FCH's relay default.
+    /// Pass a higher rate for faster confirmation when the mempool
+    /// is congested. Fee estimation via `base.estimateFee` will be
+    /// wired in when the server endpoint stabilizes.
+    public func send(
+        from identity: Identity,
+        to toFid: String,
+        amount: Int64,
+        feePerByte: Int64 = 1,
+        useCache: Bool = false,
+        timeoutMs: Int = 10_000
+    ) async throws -> SendResult {
+        let fromAddr = identity.fid
+
+        // 1. Get UTXOs.
+        let snapshot: UtxoSnapshot
+        if useCache, let cached = try cachedSnapshot(forAddress: fromAddr) {
+            snapshot = cached
+        } else {
+            snapshot = try await refreshUtxos(forAddress: fromAddr, timeoutMs: timeoutMs)
+        }
+
+        // 2. Coin select.
+        let plan = try CoinSelector.select(
+            utxos: snapshot.utxos, amount: amount, feePerByte: feePerByte
+        )
+
+        // 3. Build unsigned tx.
+        let unsigned = try TxBuilder.buildUnsigned(
+            plan: plan, toFid: toFid, amount: amount, changeFid: fromAddr
+        )
+
+        // 4. Sign each input. signP2pkhInput rebuilds the tx with the
+        // single input filled; we feed the result back in for the
+        // next index so the running tx state is current.
+        let privkey = try identity.privateKey()
+        var signed = unsigned
+        for (idx, utxo) in plan.selected.enumerated() {
+            signed = try TxHandler.signP2pkhInput(
+                tx: signed,
+                inputIndex: idx,
+                privateKey: privkey,
+                prevValueSats: UInt64(utxo.value)
+            )
+        }
+
+        // 5. Broadcast.
+        let rawHex = signed.serialized.map { String(format: "%02x", $0) }.joined()
+        let params = try JSONSerialization.data(
+            withJSONObject: ["rawTx": rawHex],
+            options: [.sortedKeys]
+        )
+        let reply = try await fapi.call(
+            api: "base.broadcastTx",
+            params: params, fcdsl: nil, binary: nil,
+            sid: nil, via: nil, maxCost: nil,
+            timeoutMs: timeoutMs
+        )
+        let resp = reply.response
+        guard resp.isSuccess else {
+            throw Failure.fapiNonZeroCode(api: "base.broadcastTx", code: resp.code ?? -1, message: resp.message)
+        }
+        // Java reference returns response.data.toString() for a
+        // successful broadcast. JSON-encoded that's a quoted string,
+        // so on our side we decode `data` and re-extract.
+        guard let data = resp.data,
+              let txidString = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? String
+        else {
+            throw Failure.unexpectedDataShape(api: "base.broadcastTx")
+        }
+
+        return SendResult(transaction: signed, remoteTxid: txidString, plan: plan)
     }
 }
