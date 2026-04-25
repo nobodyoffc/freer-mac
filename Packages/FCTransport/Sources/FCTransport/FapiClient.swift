@@ -50,6 +50,7 @@ public final class FapiClient: FapiCalling {
         case unexpectedType(MessageType)
         case requestIdMismatch(sent: String, got: String)
         case codec(UnifiedCodec.Failure)
+        case transportStatus(code: UInt16, body: String)
         case underlying(Error)
 
         public var description: String {
@@ -60,6 +61,8 @@ public final class FapiClient: FapiCalling {
                 return "FapiClient: response.requestId='\(got)' does not echo request.id='\(sent)'"
             case .codec(let inner):
                 return "FapiClient: \(inner)"
+            case let .transportStatus(code, body):
+                return "FapiClient: transport status \(code) — \(body)"
             case .underlying(let e):
                 return "FapiClient: \(e)"
             }
@@ -133,19 +136,29 @@ public final class FapiClient: FapiCalling {
         messageId: Int64 = Int64.random(in: 1...Int64.max),
         timeoutMs: Int = 5_000
     ) async throws -> Reply {
-        let payload: Data
+        // Three-layer wire format:
+        //   AppMessageEnvelope.payload  =  RequestMessage.encode()
+        //   RequestMessage.data         =  UnifiedCodec.encodeRequest(...)
+        let unified: Data
         do {
-            payload = try UnifiedCodec.encodeRequest(request, binary: binary)
+            unified = try UnifiedCodec.encodeRequest(request, binary: binary)
         } catch let e as UnifiedCodec.Failure {
             throw Failure.codec(e)
         } catch {
             throw Failure.underlying(error)
         }
+        // FUDP-layer routing sid. Defaults to "" — the server's
+        // FapiServer routes by FapiRequest.api anyway, so the outer
+        // sid is decorative for single-service deployments. Callers
+        // who target a specific sid in a multi-service setup pass
+        // it as `request.sid`; we forward that as the wrapper sid.
+        let wrapperSid = request.sid ?? ""
+        let wrapped = RequestMessage(sid: wrapperSid, data: unified).encode()
 
         try await fudp.send(AppMessageEnvelope(
             type: .request,
             messageId: messageId,
-            payload: payload
+            payload: wrapped
         ))
 
         let envelope = try await fudp.receive(matching: messageId, timeoutMs: timeoutMs)
@@ -153,10 +166,25 @@ public final class FapiClient: FapiCalling {
             throw Failure.unexpectedType(envelope.type)
         }
 
+        // Unwrap the FUDP-layer status. A non-zero status means the
+        // server couldn't build a meaningful FapiResponse — surface
+        // it directly without trying to UnifiedCodec.decode the body
+        // (which on errors may be a plain string).
+        let outer: ResponseMessage
+        do {
+            outer = try ResponseMessage.parse(envelope.payload)
+        } catch {
+            throw Failure.underlying(error)
+        }
+        if !outer.isSuccess {
+            let body = String(data: outer.data, encoding: .utf8) ?? "<\(outer.data.count) B binary>"
+            throw Failure.transportStatus(code: outer.statusCode, body: body)
+        }
+
         let response: FapiResponse
         let bin: Data?
         do {
-            (response, bin) = try UnifiedCodec.decodeResponse(envelope.payload)
+            (response, bin) = try UnifiedCodec.decodeResponse(outer.data)
         } catch let e as UnifiedCodec.Failure {
             throw Failure.codec(e)
         } catch {
