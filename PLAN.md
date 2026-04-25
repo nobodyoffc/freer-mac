@@ -1,14 +1,10 @@
 ---
 title: FreerForMac — Migration Plan
-status: Phases 1 / 2 / 3 complete; Phase 4 (FCTransport / FUDP) **paused pending FUDP v2 repair in FC-JDK / FC-AJDK**
-last_updated: 2026-04-24
+status: Phases 1 / 2 / 3 complete; Phase 4 (FCTransport / FUDP) in progress against repaired FC-JDK
+last_updated: 2026-04-25
 ---
 
-> **⏸ Phase 4 paused.** The FUDP protocol has design-level issues (unauthenticated packet header, unbounded ECDH cache, 500 s replay-window tolerance, no version negotiation, implicit-length last frame) that surfaced during port planning. Cementing these into a third codebase (Mac client) would make them much harder to fix. Repair happens first on the Linux server (`/Users/liuchangyong/Desktop/Freeverse/FC-JDK/`), then Android (`FC-AJDK`), then the Mac client lands on FUDP v2.
->
-> Full analysis and proposed spec: `/Users/liuchangyong/Desktop/Freeverse/FC-JDK/Docs/FUDP_V2_REPAIR_PLAN.md`.
->
-> When FUDP v2 is stable across Linux + Android, Phase 4 of this plan resumes against the new spec.
+> **▶ Phase 4 resumed (2026-04-25).** FUDP v2 repairs (F1 header AAD, F2 LRU ECDH cache, F3 60 s replay tolerance, F5 explicit frame lengths) shipped on the Linux side at `FC-JDK/src/main/java/fudp/`. Wire-format version stayed at `1` (no third-party ecosystem to negotiate with). New DDoS layer (`security/{ProofOfWork,IpVerifier,ChallengeHandler,TokenBucket,DecryptRateLimiter,DDoSConfig}`) added beyond the v2 plan; Mac client implements the *initiator* side of it from day 1 so it works against DDoS-enabled servers out of the box.
 
 
 # FreerForMac — Migration Plan
@@ -137,8 +133,22 @@ Shipped as 3.1 + 3.2, commits `3879ecb` → `4fdf5ef`.
 
 **Deferred:** typed domain stores (Settings/Keys/UTXOs/Contacts/Secrets/Mail/IM). The `EncryptedKVStore` is already generic enough that each typed wrapper is ~20 lines — they land in Phase 5 (FCDomain) alongside the services that use them, when we have the use-case surface to design the models against.
 
-### Phase 4 — `FCTransport` (FUDP + FAPI) · 8d · **highest risk**
-Biggest single chunk of work. FUDP is a custom UDP protocol; byte-level parity with the Android reference is required for interop with existing servers.
+### Phase 4 — `FCTransport` (FUDP + FAPI) · ~7d · in progress
+
+Reference implementation lives at `FC-JDK/src/main/java/fudp/` (post-repair). Sub-phases:
+
+| # | Scope | Estimate |
+|---|---|---|
+| 4.1 | Wire primitives — PacketHeader (21 B), Frame base + Stream/Ack/Padding etc., Packet ser/deser, byte-parity vectors. | 1.5d |
+| 4.2 | Packet crypto — AsyTwoWay bundle (`algId+type+33B pubkey+12B IV+ct+tag`), **F1 header-as-AAD**, session epoch, LRU ECDH cache (cap 512). | 1d |
+| 4.3 | Replay protection — 65 536-packet sliding window, 4 096-connection LRU, 60 s tolerance, session-epoch restart detection. | 0.5d |
+| 4.4 | UDP socket + ConnectionManager — `NWConnection` UDP, peer state machine, receive loop, port the per-source `DecryptRateLimiter`. | 1.5d |
+| 4.5 | DDoS client (initiator side) — `ProofOfWork` solver (SHA-256 grind), `ChallengeHandler` with timeout/difficulty caps, plaintext CHALLENGE / CHALLENGE_RESPONSE control packets. | 1d |
+| 4.6 | FAPI message layer — Request / Response / Ping / Pong / Notify / Error codecs, ID-based correlation, timeout + retry. | 1d |
+| 4.7 | Swift self-interop — toy echo server in `tools/`, full client↔server round-trip exercising the state machine. | 0.5d |
+| 4.8 | Live FC-JDK interop — final validator against a running Linux server. Deferred until 4.7 is green. | TBD |
+
+**The original Phase 4 outline below is preserved for reference but is superseded by the table above.**
 
 - **Socket:** `Network.framework` `NWConnection` (UDP), not BSD sockets — gives us sane async semantics.
 - **Packet crypto:** AES-GCM via CryptoKit; replay-protection window (port Android's logic exactly).
