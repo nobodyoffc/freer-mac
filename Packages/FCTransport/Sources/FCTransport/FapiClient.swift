@@ -1,5 +1,29 @@
 import Foundation
 
+/// Surface that any FAPI-speaking client exposes. Extracted as a
+/// protocol so domain-layer services can be unit-tested with an
+/// in-process stub instead of needing a live FUDP server. ``FapiClient``
+/// is the production conformance.
+///
+/// The protocol requirement has no default values (Swift doesn't allow
+/// them on protocol requirements). Concrete conformers — like
+/// ``FapiClient`` — supply defaults at the call site, so direct calls
+/// on a typed `FapiClient` instance still get the friendly form.
+/// Protocol-typed callers (`any FapiCalling`) pass everything
+/// explicitly.
+public protocol FapiCalling: Sendable {
+    func call(
+        api: String,
+        params: Data?,
+        fcdsl: Data?,
+        binary: Data?,
+        sid: String?,
+        via: String?,
+        maxCost: Int64?,
+        timeoutMs: Int
+    ) async throws -> FapiClient.Reply
+}
+
 /// Application-layer FAPI client. Sits on top of ``FudpClient`` and
 /// turns a single `(api, params, …)` call into:
 ///
@@ -20,7 +44,7 @@ import Foundation
 /// ``FudpClient`` because correlation lives at the wire layer. The
 /// FCDomain layer wraps `FapiClient` with typed `WalletService`,
 /// `KeysService`, etc. that supply concrete params/data shapes.
-public final class FapiClient {
+public final class FapiClient: FapiCalling {
 
     public enum Failure: Error, CustomStringConvertible {
         case unexpectedType(MessageType)
