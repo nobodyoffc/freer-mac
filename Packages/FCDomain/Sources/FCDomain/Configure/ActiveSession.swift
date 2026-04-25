@@ -47,7 +47,12 @@ public final class ActiveSession {
     public private(set) var liveFid: String
 
     public let storage: EncryptedKVStore
-    public let fapi: any FapiCalling
+    /// The FAPI client used by ``wallet`` and any other domain
+    /// service that talks to a server. Mutable so the app shell can
+    /// swap a stub for a real `FapiClient` after the user configures
+    /// the FAPI server in Settings, without rebuilding the whole
+    /// session.
+    public private(set) var fapi: any FapiCalling
 
     private let settingUrl: URL
 
@@ -177,7 +182,24 @@ public final class ActiveSession {
     public lazy var contacts: ContactsStore = ContactsStore(kv: storage)
     public lazy var keys: KeysStore        = KeysStore(kv: storage)
     public lazy var utxos: UtxosStore      = UtxosStore(kv: storage)
-    public lazy var wallet: WalletService  = WalletService(fapi: fapi, utxos: utxos)
+
+    /// Computed (not lazy) so ``setFapi(_:)`` is picked up the next
+    /// time something asks for the wallet. WalletService is a struct;
+    /// constructing it is essentially a Foundation pointer copy.
+    public var wallet: WalletService { WalletService(fapi: fapi, utxos: utxos) }
+
+    // MARK: - mutating fapi
+
+    /// Replace the active FAPI client. Used by the app shell after
+    /// the user saves new server settings — the previous client (and
+    /// its underlying transport) is released and the next call to
+    /// `wallet`/`fapi` uses the new one. The caller is responsible
+    /// for closing the *previous* transport if it owns one (the
+    /// `ActiveSession` is type-erased to `FapiCalling` and can't
+    /// know how to tear it down).
+    public func setFapi(_ client: any FapiCalling) {
+        self.fapi = client
+    }
 
     // MARK: - send convenience
 

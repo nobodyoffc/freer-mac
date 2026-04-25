@@ -35,10 +35,12 @@ enum AppRoute: Equatable {
 ///
 /// Children read it via `@Environment(AppState.self)`.
 ///
-/// **No real network in 5.7d.** ``fapiFactory`` defaults to a
-/// `StubFapiClient` whose calls all throw "not configured". Phase 6
-/// plugs in a real `FapiClient` once the FAPI server pubkey is in
-/// hand.
+/// **Live FAPI lifecycle.** When the user saves an FAPI server in
+/// Settings, ``applyFapiSettings(_:)`` builds a real `FudpClient` +
+/// `FapiClient` and swaps it into the active session via
+/// `setFapi(_:)`. The previous `FudpClient` (if any) is closed so
+/// its UDP socket is released. Lock-vault / switch-identity tear it
+/// down too.
 @Observable
 final class AppState {
 
@@ -50,8 +52,15 @@ final class AppState {
     var route: AppRoute
     var lastError: String?
 
-    /// Closure that produces a network client for an unlocked main.
-    /// `mainFid` is passed for future use (e.g. authenticated FAPI).
+    /// Owned UDP transport behind the live `FapiClient`, kept here
+    /// so the lock-vault / switch-identity / save-new-settings paths
+    /// can close it. nil when the session is using the stub client.
+    private var liveFudpClient: FudpClient?
+
+    /// Closure that produces the *initial* (pre-settings-applied)
+    /// FAPI client for a freshly-unlocked main. Default = stub. The
+    /// real client gets swapped in by ``applyFapiSettings(_:)`` once
+    /// the unlocked session can read its preferences.
     private let fapiFactory: @Sendable (String) -> any FapiCalling
 
     init(
@@ -136,8 +145,10 @@ final class AppState {
     // MARK: - configure-level lock
 
     /// Lock both the active session and the configure session. Send
-    /// the user back to the password screen.
+    /// the user back to the password screen. Closes the live FUDP
+    /// transport (if any) so its UDP socket is released.
     func lockAll() {
+        tearDownLiveFapi()
         activeSession = nil
         configureSession?.lock()
         configureSession = nil
@@ -167,7 +178,10 @@ final class AppState {
         }
     }
 
-    /// Unlock one of the main FIDs and open an ActiveSession.
+    /// Unlock one of the main FIDs and open an ActiveSession. The
+    /// session starts with the stub `FapiClient`; if the per-main
+    /// preferences have an FAPI server configured the real client is
+    /// built and swapped in immediately afterward.
     func unlockMain(fid: String) async {
         guard let cs = configureSession else {
             lastError = "No unlocked Configure."
@@ -181,6 +195,10 @@ final class AppState {
             }.value
             self.activeSession = session
             self.route = .home
+            // Best-effort attempt to bring up the live FAPI client.
+            // Failure is non-fatal — Overview will show the stub
+            // error and the Settings pane lets the user fix things.
+            await applyFapiSettings(for: session)
         } catch {
             lastError = String(describing: error)
         }
@@ -188,10 +206,102 @@ final class AppState {
 
     /// Drop the active session but keep the Configure unlocked.
     /// Returns the user to the main chooser so they can pick a
-    /// different main FID without re-entering the password.
+    /// different main FID without re-entering the password. The
+    /// live FUDP transport is torn down (different main → different
+    /// keypair → different AsyTwoWay session anyway).
     func returnToChooseMain() {
+        tearDownLiveFapi()
         activeSession = nil
         route = .chooseMain
+    }
+
+    // MARK: - live FAPI
+
+    /// Tear down the FUDP transport behind the live FAPI client and
+    /// reset the session's `fapi` to the stub. Idempotent.
+    private func tearDownLiveFapi() {
+        liveFudpClient?.close()
+        liveFudpClient = nil
+        activeSession?.setFapi(StubFapiClient())
+    }
+
+    /// Read the per-main preferences and bring up a real
+    /// ``FapiClient`` if FAPI is configured. Closes any previous
+    /// live transport. Failure leaves the session on the stub
+    /// client and surfaces the error via `lastError`.
+    func applyFapiSettings(for session: ActiveSession) async {
+        let prefs: Preferences
+        do {
+            prefs = try session.preferences.load()
+        } catch {
+            lastError = "Couldn't read preferences: \(error)"
+            return
+        }
+
+        // No FAPI configured → stub.
+        guard
+            let serviceStr = prefs.preferredFapiService,
+            let pubkeyHex = prefs.preferredFapiServicePubkeyHex,
+            let (host, port) = parseHostPort(serviceStr),
+            let pubkey = decodeHex(pubkeyHex), pubkey.count == 33
+        else {
+            tearDownLiveFapi()
+            return
+        }
+
+        let priv: Data
+        do {
+            priv = try session.mainPrikey()
+        } catch {
+            lastError = "Couldn't read main privkey: \(error)"
+            return
+        }
+
+        do {
+            let fudp = try await FudpClient(
+                host: host,
+                port: port,
+                peerPubkey: pubkey,
+                localPrivkey: priv
+            )
+            // Swap atomically: close old → assign new → publish.
+            liveFudpClient?.close()
+            liveFudpClient = fudp
+            session.setFapi(FapiClient(fudp: fudp))
+        } catch {
+            lastError = "FAPI connect failed: \(error)"
+            tearDownLiveFapi()
+        }
+    }
+
+    // MARK: - helpers
+
+    /// Parse "host:port" → (host, port). Tolerant of IPv6-style
+    /// `[::1]:8500` not yet — colon-split with `lastIndex(of:)` is
+    /// good enough for the localhost / hostname / IPv4 cases.
+    private func parseHostPort(_ s: String) -> (String, UInt16)? {
+        guard let colon = s.lastIndex(of: ":") else { return nil }
+        let host = String(s[s.startIndex..<colon])
+        let portStr = String(s[s.index(after: colon)..<s.endIndex])
+        guard let port = UInt16(portStr) else { return nil }
+        return (host, port)
+    }
+
+    /// Tiny inline hex parser. Returns nil on any malformed input.
+    /// Pulled inline because adding a public Data(hex:) extension
+    /// in FCCore would conflict with the test-only one — keeping
+    /// the API surface clean for now.
+    private func decodeHex(_ s: String) -> Data? {
+        guard s.count % 2 == 0 else { return nil }
+        var data = Data(capacity: s.count / 2)
+        var idx = s.startIndex
+        while idx < s.endIndex {
+            let next = s.index(idx, offsetBy: 2)
+            guard let b = UInt8(s[idx..<next], radix: 16) else { return nil }
+            data.append(b)
+            idx = next
+        }
+        return data
     }
 
     // MARK: - live-FID switching
