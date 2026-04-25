@@ -28,6 +28,9 @@ struct SettingsView: View {
     @State private var testing: Bool = false
     @State private var testResult: TestResult?
 
+    @State private var discovering: Bool = false
+    @State private var discoverError: String?
+
     enum TestResult: Equatable {
         case ok(String)
         case fail(String)
@@ -51,14 +54,38 @@ struct SettingsView: View {
                 TextField("Host", text: $fapiHost, prompt: Text("localhost"))
                 TextField("Port", text: $fapiPort, prompt: Text("8500"))
                     .frame(maxWidth: 140)
-                TextField("Server pubkey (66 hex chars)",
-                          text: $fapiPubkeyHex,
-                          prompt: Text("03cd14…"))
-                    .font(.system(.body, design: .monospaced))
+
+                HStack(spacing: 8) {
+                    TextField("Server pubkey (66 hex chars)",
+                              text: $fapiPubkeyHex,
+                              prompt: Text("03cd14…"))
+                        .font(.system(.body, design: .monospaced))
+
+                    Button {
+                        Task { await runDiscover() }
+                    } label: {
+                        if discovering {
+                            HStack(spacing: 4) {
+                                ProgressView().controlSize(.small)
+                                Text("Discovering…")
+                            }
+                        } else {
+                            Label("Discover", systemImage: "magnifyingglass")
+                        }
+                    }
+                    .disabled(discovering || !hostPortLooksValid)
+                    .help("Send a plaintext HELLO to the host:port and auto-fill the pubkey from the reply.")
+                }
+
                 if !fapiPubkeyHex.isEmpty, !pubkeyLooksValid(fapiPubkeyHex) {
                     Text("Pubkey must be 66 hex characters (33 SEC1-compressed bytes).")
                         .font(.caption)
                         .foregroundStyle(.red)
+                }
+                if let err = discoverError {
+                    Label(err, systemImage: "xmark.octagon.fill")
+                        .foregroundStyle(.red)
+                        .font(.caption)
                 }
 
                 HStack(spacing: 12) {
@@ -142,9 +169,11 @@ struct SettingsView: View {
     // MARK: - load / save / apply
 
     private var fapiFormLooksValid: Bool {
-        !fapiHost.isEmpty
-            && UInt16(fapiPort) != nil
-            && pubkeyLooksValid(fapiPubkeyHex)
+        hostPortLooksValid && pubkeyLooksValid(fapiPubkeyHex)
+    }
+
+    private var hostPortLooksValid: Bool {
+        !fapiHost.isEmpty && UInt16(fapiPort) != nil
     }
 
     private var canSave: Bool {
@@ -205,6 +234,29 @@ struct SettingsView: View {
             }
         } catch {
             saveError = String(describing: error)
+        }
+    }
+
+    // MARK: - discover
+
+    @MainActor
+    private func runDiscover() async {
+        discoverError = nil
+        guard let port = UInt16(fapiPort), !fapiHost.isEmpty else {
+            discoverError = "Need host and port first."
+            return
+        }
+        discovering = true
+        defer { discovering = false }
+        do {
+            let pubkey = try await FudpDiscovery.discoverPubkey(
+                host: fapiHost, port: port, timeoutMs: 3_000
+            )
+            // Display as lowercase hex — matches the canonical form
+            // produced by Hash.hex / our test fixtures.
+            fapiPubkeyHex = pubkey.map { String(format: "%02x", $0) }.joined()
+        } catch {
+            discoverError = "Discover failed: \(error)"
         }
     }
 
