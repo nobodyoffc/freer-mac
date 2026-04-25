@@ -1,5 +1,6 @@
 import SwiftUI
 import FCDomain
+import FCUI
 
 /// Lists all main FIDs in the unlocked Configure. Tapping one opens
 /// an ActiveSession for it; the "+" button takes the user to the
@@ -85,9 +86,7 @@ struct ChooseMainView: View {
                 }
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 32))
-                        .foregroundStyle(.blue)
+                    FidAvatarView(fid: info.fid, size: 44)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(info.label.isEmpty ? "Main FID" : info.label)
                             .font(.headline)

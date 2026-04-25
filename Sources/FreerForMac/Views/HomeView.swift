@@ -1,5 +1,6 @@
 import SwiftUI
 import FCDomain
+import FCUI
 
 /// The unlocked landing screen. Phase 5.7d ships a simple two-pane
 /// layout: sidebar of (currently inert) feature labels, and a detail
@@ -58,9 +59,18 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: 16) {
 
             HStack(spacing: 12) {
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 40))
-                    .foregroundStyle(session.canSign ? .blue : .orange)
+                FidAvatarView(fid: session.liveFid, size: 56)
+                    .overlay(
+                        // Tint a tiny corner badge so the can-sign /
+                        // watch-only state is still glanceable now
+                        // that the avatar replaced the colored icon.
+                        Circle()
+                            .fill(session.canSign ? Color.blue : Color.orange)
+                            .frame(width: 14, height: 14)
+                            .overlay(Circle().strokeBorder(Color(NSColor.windowBackgroundColor), lineWidth: 2))
+                            .offset(x: 18, y: 18),
+                        alignment: .topLeading
+                    )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(session.liveKeyInfo.label.isEmpty
                          ? "Live: \(session.liveKeyInfo.kind.rawValue)"

@@ -11,7 +11,13 @@ let package = Package(
         .package(path: "../FCCore")
     ],
     targets: [
-        .target(name: "FCUI", dependencies: ["FCCore"]),
+        .target(
+            name: "FCUI",
+            dependencies: ["FCCore"],
+            resources: [
+                .copy("Resources/avatar-elements")
+            ]
+        ),
         .testTarget(name: "FCUITests", dependencies: ["FCUI"])
     ]
 )
