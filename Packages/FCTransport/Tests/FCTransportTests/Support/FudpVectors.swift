@@ -16,6 +16,9 @@ enum FudpVectors {
         let paddingFrame: [PaddingFrameCase]
         let plaintextPayload: [PlaintextPayloadCase]
         let asyTwoWay: [AsyTwoWayCase]
+        let challengePacket: [ChallengePacketCase]
+        let challengeResponsePacket: [ChallengeResponsePacketCase]
+        let proofOfWork: [ProofOfWorkCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -28,6 +31,51 @@ enum FudpVectors {
             case paddingFrame = "padding_frame"
             case plaintextPayload = "plaintext_payload"
             case asyTwoWay = "asy_two_way"
+            case challengePacket = "challenge_packet"
+            case challengeResponsePacket = "challenge_response_packet"
+            case proofOfWork = "proof_of_work"
+        }
+    }
+
+    struct ChallengePacketCase: Decodable {
+        let label: String
+        let nonceHex: String
+        let difficulty: Int
+        let timestamp: Int64
+        let encodedHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label, difficulty, timestamp
+            case nonceHex = "nonce_hex"
+            case encodedHex = "encoded_hex"
+        }
+    }
+
+    struct ChallengeResponsePacketCase: Decodable {
+        let label: String
+        let nonceHex: String
+        let solutionHex: String
+        let encodedHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case nonceHex = "nonce_hex"
+            case solutionHex = "solution_hex"
+            case encodedHex = "encoded_hex"
+        }
+    }
+
+    struct ProofOfWorkCase: Decodable {
+        let nonceHex: String
+        let difficulty: Int
+        let solutionHex: String
+        let expectedHashHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case difficulty
+            case nonceHex = "nonce_hex"
+            case solutionHex = "solution_hex"
+            case expectedHashHex = "expected_hash_hex"
         }
     }
 

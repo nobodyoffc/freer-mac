@@ -120,6 +120,9 @@ public final class VectorGen {
         fudpRoot.add("padding_frame", buildPaddingFrameVectors());
         fudpRoot.add("plaintext_payload", buildPlaintextPayloadVectors());
         fudpRoot.add("asy_two_way", buildAsyTwoWayVectors());
+        fudpRoot.add("challenge_packet", buildChallengePayloadVectors());
+        fudpRoot.add("challenge_response_packet", buildChallengeResponsePayloadVectors());
+        fudpRoot.add("proof_of_work", buildProofOfWorkVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(cryptoOut.toAbsolutePath().getParent());
@@ -1183,6 +1186,165 @@ public final class VectorGen {
         gen.init(new org.bouncycastle.crypto.params.HKDFParameters(ikm, salt, info));
         byte[] out = new byte[length];
         gen.generateBytes(out, 0, length);
+        return out;
+    }
+
+    // FUDP DDoS vectors (Phase 4.5) ---------------------------------------
+    //
+    // CHALLENGE control-packet payload (26 bytes):
+    //   1B   CONTROL_CHALLENGE = 0x03
+    //   16B  nonce
+    //   1B   difficulty (UInt8)
+    //   8B   timestamp (BE Int64, System.currentTimeMillis on the wire)
+    //
+    // CHALLENGE_RESPONSE control-packet payload (25 bytes):
+    //   1B   CONTROL_CHALLENGE_RESPONSE = 0x04
+    //   16B  nonce (echoed from CHALLENGE)
+    //   8B   solution (BE Int64 — find s such that
+    //                  SHA-256(nonce || s) has ≥ difficulty leading zero bits;
+    //                  reference impl scans from 0 upward and returns the
+    //                  first valid s, so for fixed (nonce, difficulty) the
+    //                  result is deterministic).
+    //
+    // Wire-format constants live in
+    // FC-AJDK/.../fudp/security/IpVerifier.java (CONTROL_CHALLENGE,
+    // CONTROL_CHALLENGE_RESPONSE) and
+    // FC-AJDK/.../fudp/security/ProofOfWork.java (PoW algorithm).
+
+    private static final byte CONTROL_CHALLENGE = 0x03;
+    private static final byte CONTROL_CHALLENGE_RESPONSE = 0x04;
+
+    private static JsonArray buildChallengePayloadVectors() {
+        JsonArray arr = new JsonArray();
+        arr.add(challengeCase("low difficulty, fixed nonce",
+                Hex.decode("0102030405060708090a0b0c0d0e0f10"),
+                4, 1_700_000_000_000L));
+        arr.add(challengeCase("medium difficulty, all-zero nonce",
+                new byte[16], 12, 1_700_000_000_001L));
+        arr.add(challengeCase("max difficulty, pattern nonce",
+                patternBytes(16, (byte) 0xab), 24, 0L));
+        return arr;
+    }
+
+    private static JsonObject challengeCase(String label, byte[] nonce, int difficulty, long timestamp) {
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(26);
+        buf.put(CONTROL_CHALLENGE);
+        buf.put(nonce);
+        buf.put((byte) difficulty);
+        buf.putLong(timestamp);
+        byte[] payload = buf.array();
+
+        JsonObject o = new JsonObject();
+        o.addProperty("label", label);
+        o.addProperty("nonce_hex", Hex.toHexString(nonce));
+        o.addProperty("difficulty", difficulty);
+        o.addProperty("timestamp", timestamp);
+        o.addProperty("encoded_hex", Hex.toHexString(payload));
+        return o;
+    }
+
+    private static JsonArray buildChallengeResponsePayloadVectors() {
+        JsonArray arr = new JsonArray();
+        arr.add(challengeRespCase("fixed nonce + solution",
+                Hex.decode("0102030405060708090a0b0c0d0e0f10"),
+                Hex.decode("00000000deadbeef")));
+        arr.add(challengeRespCase("zero nonce, zero solution",
+                new byte[16], new byte[8]));
+        arr.add(challengeRespCase("max-byte nonce, max-byte solution",
+                patternBytes(16, (byte) 0xff),
+                patternBytes(8, (byte) 0xff)));
+        return arr;
+    }
+
+    private static JsonObject challengeRespCase(String label, byte[] nonce, byte[] solution) {
+        java.nio.ByteBuffer buf = java.nio.ByteBuffer.allocate(25);
+        buf.put(CONTROL_CHALLENGE_RESPONSE);
+        buf.put(nonce);
+        buf.put(solution);
+        byte[] payload = buf.array();
+
+        JsonObject o = new JsonObject();
+        o.addProperty("label", label);
+        o.addProperty("nonce_hex", Hex.toHexString(nonce));
+        o.addProperty("solution_hex", Hex.toHexString(solution));
+        o.addProperty("encoded_hex", Hex.toHexString(payload));
+        return o;
+    }
+
+    /// PoW vectors — the reference implementation scans solutions from 0
+    /// upward as a BE Int64 and returns the FIRST one that yields a hash
+    /// with ≥ difficulty leading zero bits. So given (nonce, difficulty)
+    /// the answer is deterministic; Swift must produce the same 8-byte
+    /// solution.
+    private static JsonArray buildProofOfWorkVectors() {
+        JsonArray arr = new JsonArray();
+        // Keep difficulties low so the generator runs fast.
+        arr.add(powCase(Hex.decode("0102030405060708090a0b0c0d0e0f10"), 8));
+        arr.add(powCase(Hex.decode("0102030405060708090a0b0c0d0e0f10"), 12));
+        arr.add(powCase(new byte[16], 8));
+        arr.add(powCase(patternBytes(16, (byte) 0x42), 12));
+        return arr;
+    }
+
+    private static JsonObject powCase(byte[] nonce, int difficulty) {
+        try {
+            byte[] solution = solveProofOfWork(nonce, difficulty);
+            byte[] hash = MessageDigest.getInstance("SHA-256")
+                    .digest(concat(nonce, solution));
+
+            JsonObject o = new JsonObject();
+            o.addProperty("nonce_hex", Hex.toHexString(nonce));
+            o.addProperty("difficulty", difficulty);
+            o.addProperty("solution_hex", Hex.toHexString(solution));
+            o.addProperty("expected_hash_hex", Hex.toHexString(hash));
+            return o;
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static byte[] solveProofOfWork(byte[] nonce, int difficulty) throws NoSuchAlgorithmException {
+        MessageDigest md = MessageDigest.getInstance("SHA-256");
+        long solution = 0;
+        byte[] solutionBytes = new byte[8];
+        while (true) {
+            // BE encoding (matches ProofOfWork.longToBytes).
+            solutionBytes[0] = (byte) (solution >>> 56);
+            solutionBytes[1] = (byte) (solution >>> 48);
+            solutionBytes[2] = (byte) (solution >>> 40);
+            solutionBytes[3] = (byte) (solution >>> 32);
+            solutionBytes[4] = (byte) (solution >>> 24);
+            solutionBytes[5] = (byte) (solution >>> 16);
+            solutionBytes[6] = (byte) (solution >>> 8);
+            solutionBytes[7] = (byte) solution;
+            md.reset();
+            md.update(nonce);
+            md.update(solutionBytes);
+            byte[] hash = md.digest();
+            if (countLeadingZeroBits(hash) >= difficulty) {
+                return solutionBytes.clone();
+            }
+            solution++;
+        }
+    }
+
+    private static int countLeadingZeroBits(byte[] bytes) {
+        int count = 0;
+        for (byte b : bytes) {
+            if (b == 0) {
+                count += 8;
+            } else {
+                count += Integer.numberOfLeadingZeros(b & 0xFF) - 24;
+                break;
+            }
+        }
+        return count;
+    }
+
+    private static byte[] concat(byte[] a, byte[] b) {
+        byte[] out = new byte[a.length + b.length];
+        System.arraycopy(a, 0, out, 0, a.length);
+        System.arraycopy(b, 0, out, a.length, b.length);
         return out;
     }
 

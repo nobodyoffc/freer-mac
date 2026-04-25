@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-25T05:33:48.912686Z",
+  "generated_at": "2026-04-25T08:00:38.782321Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (FUDP wire format mirrored from FC-JDK/src/main/java/fudp)",
   "quic_varint": [
@@ -269,6 +269,75 @@
       "shared_secret_hex": "2353fe312fdcf6cc8bd8057c4fb766fa38c014d9a5f641e2ca65c28e4fa8641b",
       "sym_key_hex": "eba7f89ea318b5948fcc2a40698e73cd6758313844a56bb5b47e388376172fa6",
       "bundle_hex": "00000000000402030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312aaabbccddeeff0011223344557a68cc3fb8f3fadf665f709461a2bd9bbc414237813241d107a4f2882efe0f0b52cff7801972a833ca05a8a7421880fd3dbd125482b3e87142a9e7583f406918ac2513879cb556cad04d6e342fcfa01641711150c5cc258d6fd7151caba82f3db11f6e30fa5318cdd7a8a8044c356babefbb84b4"
+    }
+  ],
+  "challenge_packet": [
+    {
+      "label": "low difficulty, fixed nonce",
+      "nonce_hex": "0102030405060708090a0b0c0d0e0f10",
+      "difficulty": 4,
+      "timestamp": 1700000000000,
+      "encoded_hex": "030102030405060708090a0b0c0d0e0f10040000018bcfe56800"
+    },
+    {
+      "label": "medium difficulty, all-zero nonce",
+      "nonce_hex": "00000000000000000000000000000000",
+      "difficulty": 12,
+      "timestamp": 1700000000001,
+      "encoded_hex": "03000000000000000000000000000000000c0000018bcfe56801"
+    },
+    {
+      "label": "max difficulty, pattern nonce",
+      "nonce_hex": "abababababababababababababababab",
+      "difficulty": 24,
+      "timestamp": 0,
+      "encoded_hex": "03abababababababababababababababab180000000000000000"
+    }
+  ],
+  "challenge_response_packet": [
+    {
+      "label": "fixed nonce + solution",
+      "nonce_hex": "0102030405060708090a0b0c0d0e0f10",
+      "solution_hex": "00000000deadbeef",
+      "encoded_hex": "040102030405060708090a0b0c0d0e0f1000000000deadbeef"
+    },
+    {
+      "label": "zero nonce, zero solution",
+      "nonce_hex": "00000000000000000000000000000000",
+      "solution_hex": "0000000000000000",
+      "encoded_hex": "04000000000000000000000000000000000000000000000000"
+    },
+    {
+      "label": "max-byte nonce, max-byte solution",
+      "nonce_hex": "ffffffffffffffffffffffffffffffff",
+      "solution_hex": "ffffffffffffffff",
+      "encoded_hex": "04ffffffffffffffffffffffffffffffffffffffffffffffff"
+    }
+  ],
+  "proof_of_work": [
+    {
+      "nonce_hex": "0102030405060708090a0b0c0d0e0f10",
+      "difficulty": 8,
+      "solution_hex": "0000000000000156",
+      "expected_hash_hex": "0019966d13198d4d8833bbb167a663fa4590a3335bfe8eba689916a09a867e4b"
+    },
+    {
+      "nonce_hex": "0102030405060708090a0b0c0d0e0f10",
+      "difficulty": 12,
+      "solution_hex": "0000000000001cd1",
+      "expected_hash_hex": "000845d5ff6647b4f1c1552f242a9dd09b46056efa4305fef6f36a7332810bfc"
+    },
+    {
+      "nonce_hex": "00000000000000000000000000000000",
+      "difficulty": 8,
+      "solution_hex": "00000000000000ed",
+      "expected_hash_hex": "006cf7b7feb9a26f82ffcd0e0630e9a080c3c67797021130dc90ca9b2d29c766"
+    },
+    {
+      "nonce_hex": "42424242424242424242424242424242",
+      "difficulty": 12,
+      "solution_hex": "00000000000019e1",
+      "expected_hash_hex": "000a134f5bbc9676c3c3e9e02f141ad0a2c4861f1d6d78200f27b10db9756c99"
     }
   ]
 }
