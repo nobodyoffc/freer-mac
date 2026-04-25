@@ -58,8 +58,8 @@ public struct KeysStore {
 
     private let inner: TypedStore<PubkeyRecord>
 
-    public init(_ identity: Identity) throws {
-        self.inner = TypedStore(kv: try identity.storage(), namespace: Self.namespace)
+    public init(kv: EncryptedKVStore) {
+        self.inner = TypedStore(kv: kv, namespace: Self.namespace)
     }
 
     /// Validate the (fid, pubkey) pair and store. Throws if the pubkey

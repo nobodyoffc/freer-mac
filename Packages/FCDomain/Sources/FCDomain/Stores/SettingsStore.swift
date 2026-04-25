@@ -54,8 +54,8 @@ public struct SettingsStore {
 
     private let inner: TypedStore<Settings>
 
-    public init(_ identity: Identity) throws {
-        self.inner = TypedStore(kv: try identity.storage(), namespace: Self.namespace)
+    public init(kv: EncryptedKVStore) {
+        self.inner = TypedStore(kv: kv, namespace: Self.namespace)
     }
 
     /// Load current settings, or return ``Settings/defaults`` on first read.

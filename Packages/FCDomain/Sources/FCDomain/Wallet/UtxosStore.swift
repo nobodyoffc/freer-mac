@@ -30,8 +30,8 @@ public struct UtxosStore {
 
     private let inner: TypedStore<UtxoSnapshot>
 
-    public init(_ identity: Identity) throws {
-        self.inner = TypedStore(kv: try identity.storage(), namespace: Self.namespace)
+    public init(kv: EncryptedKVStore) {
+        self.inner = TypedStore(kv: kv, namespace: Self.namespace)
     }
 
     public func snapshot(forAddress addr: String) throws -> UtxoSnapshot? {

@@ -177,31 +177,32 @@ public struct WalletService {
         }
     }
 
-    /// Send `amount` satoshis from `identity`'s address to `toFid`.
-    /// Refreshes UTXOs (or uses the cache when `useCache` is true and
-    /// a snapshot exists), runs greedy coin selection, builds the tx,
-    /// signs each P2PKH input, and broadcasts via `base.broadcastTx`.
+    /// Send `amount` satoshis from `fromAddress` to `toFid`. Caller
+    /// supplies the signing privkey for `fromAddress`. Refreshes UTXOs
+    /// (or uses the cache when `useCache` is true and a snapshot
+    /// exists), runs greedy coin selection, builds the tx, signs each
+    /// P2PKH input, and broadcasts via `base.broadcastTx`.
     ///
     /// `feePerByte` defaults to 1 sat/byte — FCH's relay default.
     /// Pass a higher rate for faster confirmation when the mempool
     /// is congested. Fee estimation via `base.estimateFee` will be
     /// wired in when the server endpoint stabilizes.
     public func send(
-        from identity: Identity,
+        fromAddress: String,
+        privkey: Data,
         to toFid: String,
         amount: Int64,
         feePerByte: Int64 = 1,
         useCache: Bool = false,
         timeoutMs: Int = 10_000
     ) async throws -> SendResult {
-        let fromAddr = identity.fid
 
         // 1. Get UTXOs.
         let snapshot: UtxoSnapshot
-        if useCache, let cached = try cachedSnapshot(forAddress: fromAddr) {
+        if useCache, let cached = try cachedSnapshot(forAddress: fromAddress) {
             snapshot = cached
         } else {
-            snapshot = try await refreshUtxos(forAddress: fromAddr, timeoutMs: timeoutMs)
+            snapshot = try await refreshUtxos(forAddress: fromAddress, timeoutMs: timeoutMs)
         }
 
         // 2. Coin select.
@@ -211,13 +212,12 @@ public struct WalletService {
 
         // 3. Build unsigned tx.
         let unsigned = try TxBuilder.buildUnsigned(
-            plan: plan, toFid: toFid, amount: amount, changeFid: fromAddr
+            plan: plan, toFid: toFid, amount: amount, changeFid: fromAddress
         )
 
         // 4. Sign each input. signP2pkhInput rebuilds the tx with the
         // single input filled; we feed the result back in for the
         // next index so the running tx state is current.
-        let privkey = try identity.privateKey()
         var signed = unsigned
         for (idx, utxo) in plan.selected.enumerated() {
             signed = try TxHandler.signP2pkhInput(

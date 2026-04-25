@@ -1,5 +1,6 @@
 import XCTest
 import FCCore
+import FCTransport
 @testable import FCDomain
 
 final class StoresTests: XCTestCase {
@@ -18,23 +19,32 @@ final class StoresTests: XCTestCase {
 
     // MARK: - helpers
 
-    /// Mint two distinct identities under one vault. Used to verify
-    /// per-identity isolation: writes to identity A must not be
-    /// visible from identity B.
-    private func makeTwoIdentities() throws -> (Identity, Identity, IdentityVault) {
-        let vault = try IdentityVault(baseDirectory: baseDir)
-        let a = try vault.register(passphrase: "alpha", displayName: "A", scheme: .legacySha256)
-        let b = try vault.register(passphrase: "beta",  displayName: "B", scheme: .legacySha256)
-        return (a, b, vault)
+    /// Two ActiveSessions under the same Configure (so the symkey is
+    /// shared but the per-main HKDF derivation gives them distinct
+    /// vault keys → per-main row isolation). Used to verify
+    /// cross-identity isolation: writes via `a` must not be visible
+    /// via `b`.
+    private func makeTwoSessions() throws -> (ActiveSession, ActiveSession) {
+        let mgr = try ConfigureManager(baseDirectory: baseDir)
+        let configure = try mgr.createConfigure(
+            password: Data("shared-pwd".utf8), kdfKind: .legacySha256
+        )
+        let aPriv = Data(repeating: 0xA1, count: 32)
+        let bPriv = Data(repeating: 0xB2, count: 32)
+        let aInfo = try configure.addMain(privkey: aPriv, label: "A")
+        let bInfo = try configure.addMain(privkey: bPriv, label: "B")
+        let a = try configure.unlockMain(fid: aInfo.fid, fapi: MockFapiClient())
+        let b = try configure.unlockMain(fid: bInfo.fid, fapi: MockFapiClient())
+        return (a, b)
     }
 
     // MARK: - Settings
 
     func testSettingsRoundTripAndDefaults() throws {
-        let (a, _, _) = try makeTwoIdentities()
-        let store = try SettingsStore(a)
+        let (a, _) = try makeTwoSessions()
+        let store = a.settings
 
-        // First read on a fresh identity returns defaults.
+        // First read on a fresh main returns defaults.
         let blank = try store.load()
         XCTAssertEqual(blank, Settings.defaults)
 
@@ -51,19 +61,20 @@ final class StoresTests: XCTestCase {
     }
 
     func testSettingsUpdateClosure() throws {
-        let (a, _, _) = try makeTwoIdentities()
-        let store = try SettingsStore(a)
+        let (a, _) = try makeTwoSessions()
+        let store = a.settings
         try store.save(Settings(autoLockSeconds: 300))
         let result = try store.update { $0.autoLockSeconds = 900 }
         XCTAssertEqual(result.autoLockSeconds, 900)
         XCTAssertEqual(try store.load().autoLockSeconds, 900)
     }
 
-    func testSettingsAreIsolatedPerIdentity() throws {
-        let (a, b, _) = try makeTwoIdentities()
-        try SettingsStore(a).save(Settings(theme: .dark))
-        // B never wrote anything → still defaults.
-        XCTAssertEqual(try SettingsStore(b).load(), Settings.defaults)
+    func testSettingsAreIsolatedPerMain() throws {
+        let (a, b) = try makeTwoSessions()
+        try a.settings.save(Settings(theme: .dark))
+        // B's per-main store has a distinct HKDF-derived key → distinct
+        // sqlite namespace → defaults for B.
+        XCTAssertEqual(try b.settings.load(), Settings.defaults)
     }
 
     // MARK: - Contacts
@@ -79,12 +90,12 @@ final class StoresTests: XCTestCase {
     }
 
     func testContactsUpsertAndDelete() throws {
-        let (a, _, _) = try makeTwoIdentities()
-        let store = try ContactsStore(a)
+        let (a, _) = try makeTwoSessions()
+        let store = a.contacts
 
-        let f1 = try realFid(byte: 0xA1)
-        let f2 = try realFid(byte: 0xA2)
-        let f3 = try realFid(byte: 0xA3)
+        let f1 = try realFid(byte: 0xC1)
+        let f2 = try realFid(byte: 0xC2)
+        let f3 = try realFid(byte: 0xC3)
 
         try store.upsert(Contact(fid: f1, nickname: "Friend1"))
         try store.upsert(Contact(fid: f2, nickname: "Friend2", pinnedAt: Date()))
@@ -107,15 +118,15 @@ final class StoresTests: XCTestCase {
         XCTAssertFalse(try store.remove(fid: f1)) // idempotent
     }
 
-    func testContactsAreIsolatedPerIdentity() throws {
-        let (a, b, _) = try makeTwoIdentities()
-        try ContactsStore(a).upsert(Contact(fid: try realFid(byte: 0xB0), nickname: "alice"))
-        XCTAssertEqual(try ContactsStore(b).all().count, 0)
+    func testContactsAreIsolatedPerMain() throws {
+        let (a, b) = try makeTwoSessions()
+        try a.contacts.upsert(Contact(fid: try realFid(byte: 0xD0), nickname: "alice"))
+        XCTAssertEqual(try b.contacts.all().count, 0)
     }
 
     func testContactsRejectsInvalidFid() throws {
-        let (a, _, _) = try makeTwoIdentities()
-        let store = try ContactsStore(a)
+        let (a, _) = try makeTwoSessions()
+        let store = a.contacts
         XCTAssertThrowsError(try store.upsert(Contact(fid: "not-a-fid", nickname: "x"))) { error in
             guard case ContactsStore.Failure.invalidFid = error else {
                 XCTFail("expected invalidFid, got \(error)"); return
@@ -127,8 +138,8 @@ final class StoresTests: XCTestCase {
     // MARK: - KeysStore (validation matters here)
 
     func testKeysStoreValidatesFidAgainstPubkey() throws {
-        let (a, _, _) = try makeTwoIdentities()
-        let store = try KeysStore(a)
+        let (a, _) = try makeTwoSessions()
+        let store = a.keys
 
         // Build a valid (fid, pubkey) pair from a known privkey.
         let privkey = Data(repeating: 0x42, count: 32)
@@ -142,8 +153,8 @@ final class StoresTests: XCTestCase {
     }
 
     func testKeysStoreRejectsMismatchedFid() throws {
-        let (a, _, _) = try makeTwoIdentities()
-        let store = try KeysStore(a)
+        let (a, _) = try makeTwoSessions()
+        let store = a.keys
 
         let privkey = Data(repeating: 0x77, count: 32)
         let pubkey = try Secp256k1.publicKey(fromPrivateKey: privkey)
@@ -158,8 +169,8 @@ final class StoresTests: XCTestCase {
     }
 
     func testKeysStoreRejectsBadPubkeyLength() throws {
-        let (a, _, _) = try makeTwoIdentities()
-        let store = try KeysStore(a)
+        let (a, _) = try makeTwoSessions()
+        let store = a.keys
         XCTAssertThrowsError(
             try store.upsert(PubkeyRecord(fid: "FAnything", pubkey: Data(repeating: 0x02, count: 32)))
         ) { error in
@@ -170,21 +181,32 @@ final class StoresTests: XCTestCase {
     }
 
     func testKeysStoreSurvivesLogout() throws {
-        // Persist via identity A, lock A, reopen via login → cache still readable.
-        let vault = try IdentityVault(baseDirectory: baseDir)
-        let a = try vault.register(passphrase: "secret", displayName: "A", scheme: .legacySha256)
-        let aFid = a.fid
+        // Persist via configure A unlocked, lock + reopen + unlock-main again,
+        // expect cached pubkey to still be readable.
+        let mgr = try ConfigureManager(baseDirectory: baseDir)
+        let configure = try mgr.createConfigure(
+            password: Data("logout-secret".utf8), kdfKind: .legacySha256
+        )
+        let aPriv = Data(repeating: 0xEE, count: 32)
+        let aMain = try configure.addMain(privkey: aPriv, label: "A")
+        let a = try configure.unlockMain(fid: aMain.fid, fapi: MockFapiClient())
 
-        let privkey = Data(repeating: 0x33, count: 32)
-        let peerPubkey = try Secp256k1.publicKey(fromPrivateKey: privkey)
-        let peerFid = try FchAddress(publicKey: peerPubkey).fid
+        let peerPriv = Data(repeating: 0x33, count: 32)
+        let peerPub  = try Secp256k1.publicKey(fromPrivateKey: peerPriv)
+        let peerFid  = try FchAddress(publicKey: peerPub).fid
 
-        try KeysStore(a).upsert(PubkeyRecord(fid: peerFid, pubkey: peerPubkey, nickname: "peer"))
-        a.lock()
+        try a.keys.upsert(PubkeyRecord(fid: peerFid, pubkey: peerPub, nickname: "peer"))
 
-        let a2 = try IdentityVault(baseDirectory: baseDir).login(fid: aFid, passphrase: "secret")
-        let restored = try XCTUnwrap(try KeysStore(a2).record(forFid: peerFid))
-        XCTAssertEqual(restored.pubkey, peerPubkey)
+        // Lock the configure → re-open via fresh manager → re-unlock main.
+        configure.lock()
+        let mgr2 = try ConfigureManager(baseDirectory: baseDir)
+        let cfg2 = try mgr2.openConfigure(
+            passwordName: configure.passwordName, password: Data("logout-secret".utf8)
+        )
+        let a2 = try cfg2.unlockMain(fid: aMain.fid, fapi: MockFapiClient())
+
+        let restored = try XCTUnwrap(try a2.keys.record(forFid: peerFid))
+        XCTAssertEqual(restored.pubkey, peerPub)
         XCTAssertEqual(restored.nickname, "peer")
     }
 }

@@ -57,8 +57,8 @@ public struct ContactsStore {
 
     private let inner: TypedStore<Contact>
 
-    public init(_ identity: Identity) throws {
-        self.inner = TypedStore(kv: try identity.storage(), namespace: Self.namespace)
+    public init(kv: EncryptedKVStore) {
+        self.inner = TypedStore(kv: kv, namespace: Self.namespace)
     }
 
     /// Insert or replace a contact. `updatedAt` is bumped so callers

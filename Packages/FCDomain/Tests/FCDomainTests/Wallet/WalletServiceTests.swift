@@ -145,27 +145,32 @@ final class WalletServiceTests: XCTestCase {
         try FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: baseDir) }
 
-        let vault = try IdentityVault(baseDirectory: baseDir)
-        let id = try vault.register(passphrase: "wal", displayName: "W", scheme: .legacySha256)
-        let utxosStore = try UtxosStore(id)
+        let mgr = try ConfigureManager(baseDirectory: baseDir)
+        let configure = try mgr.createConfigure(
+            password: Data("wal".utf8), kdfKind: .legacySha256
+        )
+        let mainInfo = try configure.addMain(
+            privkey: Data(repeating: 0x01, count: 32), label: "W"
+        )
+        let session = try configure.unlockMain(fid: mainInfo.fid, fapi: MockFapiClient())
 
         let mock = MockFapiClient()
         mock.responder = { _ in
             try makeResponse(data: [[
-                "addr": id.fid, "txId": "f00d", "index": 0, "amount": 2.0
+                "addr": session.mainFid, "txId": "f00d", "index": 0, "amount": 2.0
             ]])
         }
-        let svc = WalletService(fapi: mock, utxos: utxosStore)
-        _ = try await svc.refreshUtxos(forAddress: id.fid)
+        let svc = WalletService(fapi: mock, utxos: session.utxos)
+        _ = try await svc.refreshUtxos(forAddress: session.mainFid)
 
         // Cache survives via the store.
-        let cached = try utxosStore.snapshot(forAddress: id.fid)
+        let cached = try session.utxos.snapshot(forAddress: session.mainFid)
         XCTAssertEqual(cached?.utxos.count, 1)
         XCTAssertEqual(cached?.utxos[0].value, 200_000_000)
         XCTAssertEqual(cached?.totalValue, 200_000_000)
 
         // Also reachable through the service helper.
-        let viaSvc = try svc.cachedSnapshot(forAddress: id.fid)
+        let viaSvc = try svc.cachedSnapshot(forAddress: session.mainFid)
         XCTAssertEqual(viaSvc?.utxos[0].txid, "f00d")
     }
 
