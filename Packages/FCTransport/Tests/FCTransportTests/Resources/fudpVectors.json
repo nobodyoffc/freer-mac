@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-25T08:00:38.782321Z",
+  "generated_at": "2026-04-25T08:09:16.130459Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (FUDP wire format mirrored from FC-JDK/src/main/java/fudp)",
   "quic_varint": [
@@ -338,6 +338,96 @@
       "difficulty": 12,
       "solution_hex": "00000000000019e1",
       "expected_hash_hex": "000a134f5bbc9676c3c3e9e02f141ad0a2c4861f1d6d78200f27b10db9756c99"
+    }
+  ],
+  "app_message": [
+    {
+      "label": "ping at fixed timestamp",
+      "type_code": 48,
+      "message_id": 72623859790382856,
+      "flags": 0,
+      "payload_hex": "0000018bcfe56800",
+      "encoded_hex": "30010203040506070800080000018bcfe56800",
+      "kind": "ping",
+      "timestamp": 1700000000000
+    },
+    {
+      "label": "ping with want-pong-info",
+      "type_code": 48,
+      "message_id": 42,
+      "flags": 16,
+      "payload_hex": "0000018bcfe56801",
+      "encoded_hex": "30000000000000002a10080000018bcfe56801",
+      "kind": "ping",
+      "timestamp": 1700000000001
+    },
+    {
+      "label": "pong, no info",
+      "type_code": 49,
+      "message_id": 42,
+      "flags": 0,
+      "payload_hex": "0000018bcfe568010000018bcfe5680500",
+      "encoded_hex": "31000000000000002a00110000018bcfe568010000018bcfe5680500",
+      "kind": "pong",
+      "echo_timestamp": 1700000000001,
+      "reply_timestamp": 1700000000005,
+      "info_hex": ""
+    },
+    {
+      "label": "pong with 8 info bytes",
+      "type_code": 49,
+      "message_id": 7,
+      "flags": 0,
+      "payload_hex": "0000018bcfe5680a0000018bcfe5681408deadbeefcafebabe",
+      "encoded_hex": "31000000000000000700190000018bcfe5680a0000018bcfe5681408deadbeefcafebabe",
+      "kind": "pong",
+      "echo_timestamp": 1700000000010,
+      "reply_timestamp": 1700000000020,
+      "info_hex": "deadbeefcafebabe"
+    },
+    {
+      "label": "request to ping service",
+      "type_code": 16,
+      "message_id": 100,
+      "flags": 0,
+      "payload_hex": "096e6f64652e70696e6768656c6c6f",
+      "encoded_hex": "100000000000000064000f096e6f64652e70696e6768656c6c6f",
+      "kind": "request",
+      "sid": "node.ping",
+      "data_hex": "68656c6c6f"
+    },
+    {
+      "label": "request with empty body",
+      "type_code": 16,
+      "message_id": 101,
+      "flags": 0,
+      "payload_hex": "10757365722e70726f66696c652e676574",
+      "encoded_hex": "100000000000000065001110757365722e70726f66696c652e676574",
+      "kind": "request",
+      "sid": "user.profile.get",
+      "data_hex": ""
+    },
+    {
+      "label": "response 0 (success) with body",
+      "type_code": 17,
+      "message_id": 100,
+      "flags": 0,
+      "payload_hex": "0000776f726c64",
+      "encoded_hex": "11000000000000006400070000776f726c64",
+      "kind": "response",
+      "status_code": 0,
+      "data_hex": "776f726c64"
+    },
+    {
+      "label": "response 404 not found, empty body",
+      "type_code": 17,
+      "message_id": 999,
+      "flags": 0,
+      "payload_hex": "0194",
+      "encoded_hex": "1100000000000003e700020194",
+      "kind": "response",
+      "status_code": 404,
+      "data_hex": ""
     }
   ]
 }

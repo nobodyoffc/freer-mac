@@ -19,6 +19,7 @@ enum FudpVectors {
         let challengePacket: [ChallengePacketCase]
         let challengeResponsePacket: [ChallengeResponsePacketCase]
         let proofOfWork: [ProofOfWorkCase]
+        let appMessage: [AppMessageCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -34,6 +35,41 @@ enum FudpVectors {
             case challengePacket = "challenge_packet"
             case challengeResponsePacket = "challenge_response_packet"
             case proofOfWork = "proof_of_work"
+            case appMessage = "app_message"
+        }
+    }
+
+    struct AppMessageCase: Decodable {
+        let label: String
+        let kind: String
+        let typeCode: UInt8
+        let messageId: Int64
+        let flags: UInt8
+        let payloadHex: String
+        let encodedHex: String
+
+        let timestamp: Int64?
+
+        let echoTimestamp: Int64?
+        let replyTimestamp: Int64?
+        let infoHex: String?
+
+        let sid: String?
+        let dataHex: String?
+
+        let statusCode: UInt16?
+
+        enum CodingKeys: String, CodingKey {
+            case label, kind, flags, timestamp, sid
+            case typeCode = "type_code"
+            case messageId = "message_id"
+            case payloadHex = "payload_hex"
+            case encodedHex = "encoded_hex"
+            case echoTimestamp = "echo_timestamp"
+            case replyTimestamp = "reply_timestamp"
+            case infoHex = "info_hex"
+            case dataHex = "data_hex"
+            case statusCode = "status_code"
         }
     }
 

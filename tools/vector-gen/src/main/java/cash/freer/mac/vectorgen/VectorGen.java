@@ -123,6 +123,7 @@ public final class VectorGen {
         fudpRoot.add("challenge_packet", buildChallengePayloadVectors());
         fudpRoot.add("challenge_response_packet", buildChallengeResponsePayloadVectors());
         fudpRoot.add("proof_of_work", buildProofOfWorkVectors());
+        fudpRoot.add("app_message", buildAppMessageVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(cryptoOut.toAbsolutePath().getParent());
@@ -1187,6 +1188,177 @@ public final class VectorGen {
         byte[] out = new byte[length];
         gen.generateBytes(out, 0, length);
         return out;
+    }
+
+    // FAPI message-layer vectors (Phase 4.6) ------------------------------
+    //
+    // Common AppMessage envelope:
+    //   1B   type code (REQUEST=0x10, RESPONSE=0x11, ERROR=0x12,
+    //                   NOTIFY=0x20, NOTIFY_ACK=0x21,
+    //                   PING=0x30, PONG=0x31)
+    //   8B   messageId (BE Int64)
+    //   1B   flags
+    //   varint  payloadLength (QUIC-style varint)
+    //   N B  payload (per-type)
+    //
+    // Per-type payloads encoded here:
+    //   PING:     8B echoTimestamp (BE Int64)
+    //   PONG:     8B echoTimestamp (BE) + 8B replyTimestamp (BE) +
+    //             varint(infoLen) + info
+    //   REQUEST:  varint(sidLen) + sid (UTF-8) + data
+    //   RESPONSE: 2B statusCode (BE UInt16) + data
+
+    private static final int MSG_TYPE_REQUEST   = 0x10;
+    private static final int MSG_TYPE_RESPONSE  = 0x11;
+    private static final int MSG_TYPE_PING      = 0x30;
+    private static final int MSG_TYPE_PONG      = 0x31;
+
+    private static JsonArray buildAppMessageVectors() {
+        JsonArray arr = new JsonArray();
+
+        // PING — bare 8-byte timestamp.
+        arr.add(pingCase("ping at fixed timestamp",
+                /*messageId*/ 0x0102030405060708L,
+                /*flags*/ 0,
+                /*timestamp*/ 1_700_000_000_000L));
+
+        // PING with WANT_PONG_INFO flag set.
+        arr.add(pingCase("ping with want-pong-info",
+                42L,
+                /*flags*/ 0x10,  // FLAG_WANT_PONG_INFO
+                1_700_000_000_001L));
+
+        // PONG — echo + reply ts + 0-byte info.
+        arr.add(pongCase("pong, no info",
+                42L, 0,
+                1_700_000_000_001L,  // echo
+                1_700_000_000_005L,  // reply (4ms after)
+                new byte[0]));
+
+        // PONG with info bytes.
+        arr.add(pongCase("pong with 8 info bytes",
+                7L, 0,
+                1_700_000_000_010L,
+                1_700_000_000_020L,
+                Hex.decode("deadbeefcafebabe")));
+
+        // REQUEST — sid + body.
+        arr.add(requestCase("request to ping service",
+                100L, 0,
+                "node.ping",
+                "hello".getBytes(StandardCharsets.UTF_8)));
+
+        // REQUEST with empty body and longer sid.
+        arr.add(requestCase("request with empty body",
+                101L, 0,
+                "user.profile.get",
+                new byte[0]));
+
+        // RESPONSE — success with payload.
+        arr.add(responseCase("response 0 (success) with body",
+                100L, 0,
+                /*status*/ 0,
+                "world".getBytes(StandardCharsets.UTF_8)));
+
+        // RESPONSE — 404 with empty body.
+        arr.add(responseCase("response 404 not found, empty body",
+                999L, 0,
+                404,
+                new byte[0]));
+
+        return arr;
+    }
+
+    private static JsonObject appMessageBase(String label, int typeCode, long messageId, int flags, byte[] payload) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            out.write(typeCode);
+            java.nio.ByteBuffer idBuf = java.nio.ByteBuffer.allocate(8);
+            idBuf.putLong(messageId);
+            out.write(idBuf.array());
+            out.write(flags);
+            out.write(quicVarint(payload.length));
+            out.write(payload);
+
+            JsonObject o = new JsonObject();
+            o.addProperty("label", label);
+            o.addProperty("type_code", typeCode);
+            o.addProperty("message_id", messageId);
+            o.addProperty("flags", flags);
+            o.addProperty("payload_hex", Hex.toHexString(payload));
+            o.addProperty("encoded_hex", Hex.toHexString(out.toByteArray()));
+            return o;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static JsonObject pingCase(String label, long messageId, int flags, long timestamp) {
+        java.nio.ByteBuffer payload = java.nio.ByteBuffer.allocate(8);
+        payload.putLong(timestamp);
+        JsonObject o = appMessageBase(label, MSG_TYPE_PING, messageId, flags, payload.array());
+        o.addProperty("kind", "ping");
+        o.addProperty("timestamp", timestamp);
+        return o;
+    }
+
+    private static JsonObject pongCase(String label, long messageId, int flags, long echoTimestamp, long replyTimestamp, byte[] info) {
+        try {
+            ByteArrayOutputStream payload = new ByteArrayOutputStream();
+            java.nio.ByteBuffer ts = java.nio.ByteBuffer.allocate(16);
+            ts.putLong(echoTimestamp);
+            ts.putLong(replyTimestamp);
+            payload.write(ts.array());
+            payload.write(quicVarint(info.length));
+            payload.write(info);
+            JsonObject o = appMessageBase(label, MSG_TYPE_PONG, messageId, flags, payload.toByteArray());
+            o.addProperty("kind", "pong");
+            o.addProperty("echo_timestamp", echoTimestamp);
+            o.addProperty("reply_timestamp", replyTimestamp);
+            o.addProperty("info_hex", Hex.toHexString(info));
+            return o;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static JsonObject requestCase(String label, long messageId, int flags, String sid, byte[] data) {
+        try {
+            ByteArrayOutputStream payload = new ByteArrayOutputStream();
+            byte[] sidBytes = sid.getBytes(StandardCharsets.UTF_8);
+            payload.write(quicVarint(sidBytes.length));
+            payload.write(sidBytes);
+            payload.write(data);
+            JsonObject o = appMessageBase(label, MSG_TYPE_REQUEST, messageId, flags, payload.toByteArray());
+            o.addProperty("kind", "request");
+            o.addProperty("sid", sid);
+            o.addProperty("data_hex", Hex.toHexString(data));
+            return o;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static JsonObject responseCase(String label, long messageId, int flags, int statusCode, byte[] data) {
+        try {
+            ByteArrayOutputStream payload = new ByteArrayOutputStream();
+            java.nio.ByteBuffer status = java.nio.ByteBuffer.allocate(2);
+            status.putShort((short) statusCode);
+            payload.write(status.array());
+            payload.write(data);
+            JsonObject o = appMessageBase(label, MSG_TYPE_RESPONSE, messageId, flags, payload.toByteArray());
+            o.addProperty("kind", "response");
+            o.addProperty("status_code", statusCode);
+            o.addProperty("data_hex", Hex.toHexString(data));
+            return o;
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static byte[] quicVarint(long value) {
+        // FUDP uses QUIC-style varints inside FAPI message-payload-length too.
+        return FudpRef.varintEncode(value);
     }
 
     // FUDP DDoS vectors (Phase 4.5) ---------------------------------------
