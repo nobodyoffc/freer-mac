@@ -188,12 +188,16 @@ Subphase budgets: handshake 2d, datagram + crypto 2d, congestion/retry 2d, FAPI 
 | 6.2 | Wire a real `FapiClient` factory into `AppState` (replacing `StubFapiClient`); WIF privkey import (`L`-prefix Base58Check → `IdentityVault.registerWithPrivkey`). | next |
 | 6.3 | Auto-lock via `ScenePhase`, About panel polish, Dock badge. | |
 
-### Phase 7 — Wallet features · 6d
-- `AccountView` — send / receive / expense / income / import / reorg (cash UTXOs)
-- `TxView` — create / send / carve / show-JSON
-- `MyKeysView` — random-new / create-by-phrase (**no mnemonic**) / find-nice (vanity)
-- `MultisigView` — create-id / sign-tx / detail
-- `QRView` — scan via `AVCaptureMetadataOutput`, display via `CIFilter.qrCodeGenerator`
+### Phase 7 — Wallet features · 6d · in progress
+
+| # | Scope | Status |
+|---|---|---|
+| 7.1 | Sidebar-driven nav scaffold — `WalletPane` enum, selectable sidebar in `HomeView`, six pane shells (Overview, Send, Receive, Transactions, Contacts, Settings). `OverviewView` has a balance card with a Refresh action that surfaces the stub error inline. `ReceiveView` shows the live FID big with Copy. `SettingsView` form for FAPI host/port/pubkey/theme/auto-lock, persists to per-main `PreferencesStore`. Send/Transactions/Contacts are labeled empty-state panes. Renamed FCDomain `Settings`→`Preferences` and `SettingsStore`→`PreferencesStore` to dodge the SwiftUI `Settings` Scene collision. | ✅ |
+| 7.2 | Live `FapiClient` plumbing — read host/port/pubkey from preferences, build a real `FapiClient` over `FudpClient`, swap into `ActiveSession.fapi`. "Test connection" button on Settings runs `base.health` against the configured server. | next |
+| 7.3 | Real Send flow — recipient FID + amount form, signs via `WalletService.sendFromLive`, broadcast via `base.broadcastTx`. Watch-only fallback exports unsigned `TxInfo` for cold signing. | |
+| 7.4 | Transactions history — paged search of the Cash index, expand-to-JSON detail. | |
+| 7.5 | Contacts CRUD on top of `ContactsStore` + cached pubkey lookups. | |
+| 7.6 | QR — `CIFilter.qrCodeGenerator` for receive, `AVCaptureMetadataOutput` for scan. | |
 
 ### Phase 8 — Smaller features · 3d
 - `ToolsView` — encrypt / decrypt / sign-msg / verify / totp / hash / random-bytes

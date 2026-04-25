@@ -173,7 +173,7 @@ public final class ActiveSession {
 
     // MARK: - lazy domain services
 
-    public lazy var settings: SettingsStore = SettingsStore(kv: storage)
+    public lazy var preferences: PreferencesStore = PreferencesStore(kv: storage)
     public lazy var contacts: ContactsStore = ContactsStore(kv: storage)
     public lazy var keys: KeysStore        = KeysStore(kv: storage)
     public lazy var utxos: UtxosStore      = UtxosStore(kv: storage)

@@ -7,9 +7,9 @@ import FCStorage
 /// and the next save fills it in.
 ///
 /// Anything that's *secret* (privkeys, passphrases) does NOT go here —
-/// the encryption is automatic but the Settings struct is meant to be
+/// the encryption is automatic but the Preferences struct is meant to be
 /// audit-grade boring. Secrets live in dedicated stores.
-public struct Settings: Codable, Equatable, Sendable {
+public struct Preferences: Codable, Equatable, Sendable {
 
     public var version: Int
     /// Default FAPI service the wallet talks to: `"<host>:<port>"`. The
@@ -41,36 +41,36 @@ public struct Settings: Codable, Equatable, Sendable {
         self.autoLockSeconds = autoLockSeconds
     }
 
-    public static let defaults = Settings()
+    public static let defaults = Preferences()
 }
 
-/// Read/write the per-identity ``Settings`` row. Single-key store
+/// Read/write the per-identity ``Preferences`` row. Single-key store
 /// (`namespace=settings, key=app`) — the whole struct is one blob, so
 /// updates are atomic at the row level.
-public struct SettingsStore {
+public struct PreferencesStore {
 
     public static let namespace = "settings"
     public static let key = "app"
 
-    private let inner: TypedStore<Settings>
+    private let inner: TypedStore<Preferences>
 
     public init(kv: EncryptedKVStore) {
         self.inner = TypedStore(kv: kv, namespace: Self.namespace)
     }
 
-    /// Load current settings, or return ``Settings/defaults`` on first read.
-    public func load() throws -> Settings {
+    /// Load current settings, or return ``Preferences/defaults`` on first read.
+    public func load() throws -> Preferences {
         try inner.get(Self.key) ?? .defaults
     }
 
-    public func save(_ settings: Settings) throws {
+    public func save(_ settings: Preferences) throws {
         try inner.put(settings, key: Self.key)
     }
 
     /// Read-modify-write helper. The mutation runs in-process; if you
     /// expect concurrent writers, serialize them at a higher layer.
     @discardableResult
-    public func update(_ mutate: (inout Settings) throws -> Void) throws -> Settings {
+    public func update(_ mutate: (inout Preferences) throws -> Void) throws -> Preferences {
         var current = try load()
         try mutate(&current)
         try save(current)

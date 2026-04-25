@@ -38,17 +38,17 @@ final class StoresTests: XCTestCase {
         return (a, b)
     }
 
-    // MARK: - Settings
+    // MARK: - Preferences
 
-    func testSettingsRoundTripAndDefaults() throws {
+    func testPreferencesRoundTripAndDefaults() throws {
         let (a, _) = try makeTwoSessions()
-        let store = a.settings
+        let store = a.preferences
 
         // First read on a fresh main returns defaults.
         let blank = try store.load()
-        XCTAssertEqual(blank, Settings.defaults)
+        XCTAssertEqual(blank, Preferences.defaults)
 
-        try store.save(Settings(
+        try store.save(Preferences(
             preferredFapiService: "fapi.example:8500",
             preferredFapiServicePubkeyHex: "03cd14...",
             theme: .dark,
@@ -60,21 +60,21 @@ final class StoresTests: XCTestCase {
         XCTAssertEqual(loaded.autoLockSeconds, 600)
     }
 
-    func testSettingsUpdateClosure() throws {
+    func testPreferencesUpdateClosure() throws {
         let (a, _) = try makeTwoSessions()
-        let store = a.settings
-        try store.save(Settings(autoLockSeconds: 300))
+        let store = a.preferences
+        try store.save(Preferences(autoLockSeconds: 300))
         let result = try store.update { $0.autoLockSeconds = 900 }
         XCTAssertEqual(result.autoLockSeconds, 900)
         XCTAssertEqual(try store.load().autoLockSeconds, 900)
     }
 
-    func testSettingsAreIsolatedPerMain() throws {
+    func testPreferencesAreIsolatedPerMain() throws {
         let (a, b) = try makeTwoSessions()
-        try a.settings.save(Settings(theme: .dark))
+        try a.preferences.save(Preferences(theme: .dark))
         // B's per-main store has a distinct HKDF-derived key → distinct
         // sqlite namespace → defaults for B.
-        XCTAssertEqual(try b.settings.load(), Settings.defaults)
+        XCTAssertEqual(try b.preferences.load(), Preferences.defaults)
     }
 
     // MARK: - Contacts

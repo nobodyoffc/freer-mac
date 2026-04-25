@@ -2,21 +2,22 @@ import SwiftUI
 import FCDomain
 import FCUI
 
-/// The unlocked landing screen. Two-pane layout: sidebar of (currently
-/// inert) feature labels, and a detail pane that shows the live FID.
-/// The window's top-right toolbar holds Switch-live-FID, Switch-
-/// identity, and Lock-vault as icon buttons — that lets the header
-/// breathe and stops the FID from wrapping into the buttons.
-/// Phase 7 fills the detail pane with real wallet UI.
+/// The unlocked landing screen. Sidebar-driven `NavigationSplitView`:
+/// the sidebar selects a ``WalletPane``, the detail pane swaps based
+/// on it. The window's top-right toolbar holds Switch-live-FID,
+/// Switch-identity, and Lock-vault as icon buttons (so the detail
+/// content is free to use its own column space).
 struct HomeView: View {
     @Environment(AppState.self) private var appState
+
+    @State private var selection: WalletPane = .overview
 
     var body: some View {
         if let session = appState.activeSession {
             content(for: session)
         } else {
-            // Defensive: shouldn't happen because the router only
-            // shows this view when activeSession exists.
+            // Defensive: shouldn't happen — the router only shows
+            // this view when activeSession is non-nil.
             VStack {
                 Text("No active session.")
                 Button("Back to vault") { appState.lockAll() }
@@ -37,24 +38,68 @@ struct HomeView: View {
     }
 
     private var sidebar: some View {
-        List {
+        List(selection: $selection) {
             Section("Wallet") {
-                Label("Overview", systemImage: "house")
-                Label("Send", systemImage: "paperplane")
-                    .foregroundStyle(.secondary)
-                Label("Receive", systemImage: "tray.and.arrow.down")
-                    .foregroundStyle(.secondary)
-                Label("Transactions", systemImage: "list.bullet")
-                    .foregroundStyle(.secondary)
+                ForEach([WalletPane.overview, .send, .receive, .transactions]) { pane in
+                    Label(pane.title, systemImage: pane.systemImage).tag(pane)
+                }
             }
             Section("Network") {
-                Label("Contacts", systemImage: "person.2")
-                    .foregroundStyle(.secondary)
-                Label("Settings", systemImage: "gearshape")
-                    .foregroundStyle(.secondary)
+                ForEach([WalletPane.contacts, .settings]) { pane in
+                    Label(pane.title, systemImage: pane.systemImage).tag(pane)
+                }
             }
         }
         .listStyle(.sidebar)
+    }
+
+    @ViewBuilder
+    private func detail(for session: ActiveSession) -> some View {
+        switch selection {
+        case .overview:
+            OverviewView(session: session)
+        case .send:
+            PlaceholderPaneView(
+                session: session,
+                title: "Send",
+                systemImage: "paperplane",
+                summary: "Build a signed FCH transaction and broadcast it via base.broadcastTx. Lands in Phase 7.2.",
+                bullets: [
+                    "Recipient FID + amount entry",
+                    "Greedy coin selection from the cached UTXO set",
+                    "Signed locally via FCCore.TxHandler — never leaves your Mac unsigned",
+                    "Watch-only fallback: export an unsigned TxInfo for cold signing"
+                ]
+            )
+        case .receive:
+            ReceiveView(session: session)
+        case .transactions:
+            PlaceholderPaneView(
+                session: session,
+                title: "Transactions",
+                systemImage: "list.bullet",
+                summary: "History of inbound and outbound txs for the live FID. Lands in Phase 7.3.",
+                bullets: [
+                    "Pulled via base.search on the Cash index, paged with `last`",
+                    "Each row shows direction, counterparty, amount, height, timestamp",
+                    "Tap to expand → raw tx JSON + explorer link"
+                ]
+            )
+        case .contacts:
+            PlaceholderPaneView(
+                session: session,
+                title: "Contacts",
+                systemImage: "person.2",
+                summary: "Address book of FIDs you transact with — backed by the per-main ContactsStore.",
+                bullets: [
+                    "Add by FID (validated via FchAddress on insert)",
+                    "Pin frequently-used contacts to the top",
+                    "Cached pubkey lookups so sends to known peers skip a roundtrip"
+                ]
+            )
+        case .settings:
+            SettingsView(session: session)
+        }
     }
 
     @ToolbarContentBuilder
@@ -80,7 +125,6 @@ struct HomeView: View {
             .disabled(switchableEntries(in: session).count < 2)
 
             // Drop the active session, return to ChooseMain.
-            // Configure stays unlocked.
             Button {
                 appState.returnToChooseMain()
             } label: {
@@ -99,80 +143,8 @@ struct HomeView: View {
         }
     }
 
-    @ViewBuilder
-    private func detail(for session: ActiveSession) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+    // MARK: - helpers
 
-            HStack(alignment: .center, spacing: 14) {
-                FidAvatarView(fid: session.liveFid, size: 56)
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(session.liveKeyInfo.label.isEmpty
-                         ? "Live: \(session.liveKeyInfo.kind.rawValue)"
-                         : session.liveKeyInfo.label)
-                        .font(.title2).bold()
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-
-                    Text(session.liveFid)
-                        .font(.system(.callout, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-
-                    HStack(spacing: 6) {
-                        Image(systemName: session.canSign ? "key.fill" : "eye")
-                        Text(session.canSign
-                             ? "\(session.liveKeyInfo.kind.rawValue) — can sign"
-                             : "\(session.liveKeyInfo.kind.rawValue) — watch only")
-                    }
-                    .font(.caption)
-                    .foregroundStyle(session.canSign ? Color.blue : Color.orange)
-                }
-
-                Spacer(minLength: 0)
-            }
-
-            Divider()
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Phase 5.8 landing").font(.headline)
-                Text(
-                    """
-                    Avatar module is wired. Vault → Main FID → Live FID — \
-                    switching live without re-auth, watch-only sub-identities \
-                    blocked from operations that need a privkey.
-
-                    Phase 7 fills this pane with the real wallet UI:
-                    • balance + UTXO list (`base.balanceByIds`, `base.getUtxo`)
-                    • send (FCH transactions, signed locally)
-                    • receive (QR + address)
-                    • transaction history
-                    • contacts management
-
-                    Networking is currently stubbed (`StubFapiClient` throws on \
-                    every call). The `FudpClient` / `FapiClient` plumbing is \
-                    already in `FCTransport`; the real client wires in once we \
-                    have the FAPI server's pubkey for `localhost:8500`.
-                    """
-                )
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding()
-            .background(Color(NSColor.controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            Spacer()
-        }
-        .padding()
-        .frame(minWidth: 480)
-    }
-
-    /// All FIDs in `setting.keyInfoMap` that the user can pivot the
-    /// live cursor to: the main itself plus every sub-identity. Sorted
-    /// with main first.
     private func switchableEntries(in session: ActiveSession) -> [KeyInfo] {
         let entries = Array(session.setting.keyInfoMap.values)
         return entries.sorted { lhs, rhs in
