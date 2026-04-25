@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-25T05:20:18.063213Z",
+  "generated_at": "2026-04-25T05:33:48.912686Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (FUDP wire format mirrored from FC-JDK/src/main/java/fudp)",
   "quic_varint": [
@@ -207,6 +207,68 @@
         "010a45dc0104"
       ],
       "encoded_hex": "010a45dc0104"
+    }
+  ],
+  "asy_two_way": [
+    {
+      "label": "alice → bob, no AAD",
+      "local_privkey_hex": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575",
+      "local_pubkey_hex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",
+      "peer_pubkey_hex": "0324653eac434488002cc06bbfb7f10fe18991e35f9fe4302dbea6d2353dc0ab1c",
+      "iv_hex": "000102030405060708090a0b",
+      "plaintext_hex": "48656c6c6f2066726f6d20416c696365",
+      "aad_hex": "",
+      "shared_secret_hex": "2353fe312fdcf6cc8bd8057c4fb766fa38c014d9a5f641e2ca65c28e4fa8641b",
+      "sym_key_hex": "f9e07e16fb13247dca9798f716b385fa16f606a923adc6b268e8184bed56e04c",
+      "bundle_hex": "00000000000402030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a000102030405060708090a0be1dc80adc69358ce4211b09fefb2bc2277e00d852e4280c8fb8ca68c49cb08f3"
+    },
+    {
+      "label": "alice → bob, with 21B header AAD (F1 simulated)",
+      "local_privkey_hex": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575",
+      "local_pubkey_hex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",
+      "peer_pubkey_hex": "0324653eac434488002cc06bbfb7f10fe18991e35f9fe4302dbea6d2353dc0ab1c",
+      "iv_hex": "aabbccddeeff001122334455",
+      "plaintext_hex": "617574682d626f756e64207061796c6f6164",
+      "aad_hex": "60000000010000000000000007000000000000002a",
+      "shared_secret_hex": "2353fe312fdcf6cc8bd8057c4fb766fa38c014d9a5f641e2ca65c28e4fa8641b",
+      "sym_key_hex": "eba7f89ea318b5948fcc2a40698e73cd6758313844a56bb5b47e388376172fa6",
+      "bundle_hex": "00000000000402030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312aaabbccddeeff0011223344556c6acf20e2e6e2dd7f4c279377aca683aa52236dbe7a51186af2996c090eaab48572"
+    },
+    {
+      "label": "bob → alice (reversed direction)",
+      "local_privkey_hex": "4242424242424242424242424242424242424242424242424242424242424242",
+      "local_pubkey_hex": "0324653eac434488002cc06bbfb7f10fe18991e35f9fe4302dbea6d2353dc0ab1c",
+      "peer_pubkey_hex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",
+      "iv_hex": "000102030405060708090a0b",
+      "plaintext_hex": "48656c6c6f206261636b2066726f6d20426f62",
+      "aad_hex": "",
+      "shared_secret_hex": "2353fe312fdcf6cc8bd8057c4fb766fa38c014d9a5f641e2ca65c28e4fa8641b",
+      "sym_key_hex": "f9e07e16fb13247dca9798f716b385fa16f606a923adc6b268e8184bed56e04c",
+      "bundle_hex": "000000000004020324653eac434488002cc06bbfb7f10fe18991e35f9fe4302dbea6d2353dc0ab1c000102030405060708090a0be1dc80adc6935cdd4e17b0b8f1b4b267a0f8f89084b03c80534e83cf5bec2b2399f0e8"
+    },
+    {
+      "label": "alice → bob, empty plaintext (auth-only) with AAD",
+      "local_privkey_hex": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575",
+      "local_pubkey_hex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",
+      "peer_pubkey_hex": "0324653eac434488002cc06bbfb7f10fe18991e35f9fe4302dbea6d2353dc0ab1c",
+      "iv_hex": "ffffffffffffffffffffffff",
+      "plaintext_hex": "",
+      "aad_hex": "60000000010000000000000007000000000000002a",
+      "shared_secret_hex": "2353fe312fdcf6cc8bd8057c4fb766fa38c014d9a5f641e2ca65c28e4fa8641b",
+      "sym_key_hex": "b4c27676029956901a57584c50d3e6ee359f13203dae13cd5679c2f35db4c65f",
+      "bundle_hex": "00000000000402030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312affffffffffffffffffffffff5c6ddd56a4f73da9496a678bf339ae4a"
+    },
+    {
+      "label": "alice → bob, 100B plaintext, with AAD",
+      "local_privkey_hex": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575",
+      "local_pubkey_hex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",
+      "peer_pubkey_hex": "0324653eac434488002cc06bbfb7f10fe18991e35f9fe4302dbea6d2353dc0ab1c",
+      "iv_hex": "aabbccddeeff001122334455",
+      "plaintext_hex": "77777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777",
+      "aad_hex": "60000000010000000000000007000000000000002a",
+      "shared_secret_hex": "2353fe312fdcf6cc8bd8057c4fb766fa38c014d9a5f641e2ca65c28e4fa8641b",
+      "sym_key_hex": "eba7f89ea318b5948fcc2a40698e73cd6758313844a56bb5b47e388376172fa6",
+      "bundle_hex": "00000000000402030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312aaabbccddeeff0011223344557a68cc3fb8f3fadf665f709461a2bd9bbc414237813241d107a4f2882efe0f0b52cff7801972a833ca05a8a7421880fd3dbd125482b3e87142a9e7583f406918ac2513879cb556cad04d6e342fcfa01641711150c5cc258d6fd7151caba82f3db11f6e30fa5318cdd7a8a8044c356babefbb84b4"
     }
   ]
 }

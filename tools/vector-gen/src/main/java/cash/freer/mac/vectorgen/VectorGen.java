@@ -119,6 +119,7 @@ public final class VectorGen {
         fudpRoot.add("ack_frame", buildAckFrameVectors());
         fudpRoot.add("padding_frame", buildPaddingFrameVectors());
         fudpRoot.add("plaintext_payload", buildPlaintextPayloadVectors());
+        fudpRoot.add("asy_two_way", buildAsyTwoWayVectors());
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(cryptoOut.toAbsolutePath().getParent());
@@ -1064,6 +1065,125 @@ public final class VectorGen {
         o.addProperty("version_byte", 0x23);
         o.addProperty("fid", fid);
         return o;
+    }
+
+    // FUDP packet crypto vectors (Phase 4.2) -----------------------------
+    //
+    // AsyTwoWay bundle layout for FC_EccK1AesGcm256_No1_NrC7:
+    //   [6B algId = 00 00 00 00 00 04]
+    //   [1B type  = 02 (AsyTwoWay)]
+    //   [33B senderPubkey (compressed secp256k1)]
+    //   [12B iv]
+    //   [N B  AES-GCM ciphertext including 16-byte tag at end]
+    //
+    // Key derivation: HKDF-SHA512(ikm = ECDH(localPriv, peerPub),
+    //                              salt = iv, info = "hkdf", L = 32).
+    //
+    // Per-message ECDH uses the LOCAL identity key (not ephemeral):
+    // sender's pubkey on the wire IS the sender's FID-derived pubkey.
+
+    private static final byte[] ALG_ID_ECC_AES_GCM = {0, 0, 0, 0, 0, 4};
+    private static final byte ENCRYPT_TYPE_ASY_TWO_WAY = 0x02;
+    private static final byte[] HKDF_INFO_BYTES = "hkdf".getBytes(StandardCharsets.UTF_8);
+
+    private static JsonArray buildAsyTwoWayVectors() {
+        JsonArray arr = new JsonArray();
+
+        // Alice = sample key, Bob = 0x42 counterparty (same identities used
+        // in the earlier ECDH vectors so Swift can cross-reference).
+        byte[] alicePriv = Hex.decode(SAMPLE_PRIVKEY_HEX);
+        ECKey aliceKey = ECKey.fromPrivate(alicePriv, true);
+        byte[] alicePub = aliceKey.getPubKey();
+
+        byte[] bobPriv = patternBytes(32, (byte) 0x42);
+        ECKey bobKey = ECKey.fromPrivate(bobPriv, true);
+        byte[] bobPub = bobKey.getPubKey();
+
+        // Per-case fixed IVs so vectors are reproducible. AAD here is left
+        // empty in some cases and a 21-byte canned header in others; this
+        // mirrors the F1 binding without dragging the full PacketHeader
+        // serializer into the test surface.
+        byte[] iv0 = Hex.decode("000102030405060708090a0b");
+        byte[] iv1 = Hex.decode("aabbccddeeff00112233445566".substring(0, 24));  // 12B
+        byte[] iv2 = Hex.decode("ffffffffffffffffffffffff");
+
+        byte[] header = new byte[]{
+                0x60, 0x00, 0x00, 0x00, 0x01,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2A
+        };  // synthetic 21-byte AAD
+
+        arr.add(asyCase("alice → bob, no AAD",
+                alicePriv, alicePub, bobPub, iv0,
+                "Hello from Alice".getBytes(StandardCharsets.UTF_8),
+                new byte[0]));
+        arr.add(asyCase("alice → bob, with 21B header AAD (F1 simulated)",
+                alicePriv, alicePub, bobPub, iv1,
+                "auth-bound payload".getBytes(StandardCharsets.UTF_8),
+                header));
+        arr.add(asyCase("bob → alice (reversed direction)",
+                bobPriv, bobPub, alicePub, iv0,
+                "Hello back from Bob".getBytes(StandardCharsets.UTF_8),
+                new byte[0]));
+        arr.add(asyCase("alice → bob, empty plaintext (auth-only) with AAD",
+                alicePriv, alicePub, bobPub, iv2,
+                new byte[0],
+                header));
+        arr.add(asyCase("alice → bob, 100B plaintext, with AAD",
+                alicePriv, alicePub, bobPub, iv1,
+                patternBytes(100, (byte) 0x77),
+                header));
+
+        return arr;
+    }
+
+    private static JsonObject asyCase(String label,
+                                       byte[] localPriv, byte[] localPub,
+                                       byte[] peerPub, byte[] iv,
+                                       byte[] plaintext, byte[] aad) {
+        try {
+            byte[] sharedSecret = computeEcdh(localPriv, peerPub);
+            byte[] symKey = hkdfSha512(sharedSecret, iv, HKDF_INFO_BYTES, 32);
+
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE,
+                    new SecretKeySpec(symKey, "AES"),
+                    new GCMParameterSpec(128, iv));
+            if (aad.length > 0) cipher.updateAAD(aad);
+            byte[] ctWithTag = cipher.doFinal(plaintext);
+
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            out.write(ALG_ID_ECC_AES_GCM);
+            out.write(ENCRYPT_TYPE_ASY_TWO_WAY);
+            out.write(localPub);
+            out.write(iv);
+            out.write(ctWithTag);
+            byte[] bundle = out.toByteArray();
+
+            JsonObject o = new JsonObject();
+            o.addProperty("label", label);
+            o.addProperty("local_privkey_hex", Hex.toHexString(localPriv));
+            o.addProperty("local_pubkey_hex", Hex.toHexString(localPub));
+            o.addProperty("peer_pubkey_hex", Hex.toHexString(peerPub));
+            o.addProperty("iv_hex", Hex.toHexString(iv));
+            o.addProperty("plaintext_hex", Hex.toHexString(plaintext));
+            o.addProperty("aad_hex", Hex.toHexString(aad));
+            o.addProperty("shared_secret_hex", Hex.toHexString(sharedSecret));
+            o.addProperty("sym_key_hex", Hex.toHexString(symKey));
+            o.addProperty("bundle_hex", Hex.toHexString(bundle));
+            return o;
+        } catch (Exception e) {
+            throw new RuntimeException("AsyTwoWay case '" + label + "' failed", e);
+        }
+    }
+
+    private static byte[] hkdfSha512(byte[] ikm, byte[] salt, byte[] info, int length) {
+        org.bouncycastle.crypto.generators.HKDFBytesGenerator gen =
+                new org.bouncycastle.crypto.generators.HKDFBytesGenerator(new SHA512Digest());
+        gen.init(new org.bouncycastle.crypto.params.HKDFParameters(ikm, salt, info));
+        byte[] out = new byte[length];
+        gen.generateBytes(out, 0, length);
+        return out;
     }
 
     // FUDP wire-format vectors (Phase 4.1) -------------------------------

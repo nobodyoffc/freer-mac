@@ -15,6 +15,7 @@ enum FudpVectors {
         let ackFrame: [AckFrameCase]
         let paddingFrame: [PaddingFrameCase]
         let plaintextPayload: [PlaintextPayloadCase]
+        let asyTwoWay: [AsyTwoWayCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -26,6 +27,33 @@ enum FudpVectors {
             case ackFrame = "ack_frame"
             case paddingFrame = "padding_frame"
             case plaintextPayload = "plaintext_payload"
+            case asyTwoWay = "asy_two_way"
+        }
+    }
+
+    struct AsyTwoWayCase: Decodable {
+        let label: String
+        let localPrivkeyHex: String
+        let localPubkeyHex: String
+        let peerPubkeyHex: String
+        let ivHex: String
+        let plaintextHex: String
+        let aadHex: String
+        let sharedSecretHex: String
+        let symKeyHex: String
+        let bundleHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case localPrivkeyHex = "local_privkey_hex"
+            case localPubkeyHex = "local_pubkey_hex"
+            case peerPubkeyHex = "peer_pubkey_hex"
+            case ivHex = "iv_hex"
+            case plaintextHex = "plaintext_hex"
+            case aadHex = "aad_hex"
+            case sharedSecretHex = "shared_secret_hex"
+            case symKeyHex = "sym_key_hex"
+            case bundleHex = "bundle_hex"
         }
     }
 
