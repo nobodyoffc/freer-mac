@@ -105,52 +105,75 @@ public struct WalletService {
 
     // MARK: - cashes
 
-    /// `base.cashValid` — fetch the spendable cash list for a FID. The
-    /// server's mode-2 "smart selection" path takes `fid` (required)
-    /// plus optional `amount` (BCH double — coarse filter) and `cd`
-    /// (min coin-days). When ``cashes`` is non-nil the returned
-    /// snapshot is persisted to the cache automatically.
-    ///
-    /// Why `cashValid` and not `getUtxo`: `Cash` carries the type +
-    /// `redeemScript` + `lockTime` we need to spend P2SH-CLTV and
-    /// multisig outputs (Phase 8). The lighter `Utxo` shape strips
-    /// those fields and would force a second round-trip.
+    /// Default page size for cash sync. The Java server caps responses
+    /// per-page server-side; this just gives the upper bound for one
+    /// network round-trip. Tunable so tests can shrink the page size
+    /// without changing call sites.
+    public static let defaultCashPageSize: Int = 200
+
+    /// Reorg-protection window. Every incremental refresh re-fetches
+    /// items whose `lastHeight > watermarkHeight - reorgWindowBlocks`
+    /// so any reorg that rewrites the trailing window's state is
+    /// reflected. Matches FCH's protocol-level reorg cap.
+    public static let reorgWindowBlocks: Int64 = 30
+
+    /// Public entry point. Picks bootstrap or incremental based on
+    /// whether we have a watermark for this fid. Caller doesn't need
+    /// to care.
+    @discardableResult
     public func refreshCashes(
         forFid fid: String,
-        minAmountBch: Double? = nil,
-        minCd: Int64? = nil,
+        pageSize: Int = WalletService.defaultCashPageSize,
         timeoutMs: Int = 5_000
     ) async throws -> CashSnapshot {
-        var paramsDict: [String: Any] = ["fid": fid]
-        if let amt = minAmountBch { paramsDict["amount"] = amt }
-        if let cd  = minCd        { paramsDict["cd"] = cd }
-        let params = try JSONSerialization.data(withJSONObject: paramsDict, options: [.sortedKeys])
+        let cached = try? cashes?.snapshot(forAddress: fid)
+        if let cached, let _ = cached.watermarkHeight {
+            return try await refreshCashesIncremental(
+                forFid: fid, base: cached,
+                pageSize: pageSize, timeoutMs: timeoutMs
+            )
+        } else {
+            return try await bootstrapCashes(
+                forFid: fid, pageSize: pageSize, timeoutMs: timeoutMs
+            )
+        }
+    }
 
-        let reply = try await fapi.call(
+    /// First-time sync: query `base.cashValid` for every spendable
+    /// cash owned by `fid`, paging via the FCDSL `after` cursor until
+    /// the server runs dry. Replaces any existing snapshot.
+    ///
+    /// Mode 1 (`params == null`, FCDSL filter) is the right path here
+    /// because mode 2 ("smart selection") doesn't paginate.
+    public func bootstrapCashes(
+        forFid fid: String,
+        pageSize: Int = WalletService.defaultCashPageSize,
+        timeoutMs: Int = 5_000
+    ) async throws -> CashSnapshot {
+        var collected: [Cash] = []
+        var bestHeight: Int64?
+
+        try await pageCashes(
             api: "base.cashValid",
-            params: params, fcdsl: nil, binary: nil,
-            sid: nil, via: nil, maxCost: nil,
+            entity: nil,                 // mode 1 of cashValid is bound to the cash index
+            ownerFid: fid,
+            sinceLastHeightExclusive: nil,
+            pageSize: pageSize,
             timeoutMs: timeoutMs
-        )
-        let resp = reply.response
-        guard resp.isSuccess else {
-            throw Failure.fapiNonZeroCode(api: "base.cashValid", code: resp.code ?? -1, message: resp.message)
-        }
-        guard let data = resp.data else {
-            throw Failure.unexpectedDataShape(api: "base.cashValid")
-        }
-        let cashList: [Cash]
-        do {
-            cashList = try Cash.parseFapiList(data)
-        } catch {
-            throw Failure.underlying(error)
+        ) { cashes, pageBest in
+            collected.append(contentsOf: cashes)
+            bestHeight = bestHeight ?? pageBest
         }
 
+        // Watermark = bestHeight at fetch time. The next incremental
+        // refresh subtracts `reorgWindowBlocks` to re-fetch the
+        // trailing reorg-prone window.
         let snapshot = CashSnapshot(
             addr: fid,
-            cashes: cashList,
+            cashes: collected,
             snapshotAt: Date(),
-            bestHeight: resp.bestHeight
+            bestHeight: bestHeight,
+            watermarkHeight: bestHeight
         )
         if let store = self.cashes {
             try store.save(snapshot)
@@ -158,11 +181,152 @@ public struct WalletService {
         return snapshot
     }
 
+    /// Incremental sync: query `base.search` on the cash index for any
+    /// cash whose `lastHeight > max(0, watermark − reorgWindow)` and
+    /// `owner == fid`. Server returns BOTH active and spent cashes
+    /// (the spent ones carry `valid = false`). We upsert active rows
+    /// (replacing locally `.unknown` rows by id) and remove rows the
+    /// server now reports as spent.
+    public func refreshCashesIncremental(
+        forFid fid: String,
+        base: CashSnapshot,
+        pageSize: Int = WalletService.defaultCashPageSize,
+        timeoutMs: Int = 5_000
+    ) async throws -> CashSnapshot {
+        var working = base
+        let watermark = base.watermarkHeight ?? 0
+        let since = max(0, watermark - WalletService.reorgWindowBlocks)
+        var bestHeight: Int64? = base.bestHeight
+
+        try await pageCashes(
+            api: "base.search",
+            entity: "cash",
+            ownerFid: fid,
+            sinceLastHeightExclusive: since,
+            pageSize: pageSize,
+            timeoutMs: timeoutMs
+        ) { cashes, pageBest in
+            bestHeight = pageBest ?? bestHeight
+            for cash in cashes {
+                let isActive = cash.valid ?? true
+                if isActive {
+                    var stamped = cash
+                    stamped.localState = .onchain
+                    stamped.pendingSpend = false
+                    working.upsert(stamped)
+                } else {
+                    working.remove(
+                        id: cash.id,
+                        birthTxId: cash.birthTxId,
+                        birthIndex: cash.birthIndex
+                    )
+                }
+            }
+        }
+
+        working.snapshotAt = Date()
+        working.bestHeight = bestHeight
+        working.watermarkHeight = bestHeight ?? watermark
+        if let store = self.cashes {
+            try store.save(working)
+        }
+        return working
+    }
+
     /// Read the last cached snapshot for `addr`, or nil if we've
     /// never refreshed. No network round-trip; intended for "show
     /// last-known balance immediately on app open" UI flows.
     public func cachedSnapshot(forAddress addr: String) throws -> CashSnapshot? {
         try cashes?.snapshot(forAddress: addr)
+    }
+
+    /// Empty the cash cache for `fid` so the next ``refreshCashes`` call
+    /// re-bootstraps. Recovery path for "the cash db looks wrong".
+    public func purgeCashes(forFid fid: String) throws {
+        _ = try cashes?.clear(addr: fid)
+    }
+
+    // MARK: - cash sync internals
+
+    /// One-page-at-a-time loop over a paginated FCDSL cash query.
+    /// Calls `apply` for each parsed page. Continues until the server
+    /// returns fewer than `pageSize` items or stops emitting an
+    /// `after` cursor — whichever comes first.
+    private func pageCashes(
+        api: String,
+        entity: String?,
+        ownerFid: String,
+        sinceLastHeightExclusive: Int64?,
+        pageSize: Int,
+        timeoutMs: Int,
+        apply: ([Cash], _ pageBestHeight: Int64?) throws -> Void
+    ) async throws {
+        var afterCursor: [String]? = nil
+        while true {
+            let body = try Self.cashFcdsl(
+                entity: entity,
+                ownerFid: ownerFid,
+                sinceLastHeightExclusive: sinceLastHeightExclusive,
+                pageSize: pageSize,
+                after: afterCursor
+            )
+            let reply = try await fapi.call(
+                api: api,
+                params: nil, fcdsl: body, binary: nil,
+                sid: nil, via: nil, maxCost: nil,
+                timeoutMs: timeoutMs
+            )
+            let resp = reply.response
+            guard resp.isSuccess else {
+                throw Failure.fapiNonZeroCode(api: api, code: resp.code ?? -1, message: resp.message)
+            }
+            // Empty result: server returns NOT_FOUND on cashValid for
+            // fid with zero cashes. Treat as "no more rows".
+            if resp.code != nil, resp.code != 0 { return }
+            guard let data = resp.data else { return }
+            let page: [Cash]
+            do {
+                page = try Cash.parseFapiList(data)
+            } catch {
+                throw Failure.underlying(error)
+            }
+            try apply(page, resp.bestHeight)
+            // Stop when the server signals the last page or returns less
+            // than a full page. `resp.last` is the cursor to feed back
+            // as `after`; absence means "no more".
+            if page.count < pageSize { return }
+            guard let next = resp.last, !next.isEmpty else { return }
+            afterCursor = next
+        }
+    }
+
+    /// Build the FCDSL JSON for cash pagination queries. Uniform across
+    /// `base.cashValid` mode-1 (no entity) and `base.search`
+    /// (entity = "cash").
+    private static func cashFcdsl(
+        entity: String?,
+        ownerFid: String,
+        sinceLastHeightExclusive: Int64?,
+        pageSize: Int,
+        after: [String]?
+    ) throws -> Data {
+        var filter: [String: Any] = [
+            "terms": ["fields": ["owner"], "values": [ownerFid]]
+        ]
+        if let h = sinceLastHeightExclusive {
+            filter["range"] = ["fields": ["lastHeight"], "gt": String(h)]
+        }
+        var dict: [String: Any] = [
+            "filter": filter,
+            "sort": [
+                ["field": "lastHeight", "order": "desc"],
+                ["field": "id",         "order": "desc"]
+            ],
+            "size": String(pageSize)
+        ]
+        if let entity { dict["entity"] = entity }
+        if let after, !after.isEmpty { dict["after"] = after }
+        return try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
     }
 
     // MARK: - send (Phase 5.5)
@@ -228,7 +392,13 @@ public struct WalletService {
         } catch {
             throw Failure.underlying(error)
         }
-        let spendable = snapshot.cashes.filter { $0.locksToP2PKH(hash160: ownerHash160) }
+        // Exclude rows that are locally-marked as spent
+        // (`pendingSpend`) from selection. They stay in the cache so
+        // manual recovery can restore them, but they are not spendable
+        // until either the chain confirms the spend (we drop them) or
+        // the user decides to recover (we unmark).
+        let spendable = snapshot.cashes
+            .filter { !$0.pendingSpend && $0.locksToP2PKH(hash160: ownerHash160) }
         if spendable.isEmpty, let sample = snapshot.cashes.first {
             // Surface a clearer error than "insufficient funds" when
             // the only thing the server returned is non-spendable.
@@ -283,6 +453,88 @@ public struct WalletService {
             throw Failure.unexpectedDataShape(api: "base.broadcastTx")
         }
 
+        // 6. Optimistic post-broadcast update of the cash cache. We
+        // know the chain hasn't confirmed yet, but the wallet UI
+        // wants the new balance reflected immediately and a future
+        // Send must not pick the same inputs. The next incremental
+        // refresh either confirms (server emits the new change cashes
+        // and a `valid:false` for the inputs, which we handle by
+        // upsert/remove) or — if the tx never confirms — leaves these
+        // rows untouched so the user can recover them manually.
+        try? applyOptimisticPostSend(
+            ownerFid: fromAddress,
+            spent: plan.selected,
+            transaction: signed,
+            remoteTxid: txidString
+        )
+
         return SendResult(transaction: signed, remoteTxid: txidString, plan: plan)
+    }
+
+    // MARK: - optimistic post-send
+
+    /// Mark spent inputs `pendingSpend = true`, synthesize change cash
+    /// rows with `localState = .unknown`, and persist. Skips silently
+    /// when there's no ``cashes`` store wired (the in-test path runs
+    /// without one).
+    private func applyOptimisticPostSend(
+        ownerFid: String,
+        spent: [Cash],
+        transaction: Transaction,
+        remoteTxid: String
+    ) throws {
+        guard let store = self.cashes else { return }
+        guard var snap = try store.snapshot(forAddress: ownerFid) else { return }
+
+        // Mark each spent input. Keep the row's chain coordinates so
+        // recovery can restore it verbatim.
+        for inputCash in spent {
+            if let idx = snap.cashes.firstIndex(where: { matches($0, inputCash) }) {
+                var row = snap.cashes[idx]
+                row.pendingSpend = true
+                snap.cashes[idx] = row
+            }
+        }
+
+        // Synthesize change cashes from the signed transaction's
+        // outputs that pay back to `ownerFid`. Pre-compute the cash id
+        // from `(txidDisplay, vout)` so the row merges by id with the
+        // server's authoritative version on the next sync.
+        let ownerHash160 = (try? FchAddress(fid: ownerFid))?.hash160
+        let txidDisplay = remoteTxid.count == 64 ? remoteTxid : transaction.txidDisplay
+        let canonicalLockScript = ownerHash160.map { Cash.canonicalP2PKHLockScript(hash160: $0) }
+
+        for (i, out) in transaction.outputs.enumerated() {
+            // Heuristic: any output that locks to our address is a
+            // change cash. Recipient outputs lock to a different
+            // hash160 and are filtered out here.
+            guard let h160 = ownerHash160 else { continue }
+            let outputScriptHex = out.scriptPubKey.bytes.map { String(format: "%02x", $0) }.joined().lowercased()
+            guard outputScriptHex == Cash.canonicalP2PKHLockScript(hash160: h160) else { continue }
+
+            let id = (try? Cash.makeId(birthTxId: txidDisplay, birthIndex: i)) ?? ""
+            let change = Cash(
+                id: id.isEmpty ? nil : id,
+                owner: ownerFid,
+                value: Int64(out.value),
+                type: "P2PKH",
+                birthTxId: txidDisplay,
+                birthIndex: i,
+                lockScript: canonicalLockScript,
+                localState: .unknown,
+                pendingSpend: false
+            )
+            snap.upsert(change)
+        }
+
+        snap.snapshotAt = Date()
+        try store.save(snap)
+    }
+
+    /// Match an in-cache cash row to a freshly-spent input. Prefer id
+    /// when both sides have one; fall back to `(birthTxId, birthIndex)`.
+    private func matches(_ row: Cash, _ spent: Cash) -> Bool {
+        if let lhs = row.id, let rhs = spent.id, !lhs.isEmpty, !rhs.isEmpty { return lhs == rhs }
+        return row.birthTxId == spent.birthTxId && row.birthIndex == spent.birthIndex
     }
 }

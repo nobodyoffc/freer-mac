@@ -347,6 +347,67 @@ final class WalletServiceSendTests: XCTestCase {
         XCTAssertEqual(mock.recorded.map { $0.api }, ["base.cashValid"])
     }
 
+    // MARK: - post-send optimistic cache update
+
+    /// After a successful broadcast, the on-disk cache must reflect:
+    ///   1. each spent input is marked `pendingSpend = true` (kept in
+    ///      the cache so manual recovery can restore it)
+    ///   2. each change output appears as a new `.unknown` cash that
+    ///      is spendable (no `pendingSpend`) and has a pre-computed id
+    ///      matching `Cash.makeId(birthTxId: remoteTxid, birthIndex: i)`
+    ///
+    /// This is what makes the live Send pipeline feel instant: the
+    /// next refresh will reconcile via the server delta, but until
+    /// then the wallet correctly shows the new balance and won't
+    /// double-spend.
+    func testSendOptimisticallyUpdatesCache() async throws {
+        let mock = MockFapiClient()
+        let sessions = try makeSessions(passwords: ["opt-a", "opt-b"], fapi: mock)
+        let alice = sessions[0]
+        let bob = sessions[1]
+        let inputTxid = String(repeating: "ab", count: 32)
+
+        mock.responder = { call in
+            switch call.api {
+            case "base.cashValid":
+                return try makeResponse(data: [try self.cashDict(
+                    owner: alice.mainFid, txid: inputTxid, index: 0,
+                    value: 1_000_000
+                )])
+            case "base.broadcastTx":
+                return try makeResponse(data: "echo-ok")
+            default:
+                XCTFail("unexpected api: \(call.api)")
+                return FapiResponse(code: 1)
+            }
+        }
+
+        let result = try await alice.sendFromLive(
+            to: bob.mainFid, amount: 100_000, feePerByte: 1
+        )
+
+        let cached = try alice.cashes.snapshot(forAddress: alice.mainFid)
+        XCTAssertNotNil(cached)
+        // The original input should still be in the cache, but flagged.
+        let original = cached?.cashes.first(where: { $0.birthTxId == inputTxid && $0.birthIndex == 0 })
+        XCTAssertNotNil(original)
+        XCTAssertTrue(original?.pendingSpend ?? false,
+                      "spent input must be marked pendingSpend, not removed")
+
+        // The change output (output[1] of the signed tx, paying back
+        // to alice) should appear as a fresh `.unknown` row with the
+        // pre-computed cash id.
+        let txidDisplay = result.transaction.txidDisplay
+        let changeCashId = try Cash.makeId(birthTxId: txidDisplay, birthIndex: 1)
+        let change = cached?.cashes.first { $0.id == changeCashId }
+        XCTAssertNotNil(change, "change cash must be cached with pre-computed id")
+        XCTAssertEqual(change?.localState, .unknown)
+        XCTAssertFalse(change?.pendingSpend ?? true,
+                       "change cash is spendable, not pending-spent")
+        XCTAssertEqual(change?.value, 899_781,
+                       "change == 1_000_000 - 100_000 - 219 fee")
+    }
+
     // MARK: - watch-only refusal
 
     func testWatchOnlyLiveFidCannotSend() async throws {

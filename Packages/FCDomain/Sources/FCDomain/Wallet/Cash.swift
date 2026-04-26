@@ -1,4 +1,19 @@
 import Foundation
+import FCCore
+
+/// Local-only annotation describing how confident we are that a cash
+/// reflects current chain state. Distinct from the server's ``Cash/onChain``
+/// or ``Cash/valid`` flags — those mean "the indexer's view"; this means
+/// "our view of the indexer's view". The third value `.offchain` is
+/// reserved for future entities that can exist purely client-side
+/// (contact, mail, secret); cash is always either `.onchain` (server
+/// confirmed it) or `.unknown` (we created or modified locally and
+/// haven't seen the server's confirmation yet).
+public enum LocalState: String, Codable, Sendable {
+    case offchain
+    case unknown
+    case onchain
+}
 
 /// One FCH cash — a UTXO in the abstract, but with the extra metadata
 /// the FAPI `base.cashValid` endpoint emits: script type, lockTime,
@@ -58,6 +73,24 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
     public var lastTime: Int64?
     public var lastHeight: Int64?
 
+    // ---- local-only annotations (see ``LocalState``) ----
+
+    /// Whether the chain has confirmed this cash. Defaults to
+    /// ``LocalState/onchain`` because almost every cash we see comes
+    /// from a server response; the optimistic post-Send write path is
+    /// the one place that creates `.unknown` rows.
+    public var localState: LocalState
+
+    /// `true` iff this cash was used as an input in a locally-broadcast
+    /// transaction whose confirmation we haven't observed yet. The
+    /// row stays in the cache (so manual recovery can restore it) but
+    /// the wallet excludes it from spendable selection. When the
+    /// server's next sync emits a `valid: false` delta for the same
+    /// id we drop it for good. Independent of ``localState``: a
+    /// freshly-confirmed `.onchain` cash can also be `pendingSpend`
+    /// if we just used it.
+    public var pendingSpend: Bool
+
     public init(
         id: String? = nil,
         owner: String,
@@ -77,7 +110,9 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
         valid: Bool? = nil,
         issuer: String? = nil,
         lastTime: Int64? = nil,
-        lastHeight: Int64? = nil
+        lastHeight: Int64? = nil,
+        localState: LocalState = .onchain,
+        pendingSpend: Bool = false
     ) {
         self.id = id
         self.owner = owner
@@ -98,6 +133,65 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
         self.issuer = issuer
         self.lastTime = lastTime
         self.lastHeight = lastHeight
+        self.localState = localState
+        self.pendingSpend = pendingSpend
+    }
+
+    // MARK: - Codable
+
+    private enum CodingKeys: String, CodingKey {
+        case id, owner, value, type, birthTxId, birthIndex, lockScript
+        case redeemScript, lockTime, birthBlockId, birthHeight, birthTime, birthTxIndex
+        case cd, cdd, valid, issuer, lastTime, lastHeight
+        case localState, pendingSpend
+    }
+
+    /// Decoder is hand-rolled so that older on-disk blobs (which
+    /// predate `localState` / `pendingSpend`) decode cleanly with
+    /// sensible defaults. The encoder uses Swift's synthesized impl —
+    /// freshly-written rows always carry the new fields.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id           = try c.decodeIfPresent(String.self,  forKey: .id)
+        self.owner        = try c.decode         (String.self,  forKey: .owner)
+        self.value        = try c.decode         (Int64.self,   forKey: .value)
+        self.type         = try c.decodeIfPresent(String.self,  forKey: .type)
+        self.birthTxId    = try c.decode         (String.self,  forKey: .birthTxId)
+        self.birthIndex   = try c.decode         (Int.self,     forKey: .birthIndex)
+        self.lockScript   = try c.decodeIfPresent(String.self,  forKey: .lockScript)
+        self.redeemScript = try c.decodeIfPresent(String.self,  forKey: .redeemScript)
+        self.lockTime     = try c.decodeIfPresent(Int64.self,   forKey: .lockTime)
+        self.birthBlockId = try c.decodeIfPresent(String.self,  forKey: .birthBlockId)
+        self.birthHeight  = try c.decodeIfPresent(Int64.self,   forKey: .birthHeight)
+        self.birthTime    = try c.decodeIfPresent(Int64.self,   forKey: .birthTime)
+        self.birthTxIndex = try c.decodeIfPresent(Int.self,     forKey: .birthTxIndex)
+        self.cd           = try c.decodeIfPresent(Int64.self,   forKey: .cd)
+        self.cdd          = try c.decodeIfPresent(Int64.self,   forKey: .cdd)
+        self.valid        = try c.decodeIfPresent(Bool.self,    forKey: .valid)
+        self.issuer       = try c.decodeIfPresent(String.self,  forKey: .issuer)
+        self.lastTime     = try c.decodeIfPresent(Int64.self,   forKey: .lastTime)
+        self.lastHeight   = try c.decodeIfPresent(Int64.self,   forKey: .lastHeight)
+        self.localState   = try c.decodeIfPresent(LocalState.self, forKey: .localState) ?? .onchain
+        self.pendingSpend = try c.decodeIfPresent(Bool.self,    forKey: .pendingSpend) ?? false
+    }
+
+    /// Compute the canonical cash id from `(birthTxId, birthIndex)` —
+    /// the same value the server's indexer assigns. Mirrors
+    /// `data.fchData.Cash.makeCashId(txId, j)` in FC-AJDK:
+    /// `displayHex(sha256d(naturalTxIdBytes || leVoutBytes))`. We use
+    /// this to pre-compute ids for optimistically-inserted change
+    /// cashes after a Send, so the id matches when the server's
+    /// next sync delta arrives.
+    public static func makeId(birthTxId: String, birthIndex: Int) throws -> String {
+        let natural = try TxBuilder.decodeTxid(birthTxId)
+        var le = UInt32(truncatingIfNeeded: birthIndex).littleEndian
+        let voutBytes = withUnsafeBytes(of: &le) { Data($0) }
+        var merged = Data()
+        merged.append(natural)
+        merged.append(voutBytes)
+        let digest = Hash.sha256(Hash.sha256(merged))
+        // bytesToHexStringLE: reverse the digest, then hex-encode.
+        return Data(digest.reversed()).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Canonical P2PKH lockScript that pays to `hash160`:

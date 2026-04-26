@@ -90,9 +90,9 @@ final class WalletServiceTests: XCTestCase {
         }
     }
 
-    // MARK: - cashes (base.cashValid)
+    // MARK: - cash bootstrap (base.cashValid mode-1, FCDSL paginated)
 
-    func testRefreshCashesDecodesWireShape() async throws {
+    func testBootstrapCashesDecodesWireShape() async throws {
         let mock = MockFapiClient()
         // Wire shape mirrors Java Cash Gson serialization: value is
         // satoshis (Long), birthTxId/birthIndex name the source output.
@@ -120,29 +120,38 @@ final class WalletServiceTests: XCTestCase {
             )
         }
         let svc = WalletService(fapi: mock)
-        let snapshot = try await svc.refreshCashes(
-            forFid: "FFromAddr",
-            minAmountBch: 0.0001
-        )
+        let snapshot = try await svc.refreshCashes(forFid: "FFromAddr")
 
         XCTAssertEqual(snapshot.cashes.count, 2)
         XCTAssertEqual(snapshot.cashes[0].birthTxId, "abcd1234")
         XCTAssertEqual(snapshot.cashes[0].value, 10_000)
         XCTAssertEqual(snapshot.cashes[0].issuer, "FIssuer")
         XCTAssertEqual(snapshot.cashes[0].birthTime, 1_700_000_000)
+        XCTAssertEqual(snapshot.cashes[0].localState, .onchain)
+        XCTAssertFalse(snapshot.cashes[0].pendingSpend)
         XCTAssertEqual(snapshot.cashes[1].value, 150_000_000)
         XCTAssertEqual(snapshot.totalValue, 150_010_000)
         XCTAssertEqual(snapshot.bestHeight, 800_001)
+        XCTAssertEqual(snapshot.watermarkHeight, 800_001)
 
-        // Outgoing params shape: {"fid":"FFromAddr","amount":0.0001}
+        // Outgoing FCDSL shape: filter on owner, sort by lastHeight
+        // desc + id desc, no `entity` (cashValid is index-bound).
         let r = mock.recorded[0]
         XCTAssertEqual(r.api, "base.cashValid")
-        let params = try JSONSerialization.jsonObject(with: try XCTUnwrap(r.params)) as? [String: Any]
-        XCTAssertEqual(params?["fid"] as? String, "FFromAddr")
-        XCTAssertEqual((params?["amount"] as? NSNumber)?.doubleValue, 0.0001)
+        XCTAssertNil(r.params)
+        let fcdsl = try JSONSerialization.jsonObject(with: try XCTUnwrap(r.fcdsl)) as? [String: Any]
+        let filter = fcdsl?["filter"] as? [String: Any]
+        let terms = filter?["terms"] as? [String: Any]
+        XCTAssertEqual(terms?["fields"] as? [String], ["owner"])
+        XCTAssertEqual(terms?["values"] as? [String], ["FFromAddr"])
+        let sort = fcdsl?["sort"] as? [[String: String]]
+        XCTAssertEqual(sort?[0]["field"], "lastHeight")
+        XCTAssertEqual(sort?[0]["order"], "desc")
+        XCTAssertEqual(sort?[1]["field"], "id")
+        XCTAssertNil(fcdsl?["entity"])
     }
 
-    func testRefreshCashesWritesCacheWhenStoreProvided() async throws {
+    func testBootstrapWritesCacheWhenStoreProvided() async throws {
         let baseDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("WalletServiceTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
@@ -159,13 +168,16 @@ final class WalletServiceTests: XCTestCase {
 
         let mock = MockFapiClient()
         mock.responder = { _ in
-            try makeResponse(data: [[
-                "owner": session.mainFid,
-                "value": 200_000_000,
-                "type": "P2PKH",
-                "birthTxId": "f00d",
-                "birthIndex": 0
-            ]])
+            try makeResponse(
+                data: [[
+                    "owner": session.mainFid,
+                    "value": 200_000_000,
+                    "type": "P2PKH",
+                    "birthTxId": "f00d",
+                    "birthIndex": 0
+                ]],
+                bestHeight: 900_000
+            )
         }
         let svc = WalletService(fapi: mock, cashes: session.cashes)
         _ = try await svc.refreshCashes(forFid: session.mainFid)
@@ -175,13 +187,14 @@ final class WalletServiceTests: XCTestCase {
         XCTAssertEqual(cached?.cashes.count, 1)
         XCTAssertEqual(cached?.cashes[0].value, 200_000_000)
         XCTAssertEqual(cached?.totalValue, 200_000_000)
+        XCTAssertEqual(cached?.watermarkHeight, 900_000)
 
         // Also reachable through the service helper.
         let viaSvc = try svc.cachedSnapshot(forAddress: session.mainFid)
         XCTAssertEqual(viaSvc?.cashes[0].birthTxId, "f00d")
     }
 
-    func testRefreshCashesSkipsCacheWhenNoStore() async throws {
+    func testBootstrapSkipsCacheWhenNoStore() async throws {
         let mock = MockFapiClient()
         mock.responder = { _ in
             try makeResponse(data: [[
@@ -199,7 +212,7 @@ final class WalletServiceTests: XCTestCase {
         XCTAssertNil(try svc.cachedSnapshot(forAddress: "FX"))
     }
 
-    func testRefreshCashesRejectsBadResponseShape() async throws {
+    func testBootstrapRejectsBadResponseShape() async throws {
         let mock = MockFapiClient()
         mock.responder = { _ in
             // data is a JSON array, but elements aren't objects →
@@ -215,5 +228,105 @@ final class WalletServiceTests: XCTestCase {
         } catch {
             XCTFail("wrong error: \(error)")
         }
+    }
+
+    // MARK: - cash incremental refresh (base.search on the cash index)
+
+    func testIncrementalRefreshUsesBaseSearchAndAppliesDelta() async throws {
+        let baseDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WalletServiceTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: baseDir) }
+
+        let mgr = try ConfigureManager(baseDirectory: baseDir)
+        let configure = try mgr.createConfigure(
+            password: Data("inc".utf8), kdfKind: .legacySha256
+        )
+        let mainInfo = try configure.addMain(
+            privkey: Data(repeating: 0x02, count: 32), label: "I"
+        )
+        let session = try configure.unlockMain(fid: mainInfo.fid, fapi: MockFapiClient())
+
+        // Seed a snapshot directly: two existing cashes (A, B), one
+        // .unknown change cash (C) we want to be confirmed by the
+        // incremental delta. Watermark = 1000.
+        let txid32 = String(repeating: "ab", count: 32)
+        let txid32B = String(repeating: "cd", count: 32)
+        let txid32C = String(repeating: "ef", count: 32)
+        try session.cashes.save(CashSnapshot(
+            addr: session.mainFid,
+            cashes: [
+                Cash(id: "A", owner: session.mainFid, value: 100, type: "P2PKH",
+                     birthTxId: txid32, birthIndex: 0,
+                     localState: .onchain, pendingSpend: false),
+                Cash(id: "B", owner: session.mainFid, value: 200, type: "P2PKH",
+                     birthTxId: txid32B, birthIndex: 0,
+                     localState: .onchain, pendingSpend: false),
+                Cash(id: "C", owner: session.mainFid, value: 300, type: "P2PKH",
+                     birthTxId: txid32C, birthIndex: 0,
+                     localState: .unknown, pendingSpend: false)
+            ],
+            bestHeight: 1000,
+            watermarkHeight: 1000
+        ))
+
+        // Server emits an incremental delta:
+        //   - A is now SPENT (valid:false) → must be removed
+        //   - C is now CONFIRMED (valid:true, lastHeight set)
+        //   - D is brand new, came from somewhere (e.g. an incoming tx)
+        //   - B isn't in the delta (no state change since watermark)
+        let mock = MockFapiClient()
+        mock.responder = { _ in
+            try makeResponse(
+                data: [
+                    [
+                        "id": "A", "owner": session.mainFid, "value": 100,
+                        "type": "P2PKH",
+                        "birthTxId": txid32, "birthIndex": 0,
+                        "valid": false, "lastHeight": 1010
+                    ],
+                    [
+                        "id": "C", "owner": session.mainFid, "value": 300,
+                        "type": "P2PKH",
+                        "birthTxId": txid32C, "birthIndex": 0,
+                        "valid": true, "lastHeight": 1015,
+                        "birthHeight": 1014
+                    ],
+                    [
+                        "id": "D", "owner": session.mainFid, "value": 400,
+                        "type": "P2PKH",
+                        "birthTxId": String(repeating: "12", count: 32),
+                        "birthIndex": 1,
+                        "valid": true, "lastHeight": 1020
+                    ]
+                ],
+                bestHeight: 1020
+            )
+        }
+        let svc = WalletService(fapi: mock, cashes: session.cashes)
+        let result = try await svc.refreshCashes(forFid: session.mainFid)
+
+        XCTAssertEqual(mock.recorded[0].api, "base.search")
+        let fcdsl = try JSONSerialization.jsonObject(
+            with: try XCTUnwrap(mock.recorded[0].fcdsl)
+        ) as? [String: Any]
+        XCTAssertEqual(fcdsl?["entity"] as? String, "cash")
+        // sinceLastHeightExclusive = max(0, 1000 - 30) = 970
+        let filter = fcdsl?["filter"] as? [String: Any]
+        let range = filter?["range"] as? [String: Any]
+        XCTAssertEqual(range?["fields"] as? [String], ["lastHeight"])
+        XCTAssertEqual(range?["gt"] as? String, "970")
+
+        // Apply outcome: A removed, C confirmed (.onchain), D added, B intact.
+        let ids = Set(result.cashes.compactMap { $0.id })
+        XCTAssertFalse(ids.contains("A"))
+        XCTAssertTrue(ids.contains("B"))
+        XCTAssertTrue(ids.contains("C"))
+        XCTAssertTrue(ids.contains("D"))
+        let c = result.cashes.first { $0.id == "C" }
+        XCTAssertEqual(c?.localState, .onchain)
+        XCTAssertEqual(c?.lastHeight, 1015)
+        // Watermark advanced.
+        XCTAssertEqual(result.watermarkHeight, 1020)
     }
 }
