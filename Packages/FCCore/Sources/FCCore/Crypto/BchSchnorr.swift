@@ -1,5 +1,6 @@
 import Foundation
 import BigInt
+import P256K
 
 /// BitcoinCash 2019 Schnorr signature — the pre-BIP-340 variant used by
 /// freecashj. Algorithm ported from
@@ -13,13 +14,17 @@ import BigInt
 /// - R selection: Y is a quadratic residue (`jacobi(R.y) == 1`), not
 ///   "even Y".
 ///
-/// **Implementation note:** naive textbook EC math via `BigInt`. Not
-/// constant-time. The Java reference is equivalent. Acceptable here
-/// because Schnorr callers in Freer sign data that a peer will verify —
-/// the private key is the secret we care about and our nonce is
-/// deterministic, so simple EC math is correct. If a future call site
-/// needs side-channel resistance, re-implement over libsecp256k1
-/// scalar/point primitives while keeping the wire format byte-identical.
+/// **Implementation notes.** EC point multiplications run through
+/// libsecp256k1 (`secp256k1_ec_pubkey_create`, `_tweak_mul`,
+/// `_seckey_tweak_*`), so signing and verification each take a few
+/// milliseconds rather than the ~30 s the previous BigInt-only path
+/// took. The remaining BigInt work is a single mod-n reduction per
+/// SHA-256 output and the jacobi mod-p exponentiation on `R.y` —
+/// roughly 256 BigInt squarings, each microseconds.
+///
+/// The wire format is byte-identical to the prior BigInt version (the
+/// `BchSchnorrTests` byte-exact parity vectors against freecashj still
+/// pass).
 public enum BchSchnorr {
 
     public enum Failure: Error, CustomStringConvertible {
@@ -42,139 +47,160 @@ public enum BchSchnorr {
 
     // MARK: - secp256k1 constants
 
-    static let p  = BigInt("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", radix: 16)!
-    static let n  = BigInt("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", radix: 16)!
-    static let gx = BigInt("79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798", radix: 16)!
-    static let gy = BigInt("483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8", radix: 16)!
-
-    typealias Point = (BigInt, BigInt)
+    /// Field prime — used for the jacobi(R.y) check (mod-p exponentiation).
+    static let p = BigInt("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2F", radix: 16)!
+    /// Curve order — used to reduce SHA-256 outputs into valid scalars.
+    static let n = BigInt("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", radix: 16)!
 
     // MARK: - Public API
 
+    /// Sign a 32-byte `message` (typically a sighash) with `privateKey`.
+    /// Returns a 64-byte signature in the BCH 2019 Schnorr wire layout
+    /// `R.x || s`. Deterministic: same `(privateKey, message)` always
+    /// yields the same bytes.
     public static func sign(message: Data, privateKey: Data) throws -> Data {
         guard message.count == 32 else { throw Failure.invalidMessageLength }
         guard privateKey.count == 32 else { throw Failure.invalidSeckey }
-        let d = bigInt(privateKey)
-        guard d.signum() > 0 && d < n else { throw Failure.invalidSeckey }
 
-        // k0 = SHA256(d || m) mod n
+        // Validate privkey via libsecp256k1 (1 <= d < n).
+        let dKey: P256K.Signing.PrivateKey
+        do {
+            dKey = try P256K.Signing.PrivateKey(dataRepresentation: privateKey)
+        } catch {
+            throw Failure.invalidSeckey
+        }
+
+        // 1) k0 = SHA-256(d || m) reduced mod n. SHA-256 output is
+        //    almost always already < n; reduction handles the
+        //    ~2⁻¹²⁸ tail.
         var nonceInput = Data(capacity: 64)
-        nonceInput.append(to32(d))
+        nonceInput.append(privateKey)
         nonceInput.append(message)
-        let k0 = bigInt(Hash.sha256(nonceInput)).modulus(n)
-        guard k0.signum() != 0 else { throw Failure.signingFailed }
+        let k0Bytes = try reduceModN(Hash.sha256(nonceInput))
 
-        // R = k0·G, flip k if Y is not a quadratic residue.
-        guard let rPoint = pointMul((gx, gy), k0) else { throw Failure.signingFailed }
-        let k = (jacobi(rPoint.1) == 1) ? k0 : (n - k0)
+        // 2) R = k0 · G. Treat k0 as a privkey; libsecp256k1 derives
+        //    the corresponding pubkey, which is exactly k0·G.
+        let k0Key: P256K.Signing.PrivateKey
+        do {
+            k0Key = try P256K.Signing.PrivateKey(dataRepresentation: k0Bytes)
+        } catch {
+            throw Failure.signingFailed
+        }
+        let rUncompressed = k0Key.publicKey.uncompressedRepresentation
+        guard rUncompressed.count == 65 else { throw Failure.signingFailed }
+        let rx = rUncompressed.subdata(in: 1..<33)
+        let ry = rUncompressed.subdata(in: 33..<65)
 
-        // e = SHA256(R.x || P_compressed(33) || m) mod n
-        let rxBytes = to32(rPoint.0)
-        guard let pPoint = pointMul((gx, gy), d) else { throw Failure.signingFailed }
+        // 3) BCH Schnorr canonicalization: pick the (x, y) where
+        //    jacobi(y) == 1. If the natural y from k0·G fails the
+        //    jacobi test, flip k0 → n - k0 (which gives the same x
+        //    with the opposite y).
+        let kKey = (jacobiIsOne(bigInt(ry))) ? k0Key : k0Key.negation
+        let kBytes = kKey.dataRepresentation
+
+        // 4) e = SHA-256(R.x || P_compressed(33) || m) reduced mod n.
+        let pCompressed = dKey.publicKey.dataRepresentation
+        guard pCompressed.count == 33 else { throw Failure.signingFailed }
         var challenge = Data(capacity: 32 + 33 + 32)
-        challenge.append(rxBytes)
-        challenge.append(compress(pPoint))
+        challenge.append(rx)
+        challenge.append(pCompressed)
         challenge.append(message)
-        let e = bigInt(Hash.sha256(challenge)).modulus(n)
+        let eBytes = try reduceModN(Hash.sha256(challenge))
 
-        // s = (e*d + k) mod n
-        let s = (e * d + k).modulus(n)
+        // 5) s = (e * d + k) mod n via the seckey-tweak primitives.
+        //    Both operations fail iff the result is zero, which has
+        //    negligible probability for random k0/e — surface as
+        //    `signingFailed` if it ever happens.
+        let edKey: P256K.Signing.PrivateKey
+        let sKey: P256K.Signing.PrivateKey
+        do {
+            edKey = try dKey.multiply(Array(eBytes))
+            sKey = try edKey.add(Array(kBytes))
+        } catch {
+            throw Failure.signingFailed
+        }
 
         var out = Data(capacity: 64)
-        out.append(rxBytes)
-        out.append(to32(s))
+        out.append(rx)
+        out.append(sKey.dataRepresentation)
         return out
     }
 
+    /// Verify a 64-byte BCH Schnorr signature against a 33-byte
+    /// compressed pubkey and a 32-byte message. Returns false (rather
+    /// than throwing) for any cryptographic mismatch; only the input
+    /// shape errors throw.
     public static func verify(message: Data, publicKey: Data, signature: Data) throws -> Bool {
         guard message.count == 32 else { throw Failure.invalidMessageLength }
         guard publicKey.count == 33 else { throw Failure.invalidPubkey }
         guard signature.count == 64 else { throw Failure.invalidSignatureLength }
 
-        guard let point = decompress(publicKey) else { return false }
+        // Parse pubkey. An invalid encoding (wrong prefix byte, off-curve x)
+        // is a verification failure, not a programmer error.
+        let pubKey: P256K.Signing.PublicKey
+        do {
+            pubKey = try P256K.Signing.PublicKey(dataRepresentation: publicKey, format: .compressed)
+        } catch {
+            return false
+        }
 
-        let sigBytes = Data(signature)   // normalise slice indices
-        let r = bigInt(sigBytes.prefix(32))
-        let s = bigInt(sigBytes.suffix(32))
-        guard r < p && s < n else { return false }
+        let sig = Data(signature)
+        let rBytes = sig.prefix(32)
+        let sBytes = sig.suffix(32)
+        let r = bigInt(rBytes)
+        let s = bigInt(sBytes)
+        // r < p (field), s < n (curve order). r == 0 isn't excluded
+        // by the spec — leave to the final x-equality check to reject.
+        guard r < p, s < n, s.signum() > 0 else { return false }
 
+        // 1) e = SHA-256(R.x || P_compressed || m) mod n.
         var challenge = Data(capacity: 32 + 33 + 32)
-        challenge.append(sigBytes.prefix(32))
-        challenge.append(compress(point))
+        challenge.append(rBytes)
+        challenge.append(publicKey)
         challenge.append(message)
-        let e = bigInt(Hash.sha256(challenge)).modulus(n)
-
-        // R = s·G + (n - e)·P
-        guard let sG = pointMul((gx, gy), s) else { return false }
-        guard let negEp = pointMul(point, (n - e).modulus(n)) else { return false }
-        guard let reconstructed = pointAdd(sG, negEp) else { return false }
-
-        return jacobi(reconstructed.1) == 1 && r == reconstructed.0
-    }
-
-    // MARK: - EC math (textbook)
-
-    static func pointAdd(_ a: Point?, _ b: Point?) -> Point? {
-        guard let a else { return b }
-        guard let b else { return a }
-        if a.0 == b.0 && a.1 != b.1 { return nil }  // P + (-P) = ∞
-
-        let lam: BigInt
-        if a.0 == b.0 && a.1 == b.1 {
-            // doubling: λ = (3·x² · (2·y)⁻¹) mod p
-            let numerator = (BigInt(3) * a.0 * a.0).modulus(p)
-            let denomInv = (BigInt(2) * a.1).power(p - 2, modulus: p)
-            lam = (numerator * denomInv).modulus(p)
-        } else {
-            // addition: λ = ((y2 - y1) · (x2 - x1)⁻¹) mod p
-            let numerator = (b.1 - a.1).modulus(p)
-            let denomInv = (b.0 - a.0).modulus(p).power(p - 2, modulus: p)
-            lam = (numerator * denomInv).modulus(p)
+        let eBytes: Data
+        do {
+            eBytes = try reduceModN(Hash.sha256(challenge))
+        } catch {
+            return false
         }
-        let x3 = (lam * lam - a.0 - b.0).modulus(p)
-        let y3 = (lam * (a.0 - x3) - a.1).modulus(p)
-        return (x3, y3)
-    }
 
-    static func pointMul(_ base: Point, _ k: BigInt) -> Point? {
-        var result: Point? = nil
-        var current: Point? = base
-        for i in 0..<256 {
-            if ((k >> i) & BigInt(1)) == BigInt(1) {
-                result = pointAdd(result, current)
-            }
-            current = pointAdd(current, current)
+        // 2) Reconstruct R = s·G + (n - e)·P  ≡  s·G - e·P.
+        do {
+            let sKey = try P256K.Signing.PrivateKey(dataRepresentation: sBytes)
+            let sG = sKey.publicKey
+            let ePNeg = try pubKey.multiply(Array(eBytes), format: .compressed).negation
+            let reconstructed = try sG.combine([ePNeg], format: .uncompressed)
+            let raw = reconstructed.uncompressedRepresentation
+            guard raw.count == 65 else { return false }
+            let xBytes = raw.subdata(in: 1..<33)
+            let yBytes = raw.subdata(in: 33..<65)
+
+            // 3) Accept iff jacobi(R.y) == 1 AND R.x == r.
+            return jacobiIsOne(bigInt(yBytes)) && bigInt(xBytes) == r
+        } catch {
+            return false
         }
-        return result
-    }
-
-    static func jacobi(_ x: BigInt) -> BigInt {
-        x.power((p - 1) / 2, modulus: p)
-    }
-
-    static func compress(_ point: Point) -> Data {
-        var out = Data(capacity: 33)
-        let parity: UInt8 = ((point.1 & BigInt(1)) == BigInt(1)) ? 0x03 : 0x02
-        out.append(parity)
-        out.append(to32(point.0))
-        return out
-    }
-
-    static func decompress(_ bytes: Data) -> Point? {
-        let normal = Data(bytes)
-        let prefix = normal[0]
-        guard prefix == 0x02 || prefix == 0x03 else { return nil }
-        let odd = (prefix == 0x03)
-        let x = bigInt(normal.dropFirst())
-        let ySq = (x.power(3, modulus: p) + BigInt(7)).modulus(p)
-        let y0 = ySq.power((p + 1) / 4, modulus: p)
-        guard y0.power(BigInt(2), modulus: p) == ySq else { return nil }
-        let y0IsOdd = ((y0 & BigInt(1)) == BigInt(1))
-        let y = (y0IsOdd != odd) ? (p - y0) : y0
-        return (x, y)
     }
 
     // MARK: - helpers
+
+    /// Reduce a 32-byte big-endian integer to the canonical
+    /// `[1, n-1]` range. Returns the 32-byte big-endian representation
+    /// of `value mod n`. Throws ``Failure/signingFailed`` if the
+    /// reduced value is zero (negligible probability for SHA-256
+    /// outputs, but a hard signing failure when it occurs).
+    static func reduceModN(_ raw: Data) throws -> Data {
+        let reduced = bigInt(raw).modulus(n)
+        guard reduced.signum() > 0 else { throw Failure.signingFailed }
+        return to32(reduced)
+    }
+
+    /// True iff `y` is a quadratic residue mod `p`. For secp256k1
+    /// (where `p ≡ 3 (mod 4)`) this is `y^((p-1)/2) mod p == 1`.
+    static func jacobiIsOne(_ y: BigInt) -> Bool {
+        y.power((p - 1) / 2, modulus: p) == BigInt(1)
+    }
 
     static func bigInt(_ data: Data) -> BigInt {
         BigInt(sign: .plus, magnitude: BigUInt(Data(data)))
