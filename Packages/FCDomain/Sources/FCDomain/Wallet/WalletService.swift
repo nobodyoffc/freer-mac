@@ -246,6 +246,28 @@ public struct WalletService {
         _ = try cashes?.clear(addr: fid)
     }
 
+    /// Manually un-mark a `pendingSpend` row so the cash is selectable
+    /// again. Use case: a Send was broadcast, the optimistic update
+    /// flagged the input as `pendingSpend`, but the broadcast never
+    /// confirmed (network drop, mempool eviction). This restores the
+    /// row verbatim — the row still carries its full chain coords from
+    /// before the would-be spend, since the optimistic path didn't
+    /// touch them. Returns `true` if a row was changed.
+    @discardableResult
+    public func recoverPendingSpend(cashId: String, forFid fid: String) throws -> Bool {
+        guard let store = self.cashes else { return false }
+        guard var snap = try store.snapshot(forAddress: fid) else { return false }
+        guard let idx = snap.cashes.firstIndex(where: { $0.id == cashId && $0.pendingSpend }) else {
+            return false
+        }
+        var row = snap.cashes[idx]
+        row.pendingSpend = false
+        snap.cashes[idx] = row
+        snap.snapshotAt = Date()
+        try store.save(snap)
+        return true
+    }
+
     // MARK: - cash sync internals
 
     /// One-page-at-a-time loop over a paginated FCDSL cash query.

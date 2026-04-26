@@ -32,6 +32,10 @@ struct SettingsView: View {
     @State private var discovering: Bool = false
     @State private var discoverError: String?
 
+    @State private var purgeError: String?
+    @State private var purgeOk: Bool = false
+    @State private var showPurgeConfirm: Bool = false
+
     enum TestResult: Equatable {
         case ok(String)
         case fail(String)
@@ -47,6 +51,13 @@ struct SettingsView: View {
         .padding()
         .frame(minWidth: 480)
         .onAppear { load() }
+        .alert("Purge cash cache for \(session.liveFid.prefix(10))…?",
+               isPresented: $showPurgeConfirm) {
+            Button("Cancel", role: .cancel) {}
+            Button("Purge", role: .destructive) { runPurge() }
+        } message: {
+            Text("Removes the local cash cache for this FID. The next Refresh will re-fetch every spendable cash from `base.cashValid`. Pending-spend marks and unconfirmed change rows will be lost — only do this if the cache looks wrong.")
+        }
     }
 
     private var form: some View {
@@ -147,6 +158,30 @@ struct SettingsView: View {
                           text: $autoLockMinutes,
                           prompt: Text("e.g. 10"))
                     .frame(maxWidth: 240)
+            }
+
+            Section {
+                HStack(spacing: 12) {
+                    Button(role: .destructive) {
+                        showPurgeConfirm = true
+                    } label: {
+                        Label("Purge cash cache", systemImage: "trash")
+                    }
+                    if purgeOk {
+                        Label("Purged", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.callout)
+                    }
+                    if let err = purgeError {
+                        CopyableText(err, font: .callout)
+                            .foregroundStyle(.red)
+                    }
+                }
+            } header: {
+                Text("Maintenance")
+            } footer: {
+                Text("Drops the live FID's local cash cache. The next Refresh will rebootstrap from `base.cashValid`. Use this when the wallet's pending list looks wrong or after a stuck broadcast.")
+                    .font(.caption)
             }
 
             if let err = saveError {
@@ -321,6 +356,22 @@ struct SettingsView: View {
             }
         } catch {
             testResult = .fail("Failed: \(error)")
+        }
+    }
+
+    // MARK: - purge
+
+    private func runPurge() {
+        purgeError = nil
+        do {
+            try session.wallet.purgeCashes(forFid: session.liveFid)
+            purgeOk = true
+            Task {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                await MainActor.run { purgeOk = false }
+            }
+        } catch {
+            purgeError = String(describing: error)
         }
     }
 

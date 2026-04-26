@@ -45,11 +45,13 @@ final class WalletServiceSendTests: XCTestCase {
     /// `base.cashValid` emits for a Cash entity. Includes a canonical
     /// `lockScript` paying to `owner`'s hash160, because
     /// `WalletService.send` filters by lockScript (not `type`) before
-    /// signing. Consolidates the boilerplate so the assertions stay
-    /// focused on send behavior.
+    /// signing. Also includes `id` (the protocol-level cash identifier
+    /// computed from `(birthTxId, birthIndex)`) so the optimistic
+    /// post-send update can later look the row up by id.
     private func cashDict(owner: String, txid: String, index: Int, value: Int64) throws -> [String: Any] {
         let h160 = try FchAddress(fid: owner).hash160
         return [
+            "id": try Cash.makeId(birthTxId: txid, birthIndex: index),
             "owner": owner,
             "value": value,
             "type": "P2PKH",
@@ -406,6 +408,56 @@ final class WalletServiceSendTests: XCTestCase {
                        "change cash is spendable, not pending-spent")
         XCTAssertEqual(change?.value, 899_781,
                        "change == 1_000_000 - 100_000 - 219 fee")
+    }
+
+    // MARK: - manual recover
+
+    /// `recoverPendingSpend(cashId:forFid:)` un-marks a previously
+    /// pendingSpend row, making the cash spendable again. Used when
+    /// a Send tx never confirms (mempool eviction, network drop).
+    func testRecoverPendingSpendUnmarksRow() async throws {
+        let mock = MockFapiClient()
+        let sessions = try makeSessions(passwords: ["rec-a", "rec-b"], fapi: mock)
+        let alice = sessions[0]
+        let bob = sessions[1]
+        let inputTxid = String(repeating: "ab", count: 32)
+
+        mock.responder = { call in
+            switch call.api {
+            case "base.cashValid":
+                return try makeResponse(data: [try self.cashDict(
+                    owner: alice.mainFid, txid: inputTxid, index: 0,
+                    value: 1_000_000
+                )])
+            case "base.broadcastTx":
+                return try makeResponse(data: "echo-rec")
+            default:
+                XCTFail("unexpected api: \(call.api)")
+                return FapiResponse(code: 1)
+            }
+        }
+
+        // Send to flag the input.
+        _ = try await alice.sendFromLive(
+            to: bob.mainFid, amount: 100_000, feePerByte: 1
+        )
+        var cached = try alice.cashes.snapshot(forAddress: alice.mainFid)
+        let inputId = try Cash.makeId(birthTxId: inputTxid, birthIndex: 0)
+        XCTAssertTrue(cached?.cashes.first(where: { $0.id == inputId })?.pendingSpend ?? false)
+
+        // Recover.
+        let didChange = try alice.wallet.recoverPendingSpend(
+            cashId: inputId, forFid: alice.mainFid
+        )
+        XCTAssertTrue(didChange)
+
+        cached = try alice.cashes.snapshot(forAddress: alice.mainFid)
+        XCTAssertFalse(cached?.cashes.first(where: { $0.id == inputId })?.pendingSpend ?? true)
+
+        // Idempotent: second call returns false (no change).
+        XCTAssertFalse(try alice.wallet.recoverPendingSpend(
+            cashId: inputId, forFid: alice.mainFid
+        ))
     }
 
     // MARK: - watch-only refusal
