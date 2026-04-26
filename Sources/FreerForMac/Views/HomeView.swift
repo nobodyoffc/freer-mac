@@ -59,18 +59,7 @@ struct HomeView: View {
         case .overview:
             OverviewView(session: session)
         case .send:
-            PlaceholderPaneView(
-                session: session,
-                title: "Send",
-                systemImage: "paperplane",
-                summary: "Build a signed FCH transaction and broadcast it via base.broadcastTx. Lands in Phase 7.2.",
-                bullets: [
-                    "Recipient FID + amount entry",
-                    "Greedy coin selection from the cached UTXO set",
-                    "Signed locally via FCCore.TxHandler — never leaves your Mac unsigned",
-                    "Watch-only fallback: export an unsigned TxInfo for cold signing"
-                ]
-            )
+            SendView(session: session)
         case .receive:
             ReceiveView(session: session)
         case .transactions:
