@@ -92,12 +92,14 @@ final class WalletServiceSendTests: XCTestCase {
         )
 
         // 1 input, 2 outputs (recipient + change to alice).
+        // Fee math (Schnorr P2PKH input = 141 B, P2PKH output = 34 B,
+        // tx overhead = 10 B): 10 + 141 + 34*2 = 219 B at 1 sat/B = 219.
         XCTAssertEqual(result.transaction.inputs.count, 1)
         XCTAssertEqual(result.transaction.outputs.count, 2)
         XCTAssertEqual(result.transaction.outputs[0].value, 100_000)
-        // Change = 1_000_000 - 100_000 - 226 (fee) = 899_774.
-        XCTAssertEqual(result.transaction.outputs[1].value, 899_774)
-        XCTAssertEqual(result.plan.fee, 226)
+        // Change = 1_000_000 - 100_000 - 219 = 899_781.
+        XCTAssertEqual(result.transaction.outputs[1].value, 899_781)
+        XCTAssertEqual(result.plan.fee, 219)
 
         // Input is signed: scriptSig non-empty.
         XCTAssertGreaterThan(result.transaction.inputs[0].scriptSig.bytes.count, 0)
@@ -108,7 +110,9 @@ final class WalletServiceSendTests: XCTestCase {
         // Mock saw exactly two FAPI calls in the right order.
         XCTAssertEqual(mock.recorded.map { $0.api }, ["base.cashValid", "base.broadcastTx"])
 
-        // Signed tx verifies via FCCore's secp256k1 wrapper.
+        // Signed tx verifies as a BCH-Schnorr signature against the
+        // recomputed sighash. (FCH mainnet rejects ECDSA on P2PKH;
+        // see TxHandler.swift for the network rule.)
         let signed = result.transaction
         let pub = try Secp256k1.publicKey(fromPrivateKey: try alice.mainPrikey())
         let pubHash = Hash.hash160(pub)
@@ -118,10 +122,10 @@ final class WalletServiceSendTests: XCTestCase {
             scriptCode: scriptCode, prevValueSats: 1_000_000
         )
         let scriptBytes = [UInt8](signed.inputs[0].scriptSig.bytes)
-        let sigLen = Int(scriptBytes[0])
-        let derSig = Data(scriptBytes[1..<(1 + sigLen - 1)])
-        XCTAssertTrue(try Secp256k1.verifySighashSig(
-            publicKey: pub, sighash: sighash, signatureDER: derSig
+        XCTAssertEqual(scriptBytes[0], 65, "Schnorr+sighash push opcode")
+        let schnorrSig = Data(scriptBytes[1..<65])
+        XCTAssertTrue(try BchSchnorr.verify(
+            message: sighash, publicKey: pub, signature: schnorrSig
         ))
     }
 

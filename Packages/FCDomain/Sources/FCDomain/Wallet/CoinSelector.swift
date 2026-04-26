@@ -22,7 +22,11 @@ public enum CoinSelector {
     public static let dustThresholdSats: Int64 = 546
 
     public static let txOverheadBytes = 10
-    public static let p2pkhInputBytes = 148
+    /// BCH-Schnorr P2PKH input: txid(32) + outIndex(4) + scriptLen(1) +
+    /// push65 sig+sighash(66) + push33 pubkey(34) + sequence(4) = 141 B.
+    /// Matches Android freecashj's `141` constant. Pre-Schnorr ECDSA
+    /// would have been ~148 B (DER sig is 70-72 B).
+    public static let p2pkhInputBytes = 141
     public static let p2pkhOutputBytes = 34
 
     public struct Plan: Equatable, Sendable {

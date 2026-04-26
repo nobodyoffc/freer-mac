@@ -36,19 +36,19 @@ final class CoinSelectorTests: XCTestCase {
             amount: 1_000,
             feePerByte: 1
         )
-        // size = 10 + 148 + 34*2 = 226 bytes → fee = 226 sat
-        // change = 10_000 - 1_000 - 226 = 8_774 sat → above 546 dust → has change
+        // size = 10 + 141 + 34*2 = 219 bytes → fee = 219 sat
+        // change = 10_000 - 1_000 - 219 = 8_781 sat → above 546 dust → has change
         XCTAssertTrue(plan.hasChange)
-        XCTAssertEqual(plan.fee, 226)
-        XCTAssertEqual(plan.change, 8_774)
-        XCTAssertEqual(plan.estimatedSize, 226)
+        XCTAssertEqual(plan.fee, 219)
+        XCTAssertEqual(plan.change, 8_781)
+        XCTAssertEqual(plan.estimatedSize, 219)
     }
 
     func testSelectDropsChangeWhenChangeWouldBeDust() throws {
         // Build a cash whose surplus over (amount + 2-output fee) is
         // below dust but covers (amount + 1-output fee).
-        // 1-output size = 192 → fee 192. amount 1000 + fee 192 = 1192.
-        // 2-output size = 226 → would-be change at sum=1500: 1500-1000-226=274 (dust).
+        // 1-output size = 185 → fee 185. amount 1000 + fee 185 = 1185.
+        // 2-output size = 219 → would-be change at sum=1500: 1500-1000-219=281 (dust).
         // → fall through to 1-output path; actualFee = 1500-1000 = 500.
         let plan = try CoinSelector.select(
             cashes: [cash(1_500)], amount: 1_000, feePerByte: 1
@@ -57,7 +57,7 @@ final class CoinSelectorTests: XCTestCase {
         XCTAssertEqual(plan.change, 0)
         // No change output → leftover (1500 - 1000) all goes to fee.
         XCTAssertEqual(plan.fee, 500)
-        XCTAssertEqual(plan.estimatedSize, 192)
+        XCTAssertEqual(plan.estimatedSize, 185)
     }
 
     func testSelectAggregatesMultipleInputsWhenSingleNotEnough() throws {
@@ -66,9 +66,9 @@ final class CoinSelectorTests: XCTestCase {
             amount: 1_000
         )
         // Largest first: 800 alone — 800 - 1000 - fee < 0 — skip.
-        // Add 700: sum 1500, 2-output fee = 226 + 148 = 374 → 1500-1000-374=126 (dust).
-        // 1-output fee = 192 + 148 = 340 → 1500 >= 1340 → no-change branch.
-        // actualFee = 1500 - 1000 = 500.
+        // Add 700: sum 1500. 2-output fee for 2 inputs = 219 + 141 = 360
+        // → 1500-1000-360=140 (dust). 1-output fee = 185 + 141 = 326
+        // → 1500 >= 1326 → no-change branch. actualFee = 1500 - 1000 = 500.
         XCTAssertEqual(plan.selected.count, 2)
         XCTAssertEqual(plan.selected.map { $0.value }, [800, 700])
         XCTAssertEqual(plan.totalIn, 1500)
@@ -101,9 +101,9 @@ final class CoinSelectorTests: XCTestCase {
     // MARK: - size formula
 
     func testSizeFormulaMatchesBitcoinjConvention() {
-        // 10 + 148*nIn + 34*nOut
-        XCTAssertEqual(CoinSelector.sizeFor(nIn: 1, nOut: 1), 192)
-        XCTAssertEqual(CoinSelector.sizeFor(nIn: 1, nOut: 2), 226)
-        XCTAssertEqual(CoinSelector.sizeFor(nIn: 3, nOut: 2), 522)
+        // 10 + 141*nIn + 34*nOut  (Schnorr P2PKH input is 141 B)
+        XCTAssertEqual(CoinSelector.sizeFor(nIn: 1, nOut: 1), 185)
+        XCTAssertEqual(CoinSelector.sizeFor(nIn: 1, nOut: 2), 219)
+        XCTAssertEqual(CoinSelector.sizeFor(nIn: 3, nOut: 2), 501)
     }
 }

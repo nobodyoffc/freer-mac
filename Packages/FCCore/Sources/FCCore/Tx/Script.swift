@@ -85,19 +85,24 @@ public enum ScriptBuilder {
 
     /// P2PKH scriptSig: `<push> <sig || hashType> <push> <pubkey>`.
     ///
-    /// `sighashFlag` is appended to the DER signature as a single byte.
+    /// The signature can be either DER-encoded ECDSA (~70-72 bytes) or
+    /// BCH-Schnorr (64 bytes); the script just pushes whatever bytes
+    /// the caller hands in. FCH P2PKH spends require Schnorr — see
+    /// ``TxHandler/signP2pkhInput(tx:inputIndex:privateKey:prevValueSats:hashType:)``.
+    ///
+    /// `sighashFlag` is appended to the signature as a single byte.
     /// For BCH the expected flag is `0x41` (`SIGHASH_ALL | SIGHASH_FORKID`);
     /// other values are accepted so callers doing message-signing with
     /// non-standard flags can use this helper too.
     public static func p2pkhInput(
-        signatureDER: Data,
+        signature: Data,
         sighashFlag: UInt8,
         pubkey: Data
     ) throws -> Script {
         guard pubkey.count == 33 || pubkey.count == 65 else {
             throw Failure.invalidPubkeyLength(got: pubkey.count)
         }
-        var sigPlusFlag = Data(signatureDER)
+        var sigPlusFlag = Data(signature)
         sigPlusFlag.append(sighashFlag)
         var s = Data()
         s.append(pushData(sigPlusFlag))

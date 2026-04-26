@@ -72,7 +72,7 @@ final class ScriptTests: XCTestCase {
             let sig = try XCTUnwrap(vector.derSigHex).hexData
             let flag = try XCTUnwrap(vector.sighashFlag)
             let pub = try XCTUnwrap(vector.pubkeyHex).hexData
-            return try ScriptBuilder.p2pkhInput(signatureDER: sig, sighashFlag: flag, pubkey: pub)
+            return try ScriptBuilder.p2pkhInput(signature: sig, sighashFlag: flag, pubkey: pub)
         default:
             XCTFail("unknown script kind '\(vector.kind)'")
             return Script(Data())

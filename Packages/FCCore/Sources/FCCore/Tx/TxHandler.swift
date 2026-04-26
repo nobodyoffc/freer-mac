@@ -3,8 +3,15 @@ import Foundation
 /// End-to-end transaction signing helpers, built on top of the Phase 2.1–2.3
 /// primitives.
 ///
-/// Current scope: P2PKH input signing. Multisig / P2SH signing comes as
-/// separate helpers when a caller needs them.
+/// Current scope: P2PKH input signing using **BCH 2019 Schnorr** (the
+/// pre-BIP-340 variant). FCH mainnet rejects ECDSA-DER signatures on
+/// P2PKH spends with a confusing `Signature cannot be 65 bytes in
+/// CHECKMULTISIG` script-verify error — Schnorr is the only path the
+/// chain accepts. The 64-byte signature plus 1-byte sighash flag (0x41)
+/// is exactly 65 bytes, which matches Android freecashj's behaviour.
+///
+/// Multisig / P2SH signing comes as separate helpers when a caller
+/// needs them.
 ///
 /// Coin selection and fee estimation live higher in the stack; they depend
 /// on a live wallet and UTXO set, so they'll land in a domain package
@@ -59,9 +66,9 @@ public enum TxHandler {
             prevValueSats: prevValueSats,
             hashType: hashType
         )
-        let derSig = try Secp256k1.signSighash(privateKey: privateKey, sighash: sighash)
+        let schnorrSig = try BchSchnorr.sign(message: sighash, privateKey: privateKey)
         let scriptSig = try ScriptBuilder.p2pkhInput(
-            signatureDER: derSig,
+            signature: schnorrSig,
             sighashFlag: UInt8(hashType & 0xFF),
             pubkey: pubkey
         )

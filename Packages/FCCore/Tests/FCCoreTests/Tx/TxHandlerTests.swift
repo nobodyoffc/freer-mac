@@ -7,7 +7,9 @@ final class TxHandlerTests: XCTestCase {
     /// full signed tx hex and txid must match Java byte-exactly. This
     /// tests the *script + tx serialization* paths without depending on
     /// libsecp256k1 and bitcoinj producing identical RFC 6979 sigs (they
-    /// don't — see phase 1.5a commit note).
+    /// don't — see phase 1.5a commit note). Note: `signedTxHex` here is
+    /// a legacy ECDSA-signed fixture; mainnet FCH now requires Schnorr,
+    /// but the wire-format parity check this test asserts is still valid.
     func testSignedTxWithJavaDerSigMatchesJavaBytes() throws {
         let vectors = try TestVectors.load()
         let unsigned = try buildSampleTransaction(from: vectors)
@@ -15,7 +17,7 @@ final class TxHandlerTests: XCTestCase {
         let pubkey = Data(fromHex: vectors.sampleKey.pubkeyHex)
 
         let scriptSig = try ScriptBuilder.p2pkhInput(
-            signatureDER: Data(fromHex: signedVec.derSigHex),
+            signature: Data(fromHex: signedVec.derSigHex),
             sighashFlag: UInt8(signedVec.hashType & 0xFF),
             pubkey: pubkey
         )
@@ -58,10 +60,9 @@ final class TxHandlerTests: XCTestCase {
     }
 
     /// Swift's TxHandler.signP2pkhInput produces a signed tx whose
-    /// scriptSig parses back into a valid signature for the same sighash.
-    /// (Byte-exact parity with Java isn't asserted here because the two
-    /// libraries' RFC 6979 internals differ and produce different
-    /// signatures for the same privkey+hash.)
+    /// scriptSig parses back into a valid BCH-Schnorr signature for the
+    /// same sighash. The signature is BCH 2019 Schnorr (64 bytes),
+    /// because that's the only form FCH mainnet accepts on P2PKH spends.
     func testSwiftSignedInputProducesVerifiableSignature() throws {
         let vectors = try TestVectors.load()
         let unsigned = try buildSampleTransaction(from: vectors)
@@ -77,26 +78,36 @@ final class TxHandlerTests: XCTestCase {
         )
         XCTAssertFalse(signed.inputs[0].scriptSig.bytes.isEmpty)
 
+        // Pull the signature out of scriptSig: layout is
+        //   [push65 sig+sighash] [push33 pubkey]
+        // First byte is the 65 push opcode; next 64 bytes are the
+        // Schnorr sig and the 65th byte is the sighash flag (0x41).
+        let scriptBytes = [UInt8](signed.inputs[0].scriptSig.bytes)
+        XCTAssertEqual(scriptBytes[0], 65, "Schnorr+sighash push len")
+        let schnorrSig = Data(scriptBytes[1..<65])
+        XCTAssertEqual(scriptBytes[65], 0x41, "BCH sighash flag (ALL|FORKID)")
+
         // Recompute the sighash from the original unsigned tx and
-        // independently obtain the Swift-side DER sig. It must verify.
+        // verify the Schnorr signature.
         let pubkeyHash = Hash.hash160(pubkey)
         let scriptCode = try ScriptBuilder.p2pkhOutput(hash160: pubkeyHash).bytes
         let sighash = try BchSighash.sighash(
             tx: unsigned, inputIndex: 0,
             scriptCode: scriptCode, prevValueSats: prevValueSats
         )
-        let derSig = try Secp256k1.signSighash(privateKey: privkey, sighash: sighash)
         XCTAssertTrue(
-            try Secp256k1.verifySighashSig(
-                publicKey: pubkey, sighash: sighash, signatureDER: derSig
+            try BchSchnorr.verify(
+                message: sighash, publicKey: pubkey, signature: schnorrSig
             )
         )
 
         // And the Swift-signed scriptSig should match the scriptSig we'd
-        // build from that same DER sig — proves TxHandler.signP2pkhInput
-        // composes the two correctly.
+        // build from a freshly-computed Schnorr sig — proves
+        // TxHandler.signP2pkhInput composes signing + scripting correctly
+        // (Schnorr is deterministic via SHA256(privkey || msg) nonce).
+        let freshSig = try BchSchnorr.sign(message: sighash, privateKey: privkey)
         let expectedScriptSig = try ScriptBuilder.p2pkhInput(
-            signatureDER: derSig, sighashFlag: 0x41, pubkey: pubkey
+            signature: freshSig, sighashFlag: 0x41, pubkey: pubkey
         )
         XCTAssertEqual(signed.inputs[0].scriptSig, expectedScriptSig)
     }
