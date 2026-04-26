@@ -1,5 +1,6 @@
 import SwiftUI
 import FCDomain
+import FCUI
 
 /// Wallet overview. Balance card + (Phase 7.2) recent activity. The
 /// refresh button calls `wallet.balance(forFid:)` against the active
@@ -62,8 +63,7 @@ struct OverviewView: View {
                 Text("—")
                     .font(.system(size: 38, weight: .semibold, design: .rounded))
                     .foregroundStyle(.secondary)
-                Text(err)
-                    .font(.callout)
+                CopyableText(err, font: .callout)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             } else {

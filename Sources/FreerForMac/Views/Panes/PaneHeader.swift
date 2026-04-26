@@ -21,12 +21,12 @@ struct PaneHeader: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
 
-                Text(session.liveFid)
-                    .font(.system(.callout, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                CopyableText(
+                    session.liveFid,
+                    font: .system(.callout, design: .monospaced)
+                )
+                .lineLimit(1)
+                .truncationMode(.middle)
 
                 HStack(spacing: 6) {
                     Image(systemName: session.canSign ? "key.fill" : "eye")

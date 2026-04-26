@@ -1,6 +1,7 @@
 import SwiftUI
 import FCDomain
 import FCTransport
+import FCUI
 
 /// Per-main-FID preferences. FAPI server config (host / port /
 /// pubkey) plus a few UI knobs. Two ways to validate the FAPI form:
@@ -83,9 +84,13 @@ struct SettingsView: View {
                         .foregroundStyle(.red)
                 }
                 if let err = discoverError {
-                    Label(err, systemImage: "xmark.octagon.fill")
-                        .foregroundStyle(.red)
-                        .font(.caption)
+                    HStack(alignment: .top, spacing: 4) {
+                        Image(systemName: "xmark.octagon.fill")
+                        CopyableText(err, font: .caption)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .foregroundStyle(.red)
+                    .font(.caption)
                 }
 
                 HStack(spacing: 12) {
@@ -106,13 +111,19 @@ struct SettingsView: View {
                     if let result = testResult {
                         switch result {
                         case .ok(let msg):
-                            Label(msg, systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .font(.callout)
+                            HStack(alignment: .top, spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                CopyableText(msg, font: .callout)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .foregroundStyle(.green)
                         case .fail(let msg):
-                            Label(msg, systemImage: "xmark.octagon.fill")
-                                .foregroundStyle(.red)
-                                .font(.callout)
+                            HStack(alignment: .top, spacing: 4) {
+                                Image(systemName: "xmark.octagon.fill")
+                                CopyableText(msg, font: .callout)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .foregroundStyle(.red)
                         }
                     }
                 }
@@ -140,7 +151,9 @@ struct SettingsView: View {
 
             if let err = saveError {
                 Section {
-                    Text(err).foregroundStyle(.red).font(.callout)
+                    CopyableText(err, font: .callout)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
 

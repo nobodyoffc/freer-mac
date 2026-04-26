@@ -1,6 +1,7 @@
 import SwiftUI
 import FCCore
 import FCDomain
+import FCUI
 
 /// Build, sign, and broadcast an FCH transaction from the live FID.
 ///
@@ -103,9 +104,8 @@ struct SendView: View {
                 Section("Sent") { resultRows(result) }
             } else if let err = sendError {
                 Section {
-                    Text(err)
+                    CopyableText(err, font: .callout)
                         .foregroundStyle(.red)
-                        .font(.callout)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -144,20 +144,26 @@ struct SendView: View {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 Text("Broadcast accepted").bold()
             }
-            Text("txid: \(r.remoteTxid)")
-                .font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Text("\(r.plan.selected.count) input(s) · fee \(r.plan.fee) sat · \(r.plan.estimatedSize) B" +
-                 (r.plan.hasChange ? " · change \(r.plan.change) sat" : " · no change"))
-                .font(.caption.monospaced())
+            CopyableText(
+                display: "txid: \(r.remoteTxid)",
+                copy: r.remoteTxid,
+                font: .system(.caption, design: .monospaced)
+            )
+            .lineLimit(1)
+            .truncationMode(.middle)
+
+            let summary = "\(r.plan.selected.count) input(s) · fee \(r.plan.fee) sat · \(r.plan.estimatedSize) B" +
+                (r.plan.hasChange ? " · change \(r.plan.change) sat" : " · no change")
+            CopyableText(summary, font: .caption.monospaced())
                 .foregroundStyle(.secondary)
+
             if r.remoteTxid != r.transaction.txidDisplay {
-                Text("Local txid: \(r.transaction.txidDisplay) — server returned a different value.")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+                CopyableText(
+                    "Local txid: \(r.transaction.txidDisplay) — server returned a different value.",
+                    font: .caption
+                )
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
