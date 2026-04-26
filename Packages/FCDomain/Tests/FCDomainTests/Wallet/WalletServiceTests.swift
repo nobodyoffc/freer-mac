@@ -134,21 +134,29 @@ final class WalletServiceTests: XCTestCase {
         XCTAssertEqual(snapshot.bestHeight, 800_001)
         XCTAssertEqual(snapshot.watermarkHeight, 800_001)
 
-        // Outgoing FCDSL shape: filter on owner, sort by lastHeight
-        // desc + id desc, no `entity` (cashValid is index-bound).
+        // Outgoing wire shape: mode 2 of cashValid — single param
+        // `fid`, no FCDSL. The server filters by valid=true and
+        // routes by owner internally.
         let r = mock.recorded[0]
         XCTAssertEqual(r.api, "base.cashValid")
-        XCTAssertNil(r.params)
-        let fcdsl = try JSONSerialization.jsonObject(with: try XCTUnwrap(r.fcdsl)) as? [String: Any]
-        let filter = fcdsl?["filter"] as? [String: Any]
-        let terms = filter?["terms"] as? [String: Any]
-        XCTAssertEqual(terms?["fields"] as? [String], ["owner"])
-        XCTAssertEqual(terms?["values"] as? [String], ["FFromAddr"])
-        let sort = fcdsl?["sort"] as? [[String: String]]
-        XCTAssertEqual(sort?[0]["field"], "lastHeight")
-        XCTAssertEqual(sort?[0]["order"], "desc")
-        XCTAssertEqual(sort?[1]["field"], "id")
-        XCTAssertNil(fcdsl?["entity"])
+        XCTAssertNil(r.fcdsl)
+        let params = try JSONSerialization.jsonObject(with: try XCTUnwrap(r.params)) as? [String: Any]
+        XCTAssertEqual(params?["fid"] as? String, "FFromAddr")
+    }
+
+    func testBootstrapHandlesEmptyWallet() async throws {
+        // The server returns NOT_FOUND for an FID with zero cashes.
+        // That's a normal empty-wallet outcome and must produce an
+        // empty snapshot, not propagate as a failure.
+        let mock = MockFapiClient()
+        mock.responder = { _ in
+            FapiResponse(code: 404, message: "No UTXOs found", bestHeight: 1234)
+        }
+        let svc = WalletService(fapi: mock)
+        let snapshot = try await svc.refreshCashes(forFid: "FEmpty")
+        XCTAssertEqual(snapshot.cashes.count, 0)
+        XCTAssertEqual(snapshot.bestHeight, 1234)
+        XCTAssertEqual(snapshot.watermarkHeight, 1234)
     }
 
     func testBootstrapWritesCacheWhenStoreProvided() async throws {

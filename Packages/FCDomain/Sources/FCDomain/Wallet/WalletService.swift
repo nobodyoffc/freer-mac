@@ -117,63 +117,93 @@ public struct WalletService {
     /// reflected. Matches FCH's protocol-level reorg cap.
     public static let reorgWindowBlocks: Int64 = 30
 
-    /// Public entry point. Picks bootstrap or incremental based on
-    /// whether we have a watermark for this fid. Caller doesn't need
-    /// to care.
+    /// Public entry point. Tries incremental sync first when we have
+    /// a watermark; falls back to a full bootstrap when there's no
+    /// cache yet OR when the incremental round-trip fails (e.g. the
+    /// live FAPI server's `base.search` contract isn't quite what we
+    /// encode, or the call times out). Bootstrap is the always-safe
+    /// reset.
     @discardableResult
     public func refreshCashes(
         forFid fid: String,
         pageSize: Int = WalletService.defaultCashPageSize,
         timeoutMs: Int = 5_000
     ) async throws -> CashSnapshot {
-        let cached = try? cashes?.snapshot(forAddress: fid)
-        if let cached, let _ = cached.watermarkHeight {
-            return try await refreshCashesIncremental(
-                forFid: fid, base: cached,
-                pageSize: pageSize, timeoutMs: timeoutMs
-            )
-        } else {
-            return try await bootstrapCashes(
-                forFid: fid, pageSize: pageSize, timeoutMs: timeoutMs
-            )
+        if let cached = try? cashes?.snapshot(forAddress: fid),
+           cached.watermarkHeight != nil {
+            do {
+                return try await refreshCashesIncremental(
+                    forFid: fid, base: cached,
+                    pageSize: pageSize, timeoutMs: timeoutMs
+                )
+            } catch {
+                // Fall through to bootstrap on any incremental failure.
+                // The user-facing wallet stays usable; the next attempt
+                // can retry incremental from a fresh watermark.
+            }
         }
+        return try await bootstrapCashes(
+            forFid: fid, pageSize: pageSize, timeoutMs: timeoutMs
+        )
     }
 
-    /// First-time sync: query `base.cashValid` for every spendable
-    /// cash owned by `fid`, paging via the FCDSL `after` cursor until
-    /// the server runs dry. Replaces any existing snapshot.
+    /// First-time sync: query `base.cashValid` mode 2 (params = `{fid}`)
+    /// for every currently-spendable cash owned by `fid`. Single
+    /// round-trip, no FCDSL — the server applies its own
+    /// `valid=true` filter and routes by `fid`. Replaces any
+    /// existing snapshot.
     ///
-    /// Mode 1 (`params == null`, FCDSL filter) is the right path here
-    /// because mode 2 ("smart selection") doesn't paginate.
+    /// **Pagination caveat:** mode 2 doesn't expose a cursor, so a
+    /// FID with thousands of cashes may exceed the server's per-call
+    /// cap. We can layer pagination on top later — either by
+    /// iterating `sinceHeight` on mode 2 or by switching to a
+    /// mode-1 FCDSL that combines `owner=fid` with `valid=true` (the
+    /// FCDSL semantics for compound terms aren't yet pinned down in
+    /// this client).
     public func bootstrapCashes(
         forFid fid: String,
         pageSize: Int = WalletService.defaultCashPageSize,
         timeoutMs: Int = 5_000
     ) async throws -> CashSnapshot {
-        var collected: [Cash] = []
-        var bestHeight: Int64?
-
-        try await pageCashes(
+        let params = try JSONSerialization.data(
+            withJSONObject: ["fid": fid],
+            options: [.sortedKeys]
+        )
+        let reply = try await fapi.call(
             api: "base.cashValid",
-            entity: nil,                 // mode 1 of cashValid is bound to the cash index
-            ownerFid: fid,
-            sinceLastHeightExclusive: nil,
-            pageSize: pageSize,
+            params: params, fcdsl: nil, binary: nil,
+            sid: nil, via: nil, maxCost: nil,
             timeoutMs: timeoutMs
-        ) { cashes, pageBest in
-            collected.append(contentsOf: cashes)
-            bestHeight = bestHeight ?? pageBest
+        )
+        let resp = reply.response
+        // The server returns NOT_FOUND when an FID has zero cashes.
+        // That's a normal "empty wallet" outcome — not a sync failure.
+        if let code = resp.code, code != 0 {
+            let snapshot = CashSnapshot(
+                addr: fid, cashes: [],
+                snapshotAt: Date(),
+                bestHeight: resp.bestHeight,
+                watermarkHeight: resp.bestHeight
+            )
+            if let store = self.cashes { try store.save(snapshot) }
+            return snapshot
+        }
+        guard let data = resp.data else {
+            throw Failure.unexpectedDataShape(api: "base.cashValid")
+        }
+        let cashList: [Cash]
+        do {
+            cashList = try Cash.parseFapiList(data)
+        } catch {
+            throw Failure.underlying(error)
         }
 
-        // Watermark = bestHeight at fetch time. The next incremental
-        // refresh subtracts `reorgWindowBlocks` to re-fetch the
-        // trailing reorg-prone window.
         let snapshot = CashSnapshot(
             addr: fid,
-            cashes: collected,
+            cashes: cashList,
             snapshotAt: Date(),
-            bestHeight: bestHeight,
-            watermarkHeight: bestHeight
+            bestHeight: resp.bestHeight,
+            watermarkHeight: resp.bestHeight
         )
         if let store = self.cashes {
             try store.save(snapshot)
