@@ -393,9 +393,13 @@ public struct WalletService {
         }
     }
 
-    /// Build the FCDSL JSON for cash pagination queries. Uniform across
-    /// `base.cashValid` mode-1 (no entity) and `base.search`
-    /// (entity = "cash").
+    /// Build the FCDSL JSON for cash pagination queries. Mirrors the
+    /// shape `Freer/.../CashManager.java` builds and that the live
+    /// `base.search` handler expects: conditions go in the `query`
+    /// object, NOT the separate `filter` field. `filter` is what
+    /// `base.cashValid` mode-1 reaches for, processed by a different
+    /// server path; `query` is what `base.search` consumes via
+    /// `queryExecutor.executeQuery`.
     private static func cashFcdsl(
         entity: String?,
         ownerFid: String,
@@ -403,14 +407,14 @@ public struct WalletService {
         pageSize: Int,
         after: [String]?
     ) throws -> Data {
-        var filter: [String: Any] = [
+        var query: [String: Any] = [
             "terms": ["fields": ["owner"], "values": [ownerFid]]
         ]
         if let h = sinceLastHeightExclusive {
-            filter["range"] = ["fields": ["lastHeight"], "gt": String(h)]
+            query["range"] = ["fields": ["lastHeight"], "gt": String(h)]
         }
         var dict: [String: Any] = [
-            "filter": filter,
+            "query": query,
             "sort": [
                 ["field": "lastHeight", "order": "desc"],
                 ["field": "id",         "order": "desc"]

@@ -319,11 +319,17 @@ final class WalletServiceTests: XCTestCase {
             with: try XCTUnwrap(mock.recorded[0].fcdsl)
         ) as? [String: Any]
         XCTAssertEqual(fcdsl?["entity"] as? String, "cash")
-        // sinceLastHeightExclusive = max(0, 1000 - 30) = 970
-        let filter = fcdsl?["filter"] as? [String: Any]
-        let range = filter?["range"] as? [String: Any]
+        // sinceLastHeightExclusive = max(0, 1000 - 30) = 970.
+        // Conditions live under `query`, not `filter` — matching the
+        // Android Freer client and what the server expects on
+        // base.search.
+        let query = fcdsl?["query"] as? [String: Any]
+        let range = query?["range"] as? [String: Any]
         XCTAssertEqual(range?["fields"] as? [String], ["lastHeight"])
         XCTAssertEqual(range?["gt"] as? String, "970")
+        let terms = query?["terms"] as? [String: Any]
+        XCTAssertEqual(terms?["fields"] as? [String], ["owner"])
+        XCTAssertEqual(terms?["values"] as? [String], [session.mainFid])
 
         // Apply outcome: A removed, C confirmed (.onchain), D added, B intact.
         let ids = Set(result.cashes.compactMap { $0.id })
