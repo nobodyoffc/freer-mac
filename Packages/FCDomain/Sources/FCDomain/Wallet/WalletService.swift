@@ -276,6 +276,47 @@ public struct WalletService {
         _ = try cashes?.clear(addr: fid)
     }
 
+    /// Fetch recent on-chain activity for `fid` from the cash index —
+    /// the closest thing to a per-FID tx history. Each row is a
+    /// ``Cash`` whose `lastHeight` marks the most recent state change
+    /// (creation = income, spend = outgoing). Sorted newest first.
+    ///
+    /// Wire shape: `base.search` on `entity: "cash"`, filtering by
+    /// owner == fid, sorting by `lastHeight desc, id desc`. The
+    /// caller chooses the page size; pagination via the `after`
+    /// cursor is a follow-up.
+    public func fetchRecentActivity(
+        forFid fid: String,
+        limit: Int = 50,
+        timeoutMs: Int = 5_000
+    ) async throws -> [Cash] {
+        let body = try Self.cashFcdsl(
+            entity: "cash",
+            ownerFid: fid,
+            sinceLastHeightExclusive: nil,
+            pageSize: limit,
+            after: nil
+        )
+        let reply = try await fapi.call(
+            api: "base.search",
+            params: nil, fcdsl: body, binary: nil,
+            sid: nil, via: nil, maxCost: nil,
+            timeoutMs: timeoutMs
+        )
+        let resp = reply.response
+        // Empty result is normal for a fresh FID — surface as [].
+        // 404 / NOT_FOUND is what the server emits for "no rows".
+        if let code = resp.code, code != 0, code != 404 {
+            throw Failure.fapiNonZeroCode(api: "base.search", code: code, message: resp.message)
+        }
+        guard let data = resp.data else { return [] }
+        do {
+            return try Cash.parseFapiList(data)
+        } catch {
+            throw Failure.underlying(error)
+        }
+    }
+
     /// Manually un-mark a `pendingSpend` row so the cash is selectable
     /// again. Use case: a Send was broadcast, the optimistic update
     /// flagged the input as `pendingSpend`, but the broadcast never

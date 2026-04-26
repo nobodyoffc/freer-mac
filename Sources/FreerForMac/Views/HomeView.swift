@@ -63,17 +63,7 @@ struct HomeView: View {
         case .receive:
             ReceiveView(session: session)
         case .transactions:
-            PlaceholderPaneView(
-                session: session,
-                title: "Transactions",
-                systemImage: "list.bullet",
-                summary: "History of inbound and outbound txs for the live FID. Lands in Phase 7.3.",
-                bullets: [
-                    "Pulled via base.search on the Cash index, paged with `last`",
-                    "Each row shows direction, counterparty, amount, height, timestamp",
-                    "Tap to expand → raw tx JSON + explorer link"
-                ]
-            )
+            TransactionsView(session: session)
         case .contacts:
             PlaceholderPaneView(
                 session: session,
