@@ -26,10 +26,17 @@ public enum CoinSelector {
     public static let p2pkhOutputBytes = 34
 
     public struct Plan: Equatable, Sendable {
-        public var selected: [Utxo]
+        public var selected: [Cash]
         public var change: Int64       // 0 if no change output
         public var fee: Int64
         public var estimatedSize: Int  // bytes
+
+        public init(selected: [Cash], change: Int64, fee: Int64, estimatedSize: Int) {
+            self.selected = selected
+            self.change = change
+            self.fee = fee
+            self.estimatedSize = estimatedSize
+        }
 
         public var totalIn: Int64 { selected.reduce(0) { $0 + $1.value } }
 
@@ -53,30 +60,31 @@ public enum CoinSelector {
         }
     }
 
-    /// Pick UTXOs to fund a payment of `amount` satoshis at
+    /// Pick cashes to fund a payment of `amount` satoshis at
     /// `feePerByte` sat/byte. Returns a fully-priced ``Plan``.
     ///
     /// `amount` is paid to one recipient; the change (if any) goes to
-    /// a second output. Both are P2PKH.
+    /// a second output. Both are P2PKH — caller filters non-standard
+    /// types before getting here.
     public static func select(
-        utxos: [Utxo],
+        cashes: [Cash],
         amount: Int64,
         feePerByte: Int64 = 1
     ) throws -> Plan {
         guard amount > 0 else { throw Failure.nonPositiveAmount(amount) }
         guard feePerByte > 0 else { throw Failure.nonPositiveFeeRate(feePerByte) }
 
-        let candidates = utxos.sorted { $0.value > $1.value }
-        var selected: [Utxo] = []
+        let candidates = cashes.sorted { $0.value > $1.value }
+        var selected: [Cash] = []
         var sum: Int64 = 0
 
         // Iterate: each added input bumps the fee, which may force
         // another input. The sum-feedback loop terminates because the
         // input-fee-cost (148 sat at 1 sat/byte) is well below any
-        // reasonable per-utxo value.
-        for utxo in candidates {
-            selected.append(utxo)
-            sum += utxo.value
+        // reasonable per-cash value.
+        for cash in candidates {
+            selected.append(cash)
+            sum += cash.value
             // Try to close the plan with TWO outputs (recipient + change).
             let twoOutSize = sizeFor(nIn: selected.count, nOut: 2)
             let twoOutFee = Int64(twoOutSize) * feePerByte

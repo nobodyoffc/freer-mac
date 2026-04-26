@@ -90,56 +90,59 @@ final class WalletServiceTests: XCTestCase {
         }
     }
 
-    // MARK: - utxos
+    // MARK: - cashes (base.cashValid)
 
-    func testRefreshUtxosDecodesWireShape() async throws {
+    func testRefreshCashesDecodesWireShape() async throws {
         let mock = MockFapiClient()
-        // Wire shape: amount is a double of BCH (× 1e8 → satoshis).
+        // Wire shape mirrors Java Cash Gson serialization: value is
+        // satoshis (Long), birthTxId/birthIndex name the source output.
         mock.responder = { _ in
             try makeResponse(
                 data: [
                     [
-                        "addr": "FFromAddr",
-                        "txId": "abcd1234",
-                        "index": 0,
-                        "amount": 0.0001,                  // = 10_000 satoshis
+                        "owner": "FFromAddr",
+                        "value": 10_000,
+                        "type": "P2PKH",
+                        "birthTxId": "abcd1234",
+                        "birthIndex": 0,
                         "issuer": "FIssuer",
                         "birthTime": 1_700_000_000
                     ],
                     [
-                        "addr": "FFromAddr",
-                        "txId": "ef567890",
-                        "index": 2,
-                        "amount": 1.5                      // = 150_000_000 satoshis
+                        "owner": "FFromAddr",
+                        "value": 150_000_000,
+                        "type": "P2PKH",
+                        "birthTxId": "ef567890",
+                        "birthIndex": 2
                     ]
                 ],
                 bestHeight: 800_001
             )
         }
         let svc = WalletService(fapi: mock)
-        let snapshot = try await svc.refreshUtxos(
-            forAddress: "FFromAddr",
+        let snapshot = try await svc.refreshCashes(
+            forFid: "FFromAddr",
             minAmountBch: 0.0001
         )
 
-        XCTAssertEqual(snapshot.utxos.count, 2)
-        XCTAssertEqual(snapshot.utxos[0].txid, "abcd1234")
-        XCTAssertEqual(snapshot.utxos[0].value, 10_000)
-        XCTAssertEqual(snapshot.utxos[0].issuer, "FIssuer")
-        XCTAssertEqual(snapshot.utxos[0].birthTime, 1_700_000_000)
-        XCTAssertEqual(snapshot.utxos[1].value, 150_000_000)
+        XCTAssertEqual(snapshot.cashes.count, 2)
+        XCTAssertEqual(snapshot.cashes[0].birthTxId, "abcd1234")
+        XCTAssertEqual(snapshot.cashes[0].value, 10_000)
+        XCTAssertEqual(snapshot.cashes[0].issuer, "FIssuer")
+        XCTAssertEqual(snapshot.cashes[0].birthTime, 1_700_000_000)
+        XCTAssertEqual(snapshot.cashes[1].value, 150_000_000)
         XCTAssertEqual(snapshot.totalValue, 150_010_000)
         XCTAssertEqual(snapshot.bestHeight, 800_001)
 
-        // Outgoing params shape: {"addr":"FFromAddr","amount":0.0001}
+        // Outgoing params shape: {"fid":"FFromAddr","amount":0.0001}
         let r = mock.recorded[0]
-        XCTAssertEqual(r.api, "base.getUtxo")
+        XCTAssertEqual(r.api, "base.cashValid")
         let params = try JSONSerialization.jsonObject(with: try XCTUnwrap(r.params)) as? [String: Any]
-        XCTAssertEqual(params?["addr"] as? String, "FFromAddr")
+        XCTAssertEqual(params?["fid"] as? String, "FFromAddr")
         XCTAssertEqual((params?["amount"] as? NSNumber)?.doubleValue, 0.0001)
     }
 
-    func testRefreshUtxosWritesCacheWhenStoreProvided() async throws {
+    func testRefreshCashesWritesCacheWhenStoreProvided() async throws {
         let baseDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("WalletServiceTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
@@ -157,36 +160,46 @@ final class WalletServiceTests: XCTestCase {
         let mock = MockFapiClient()
         mock.responder = { _ in
             try makeResponse(data: [[
-                "addr": session.mainFid, "txId": "f00d", "index": 0, "amount": 2.0
+                "owner": session.mainFid,
+                "value": 200_000_000,
+                "type": "P2PKH",
+                "birthTxId": "f00d",
+                "birthIndex": 0
             ]])
         }
-        let svc = WalletService(fapi: mock, utxos: session.utxos)
-        _ = try await svc.refreshUtxos(forAddress: session.mainFid)
+        let svc = WalletService(fapi: mock, cashes: session.cashes)
+        _ = try await svc.refreshCashes(forFid: session.mainFid)
 
         // Cache survives via the store.
-        let cached = try session.utxos.snapshot(forAddress: session.mainFid)
-        XCTAssertEqual(cached?.utxos.count, 1)
-        XCTAssertEqual(cached?.utxos[0].value, 200_000_000)
+        let cached = try session.cashes.snapshot(forAddress: session.mainFid)
+        XCTAssertEqual(cached?.cashes.count, 1)
+        XCTAssertEqual(cached?.cashes[0].value, 200_000_000)
         XCTAssertEqual(cached?.totalValue, 200_000_000)
 
         // Also reachable through the service helper.
         let viaSvc = try svc.cachedSnapshot(forAddress: session.mainFid)
-        XCTAssertEqual(viaSvc?.utxos[0].txid, "f00d")
+        XCTAssertEqual(viaSvc?.cashes[0].birthTxId, "f00d")
     }
 
-    func testRefreshUtxosSkipsCacheWhenNoStore() async throws {
+    func testRefreshCashesSkipsCacheWhenNoStore() async throws {
         let mock = MockFapiClient()
         mock.responder = { _ in
-            try makeResponse(data: [["addr": "FX", "txId": "11", "index": 0, "amount": 1.0]])
+            try makeResponse(data: [[
+                "owner": "FX",
+                "value": 100_000_000,
+                "type": "P2PKH",
+                "birthTxId": "11",
+                "birthIndex": 0
+            ]])
         }
-        let svc = WalletService(fapi: mock)        // no UtxosStore
-        let snap = try await svc.refreshUtxos(forAddress: "FX")
-        XCTAssertEqual(snap.utxos.count, 1)
+        let svc = WalletService(fapi: mock)        // no CashesStore
+        let snap = try await svc.refreshCashes(forFid: "FX")
+        XCTAssertEqual(snap.cashes.count, 1)
         // No throw, no cache write — just an in-memory result.
         XCTAssertNil(try svc.cachedSnapshot(forAddress: "FX"))
     }
 
-    func testRefreshUtxosRejectsBadResponseShape() async throws {
+    func testRefreshCashesRejectsBadResponseShape() async throws {
         let mock = MockFapiClient()
         mock.responder = { _ in
             // data is a JSON array, but elements aren't objects →
@@ -195,10 +208,10 @@ final class WalletServiceTests: XCTestCase {
         }
         let svc = WalletService(fapi: mock)
         do {
-            _ = try await svc.refreshUtxos(forAddress: "FX")
+            _ = try await svc.refreshCashes(forFid: "FX")
             XCTFail("expected throw")
-        } catch WalletService.Failure.underlying(Utxo.Failure.unexpectedResponseShape) {
-            // expected — Utxo parser threw, WalletService wrapped it
+        } catch WalletService.Failure.underlying(Cash.Failure.unexpectedResponseShape) {
+            // expected — Cash parser threw, WalletService wrapped it
         } catch {
             XCTFail("wrong error: \(error)")
         }

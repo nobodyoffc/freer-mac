@@ -15,6 +15,7 @@ public struct WalletService {
     public enum Failure: Error, CustomStringConvertible {
         case fapiNonZeroCode(api: String, code: Int, message: String?)
         case unexpectedDataShape(api: String)
+        case unsupportedCashType(String)
         case underlying(Error)
 
         public var description: String {
@@ -23,6 +24,8 @@ public struct WalletService {
                 return "WalletService: \(api) returned code=\(code) message=\(message ?? "<nil>")"
             case .unexpectedDataShape(let api):
                 return "WalletService: \(api) response data did not match the expected shape"
+            case .unsupportedCashType(let t):
+                return "WalletService: cash type '\(t)' isn't supported yet — Phase 8 adds CLTV / multisig signing"
             case .underlying(let e):
                 return "WalletService: \(e)"
             }
@@ -30,14 +33,14 @@ public struct WalletService {
     }
 
     public let fapi: any FapiCalling
-    public let utxos: UtxosStore?
+    public let cashes: CashesStore?
 
-    /// `utxos` is optional because the read path is meaningful even
+    /// `cashes` is optional because the read path is meaningful even
     /// without a cache (the SwiftUI view-model can hold the latest
     /// snapshot in memory). Pass one in to enable durable caching.
-    public init(fapi: any FapiCalling, utxos: UtxosStore? = nil) {
+    public init(fapi: any FapiCalling, cashes: CashesStore? = nil) {
         self.fapi = fapi
-        self.utxos = utxos
+        self.cashes = cashes
     }
 
     // MARK: - health
@@ -100,50 +103,56 @@ public struct WalletService {
         }
     }
 
-    // MARK: - utxos
+    // MARK: - cashes
 
-    /// `base.getUtxo` — fetch the spendable UTXO list for an address.
-    /// `minAmountBch` is forwarded as `amount` (server may filter
-    /// dust). When ``utxos`` is non-nil the returned snapshot is
-    /// persisted to the cache automatically.
-    public func refreshUtxos(
-        forAddress addr: String,
+    /// `base.cashValid` — fetch the spendable cash list for a FID. The
+    /// server's mode-2 "smart selection" path takes `fid` (required)
+    /// plus optional `amount` (BCH double — coarse filter) and `cd`
+    /// (min coin-days). When ``cashes`` is non-nil the returned
+    /// snapshot is persisted to the cache automatically.
+    ///
+    /// Why `cashValid` and not `getUtxo`: `Cash` carries the type +
+    /// `redeemScript` + `lockTime` we need to spend P2SH-CLTV and
+    /// multisig outputs (Phase 8). The lighter `Utxo` shape strips
+    /// those fields and would force a second round-trip.
+    public func refreshCashes(
+        forFid fid: String,
         minAmountBch: Double? = nil,
         minCd: Int64? = nil,
         timeoutMs: Int = 5_000
-    ) async throws -> UtxoSnapshot {
-        var paramsDict: [String: Any] = ["addr": addr]
+    ) async throws -> CashSnapshot {
+        var paramsDict: [String: Any] = ["fid": fid]
         if let amt = minAmountBch { paramsDict["amount"] = amt }
         if let cd  = minCd        { paramsDict["cd"] = cd }
         let params = try JSONSerialization.data(withJSONObject: paramsDict, options: [.sortedKeys])
 
         let reply = try await fapi.call(
-            api: "base.getUtxo",
+            api: "base.cashValid",
             params: params, fcdsl: nil, binary: nil,
             sid: nil, via: nil, maxCost: nil,
             timeoutMs: timeoutMs
         )
         let resp = reply.response
         guard resp.isSuccess else {
-            throw Failure.fapiNonZeroCode(api: "base.getUtxo", code: resp.code ?? -1, message: resp.message)
+            throw Failure.fapiNonZeroCode(api: "base.cashValid", code: resp.code ?? -1, message: resp.message)
         }
         guard let data = resp.data else {
-            throw Failure.unexpectedDataShape(api: "base.getUtxo")
+            throw Failure.unexpectedDataShape(api: "base.cashValid")
         }
-        let utxos: [Utxo]
+        let cashList: [Cash]
         do {
-            utxos = try Utxo.parseFapiList(data)
+            cashList = try Cash.parseFapiList(data)
         } catch {
             throw Failure.underlying(error)
         }
 
-        let snapshot = UtxoSnapshot(
-            addr: addr,
-            utxos: utxos,
+        let snapshot = CashSnapshot(
+            addr: fid,
+            cashes: cashList,
             snapshotAt: Date(),
             bestHeight: resp.bestHeight
         )
-        if let store = self.utxos {
+        if let store = self.cashes {
             try store.save(snapshot)
         }
         return snapshot
@@ -152,8 +161,8 @@ public struct WalletService {
     /// Read the last cached snapshot for `addr`, or nil if we've
     /// never refreshed. No network round-trip; intended for "show
     /// last-known balance immediately on app open" UI flows.
-    public func cachedSnapshot(forAddress addr: String) throws -> UtxoSnapshot? {
-        try utxos?.snapshot(forAddress: addr)
+    public func cachedSnapshot(forAddress addr: String) throws -> CashSnapshot? {
+        try cashes?.snapshot(forAddress: addr)
     }
 
     // MARK: - send (Phase 5.5)
@@ -197,17 +206,31 @@ public struct WalletService {
         timeoutMs: Int = 10_000
     ) async throws -> SendResult {
 
-        // 1. Get UTXOs.
-        let snapshot: UtxoSnapshot
+        // 1. Get cashes.
+        let snapshot: CashSnapshot
         if useCache, let cached = try cachedSnapshot(forAddress: fromAddress) {
             snapshot = cached
         } else {
-            snapshot = try await refreshUtxos(forAddress: fromAddress, timeoutMs: timeoutMs)
+            snapshot = try await refreshCashes(forFid: fromAddress, timeoutMs: timeoutMs)
+        }
+
+        // 1a. Reject any non-P2PKH cash up-front. CLTV / multisig
+        // need dedicated signing paths (Phase 8); selecting one of
+        // those here would build a tx we can't sign.
+        let standard = snapshot.cashes.filter { $0.isStandardP2PKH }
+        if standard.count != snapshot.cashes.count {
+            // At least one cash had a non-standard type. Fall through
+            // with the filtered list — but if the user has *only*
+            // non-standard cashes, surface a clearer error than
+            // CoinSelector's "insufficient funds".
+            if standard.isEmpty, let first = snapshot.cashes.first {
+                throw Failure.unsupportedCashType(first.type ?? "Unknown")
+            }
         }
 
         // 2. Coin select.
         let plan = try CoinSelector.select(
-            utxos: snapshot.utxos, amount: amount, feePerByte: feePerByte
+            cashes: standard, amount: amount, feePerByte: feePerByte
         )
 
         // 3. Build unsigned tx.
@@ -219,12 +242,12 @@ public struct WalletService {
         // single input filled; we feed the result back in for the
         // next index so the running tx state is current.
         var signed = unsigned
-        for (idx, utxo) in plan.selected.enumerated() {
+        for (idx, cash) in plan.selected.enumerated() {
             signed = try TxHandler.signP2pkhInput(
                 tx: signed,
                 inputIndex: idx,
                 privateKey: privkey,
-                prevValueSats: UInt64(utxo.value)
+                prevValueSats: UInt64(cash.value)
             )
         }
 

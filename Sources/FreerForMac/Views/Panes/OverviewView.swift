@@ -105,7 +105,7 @@ struct OverviewView: View {
     }
 
     private func formatBch(_ sats: Int64) -> String {
-        let bch = Double(sats) / Double(Utxo.satoshisPerBch)
+        let bch = Double(sats) / Double(Cash.satoshisPerBch)
         let formatter = NumberFormatter()
         formatter.minimumFractionDigits = 0
         formatter.maximumFractionDigits = 8

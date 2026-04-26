@@ -5,28 +5,34 @@ final class CoinSelectorTests: XCTestCase {
 
     // MARK: - helpers
 
-    private func utxo(_ value: Int64, txidByte: UInt8 = 0xAA) -> Utxo {
+    private func cash(_ value: Int64, txidByte: UInt8 = 0xAA) -> Cash {
         // 64 hex chars = 32 bytes; varied by `txidByte` so equality
-        // distinguishes utxos in tests.
+        // distinguishes cashes in tests.
         let txid = String(repeating: String(format: "%02x", txidByte), count: 32)
-        return Utxo(addr: "FAddr", txid: txid, index: 0, value: value)
+        return Cash(
+            owner: "FAddr",
+            value: value,
+            type: "P2PKH",
+            birthTxId: txid,
+            birthIndex: 0
+        )
     }
 
     // MARK: - happy paths
 
     func testSelectPicksLargestFirst() throws {
         let plan = try CoinSelector.select(
-            utxos: [utxo(100, txidByte: 1), utxo(500, txidByte: 2), utxo(50, txidByte: 3)],
+            cashes: [cash(100, txidByte: 1), cash(500, txidByte: 2), cash(50, txidByte: 3)],
             amount: 200
         )
-        // Largest UTXO (500) covers 200 + fee comfortably; only 1 input needed.
+        // Largest cash (500) covers 200 + fee comfortably; only 1 input needed.
         XCTAssertEqual(plan.selected.count, 1)
         XCTAssertEqual(plan.selected[0].value, 500)
     }
 
     func testSelectAddsChangeOutputWhenSurplusAboveDust() throws {
         let plan = try CoinSelector.select(
-            utxos: [utxo(10_000)],
+            cashes: [cash(10_000)],
             amount: 1_000,
             feePerByte: 1
         )
@@ -39,13 +45,13 @@ final class CoinSelectorTests: XCTestCase {
     }
 
     func testSelectDropsChangeWhenChangeWouldBeDust() throws {
-        // Build a UTXO whose surplus over (amount + 2-output fee) is
+        // Build a cash whose surplus over (amount + 2-output fee) is
         // below dust but covers (amount + 1-output fee).
         // 1-output size = 192 → fee 192. amount 1000 + fee 192 = 1192.
         // 2-output size = 226 → would-be change at sum=1500: 1500-1000-226=274 (dust).
         // → fall through to 1-output path; actualFee = 1500-1000 = 500.
         let plan = try CoinSelector.select(
-            utxos: [utxo(1_500)], amount: 1_000, feePerByte: 1
+            cashes: [cash(1_500)], amount: 1_000, feePerByte: 1
         )
         XCTAssertFalse(plan.hasChange)
         XCTAssertEqual(plan.change, 0)
@@ -56,7 +62,7 @@ final class CoinSelectorTests: XCTestCase {
 
     func testSelectAggregatesMultipleInputsWhenSingleNotEnough() throws {
         let plan = try CoinSelector.select(
-            utxos: [utxo(700, txidByte: 1), utxo(800, txidByte: 2), utxo(50, txidByte: 3)],
+            cashes: [cash(700, txidByte: 1), cash(800, txidByte: 2), cash(50, txidByte: 3)],
             amount: 1_000
         )
         // Largest first: 800 alone — 800 - 1000 - fee < 0 — skip.
@@ -73,7 +79,7 @@ final class CoinSelectorTests: XCTestCase {
 
     func testSelectThrowsOnInsufficientFunds() {
         XCTAssertThrowsError(try CoinSelector.select(
-            utxos: [utxo(100)], amount: 1000
+            cashes: [cash(100)], amount: 1000
         )) { error in
             guard case CoinSelector.Failure.insufficientFunds = error else {
                 XCTFail("wrong error: \(error)"); return
@@ -82,13 +88,13 @@ final class CoinSelectorTests: XCTestCase {
     }
 
     func testSelectThrowsOnNonPositiveAmount() {
-        XCTAssertThrowsError(try CoinSelector.select(utxos: [], amount: 0))
-        XCTAssertThrowsError(try CoinSelector.select(utxos: [], amount: -1))
+        XCTAssertThrowsError(try CoinSelector.select(cashes: [], amount: 0))
+        XCTAssertThrowsError(try CoinSelector.select(cashes: [], amount: -1))
     }
 
     func testSelectThrowsOnNonPositiveFeeRate() {
         XCTAssertThrowsError(try CoinSelector.select(
-            utxos: [utxo(1_000)], amount: 100, feePerByte: 0
+            cashes: [cash(1_000)], amount: 100, feePerByte: 0
         ))
     }
 

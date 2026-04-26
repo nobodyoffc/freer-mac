@@ -5,11 +5,16 @@ import FCCore
 /// The result has empty `scriptSig`s; ``WalletService`` runs each
 /// input through ``FCCore.TxHandler/signP2pkhInput`` afterward.
 ///
-/// **Byte-order trap:** ``Utxo/txid`` is the *display* hex of a
+/// **Byte-order trap:** ``Cash/birthTxId`` is the *display* hex of a
 /// transaction — the byte-reversal of the natural order that lives
 /// in `OutPoint.prevTxHash`. ``decodeTxid`` does the reverse for us;
 /// callers should never construct an OutPoint by hex-decoding a txid
 /// string directly.
+///
+/// **Script type:** this builder assumes every selected ``Cash`` is
+/// P2PKH. The caller (`WalletService.send`) filters or rejects
+/// non-standard types before getting here. CLTV / multisig builders
+/// land in Phase 8.
 public enum TxBuilder {
 
     public enum Failure: Error, CustomStringConvertible {
@@ -40,11 +45,11 @@ public enum TxBuilder {
         amount: Int64,
         changeFid: String
     ) throws -> Transaction {
-        let inputs: [TxInput] = try plan.selected.map { utxo in
-            let prevTxHash = try decodeTxid(utxo.txid)
+        let inputs: [TxInput] = try plan.selected.map { cash in
+            let prevTxHash = try decodeTxid(cash.birthTxId)
             let outpoint = try OutPoint(
                 prevTxHash: prevTxHash,
-                outIndex: UInt32(utxo.index)
+                outIndex: UInt32(cash.birthIndex)
             )
             return TxInput(
                 outpoint: outpoint,

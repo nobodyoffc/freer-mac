@@ -4,8 +4,8 @@ import FCTransport
 @testable import FCDomain
 
 /// End-to-end exercise of the send pipeline: refresh → coin-select →
-/// build → sign → broadcast. The mock FAPI client serves the UTXO
-/// listing on `base.getUtxo` and accepts the broadcast on
+/// build → sign → broadcast. The mock FAPI client serves the cash
+/// listing on `base.cashValid` and accepts the broadcast on
 /// `base.broadcastTx`. Signing runs for real through ``FCCore.TxHandler``,
 /// so this test also catches regressions in the FCCore tx layer.
 final class WalletServiceSendTests: XCTestCase {
@@ -41,29 +41,17 @@ final class WalletServiceSendTests: XCTestCase {
         return sessions
     }
 
-    /// Mock that serves `base.getUtxo` (one UTXO worth `value`) for
-    /// `addr` and echoes back `base.broadcastTx`.
-    private func mockReturning(utxo addr: String, value: Int64) -> MockFapiClient {
-        let mock = MockFapiClient()
-        mock.responder = { call in
-            switch call.api {
-            case "base.getUtxo":
-                return try makeResponse(data: [[
-                    "addr": addr,
-                    "txId": String(repeating: "ab", count: 32),
-                    "index": 0,
-                    "amount": Double(value) / Double(Utxo.satoshisPerBch)
-                ]])
-            case "base.broadcastTx":
-                let params = try JSONSerialization.jsonObject(with: call.params!) as? [String: Any]
-                let rawHex = params?["rawTx"] as? String ?? ""
-                return try makeResponse(data: "echo-\(rawHex.prefix(16))")
-            default:
-                XCTFail("unexpected api: \(call.api)")
-                return FapiResponse(code: 1, message: "unexpected")
-            }
-        }
-        return mock
+    /// Build a single P2PKH cash JSON object — the wire shape that
+    /// `base.cashValid` emits for a Cash entity. Consolidates the
+    /// boilerplate so the assertions stay focused on send behavior.
+    private func cashDict(owner: String, txid: String, index: Int, value: Int64) -> [String: Any] {
+        [
+            "owner": owner,
+            "value": value,
+            "type": "P2PKH",
+            "birthTxId": txid,
+            "birthIndex": index
+        ]
     }
 
     // MARK: - happy path
@@ -77,13 +65,13 @@ final class WalletServiceSendTests: XCTestCase {
         // Now wire the mock with the live FIDs.
         mock.responder = { call in
             switch call.api {
-            case "base.getUtxo":
-                return try makeResponse(data: [[
-                    "addr": alice.mainFid,
-                    "txId": String(repeating: "ab", count: 32),
-                    "index": 0,
-                    "amount": Double(1_000_000) / Double(Utxo.satoshisPerBch)
-                ]])
+            case "base.cashValid":
+                return try makeResponse(data: [self.cashDict(
+                    owner: alice.mainFid,
+                    txid: String(repeating: "ab", count: 32),
+                    index: 0,
+                    value: 1_000_000
+                )])
             case "base.broadcastTx":
                 let params = try JSONSerialization.jsonObject(with: call.params!) as? [String: Any]
                 let rawHex = params?["rawTx"] as? String ?? ""
@@ -113,7 +101,7 @@ final class WalletServiceSendTests: XCTestCase {
         XCTAssertTrue(result.remoteTxid.hasPrefix("echo-"))
 
         // Mock saw exactly two FAPI calls in the right order.
-        XCTAssertEqual(mock.recorded.map { $0.api }, ["base.getUtxo", "base.broadcastTx"])
+        XCTAssertEqual(mock.recorded.map { $0.api }, ["base.cashValid", "base.broadcastTx"])
 
         // Signed tx verifies via FCCore's secp256k1 wrapper.
         let signed = result.transaction
@@ -142,13 +130,13 @@ final class WalletServiceSendTests: XCTestCase {
 
         mock.responder = { call in
             switch call.api {
-            case "base.getUtxo":
-                return try makeResponse(data: [[
-                    "addr": alice.mainFid,
-                    "txId": String(repeating: "ab", count: 32),
-                    "index": 0,
-                    "amount": Double(500_000) / Double(Utxo.satoshisPerBch)
-                ]])
+            case "base.cashValid":
+                return try makeResponse(data: [self.cashDict(
+                    owner: alice.mainFid,
+                    txid: String(repeating: "ab", count: 32),
+                    index: 0,
+                    value: 500_000
+                )])
             case "base.broadcastTx":
                 let params = try JSONSerialization.jsonObject(with: call.params!) as? [String: Any]
                 let rawHex = params?["rawTx"] as? String ?? ""
@@ -177,13 +165,13 @@ final class WalletServiceSendTests: XCTestCase {
 
         mock.responder = { call in
             switch call.api {
-            case "base.getUtxo":
-                return try makeResponse(data: [[
-                    "addr": alice.mainFid,
-                    "txId": String(repeating: "ab", count: 32),
-                    "index": 0,
-                    "amount": Double(100) / Double(Utxo.satoshisPerBch)  // way too small
-                ]])
+            case "base.cashValid":
+                return try makeResponse(data: [self.cashDict(
+                    owner: alice.mainFid,
+                    txid: String(repeating: "ab", count: 32),
+                    index: 0,
+                    value: 100      // way too small
+                )])
             default:
                 XCTFail("unexpected api: \(call.api)"); return FapiResponse(code: 1)
             }
@@ -206,14 +194,17 @@ final class WalletServiceSendTests: XCTestCase {
         let bob = sessions[1]
 
         // Pre-populate cache so refresh is unnecessary.
-        try alice.utxos.save(UtxoSnapshot(addr: alice.mainFid, utxos: [
-            Utxo(addr: alice.mainFid,
-                 txid: String(repeating: "cd", count: 32),
-                 index: 0,
-                 value: 500_000)
+        try alice.cashes.save(CashSnapshot(addr: alice.mainFid, cashes: [
+            Cash(
+                owner: alice.mainFid,
+                value: 500_000,
+                type: "P2PKH",
+                birthTxId: String(repeating: "cd", count: 32),
+                birthIndex: 0
+            )
         ]))
 
-        // The mock will fail on base.getUtxo because we only mock
+        // The mock will fail on base.cashValid because we only mock
         // base.broadcastTx — proving cache short-circuits the refresh.
         mock.responder = { call in
             if call.api == "base.broadcastTx" {
@@ -237,13 +228,13 @@ final class WalletServiceSendTests: XCTestCase {
 
         mock.responder = { call in
             switch call.api {
-            case "base.getUtxo":
-                return try makeResponse(data: [[
-                    "addr": alice.mainFid,
-                    "txId": String(repeating: "ee", count: 32),
-                    "index": 0,
-                    "amount": 0.01
-                ]])
+            case "base.cashValid":
+                return try makeResponse(data: [self.cashDict(
+                    owner: alice.mainFid,
+                    txid: String(repeating: "ee", count: 32),
+                    index: 0,
+                    value: 1_000_000
+                )])
             case "base.broadcastTx":
                 return FapiResponse(code: 500, message: "node down")
             default:
@@ -258,6 +249,41 @@ final class WalletServiceSendTests: XCTestCase {
             XCTAssertEqual(api, "base.broadcastTx")
             XCTAssertEqual(code, 500)
             XCTAssertEqual(message, "node down")
+        }
+    }
+
+    // MARK: - non-standard cash types are rejected
+
+    func testSendRejectsNonStandardCashTypes() async throws {
+        let mock = MockFapiClient()
+        let sessions = try makeSessions(passwords: ["cltv-a", "cltv-b"], fapi: mock)
+        let alice = sessions[0]
+        let bob = sessions[1]
+
+        // Server returns a single P2SH-CLTV cash. The send path should
+        // refuse rather than try to sign with the P2PKH path.
+        mock.responder = { call in
+            if call.api == "base.cashValid" {
+                return try makeResponse(data: [[
+                    "owner": alice.mainFid,
+                    "value": 1_000_000,
+                    "type": "P2SH_CLTV",
+                    "birthTxId": String(repeating: "ab", count: 32),
+                    "birthIndex": 0,
+                    "redeemScript": "0011",
+                    "lockTime": 800_000
+                ]])
+            }
+            XCTFail("unexpected api: \(call.api)"); return FapiResponse(code: 1)
+        }
+
+        do {
+            _ = try await alice.sendFromLive(to: bob.mainFid, amount: 1_000)
+            XCTFail("expected throw")
+        } catch WalletService.Failure.unsupportedCashType {
+            // expected
+        } catch {
+            XCTFail("wrong error: \(error)")
         }
     }
 

@@ -14,6 +14,10 @@ final class TxBuilderTests: XCTestCase {
         try FchAddress(publicKey: try Secp256k1.publicKey(fromPrivateKey: privkey)).fid
     }
 
+    private func cash(owner: String, txid: String, index: Int, value: Int64) -> Cash {
+        Cash(owner: owner, value: value, type: "P2PKH", birthTxId: txid, birthIndex: index)
+    }
+
     // MARK: - decodeTxid
 
     func testDecodeTxidReversesBytes() throws {
@@ -41,9 +45,9 @@ final class TxBuilderTests: XCTestCase {
         let aFid = try fid(for: aPrivkey)
         let bFid = try fid(for: bPrivkey)
 
-        let utxoTxid = String(repeating: "ab", count: 32)
+        let cashTxid = String(repeating: "ab", count: 32)
         let plan = CoinSelector.Plan(
-            selected: [Utxo(addr: aFid, txid: utxoTxid, index: 1, value: 10_000)],
+            selected: [cash(owner: aFid, txid: cashTxid, index: 1, value: 10_000)],
             change: 8_774,
             fee: 226,
             estimatedSize: 226
@@ -61,7 +65,7 @@ final class TxBuilderTests: XCTestCase {
         XCTAssertEqual(tx.inputs[0].outpoint.outIndex, 1)
         let restored = Data(tx.inputs[0].outpoint.prevTxHash.reversed())
             .map { String(format: "%02x", $0) }.joined()
-        XCTAssertEqual(restored, utxoTxid)
+        XCTAssertEqual(restored, cashTxid)
 
         // scriptSig is empty pre-signing.
         XCTAssertEqual(tx.inputs[0].scriptSig.bytes.count, 0)
@@ -76,7 +80,7 @@ final class TxBuilderTests: XCTestCase {
         let bFid = try fid(for: bPrivkey)
 
         let plan = CoinSelector.Plan(
-            selected: [Utxo(addr: aFid, txid: String(repeating: "cc", count: 32), index: 0, value: 1_500)],
+            selected: [cash(owner: aFid, txid: String(repeating: "cc", count: 32), index: 0, value: 1_500)],
             change: 0,
             fee: 500,
             estimatedSize: 192
@@ -90,7 +94,7 @@ final class TxBuilderTests: XCTestCase {
 
     func testBuildUnsignedRejectsBadFid() {
         let plan = CoinSelector.Plan(
-            selected: [Utxo(addr: "FAddr", txid: String(repeating: "11", count: 32), index: 0, value: 1)],
+            selected: [cash(owner: "FAddr", txid: String(repeating: "11", count: 32), index: 0, value: 1)],
             change: 0,
             fee: 0,
             estimatedSize: 0

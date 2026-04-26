@@ -178,7 +178,7 @@ struct SendView: View {
               bch > 0,
               bch < 21_000_000
         else { return nil }
-        return Int64((bch * Double(Utxo.satoshisPerBch)).rounded())
+        return Int64((bch * Double(Cash.satoshisPerBch)).rounded())
     }
 
     private var feeRate: Int64? {
@@ -219,7 +219,7 @@ struct SendView: View {
         let f = NumberFormatter()
         f.minimumFractionDigits = 0
         f.maximumFractionDigits = 8
-        let bch = Double(sats) / Double(Utxo.satoshisPerBch)
+        let bch = Double(sats) / Double(Cash.satoshisPerBch)
         return f.string(from: NSNumber(value: bch)) ?? "0"
     }
 }
