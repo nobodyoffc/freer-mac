@@ -42,15 +42,20 @@ final class WalletServiceSendTests: XCTestCase {
     }
 
     /// Build a single P2PKH cash JSON object — the wire shape that
-    /// `base.cashValid` emits for a Cash entity. Consolidates the
-    /// boilerplate so the assertions stay focused on send behavior.
-    private func cashDict(owner: String, txid: String, index: Int, value: Int64) -> [String: Any] {
-        [
+    /// `base.cashValid` emits for a Cash entity. Includes a canonical
+    /// `lockScript` paying to `owner`'s hash160, because
+    /// `WalletService.send` filters by lockScript (not `type`) before
+    /// signing. Consolidates the boilerplate so the assertions stay
+    /// focused on send behavior.
+    private func cashDict(owner: String, txid: String, index: Int, value: Int64) throws -> [String: Any] {
+        let h160 = try FchAddress(fid: owner).hash160
+        return [
             "owner": owner,
             "value": value,
             "type": "P2PKH",
             "birthTxId": txid,
-            "birthIndex": index
+            "birthIndex": index,
+            "lockScript": Cash.canonicalP2PKHLockScript(hash160: h160)
         ]
     }
 
@@ -66,7 +71,7 @@ final class WalletServiceSendTests: XCTestCase {
         mock.responder = { call in
             switch call.api {
             case "base.cashValid":
-                return try makeResponse(data: [self.cashDict(
+                return try makeResponse(data: [try self.cashDict(
                     owner: alice.mainFid,
                     txid: String(repeating: "ab", count: 32),
                     index: 0,
@@ -131,7 +136,7 @@ final class WalletServiceSendTests: XCTestCase {
         mock.responder = { call in
             switch call.api {
             case "base.cashValid":
-                return try makeResponse(data: [self.cashDict(
+                return try makeResponse(data: [try self.cashDict(
                     owner: alice.mainFid,
                     txid: String(repeating: "ab", count: 32),
                     index: 0,
@@ -166,7 +171,7 @@ final class WalletServiceSendTests: XCTestCase {
         mock.responder = { call in
             switch call.api {
             case "base.cashValid":
-                return try makeResponse(data: [self.cashDict(
+                return try makeResponse(data: [try self.cashDict(
                     owner: alice.mainFid,
                     txid: String(repeating: "ab", count: 32),
                     index: 0,
@@ -193,14 +198,18 @@ final class WalletServiceSendTests: XCTestCase {
         let alice = sessions[0]
         let bob = sessions[1]
 
-        // Pre-populate cache so refresh is unnecessary.
+        // Pre-populate cache so refresh is unnecessary. The cached
+        // Cash needs a real lockScript — WalletService.send filters
+        // by lockScript, not the (unreliable) `type` label.
+        let aliceH160 = try FchAddress(fid: alice.mainFid).hash160
         try alice.cashes.save(CashSnapshot(addr: alice.mainFid, cashes: [
             Cash(
                 owner: alice.mainFid,
                 value: 500_000,
                 type: "P2PKH",
                 birthTxId: String(repeating: "cd", count: 32),
-                birthIndex: 0
+                birthIndex: 0,
+                lockScript: Cash.canonicalP2PKHLockScript(hash160: aliceH160)
             )
         ]))
 
@@ -229,7 +238,7 @@ final class WalletServiceSendTests: XCTestCase {
         mock.responder = { call in
             switch call.api {
             case "base.cashValid":
-                return try makeResponse(data: [self.cashDict(
+                return try makeResponse(data: [try self.cashDict(
                     owner: alice.mainFid,
                     txid: String(repeating: "ee", count: 32),
                     index: 0,
@@ -285,6 +294,53 @@ final class WalletServiceSendTests: XCTestCase {
         } catch {
             XCTFail("wrong error: \(error)")
         }
+    }
+
+    /// Regression for the live-server bug where the FAPI
+    /// `base.cashValid` mode-2 path returned a cash whose `type` was
+    /// nil (Java `Cash.fromUtxo` doesn't set type) but whose actual
+    /// `lockScript` was a P2SH-multisig template. The earlier
+    /// `type ?? "P2PKH"` filter let it through and the broadcast
+    /// failed with `mandatory-script-verify-flag-failed
+    /// (Signature cannot be 65 bytes in CHECKMULTISIG)`. Now we
+    /// validate against the lockScript and reject up-front.
+    func testSendRejectsNullTypeButMultisigLockScript() async throws {
+        let mock = MockFapiClient()
+        let sessions = try makeSessions(passwords: ["null-type-a", "null-type-b"], fapi: mock)
+        let alice = sessions[0]
+        let bob = sessions[1]
+
+        mock.responder = { call in
+            if call.api == "base.cashValid" {
+                // No `type` field. lockScript starts with OP_2 / OP_3
+                // and contains OP_CHECKMULTISIG (0xae) — a 2-of-3
+                // multisig template. Old filter would pass this
+                // through; new filter rejects it because the
+                // lockScript ≠ canonical P2PKH-to-alice-hash160.
+                return try makeResponse(data: [[
+                    "owner": alice.mainFid,
+                    "value": 1_000_000,
+                    "birthTxId": String(repeating: "ab", count: 32),
+                    "birthIndex": 0,
+                    "lockScript": "5221" + String(repeating: "00", count: 33)
+                                + "21" + String(repeating: "11", count: 33)
+                                + "21" + String(repeating: "22", count: 33)
+                                + "53ae"
+                ]])
+            }
+            XCTFail("unexpected api: \(call.api)"); return FapiResponse(code: 1)
+        }
+
+        do {
+            _ = try await alice.sendFromLive(to: bob.mainFid, amount: 1_000)
+            XCTFail("expected throw")
+        } catch WalletService.Failure.unsupportedCashType {
+            // expected — broadcast never happens
+        } catch {
+            XCTFail("wrong error: \(error)")
+        }
+        // Critically: only ONE FAPI call, the cashValid; no broadcast.
+        XCTAssertEqual(mock.recorded.map { $0.api }, ["base.cashValid"])
     }
 
     // MARK: - watch-only refusal

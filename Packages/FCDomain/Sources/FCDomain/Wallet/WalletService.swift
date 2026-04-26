@@ -214,23 +214,30 @@ public struct WalletService {
             snapshot = try await refreshCashes(forFid: fromAddress, timeoutMs: timeoutMs)
         }
 
-        // 1a. Reject any non-P2PKH cash up-front. CLTV / multisig
-        // need dedicated signing paths (Phase 8); selecting one of
-        // those here would build a tx we can't sign.
-        let standard = snapshot.cashes.filter { $0.isStandardP2PKH }
-        if standard.count != snapshot.cashes.count {
-            // At least one cash had a non-standard type. Fall through
-            // with the filtered list — but if the user has *only*
-            // non-standard cashes, surface a clearer error than
-            // CoinSelector's "insufficient funds".
-            if standard.isEmpty, let first = snapshot.cashes.first {
-                throw Failure.unsupportedCashType(first.type ?? "Unknown")
-            }
+        // 1a. Filter cashes by the wire-level `lockScript`, not the
+        // `type` label. The server's `type` field is unreliable —
+        // `Cash.fromUtxo` leaves it nil — so trusting it can let
+        // multisig / CLTV outputs through and produce a tx the node
+        // rejects (mandatory-script-verify-flag-failed). The
+        // canonical P2PKH lockScript paying to *our* hash160 is the
+        // strongest test: it both rules out non-standard scripts AND
+        // proves we own the output.
+        let ownerHash160: Data
+        do {
+            ownerHash160 = try FchAddress(fid: fromAddress).hash160
+        } catch {
+            throw Failure.underlying(error)
+        }
+        let spendable = snapshot.cashes.filter { $0.locksToP2PKH(hash160: ownerHash160) }
+        if spendable.isEmpty, let sample = snapshot.cashes.first {
+            // Surface a clearer error than "insufficient funds" when
+            // the only thing the server returned is non-spendable.
+            throw Failure.unsupportedCashType(sample.type ?? sample.lockScript ?? "<no lockScript>")
         }
 
         // 2. Coin select.
         let plan = try CoinSelector.select(
-            cashes: standard, amount: amount, feePerByte: feePerByte
+            cashes: spendable, amount: amount, feePerByte: feePerByte
         )
 
         // 3. Build unsigned tx.

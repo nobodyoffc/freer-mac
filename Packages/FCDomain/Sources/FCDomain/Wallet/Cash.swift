@@ -100,12 +100,28 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
         self.lastHeight = lastHeight
     }
 
-    /// True iff this cash can be spent with a single P2PKH signature
-    /// against the standard scriptPubKey. Other script types need
-    /// dedicated builders (Phase 8).
-    public var isStandardP2PKH: Bool {
-        let t = type ?? "P2PKH"
-        return t == "P2PKH"
+    /// Canonical P2PKH lockScript that pays to `hash160`:
+    /// `76a914 <20-byte hash160> 88ac` = 25 bytes, 50 hex chars,
+    /// lowercase. Independent of any cash instance — exposed so
+    /// callers can compare directly.
+    public static func canonicalP2PKHLockScript(hash160: Data) -> String {
+        let hex = hash160.map { String(format: "%02x", $0) }.joined()
+        return "76a914" + hex + "88ac"
+    }
+
+    /// True iff this cash's `lockScript` is the canonical P2PKH
+    /// pattern paying to `hash160` — the only spend path
+    /// ``FCCore.TxHandler/signP2pkhInput`` supports today.
+    ///
+    /// This is the source of truth for "is this spendable?", not
+    /// the optional ``type`` string. The Java server populates
+    /// ``type`` opportunistically (e.g. `Cash.fromUtxo` leaves it
+    /// nil), so trusting it can let multisig / CLTV outputs slip
+    /// through and produce a tx the node rejects with
+    /// `mandatory-script-verify-flag-failed`.
+    public func locksToP2PKH(hash160: Data) -> Bool {
+        guard let s = lockScript?.lowercased() else { return false }
+        return s == Cash.canonicalP2PKHLockScript(hash160: hash160)
     }
 
     public enum Failure: Error, CustomStringConvertible {
