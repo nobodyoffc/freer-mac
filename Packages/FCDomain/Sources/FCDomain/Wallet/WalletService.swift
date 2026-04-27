@@ -287,8 +287,8 @@ public struct WalletService {
     /// cursor is a follow-up.
     public func fetchRecentActivity(
         forFid fid: String,
-        limit: Int = 50,
-        timeoutMs: Int = 5_000
+        limit: Int = 10,
+        timeoutMs: Int = 15_000
     ) async throws -> [Cash] {
         let body = try Self.cashFcdsl(
             entity: "cash",
@@ -297,12 +297,26 @@ public struct WalletService {
             pageSize: limit,
             after: nil
         )
-        let reply = try await fapi.call(
-            api: "base.search",
-            params: nil, fcdsl: body, binary: nil,
-            sid: nil, via: nil, maxCost: nil,
-            timeoutMs: timeoutMs
-        )
+        let reply: FapiClient.Reply
+        do {
+            reply = try await fapi.call(
+                api: "base.search",
+                params: nil, fcdsl: body, binary: nil,
+                sid: nil, via: nil, maxCost: nil,
+                timeoutMs: timeoutMs
+            )
+        } catch {
+            // Surface the request body so a timeout or transport
+            // failure points at the FCDSL we actually sent. Otherwise
+            // the user just sees "FudpClient: timeout" with no clue
+            // whether the wire shape was wrong.
+            let bodyText = String(data: body, encoding: .utf8) ?? "<\(body.count) B non-utf8>"
+            throw Failure.underlying(WireProbeError(
+                api: "base.search",
+                fcdsl: bodyText,
+                inner: error
+            ))
+        }
         let resp = reply.response
         // Empty result is normal for a fresh FID — surface as [].
         // 404 / NOT_FOUND is what the server emits for "no rows".
@@ -314,6 +328,19 @@ public struct WalletService {
             return try Cash.parseFapiList(data)
         } catch {
             throw Failure.underlying(error)
+        }
+    }
+
+    /// Diagnostic wrapper: pretty-prints the API name + FCDSL JSON
+    /// alongside the underlying transport error. Surfaced in the
+    /// Transactions pane while we pin down the live `base.search`
+    /// contract; once that's stable we can drop it.
+    public struct WireProbeError: Error, CustomStringConvertible {
+        public let api: String
+        public let fcdsl: String
+        public let inner: Error
+        public var description: String {
+            "WalletService: \(api) failed — \(inner)\nfcdsl: \(fcdsl)"
         }
     }
 

@@ -49,6 +49,60 @@ public final class FudpClient: @unchecked Sendable {
     private let localPrivkey: Data
     private let challengeHandler: ChallengeHandler
 
+    /// Per-streamId reassembly buffers. A response that exceeds the
+    /// per-packet payload (e.g. ~1300 B for FUDP after AEAD overhead)
+    /// is fragmented across multiple STREAM frames in one or more
+    /// packets, sharing a streamId. We accumulate (offset, data)
+    /// pairs and decode the AppMessage only after `fin` arrives and
+    /// the chunks tile [0, finOffset) without gaps.
+    ///
+    /// Single-packet messages (offset=0, fin=true) assemble in one
+    /// step and are still emitted immediately, so the small-payload
+    /// path (PING/PONG, balance, broadcast) keeps the same behaviour.
+    private var streamBuffers: [UInt64: StreamBuffer] = [:]
+
+    private struct StreamBuffer {
+        var chunks: [(offset: UInt64, data: Data)] = []
+        var finReceived: Bool = false
+        /// `offset + len` of the chunk that carried `fin` — i.e. the
+        /// expected total length of the assembled message. Set only
+        /// when fin arrives.
+        var totalLength: UInt64?
+
+        mutating func append(offset: UInt64, data: Data, fin: Bool) {
+            chunks.append((offset, data))
+            if fin {
+                finReceived = true
+                totalLength = offset + UInt64(data.count)
+            }
+        }
+
+        /// Try to assemble the complete message. Returns nil while we
+        /// still need more chunks (or `fin`). Tolerates duplicate
+        /// chunks but rejects gaps.
+        func assemble() -> Data? {
+            guard finReceived, let total = totalLength else { return nil }
+            let sorted = chunks.sorted { $0.offset < $1.offset }
+            var assembled = Data()
+            for chunk in sorted {
+                let pos = UInt64(assembled.count)
+                if chunk.offset == pos {
+                    assembled.append(chunk.data)
+                } else if chunk.offset < pos {
+                    // Duplicate / overlapping chunk. Skip whatever
+                    // we've already covered and append any new tail.
+                    let overlap = Int(pos - chunk.offset)
+                    if overlap < chunk.data.count {
+                        assembled.append(chunk.data.suffix(from: chunk.data.startIndex + overlap))
+                    }
+                } else {
+                    return nil   // gap — wait for the missing chunk
+                }
+            }
+            return assembled.count == Int(total) ? assembled : nil
+        }
+    }
+
     public init(
         host: String,
         port: UInt16,
@@ -242,21 +296,36 @@ public final class FudpClient: @unchecked Sendable {
             connection.observePeerEpoch(epoch)
         }
 
+        var firstReady: Data?
         for frame in parsed.frames {
             if case .stream(let sf) = frame {
-                log("stream frame streamId=\(sf.streamId) data=\(sf.data.count) B")
-                do {
-                    let envelope = try AppMessageCodec.decode(sf.data)
-                    return ReceivedMessage(envelope: envelope, senderPubkey: opened.senderPubkey)
-                } catch {
-                    log("AppMessageCodec.decode failed: \(error)")
-                    return nil
+                log("stream frame streamId=\(sf.streamId) offset=\(sf.offset) data=\(sf.data.count) B fin=\(sf.fin)")
+                var buffer = streamBuffers[sf.streamId] ?? StreamBuffer()
+                buffer.append(offset: sf.offset, data: sf.data, fin: sf.fin)
+                if let complete = buffer.assemble() {
+                    streamBuffers.removeValue(forKey: sf.streamId)
+                    log("stream \(sf.streamId) reassembled \(complete.count) B")
+                    if firstReady == nil { firstReady = complete }
+                    // If multiple streams complete in the same packet
+                    // we'd ideally queue extras for the next receive,
+                    // but in our single-consumer flow this would only
+                    // happen with truly concurrent server replies —
+                    // not a real shape today. Logging for visibility.
+                } else {
+                    streamBuffers[sf.streamId] = buffer
                 }
             } else {
                 log("non-stream frame: \(frame)")
             }
         }
-        return nil
+        guard let payload = firstReady else { return nil }
+        do {
+            let envelope = try AppMessageCodec.decode(payload)
+            return ReceivedMessage(envelope: envelope, senderPubkey: opened.senderPubkey)
+        } catch {
+            log("AppMessageCodec.decode failed: \(error)")
+            return nil
+        }
     }
 
     public func close() {
