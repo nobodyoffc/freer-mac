@@ -182,11 +182,14 @@ public final class ActiveSession {
     public lazy var contacts: ContactsStore = ContactsStore(kv: storage)
     public lazy var keys: KeysStore        = KeysStore(kv: storage)
     public lazy var cashes: CashesStore    = CashesStore(kv: storage)
+    public lazy var recentActivity: RecentActivityStore = RecentActivityStore(kv: storage)
 
     /// Computed (not lazy) so ``setFapi(_:)`` is picked up the next
     /// time something asks for the wallet. WalletService is a struct;
     /// constructing it is essentially a Foundation pointer copy.
-    public var wallet: WalletService { WalletService(fapi: fapi, cashes: cashes) }
+    public var wallet: WalletService {
+        WalletService(fapi: fapi, cashes: cashes, recentActivity: recentActivity)
+    }
 
     // MARK: - mutating fapi
 

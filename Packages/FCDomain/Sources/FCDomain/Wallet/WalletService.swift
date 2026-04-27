@@ -34,13 +34,21 @@ public struct WalletService {
 
     public let fapi: any FapiCalling
     public let cashes: CashesStore?
+    public let recentActivity: RecentActivityStore?
 
     /// `cashes` is optional because the read path is meaningful even
     /// without a cache (the SwiftUI view-model can hold the latest
     /// snapshot in memory). Pass one in to enable durable caching.
-    public init(fapi: any FapiCalling, cashes: CashesStore? = nil) {
+    /// `recentActivity` is the Pattern C blob cache for the
+    /// Transactions pane — same opt-in shape.
+    public init(
+        fapi: any FapiCalling,
+        cashes: CashesStore? = nil,
+        recentActivity: RecentActivityStore? = nil
+    ) {
         self.fapi = fapi
         self.cashes = cashes
+        self.recentActivity = recentActivity
     }
 
     // MARK: - health
@@ -285,9 +293,17 @@ public struct WalletService {
     /// owner == fid, sorting by `lastHeight desc, id desc`. The
     /// caller chooses the page size; pagination via the `after`
     /// cursor is a follow-up.
+    /// Read whatever the last fetch wrote to the recent-activity blob
+    /// for `fid`. Returns nil if we've never fetched, or if no cache
+    /// store was wired into this service. No network round-trip —
+    /// intended for cache-first cold-start render.
+    public func cachedRecentActivity(forFid fid: String) throws -> RecentActivitySnapshot? {
+        try recentActivity?.snapshot(forFid: fid)
+    }
+
     public func fetchRecentActivity(
         forFid fid: String,
-        limit: Int = 10,
+        limit: Int = 50,
         timeoutMs: Int = 15_000
     ) async throws -> [Cash] {
         let body = try Self.cashFcdsl(
@@ -323,12 +339,28 @@ public struct WalletService {
         if let code = resp.code, code != 0, code != 404 {
             throw Failure.fapiNonZeroCode(api: "base.search", code: code, message: resp.message)
         }
-        guard let data = resp.data else { return [] }
-        do {
-            return try Cash.parseFapiList(data)
-        } catch {
-            throw Failure.underlying(error)
+        let cashList: [Cash]
+        if let data = resp.data {
+            do {
+                cashList = try Cash.parseFapiList(data)
+            } catch {
+                throw Failure.underlying(error)
+            }
+        } else {
+            cashList = []
         }
+        // Persist the freshly-fetched page so the next pane open can
+        // render instantly from cache while the live fetch runs.
+        if let store = self.recentActivity {
+            let snapshot = RecentActivitySnapshot(
+                fid: fid,
+                cashes: cashList,
+                fetchedAt: Date(),
+                bestHeight: resp.bestHeight
+            )
+            try? store.save(snapshot)
+        }
+        return cashList
     }
 
     /// Diagnostic wrapper: pretty-prints the API name + FCDSL JSON

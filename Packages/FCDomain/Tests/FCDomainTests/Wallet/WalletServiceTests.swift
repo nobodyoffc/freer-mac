@@ -240,6 +240,68 @@ final class WalletServiceTests: XCTestCase {
 
     // MARK: - cash incremental refresh (base.search on the cash index)
 
+    // MARK: - recent activity (Pattern C cache)
+
+    func testFetchRecentActivityPersistsToCache() async throws {
+        let baseDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WalletServiceTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: baseDir) }
+
+        let mgr = try ConfigureManager(baseDirectory: baseDir)
+        let configure = try mgr.createConfigure(
+            password: Data("recent".utf8), kdfKind: .legacySha256
+        )
+        let mainInfo = try configure.addMain(
+            privkey: Data(repeating: 0x07, count: 32), label: "R"
+        )
+        let session = try configure.unlockMain(fid: mainInfo.fid, fapi: MockFapiClient())
+
+        let mock = MockFapiClient()
+        mock.responder = { _ in
+            try makeResponse(
+                data: [[
+                    "id": "X",
+                    "owner": session.mainFid,
+                    "value": 12_345,
+                    "type": "P2PKH",
+                    "birthTxId": String(repeating: "ab", count: 32),
+                    "birthIndex": 0,
+                    "valid": true,
+                    "lastHeight": 99
+                ]],
+                bestHeight: 100
+            )
+        }
+        let svc = WalletService(
+            fapi: mock,
+            cashes: session.cashes,
+            recentActivity: session.recentActivity
+        )
+
+        // First fetch persists. Cached read must mirror it.
+        XCTAssertNil(try svc.cachedRecentActivity(forFid: session.mainFid))
+        let fetched = try await svc.fetchRecentActivity(forFid: session.mainFid)
+        XCTAssertEqual(fetched.count, 1)
+        let cached = try svc.cachedRecentActivity(forFid: session.mainFid)
+        XCTAssertEqual(cached?.cashes.first?.id, "X")
+        XCTAssertEqual(cached?.cashes.first?.value, 12_345)
+        XCTAssertEqual(cached?.bestHeight, 100)
+    }
+
+    func testFetchRecentActivitySkipsCacheWhenNoStore() async throws {
+        let mock = MockFapiClient()
+        mock.responder = { _ in
+            try makeResponse(data: [[
+                "owner": "FX", "value": 1,
+                "birthTxId": "ab", "birthIndex": 0
+            ]])
+        }
+        let svc = WalletService(fapi: mock)        // no recentActivity store
+        _ = try await svc.fetchRecentActivity(forFid: "FX")
+        XCTAssertNil(try svc.cachedRecentActivity(forFid: "FX"))
+    }
+
     func testIncrementalRefreshUsesBaseSearchAndAppliesDelta() async throws {
         let baseDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("WalletServiceTests-\(UUID().uuidString)")

@@ -19,6 +19,7 @@ struct TransactionsView: View {
     @State private var loading: Bool = false
     @State private var loadError: String?
     @State private var lastFetchedAt: Date?
+    @State private var loadedCacheForFid: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -29,7 +30,28 @@ struct TransactionsView: View {
         }
         .padding()
         .frame(minWidth: 480)
-        .onAppear { Task { await refresh() } }
+        .onAppear {
+            loadCacheIfNeeded()
+            Task { await refresh() }
+        }
+    }
+
+    /// Render the cached page (Pattern C) immediately on appear so the
+    /// pane has content during the network round-trip. The fresh fetch
+    /// kicked off in parallel by `onAppear` replaces these rows on
+    /// success. Idempotent across re-renders for the same FID.
+    private func loadCacheIfNeeded() {
+        guard loadedCacheForFid != session.liveFid else { return }
+        loadedCacheForFid = session.liveFid
+        do {
+            if let cached = try session.wallet.cachedRecentActivity(forFid: session.liveFid) {
+                rows = cached.cashes
+                lastFetchedAt = cached.fetchedAt
+            }
+        } catch {
+            // Silent — the live refresh will surface its own error
+            // via loadError if it fails too.
+        }
     }
 
     private var header: some View {
