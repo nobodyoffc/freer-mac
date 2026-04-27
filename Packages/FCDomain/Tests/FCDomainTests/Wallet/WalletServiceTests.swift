@@ -287,6 +287,10 @@ final class WalletServiceTests: XCTestCase {
         let qTerms = query?["terms"] as? [String: Any]
         XCTAssertEqual(qTerms?["fields"] as? [String], ["owner"])
         XCTAssertEqual(qTerms?["values"] as? [String], [session.mainFid])
+        // Zero/null-value cashes (typically OP_RETURN) drop server-side.
+        let qRange = query?["range"] as? [String: Any]
+        XCTAssertEqual(qRange?["fields"] as? [String], ["value"])
+        XCTAssertEqual(qRange?["gt"] as? String, "0")
         let except = fcdsl?["except"] as? [String: Any]
         let eEquals = except?["equals"] as? [String: Any]
         XCTAssertEqual(eEquals?["fields"] as? [String], ["issuer"])
@@ -300,8 +304,10 @@ final class WalletServiceTests: XCTestCase {
     }
 
     /// `.expenses` filters to cashes paid BY the live FID to someone
-    /// else: `query: terms issuer=fid` AND
-    /// `except: terms owner ∈ {fid, OP_RETURN}`.
+    /// else: `query: terms issuer=fid AND range value > 0` with
+    /// `except: equals owner=fid`. The value range filter does the
+    /// OP_RETURN-exclusion job too — those cashes have value 0 or
+    /// null and drop out automatically.
     func testExpensesFcdslShape() async throws {
         let mock = MockFapiClient()
         mock.responder = { _ in try makeResponse(data: [], bestHeight: 1) }
@@ -315,10 +321,13 @@ final class WalletServiceTests: XCTestCase {
         let qTerms = query?["terms"] as? [String: Any]
         XCTAssertEqual(qTerms?["fields"] as? [String], ["issuer"])
         XCTAssertEqual(qTerms?["values"] as? [String], ["FAlice"])
+        let qRange = query?["range"] as? [String: Any]
+        XCTAssertEqual(qRange?["fields"] as? [String], ["value"])
+        XCTAssertEqual(qRange?["gt"] as? String, "0")
         let except = fcdsl?["except"] as? [String: Any]
-        let eTerms = except?["terms"] as? [String: Any]
-        XCTAssertEqual(eTerms?["fields"] as? [String], ["owner"])
-        XCTAssertEqual(eTerms?["values"] as? [String], ["FAlice", "OP_RETURN"])
+        let eEquals = except?["equals"] as? [String: Any]
+        XCTAssertEqual(eEquals?["fields"] as? [String], ["owner"])
+        XCTAssertEqual(eEquals?["values"] as? [String], ["FAlice"])
     }
 
     // MARK: - cash incremental refresh (base.search on the cash index)

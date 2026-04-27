@@ -106,31 +106,122 @@ struct TransactionsView: View {
     private var content: some View {
         if let err = loadError {
             errorCard(err)
-        } else if groups.isEmpty && !loading {
+        } else if rows.isEmpty && !loading {
             emptyCard
+        } else if kind == .all {
+            txGroupsList
         } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(groups, id: \.txid) { group in
-                        groupRow(group)
-                            .padding(.vertical, 10)
+            cashList
+        }
+    }
+
+    /// `.all` view: collapse multiple cashes from the same tx into
+    /// one row showing the net effect on the live FID.
+    private var txGroupsList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(groups, id: \.txid) { group in
+                    groupRow(group)
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .contentShape(Rectangle())
+                        .onTapGesture { toggleExpanded(group.txid) }
+                    if expanded.contains(group.txid) {
+                        groupDetail(group)
+                            .padding(.bottom, 10)
                             .padding(.horizontal, 16)
-                            .contentShape(Rectangle())
-                            .onTapGesture { toggleExpanded(group.txid) }
-                        if expanded.contains(group.txid) {
-                            groupDetail(group)
-                                .padding(.bottom, 10)
-                                .padding(.horizontal, 16)
-                        }
-                        Divider()
                     }
-                    if nextCursor != nil {
-                        loadMoreFooter
-                    }
+                    Divider()
                 }
-                .background(Color(NSColor.controlBackgroundColor))
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                if nextCursor != nil { loadMoreFooter }
             }
+            .background(Color(NSColor.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    /// `.incomes` / `.expenses` view: flat per-cash rows. Each cash
+    /// is one money-movement event from the live FID's perspective —
+    /// folding by tx would hide multi-output structure that matters
+    /// here (e.g. a single tx paying two recipients = two expenses).
+    private var cashList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(rows, id: \.compositeKey) { cash in
+                    cashRow(cash)
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                    Divider()
+                }
+                if nextCursor != nil { loadMoreFooter }
+            }
+            .background(Color(NSColor.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+    }
+
+    @ViewBuilder
+    private func cashRow(_ cash: Cash) -> some View {
+        // For incomes the counterparty is the issuer (whoever paid
+        // me); for expenses it's the owner (whoever I paid). Use
+        // the truthy-empty fallback "?" for missing values rather
+        // than failing — server data can lag.
+        let (counterpartyLabel, counterparty, glyph, color) = roleAttributes(for: cash)
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Image(systemName: glyph).foregroundStyle(color)
+                    Text(counterpartyLabel).font(.callout.bold()).foregroundStyle(color)
+                    Text(formatBch(cash.value))
+                        .font(.callout.monospacedDigit())
+                }
+                if let cp = counterparty, !cp.isEmpty {
+                    CopyableText(
+                        display: "\(cp.prefix(16))…",
+                        copy: cp,
+                        font: .caption.monospaced()
+                    )
+                    .foregroundStyle(.secondary)
+                }
+                CopyableText(
+                    display: "\(cash.birthTxId.prefix(12))…:\(cash.birthIndex)",
+                    copy: "\(cash.birthTxId):\(cash.birthIndex)",
+                    font: .caption.monospaced()
+                )
+                .foregroundStyle(.tertiary)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                if let ts = cash.birthTime {
+                    Text(Date(timeIntervalSince1970: TimeInterval(ts))
+                        .formatted(date: .abbreviated, time: .shortened))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                if let h = cash.birthHeight {
+                    Text("Block \(h)")
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(.tertiary)
+                } else {
+                    Text("Pending").font(.caption2).foregroundStyle(.orange)
+                }
+            }
+        }
+    }
+
+    private func roleAttributes(for cash: Cash) -> (
+        label: String,
+        counterparty: String?,
+        glyph: String,
+        color: Color
+    ) {
+        switch kind {
+        case .incomes:
+            return ("From", cash.issuer, "arrow.down.left", .green)
+        case .expenses:
+            return ("To", cash.owner, "arrow.up.right", .orange)
+        case .all:
+            return ("", nil, "circle", .secondary)
         }
     }
 

@@ -504,7 +504,14 @@ public struct WalletService {
         pageSize: Int,
         after: [String]?
     ) throws -> Data {
-        var query: [String: Any] = [:]
+        // Every kind drops zero/null-value cashes via a server-side
+        // range filter — those are typically OP_RETURN data outputs
+        // and aren't real money movements. Cleaner than the prior
+        // "exclude owner == OP_RETURN" hack: catches any zero-value
+        // cash regardless of owner.
+        var query: [String: Any] = [
+            "range": ["fields": ["value"], "gt": "0"]
+        ]
         var except: [String: Any]? = nil
         var sortField = "lastHeight"
 
@@ -512,16 +519,14 @@ public struct WalletService {
         case .all:
             query["terms"] = ["fields": ["owner"], "values": [ownerFid]]
         case .incomes:
-            // owner == fid AND issuer != fid
+            // owner == fid AND issuer != fid (drops self-change)
             query["terms"]  = ["fields": ["owner"],  "values": [ownerFid]]
             except = ["equals": ["fields": ["issuer"], "values": [ownerFid]]]
             sortField = "birthHeight"
         case .expenses:
-            // issuer == fid AND owner ∉ {fid, OP_RETURN}
-            // (OP_RETURN excluded because data outputs aren't real
-            // payments to anyone — Android does the same.)
+            // issuer == fid AND owner != fid (drops self-change)
             query["terms"]  = ["fields": ["issuer"], "values": [ownerFid]]
-            except = ["terms": ["fields": ["owner"], "values": [ownerFid, "OP_RETURN"]]]
+            except = ["equals": ["fields": ["owner"], "values": [ownerFid]]]
             sortField = "birthHeight"
         }
 
