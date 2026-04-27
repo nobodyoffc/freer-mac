@@ -2,16 +2,14 @@ import SwiftUI
 import FCDomain
 import FCUI
 
-/// Recent on-chain activity for the live FID. The wallet doesn't
-/// have a per-FID tx index server-side; instead we query the cash
-/// index sorted by `lastHeight desc`, where each row is a cash
-/// whose state most recently changed (create = income, spend =
-/// outgoing). Spent cashes carry their `spend*` coordinates so
-/// we can label them as outgoing.
+/// Recent on-chain activity for the live FID. The wallet doesn't have
+/// a per-FID tx index server-side; we derive the feed from the cash
+/// index and group cashes by their event tx so a single Send (one or
+/// more spent inputs + a change output) collapses into a single row.
 ///
-/// First slice deliberately doesn't cache or paginate. We render
-/// loading + error states so any wire-shape mismatch with
-/// `base.search` is visible (and copyable).
+/// Cache-first render: the previous fetch's results show instantly on
+/// appear, then a fresh `base.search` runs in the background and
+/// replaces the rows on success.
 struct TransactionsView: View {
     let session: ActiveSession
 
@@ -20,6 +18,9 @@ struct TransactionsView: View {
     @State private var loadError: String?
     @State private var lastFetchedAt: Date?
     @State private var loadedCacheForFid: String?
+    @State private var expanded: Set<String> = []
+
+    private var groups: [TxGroup] { TxGroup.group(rows) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -36,10 +37,6 @@ struct TransactionsView: View {
         }
     }
 
-    /// Render the cached page (Pattern C) immediately on appear so the
-    /// pane has content during the network round-trip. The fresh fetch
-    /// kicked off in parallel by `onAppear` replaces these rows on
-    /// success. Idempotent across re-renders for the same FID.
     private func loadCacheIfNeeded() {
         guard loadedCacheForFid != session.liveFid else { return }
         loadedCacheForFid = session.liveFid
@@ -49,8 +46,7 @@ struct TransactionsView: View {
                 lastFetchedAt = cached.fetchedAt
             }
         } catch {
-            // Silent — the live refresh will surface its own error
-            // via loadError if it fails too.
+            // Silent — live refresh will surface its own error.
         }
     }
 
@@ -79,40 +75,23 @@ struct TransactionsView: View {
     @ViewBuilder
     private var content: some View {
         if let err = loadError {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("Couldn't load activity", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.red)
-                CopyableText(err, font: .callout)
-                    .foregroundStyle(.red)
-                    .fixedSize(horizontal: false, vertical: true)
-                Text("`base.search` on the cash index. Click the message above to copy it.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(NSColor.controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-        } else if rows.isEmpty && !loading {
-            VStack(alignment: .leading, spacing: 8) {
-                Label("No activity yet", systemImage: "tray")
-                    .foregroundStyle(.secondary)
-                Text("This FID has no on-chain cashes the server knows about. After your first received or sent tx confirms, it'll appear here.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(NSColor.controlBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            errorCard(err)
+        } else if groups.isEmpty && !loading {
+            emptyCard
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(rows, id: \.compositeKey) { row in
-                        activityRow(row)
-                            .padding(.vertical, 8)
+                    ForEach(groups, id: \.txid) { group in
+                        groupRow(group)
+                            .padding(.vertical, 10)
                             .padding(.horizontal, 16)
+                            .contentShape(Rectangle())
+                            .onTapGesture { toggleExpanded(group.txid) }
+                        if expanded.contains(group.txid) {
+                            groupDetail(group)
+                                .padding(.bottom, 10)
+                                .padding(.horizontal, 16)
+                        }
                         Divider()
                     }
                 }
@@ -122,53 +101,118 @@ struct TransactionsView: View {
         }
     }
 
+    private func errorCard(_ err: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Couldn't load activity", systemImage: "exclamationmark.triangle")
+                .foregroundStyle(.red)
+            CopyableText(err, font: .callout)
+                .foregroundStyle(.red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(NSColor.controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
+    private var emptyCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("No activity yet", systemImage: "tray")
+                .foregroundStyle(.secondary)
+            Text("This FID has no on-chain cashes the server knows about. After your first received or sent tx confirms, it'll appear here.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(NSColor.controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
     @ViewBuilder
-    private func activityRow(_ cash: Cash) -> some View {
-        // valid==false means spent; otherwise treat as incoming/held.
-        // (We can't tell "still in wallet" vs "incoming brand-new"
-        // from the cash index alone — both are valid==true; the
-        // distinction is just how recently it landed.)
-        let isSpent = (cash.valid ?? true) == false
-        let isIncoming = !isSpent
+    private func groupRow(_ group: TxGroup) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Image(systemName: isIncoming ? "arrow.down.left" : "arrow.up.right")
-                        .foregroundStyle(isIncoming ? Color.green : Color.orange)
-                    Text(isIncoming ? "Received" : "Sent")
+                    Image(systemName: glyph(group.role))
+                        .foregroundStyle(color(group.role))
+                    Text(label(group.role))
                         .font(.callout.bold())
-                        .foregroundStyle(isIncoming ? Color.green : Color.orange)
-                    Text(formatBch(cash.value))
+                        .foregroundStyle(color(group.role))
+                    Text(formatNet(group.netSats))
                         .font(.callout.monospacedDigit())
                 }
                 CopyableText(
-                    display: "\(cash.birthTxId.prefix(12))…:\(cash.birthIndex)",
-                    copy: "\(cash.birthTxId):\(cash.birthIndex)",
+                    display: "\(group.txid.prefix(12))…",
+                    copy: group.txid,
                     font: .caption.monospaced()
                 )
                 .foregroundStyle(.secondary)
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 2) {
-                // For incoming, birthTime / birthHeight are when the
-                // cash arrived. For outgoing (spent), lastTime /
-                // lastHeight are when the cash's state last changed —
-                // i.e. when it was spent.
-                let when = isIncoming ? cash.birthTime : cash.lastTime
-                let height = isIncoming ? cash.birthHeight : cash.lastHeight
-                if let ts = when {
+                if let ts = group.time {
                     Text(Date(timeIntervalSince1970: TimeInterval(ts))
                         .formatted(date: .abbreviated, time: .shortened))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
-                if let h = height {
+                if let h = group.height {
                     Text("Block \(h)")
                         .font(.caption2.monospacedDigit())
                         .foregroundStyle(.tertiary)
+                } else {
+                    Text("Pending")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                Image(systemName: expanded.contains(group.txid) ? "chevron.up" : "chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func groupDetail(_ group: TxGroup) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if !group.incoming.isEmpty {
+                Text("Received \(group.incoming.count) cash(es)")
+                    .font(.caption.bold())
+                    .foregroundStyle(.green)
+                ForEach(group.incoming, id: \.compositeKey) { cash in
+                    detailLine("+", cash.value, txid: cash.birthTxId, index: cash.birthIndex)
+                }
+            }
+            if !group.outgoing.isEmpty {
+                Text("Spent \(group.outgoing.count) cash(es)")
+                    .font(.caption.bold())
+                    .foregroundStyle(.orange)
+                ForEach(group.outgoing, id: \.compositeKey) { cash in
+                    detailLine("−", cash.value, txid: cash.birthTxId, index: cash.birthIndex)
                 }
             }
         }
+        .padding(.leading, 4)
+    }
+
+    @ViewBuilder
+    private func detailLine(_ sign: String, _ sats: Int64, txid: String, index: Int) -> some View {
+        HStack(spacing: 8) {
+            Text("\(sign)\(formatBch(sats))")
+                .font(.caption.monospacedDigit())
+            CopyableText(
+                display: "\(txid.prefix(10))…:\(index)",
+                copy: "\(txid):\(index)",
+                font: .caption.monospaced()
+            )
+            .foregroundStyle(.tertiary)
+        }
+    }
+
+    private func toggleExpanded(_ txid: String) {
+        if expanded.contains(txid) { expanded.remove(txid) } else { expanded.insert(txid) }
     }
 
     // MARK: - actions
@@ -197,6 +241,35 @@ struct TransactionsView: View {
         return (f.string(from: NSNumber(value: bch)) ?? "0") + " FCH"
     }
 
+    private func formatNet(_ sats: Int64) -> String {
+        let sign = sats > 0 ? "+" : (sats < 0 ? "−" : "")
+        let abs = sats.magnitude
+        return "\(sign)\(formatBch(Int64(abs)))"
+    }
+
+    private func glyph(_ role: TxGroup.Role) -> String {
+        switch role {
+        case .received: return "arrow.down.left"
+        case .sent:     return "arrow.up.right"
+        case .mixed:    return "arrow.left.arrow.right"
+        }
+    }
+
+    private func color(_ role: TxGroup.Role) -> Color {
+        switch role {
+        case .received: return .green
+        case .sent:     return .orange
+        case .mixed:    return .blue
+        }
+    }
+
+    private func label(_ role: TxGroup.Role) -> String {
+        switch role {
+        case .received: return "Received"
+        case .sent:     return "Sent"
+        case .mixed:    return "Self / change"
+        }
+    }
 }
 
 private extension Cash {

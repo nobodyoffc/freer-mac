@@ -73,6 +73,17 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
     public var lastTime: Int64?
     public var lastHeight: Int64?
 
+    // ---- spend coordinates (populated when this cash has been spent) ----
+
+    /// Txid of the transaction that spent this cash. Mirror of the
+    /// Java `spendTxId` field. Nil for unspent (`valid == true`)
+    /// cashes; populated by `base.search` results when the cash is
+    /// returned with `valid: false`.
+    public var spendTxId: String?
+    public var spendHeight: Int64?
+    public var spendTime: Int64?
+    public var spendIndex: Int?
+
     // ---- local-only annotations (see ``LocalState``) ----
 
     /// Whether the chain has confirmed this cash. Defaults to
@@ -111,6 +122,10 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
         issuer: String? = nil,
         lastTime: Int64? = nil,
         lastHeight: Int64? = nil,
+        spendTxId: String? = nil,
+        spendHeight: Int64? = nil,
+        spendTime: Int64? = nil,
+        spendIndex: Int? = nil,
         localState: LocalState = .onchain,
         pendingSpend: Bool = false
     ) {
@@ -133,6 +148,10 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
         self.issuer = issuer
         self.lastTime = lastTime
         self.lastHeight = lastHeight
+        self.spendTxId = spendTxId
+        self.spendHeight = spendHeight
+        self.spendTime = spendTime
+        self.spendIndex = spendIndex
         self.localState = localState
         self.pendingSpend = pendingSpend
     }
@@ -143,6 +162,7 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
         case id, owner, value, type, birthTxId, birthIndex, lockScript
         case redeemScript, lockTime, birthBlockId, birthHeight, birthTime, birthTxIndex
         case cd, cdd, valid, issuer, lastTime, lastHeight
+        case spendTxId, spendHeight, spendTime, spendIndex
         case localState, pendingSpend
     }
 
@@ -171,6 +191,10 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
         self.issuer       = try c.decodeIfPresent(String.self,  forKey: .issuer)
         self.lastTime     = try c.decodeIfPresent(Int64.self,   forKey: .lastTime)
         self.lastHeight   = try c.decodeIfPresent(Int64.self,   forKey: .lastHeight)
+        self.spendTxId    = try c.decodeIfPresent(String.self,  forKey: .spendTxId)
+        self.spendHeight  = try c.decodeIfPresent(Int64.self,   forKey: .spendHeight)
+        self.spendTime    = try c.decodeIfPresent(Int64.self,   forKey: .spendTime)
+        self.spendIndex   = try c.decodeIfPresent(Int.self,     forKey: .spendIndex)
         self.localState   = try c.decodeIfPresent(LocalState.self, forKey: .localState) ?? .onchain
         self.pendingSpend = try c.decodeIfPresent(Bool.self,    forKey: .pendingSpend) ?? false
     }
@@ -273,7 +297,11 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
             valid: (dict["valid"] as? NSNumber)?.boolValue,
             issuer: dict["issuer"] as? String,
             lastTime: (dict["lastTime"] as? NSNumber)?.int64Value,
-            lastHeight: (dict["lastHeight"] as? NSNumber)?.int64Value
+            lastHeight: (dict["lastHeight"] as? NSNumber)?.int64Value,
+            spendTxId: dict["spendTxId"] as? String,
+            spendHeight: (dict["spendHeight"] as? NSNumber)?.int64Value,
+            spendTime: (dict["spendTime"] as? NSNumber)?.int64Value,
+            spendIndex: (dict["spendIndex"] as? NSNumber)?.intValue
         )
     }
 }
