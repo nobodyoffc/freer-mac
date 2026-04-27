@@ -31,8 +31,11 @@ public struct RecentActivitySnapshot: Codable, Equatable, Sendable {
     }
 }
 
-/// Per-identity store for ``RecentActivitySnapshot``. Keyed by FID so
-/// switching the live FID swaps caches automatically.
+/// Per-identity store for ``RecentActivitySnapshot``. Keyed by
+/// `(fid, kind)` so each Recent activity tab gets its own cold-start
+/// blob without overwriting the others. The `.all` kind uses a
+/// bare-fid key for backward compatibility with snapshots written
+/// before tabs existed.
 public struct RecentActivityStore {
 
     public static let namespace = "recentActivity"
@@ -43,18 +46,34 @@ public struct RecentActivityStore {
         self.inner = TypedStore(kv: kv, namespace: Self.namespace)
     }
 
-    public func snapshot(forFid fid: String) throws -> RecentActivitySnapshot? {
-        try inner.get(fid)
+    public func snapshot(
+        forFid fid: String,
+        kind: WalletService.ActivityKind = .all
+    ) throws -> RecentActivitySnapshot? {
+        try inner.get(Self.key(fid: fid, kind: kind))
     }
 
-    public func save(_ snapshot: RecentActivitySnapshot) throws {
-        try inner.put(snapshot, key: snapshot.fid)
+    public func save(
+        _ snapshot: RecentActivitySnapshot,
+        kind: WalletService.ActivityKind = .all
+    ) throws {
+        try inner.put(snapshot, key: Self.key(fid: snapshot.fid, kind: kind))
     }
 
     @discardableResult
-    public func clear(forFid fid: String) throws -> Bool {
-        guard try inner.exists(fid) else { return false }
-        try inner.delete(fid)
+    public func clear(
+        forFid fid: String,
+        kind: WalletService.ActivityKind = .all
+    ) throws -> Bool {
+        let k = Self.key(fid: fid, kind: kind)
+        guard try inner.exists(k) else { return false }
+        try inner.delete(k)
         return true
+    }
+
+    private static func key(fid: String, kind: WalletService.ActivityKind) -> String {
+        // .all keeps the bare-fid key so blobs from before tabs
+        // existed still load. .incomes / .expenses get a suffix.
+        kind == .all ? fid : "\(fid):\(kind.rawValue)"
     }
 }

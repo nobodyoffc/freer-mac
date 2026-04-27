@@ -238,6 +238,89 @@ final class WalletServiceTests: XCTestCase {
         }
     }
 
+    // MARK: - activity tabs (FCDSL shape per kind)
+
+    /// `.incomes` filters to cashes paid TO the live FID by someone
+    /// else: `query: terms owner=fid` AND `except: equals issuer=fid`.
+    /// The Pattern C cache keys per-kind, so the .incomes blob is
+    /// distinct from the .all blob.
+    func testIncomesFcdslShapeAndCacheIsolation() async throws {
+        let baseDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WalletServiceTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: baseDir) }
+
+        let mgr = try ConfigureManager(baseDirectory: baseDir)
+        let configure = try mgr.createConfigure(
+            password: Data("inc".utf8), kdfKind: .legacySha256
+        )
+        let mainInfo = try configure.addMain(
+            privkey: Data(repeating: 0x21, count: 32), label: "I"
+        )
+        let session = try configure.unlockMain(fid: mainInfo.fid, fapi: MockFapiClient())
+
+        let mock = MockFapiClient()
+        mock.responder = { _ in
+            try makeResponse(data: [[
+                "id": "I1",
+                "owner": session.mainFid,
+                "value": 5_000,
+                "type": "P2PKH",
+                "birthTxId": String(repeating: "11", count: 32),
+                "birthIndex": 0,
+                "valid": true,
+                "issuer": "FOtherSender",
+                "birthHeight": 100
+            ]], bestHeight: 200)
+        }
+        let svc = WalletService(
+            fapi: mock, cashes: session.cashes,
+            recentActivity: session.recentActivity
+        )
+        _ = try await svc.fetchRecentActivity(forFid: session.mainFid, kind: .incomes)
+
+        let fcdsl = try JSONSerialization.jsonObject(
+            with: try XCTUnwrap(mock.recorded[0].fcdsl)
+        ) as? [String: Any]
+        XCTAssertEqual(fcdsl?["entity"] as? String, "cash")
+        let query = fcdsl?["query"] as? [String: Any]
+        let qTerms = query?["terms"] as? [String: Any]
+        XCTAssertEqual(qTerms?["fields"] as? [String], ["owner"])
+        XCTAssertEqual(qTerms?["values"] as? [String], [session.mainFid])
+        let except = fcdsl?["except"] as? [String: Any]
+        let eEquals = except?["equals"] as? [String: Any]
+        XCTAssertEqual(eEquals?["fields"] as? [String], ["issuer"])
+        XCTAssertEqual(eEquals?["values"] as? [String], [session.mainFid])
+        let sort = fcdsl?["sort"] as? [[String: String]]
+        XCTAssertEqual(sort?[0]["field"], "birthHeight")
+
+        // Cache: .incomes blob present, .all blob absent.
+        XCTAssertNotNil(try svc.cachedRecentActivity(forFid: session.mainFid, kind: .incomes))
+        XCTAssertNil(try svc.cachedRecentActivity(forFid: session.mainFid, kind: .all))
+    }
+
+    /// `.expenses` filters to cashes paid BY the live FID to someone
+    /// else: `query: terms issuer=fid` AND
+    /// `except: terms owner ∈ {fid, OP_RETURN}`.
+    func testExpensesFcdslShape() async throws {
+        let mock = MockFapiClient()
+        mock.responder = { _ in try makeResponse(data: [], bestHeight: 1) }
+        let svc = WalletService(fapi: mock)
+        _ = try await svc.fetchRecentActivity(forFid: "FAlice", kind: .expenses)
+
+        let fcdsl = try JSONSerialization.jsonObject(
+            with: try XCTUnwrap(mock.recorded[0].fcdsl)
+        ) as? [String: Any]
+        let query = fcdsl?["query"] as? [String: Any]
+        let qTerms = query?["terms"] as? [String: Any]
+        XCTAssertEqual(qTerms?["fields"] as? [String], ["issuer"])
+        XCTAssertEqual(qTerms?["values"] as? [String], ["FAlice"])
+        let except = fcdsl?["except"] as? [String: Any]
+        let eTerms = except?["terms"] as? [String: Any]
+        XCTAssertEqual(eTerms?["fields"] as? [String], ["owner"])
+        XCTAssertEqual(eTerms?["values"] as? [String], ["FAlice", "OP_RETURN"])
+    }
+
     // MARK: - cash incremental refresh (base.search on the cash index)
 
     // MARK: - recent activity (Pattern C cache)

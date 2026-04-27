@@ -119,6 +119,21 @@ public struct WalletService {
     /// without changing call sites.
     public static let defaultCashPageSize: Int = 200
 
+    /// Filter cut for the Recent activity feed. Mirrors the three
+    /// distinct cash searches the Android Freer client runs:
+    ///
+    /// - ``all``: everything affecting `liveFid`'s balance, sorted
+    ///   by `lastHeight` desc — the unified view used since Phase 7.5.
+    /// - ``incomes``: cashes paid TO `liveFid` by someone else
+    ///   (`owner == liveFid AND issuer != liveFid`).
+    /// - ``expenses``: cashes paid BY `liveFid` to someone else
+    ///   (`issuer == liveFid AND owner ∉ {liveFid, OP_RETURN}`).
+    public enum ActivityKind: String, Codable, Sendable, CaseIterable {
+        case all
+        case incomes
+        case expenses
+    }
+
     /// Reorg-protection window. Every incremental refresh re-fetches
     /// items whose `lastHeight > watermarkHeight - reorgWindowBlocks`
     /// so any reorg that rewrites the trailing window's state is
@@ -293,12 +308,15 @@ public struct WalletService {
     /// owner == fid, sorting by `lastHeight desc, id desc`. The
     /// caller chooses the page size; pagination via the `after`
     /// cursor is a follow-up.
-    /// Read whatever the last fetch wrote to the recent-activity blob
-    /// for `fid`. Returns nil if we've never fetched, or if no cache
-    /// store was wired into this service. No network round-trip —
-    /// intended for cache-first cold-start render.
-    public func cachedRecentActivity(forFid fid: String) throws -> RecentActivitySnapshot? {
-        try recentActivity?.snapshot(forFid: fid)
+    /// Read whatever the last fetch of `kind` wrote to the recent-
+    /// activity blob for `fid`. Returns nil if we've never fetched,
+    /// or if no cache store was wired into this service. No network
+    /// round-trip — intended for cache-first cold-start render.
+    public func cachedRecentActivity(
+        forFid fid: String,
+        kind: ActivityKind = .all
+    ) throws -> RecentActivitySnapshot? {
+        try recentActivity?.snapshot(forFid: fid, kind: kind)
     }
 
     /// One page of `fetchRecentActivity` results plus the cursor the
@@ -318,14 +336,14 @@ public struct WalletService {
 
     public func fetchRecentActivity(
         forFid fid: String,
+        kind: ActivityKind = .all,
         after: [String]? = nil,
         limit: Int = 50,
         timeoutMs: Int = 15_000
     ) async throws -> RecentActivityPage {
-        let body = try Self.cashFcdsl(
-            entity: "cash",
+        let body = try Self.activityFcdsl(
+            kind: kind,
             ownerFid: fid,
-            sinceLastHeightExclusive: nil,
             pageSize: limit,
             after: after
         )
@@ -368,7 +386,7 @@ public struct WalletService {
         // Persist the first page only — Pattern C cache exists for
         // cold-start UX, not for unbounded scroll-back history. Loaded-
         // more pages are in-memory; lost on restart, the user can
-        // re-paginate.
+        // re-paginate. Each kind gets its own blob.
         if after == nil, let store = self.recentActivity {
             let snapshot = RecentActivitySnapshot(
                 fid: fid,
@@ -376,7 +394,7 @@ public struct WalletService {
                 fetchedAt: Date(),
                 bestHeight: resp.bestHeight
             )
-            try? store.save(snapshot)
+            try? store.save(snapshot, kind: kind)
         }
         return RecentActivityPage(
             cashes: cashList,
@@ -472,6 +490,53 @@ public struct WalletService {
             guard let next = resp.last, !next.isEmpty else { return }
             afterCursor = next
         }
+    }
+
+    /// Build the FCDSL for one of the three Recent activity tabs. The
+    /// `query` and (optional) `except` clauses mirror the Android
+    /// Freer client's per-tab cash searches; sort uses `birthHeight`
+    /// for the filtered tabs because they only consider the cash's
+    /// birth event, while `.all` keeps the unified `lastHeight` sort
+    /// (a spent cash's last event is its spend height, not birth).
+    private static func activityFcdsl(
+        kind: ActivityKind,
+        ownerFid: String,
+        pageSize: Int,
+        after: [String]?
+    ) throws -> Data {
+        var query: [String: Any] = [:]
+        var except: [String: Any]? = nil
+        var sortField = "lastHeight"
+
+        switch kind {
+        case .all:
+            query["terms"] = ["fields": ["owner"], "values": [ownerFid]]
+        case .incomes:
+            // owner == fid AND issuer != fid
+            query["terms"]  = ["fields": ["owner"],  "values": [ownerFid]]
+            except = ["equals": ["fields": ["issuer"], "values": [ownerFid]]]
+            sortField = "birthHeight"
+        case .expenses:
+            // issuer == fid AND owner ∉ {fid, OP_RETURN}
+            // (OP_RETURN excluded because data outputs aren't real
+            // payments to anyone — Android does the same.)
+            query["terms"]  = ["fields": ["issuer"], "values": [ownerFid]]
+            except = ["terms": ["fields": ["owner"], "values": [ownerFid, "OP_RETURN"]]]
+            sortField = "birthHeight"
+        }
+
+        var dict: [String: Any] = [
+            "entity": "cash",
+            "query": query,
+            "sort": [
+                ["field": sortField, "order": "desc"],
+                ["field": "id",      "order": "desc"]
+            ],
+            "size": String(pageSize)
+        ]
+        if let except { dict["except"] = except }
+        if let after, !after.isEmpty { dict["after"] = after }
+        return try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
     }
 
     /// Build the FCDSL JSON for cash pagination queries. Mirrors the

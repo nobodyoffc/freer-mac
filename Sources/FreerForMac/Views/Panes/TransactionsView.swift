@@ -18,9 +18,10 @@ struct TransactionsView: View {
     @State private var loadingMore: Bool = false
     @State private var loadError: String?
     @State private var lastFetchedAt: Date?
-    @State private var loadedCacheForFid: String?
+    @State private var loadedCacheKey: String?
     @State private var expanded: Set<String> = []
     @State private var nextCursor: [String]?
+    @State private var kind: WalletService.ActivityKind = .all
 
     private var groups: [TxGroup] { TxGroup.group(rows) }
 
@@ -28,6 +29,7 @@ struct TransactionsView: View {
         VStack(alignment: .leading, spacing: 16) {
             PaneHeader(session: session)
             Divider()
+            tabPicker
             header
             content
         }
@@ -37,13 +39,39 @@ struct TransactionsView: View {
             loadCacheIfNeeded()
             Task { await refresh() }
         }
+        .onChange(of: kind) { _, _ in
+            // Reset the in-memory page state, reload the new tab's
+            // cache (so the user sees the previous fetch instantly),
+            // and kick a fresh fetch in the background.
+            rows = []
+            nextCursor = nil
+            lastFetchedAt = nil
+            expanded = []
+            loadError = nil
+            loadedCacheKey = nil
+            loadCacheIfNeeded()
+            Task { await refresh() }
+        }
+    }
+
+    private var tabPicker: some View {
+        Picker("", selection: $kind) {
+            Text("All").tag(WalletService.ActivityKind.all)
+            Text("Incomes").tag(WalletService.ActivityKind.incomes)
+            Text("Expenses").tag(WalletService.ActivityKind.expenses)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
     }
 
     private func loadCacheIfNeeded() {
-        guard loadedCacheForFid != session.liveFid else { return }
-        loadedCacheForFid = session.liveFid
+        let key = "\(session.liveFid):\(kind.rawValue)"
+        guard loadedCacheKey != key else { return }
+        loadedCacheKey = key
         do {
-            if let cached = try session.wallet.cachedRecentActivity(forFid: session.liveFid) {
+            if let cached = try session.wallet.cachedRecentActivity(
+                forFid: session.liveFid, kind: kind
+            ) {
                 rows = cached.cashes
                 lastFetchedAt = cached.fetchedAt
             }
@@ -248,16 +276,22 @@ struct TransactionsView: View {
     private func refresh() async {
         loading = true
         loadError = nil
+        let activeKind = kind
         defer { loading = false }
         do {
             // First page: replace rows + reset cursor.
             let page = try await session.wallet.fetchRecentActivity(
-                forFid: session.liveFid
+                forFid: session.liveFid, kind: activeKind
             )
+            // If the user switched tabs while we were waiting, drop
+            // this result — onChange has already kicked the new
+            // tab's fetch.
+            guard activeKind == self.kind else { return }
             self.rows = page.cashes
             self.nextCursor = page.next
             self.lastFetchedAt = Date()
         } catch {
+            guard activeKind == self.kind else { return }
             self.loadError = String(describing: error)
         }
     }
@@ -266,11 +300,13 @@ struct TransactionsView: View {
     private func loadMore() async {
         guard let cursor = nextCursor, !loadingMore else { return }
         loadingMore = true
+        let activeKind = kind
         defer { loadingMore = false }
         do {
             let page = try await session.wallet.fetchRecentActivity(
-                forFid: session.liveFid, after: cursor
+                forFid: session.liveFid, kind: activeKind, after: cursor
             )
+            guard activeKind == self.kind else { return }
             // Append, dedupe by composite key. Server may include
             // boundary rows from the previous page on rare timing
             // edges; stripping duplicates keeps the UI stable.
@@ -280,6 +316,7 @@ struct TransactionsView: View {
             }
             nextCursor = page.next
         } catch {
+            guard activeKind == self.kind else { return }
             // Surface the error inline; rows already-loaded stay.
             loadError = String(describing: error)
         }
