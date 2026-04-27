@@ -301,17 +301,33 @@ public struct WalletService {
         try recentActivity?.snapshot(forFid: fid)
     }
 
+    /// One page of `fetchRecentActivity` results plus the cursor the
+    /// caller hands back for "Load more". `next == nil` means the
+    /// server has no more rows past this page.
+    public struct RecentActivityPage: Sendable {
+        public let cashes: [Cash]
+        public let next: [String]?
+        public let bestHeight: Int64?
+
+        public init(cashes: [Cash], next: [String]?, bestHeight: Int64? = nil) {
+            self.cashes = cashes
+            self.next = next
+            self.bestHeight = bestHeight
+        }
+    }
+
     public func fetchRecentActivity(
         forFid fid: String,
+        after: [String]? = nil,
         limit: Int = 50,
         timeoutMs: Int = 15_000
-    ) async throws -> [Cash] {
+    ) async throws -> RecentActivityPage {
         let body = try Self.cashFcdsl(
             entity: "cash",
             ownerFid: fid,
             sinceLastHeightExclusive: nil,
             pageSize: limit,
-            after: nil
+            after: after
         )
         let reply: FapiClient.Reply
         do {
@@ -349,9 +365,11 @@ public struct WalletService {
         } else {
             cashList = []
         }
-        // Persist the freshly-fetched page so the next pane open can
-        // render instantly from cache while the live fetch runs.
-        if let store = self.recentActivity {
+        // Persist the first page only — Pattern C cache exists for
+        // cold-start UX, not for unbounded scroll-back history. Loaded-
+        // more pages are in-memory; lost on restart, the user can
+        // re-paginate.
+        if after == nil, let store = self.recentActivity {
             let snapshot = RecentActivitySnapshot(
                 fid: fid,
                 cashes: cashList,
@@ -360,7 +378,11 @@ public struct WalletService {
             )
             try? store.save(snapshot)
         }
-        return cashList
+        return RecentActivityPage(
+            cashes: cashList,
+            next: (resp.last?.isEmpty == false) ? resp.last : nil,
+            bestHeight: resp.bestHeight
+        )
     }
 
     /// Diagnostic wrapper: pretty-prints the API name + FCDSL JSON

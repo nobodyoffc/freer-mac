@@ -31,7 +31,15 @@ struct OverviewView: View {
         }
         .padding()
         .frame(minWidth: 480)
-        .onAppear { reloadPending() }
+        .onAppear {
+            reloadPending()
+            // Kick a fresh balance + cash sync every time the user
+            // navigates to Overview. Without this the pane shows
+            // whatever the previous in-pane Refresh produced, which
+            // goes stale after a Send. base.balanceByIds is cheap;
+            // hitting it on every appear is fine.
+            Task { await refresh() }
+        }
     }
 
     private var balanceCard: some View {

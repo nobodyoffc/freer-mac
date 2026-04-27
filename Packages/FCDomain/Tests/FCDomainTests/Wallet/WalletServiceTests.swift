@@ -281,12 +281,68 @@ final class WalletServiceTests: XCTestCase {
 
         // First fetch persists. Cached read must mirror it.
         XCTAssertNil(try svc.cachedRecentActivity(forFid: session.mainFid))
-        let fetched = try await svc.fetchRecentActivity(forFid: session.mainFid)
-        XCTAssertEqual(fetched.count, 1)
+        let page = try await svc.fetchRecentActivity(forFid: session.mainFid)
+        XCTAssertEqual(page.cashes.count, 1)
+        XCTAssertEqual(page.bestHeight, 100)
         let cached = try svc.cachedRecentActivity(forFid: session.mainFid)
         XCTAssertEqual(cached?.cashes.first?.id, "X")
         XCTAssertEqual(cached?.cashes.first?.value, 12_345)
         XCTAssertEqual(cached?.bestHeight, 100)
+    }
+
+    /// Subsequent pages (called with a non-nil `after` cursor) must
+    /// NOT touch the Pattern C blob — that cache is the cold-start
+    /// hint, not unbounded scroll-back history.
+    func testFetchRecentActivityWithCursorDoesNotOverwriteCache() async throws {
+        let baseDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WalletServiceTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: baseDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: baseDir) }
+
+        let mgr = try ConfigureManager(baseDirectory: baseDir)
+        let configure = try mgr.createConfigure(
+            password: Data("page".utf8), kdfKind: .legacySha256
+        )
+        let mainInfo = try configure.addMain(
+            privkey: Data(repeating: 0x09, count: 32), label: "P"
+        )
+        let session = try configure.unlockMain(fid: mainInfo.fid, fapi: MockFapiClient())
+
+        // Pre-seed the Pattern C blob with a known sentinel.
+        try session.recentActivity.save(RecentActivitySnapshot(
+            fid: session.mainFid,
+            cashes: [Cash(id: "FIRST", owner: session.mainFid, value: 1,
+                          birthTxId: String(repeating: "00", count: 32), birthIndex: 0)]
+        ))
+
+        let mock = MockFapiClient()
+        mock.responder = { _ in
+            try makeResponse(
+                data: [[
+                    "id": "Y",
+                    "owner": session.mainFid,
+                    "value": 999,
+                    "type": "P2PKH",
+                    "birthTxId": String(repeating: "ee", count: 32),
+                    "birthIndex": 0,
+                    "valid": true,
+                    "lastHeight": 50
+                ]],
+                bestHeight: 60
+            )
+        }
+        let svc = WalletService(
+            fapi: mock, cashes: session.cashes,
+            recentActivity: session.recentActivity
+        )
+        let page = try await svc.fetchRecentActivity(
+            forFid: session.mainFid, after: ["50", "abc"]
+        )
+        XCTAssertEqual(page.cashes.first?.id, "Y")
+
+        // Pre-seeded blob is untouched.
+        let cached = try svc.cachedRecentActivity(forFid: session.mainFid)
+        XCTAssertEqual(cached?.cashes.first?.id, "FIRST")
     }
 
     func testFetchRecentActivitySkipsCacheWhenNoStore() async throws {
@@ -298,7 +354,8 @@ final class WalletServiceTests: XCTestCase {
             ]])
         }
         let svc = WalletService(fapi: mock)        // no recentActivity store
-        _ = try await svc.fetchRecentActivity(forFid: "FX")
+        let page = try await svc.fetchRecentActivity(forFid: "FX")
+        XCTAssertEqual(page.cashes.count, 1)
         XCTAssertNil(try svc.cachedRecentActivity(forFid: "FX"))
     }
 

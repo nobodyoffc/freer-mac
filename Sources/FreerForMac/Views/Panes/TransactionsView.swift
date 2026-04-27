@@ -15,10 +15,12 @@ struct TransactionsView: View {
 
     @State private var rows: [Cash] = []
     @State private var loading: Bool = false
+    @State private var loadingMore: Bool = false
     @State private var loadError: String?
     @State private var lastFetchedAt: Date?
     @State private var loadedCacheForFid: String?
     @State private var expanded: Set<String> = []
+    @State private var nextCursor: [String]?
 
     private var groups: [TxGroup] { TxGroup.group(rows) }
 
@@ -94,11 +96,36 @@ struct TransactionsView: View {
                         }
                         Divider()
                     }
+                    if nextCursor != nil {
+                        loadMoreFooter
+                    }
                 }
                 .background(Color(NSColor.controlBackgroundColor))
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             }
         }
+    }
+
+    private var loadMoreFooter: some View {
+        HStack {
+            Spacer()
+            Button {
+                Task { await loadMore() }
+            } label: {
+                if loadingMore {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Loading…")
+                    }
+                } else {
+                    Label("Load more", systemImage: "ellipsis.circle")
+                }
+            }
+            .buttonStyle(.borderless)
+            .disabled(loadingMore)
+            Spacer()
+        }
+        .padding(.vertical, 14)
     }
 
     private func errorCard(_ err: String) -> some View {
@@ -223,11 +250,38 @@ struct TransactionsView: View {
         loadError = nil
         defer { loading = false }
         do {
-            let result = try await session.wallet.fetchRecentActivity(forFid: session.liveFid)
-            self.rows = result
+            // First page: replace rows + reset cursor.
+            let page = try await session.wallet.fetchRecentActivity(
+                forFid: session.liveFid
+            )
+            self.rows = page.cashes
+            self.nextCursor = page.next
             self.lastFetchedAt = Date()
         } catch {
             self.loadError = String(describing: error)
+        }
+    }
+
+    @MainActor
+    private func loadMore() async {
+        guard let cursor = nextCursor, !loadingMore else { return }
+        loadingMore = true
+        defer { loadingMore = false }
+        do {
+            let page = try await session.wallet.fetchRecentActivity(
+                forFid: session.liveFid, after: cursor
+            )
+            // Append, dedupe by composite key. Server may include
+            // boundary rows from the previous page on rare timing
+            // edges; stripping duplicates keeps the UI stable.
+            var seen = Set(rows.map(\.compositeKey))
+            for cash in page.cashes where seen.insert(cash.compositeKey).inserted {
+                rows.append(cash)
+            }
+            nextCursor = page.next
+        } catch {
+            // Surface the error inline; rows already-loaded stay.
+            loadError = String(describing: error)
         }
     }
 
