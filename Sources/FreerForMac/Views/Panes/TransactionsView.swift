@@ -162,35 +162,43 @@ struct TransactionsView: View {
 
     @ViewBuilder
     private func cashRow(_ cash: Cash) -> some View {
-        // For incomes the counterparty is the issuer (whoever paid
-        // me); for expenses it's the owner (whoever I paid). Use
-        // the truthy-empty fallback "?" for missing values rather
-        // than failing — server data can lag.
-        let (counterpartyLabel, counterparty, glyph, color) = roleAttributes(for: cash)
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
+        // The counterparty is the visual anchor: avatar + FID big.
+        // For incomes the counterparty is the issuer (paid me); for
+        // expenses it's the owner (I paid them).
+        let (label, counterparty, glyph, color) = roleAttributes(for: cash)
+        HStack(alignment: .center, spacing: 12) {
+            if let cp = counterparty, !cp.isEmpty {
+                FidAvatarView(fid: cp, size: 40)
+            } else {
+                ZStack {
+                    Circle()
+                        .fill(color.opacity(0.15))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: glyph).foregroundStyle(color)
+                }
+            }
+            VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Image(systemName: glyph).foregroundStyle(color)
-                    Text(counterpartyLabel).font(.callout.bold()).foregroundStyle(color)
+                    Text(label).font(.caption.bold()).foregroundStyle(color)
+                    Spacer(minLength: 0)
                     Text(formatBch(cash.value))
-                        .font(.callout.monospacedDigit())
+                        .font(.callout.monospacedDigit().bold())
                 }
                 if let cp = counterparty, !cp.isEmpty {
-                    CopyableText(
-                        display: "\(cp.prefix(16))…",
-                        copy: cp,
-                        font: .caption.monospaced()
+                    CopyableText.elidingMiddle(
+                        cp, head: 8, tail: 8,
+                        font: .system(.body, design: .monospaced)
                     )
-                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
                 }
                 CopyableText(
-                    display: "\(cash.birthTxId.prefix(12))…:\(cash.birthIndex)",
+                    display: "\(cash.birthTxId.elidingMiddle()):\(cash.birthIndex)",
                     copy: "\(cash.birthTxId):\(cash.birthIndex)",
-                    font: .caption.monospaced()
+                    font: .caption2.monospaced()
                 )
                 .foregroundStyle(.tertiary)
             }
-            Spacer()
             VStack(alignment: .trailing, spacing: 2) {
                 if let ts = cash.birthTime {
                     Text(Date(timeIntervalSince1970: TimeInterval(ts))
@@ -289,9 +297,8 @@ struct TransactionsView: View {
                     Text(formatNet(group.netSats))
                         .font(.callout.monospacedDigit())
                 }
-                CopyableText(
-                    display: "\(group.txid.prefix(12))…",
-                    copy: group.txid,
+                CopyableText.elidingMiddle(
+                    group.txid,
                     font: .caption.monospaced()
                 )
                 .foregroundStyle(.secondary)
@@ -349,7 +356,7 @@ struct TransactionsView: View {
             Text("\(sign)\(formatBch(sats))")
                 .font(.caption.monospacedDigit())
             CopyableText(
-                display: "\(txid.prefix(10))…:\(index)",
+                display: "\(txid.elidingMiddle()):\(index)",
                 copy: "\(txid):\(index)",
                 font: .caption.monospaced()
             )

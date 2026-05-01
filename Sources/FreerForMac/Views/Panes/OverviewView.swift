@@ -147,7 +147,7 @@ struct OverviewView: View {
                         .font(.callout.monospacedDigit())
                 }
                 CopyableText(
-                    display: "\(cash.birthTxId.prefix(12))…:\(cash.birthIndex)",
+                    display: "\(cash.birthTxId.elidingMiddle()):\(cash.birthIndex)",
                     copy: "\(cash.birthTxId):\(cash.birthIndex)",
                     font: .caption.monospaced()
                 )

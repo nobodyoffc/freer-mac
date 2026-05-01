@@ -51,7 +51,7 @@ struct SettingsView: View {
         .padding()
         .frame(minWidth: 480)
         .onAppear { load() }
-        .alert("Purge cash cache for \(session.liveFid.prefix(10))…?",
+        .alert("Purge cash cache for \(session.liveFid.elidingMiddle(head: 6, tail: 6))?",
                isPresented: $showPurgeConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Purge", role: .destructive) { runPurge() }

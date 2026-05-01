@@ -2,6 +2,8 @@ import SwiftUI
 import FCDomain
 import FCUI
 
+
+
 /// The unlocked landing screen. Sidebar-driven `NavigationSplitView`:
 /// the sidebar selects a ``WalletPane``, the detail pane swaps based
 /// on it. The window's top-right toolbar holds Switch-live-FID,
@@ -136,6 +138,6 @@ struct HomeView: View {
     private func displayLabel(_ info: KeyInfo) -> String {
         let prefix = info.label.isEmpty ? info.kind.rawValue : info.label
         let kindAnnotation = info.label.isEmpty ? "" : " (\(info.kind.rawValue))"
-        return "\(prefix)\(kindAnnotation) — \(info.fid.prefix(10))…"
+        return "\(prefix)\(kindAnnotation) — \(info.fid.elidingMiddle(head: 6, tail: 6))"
     }
 }
