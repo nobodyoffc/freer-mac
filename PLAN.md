@@ -1,9 +1,11 @@
 ---
 title: FreerForMac — Migration Plan
-status: Phases 1 / 2 / 3 / 4 / 5 complete; Phase 6 (app shell) starts next
-last_updated: 2026-04-25
+status: Phases 1–6 complete; Phase 7 (Wallet) at 7.5.8 — Transactions pane shipped, next is 7.6 (Contacts CRUD) or 7.7 (QR)
+last_updated: 2026-05-01
 ---
 
+> **▶ Phase 7.5 closed (2026-05-01).** Transactions pane is live with All / Incomes / Expenses tabs, per-tx grouping in `.all`, flat per-cash rendering in Incomes/Expenses (rows lead with a 40 px FidAvatarView for the counterparty), pagination, auto-refresh on appear, and middle-elided IDs throughout (head + … + tail, never `prefix(N)`). Send works end-to-end on mainnet with BCH-Schnorr signatures (~10 ms/sig via libsecp256k1). Cash cache uses Pattern A incremental sync with a `lastHeight` watermark; Transactions pane uses Pattern C cursor-paginated cache split per-kind (all/incomes/expenses).
+>
 > **▶ Phase 4 resumed (2026-04-25).** FUDP v2 repairs (F1 header AAD, F2 LRU ECDH cache, F3 60 s replay tolerance, F5 explicit frame lengths) shipped on the Linux side at `FC-JDK/src/main/java/fudp/`. Wire-format version stayed at `1` (no third-party ecosystem to negotiate with). New DDoS layer (`security/{ProofOfWork,IpVerifier,ChallengeHandler,TokenBucket,DecryptRateLimiter,DDoSConfig}`) added beyond the v2 plan; Mac client implements the *initiator* side of it from day 1 so it works against DDoS-enabled servers out of the box.
 
 
@@ -180,25 +182,44 @@ Subphase budgets: handshake 2d, datagram + crypto 2d, congestion/retry 2d, FAPI 
 - Use cases = `async` functions returning typed results (`throws` rather than `Result<T,E>` — Swift's typed-throws still requires opt-in and Result fights `try`).
 - Each store namespaces its keys (`settings:*`, `keys:*`, `contacts:*`) inside the shared per-identity `EncryptedKVStore` — one DB per identity, not one per concern.
 
-### Phase 6 — App shell + auth flow · 2d · in progress
+**Cache architecture (Three Patterns).** FCH's `lastHeight` is on every chain entity — every cache becomes incremental.
+
+| Pattern | Shape | Sync | Used for |
+|---|---|---|---|
+| **A** | Watermark-synced collection by `lastHeight` | Bootstrap once, then `lastHeight > localMax − 30` (reorg window) | `CashesStore` (the wallet's spendable cash set) |
+| **B** | Cipher-always-stored + plaintext decryption overlay | Cipher rows persist; plaintext lives only in memory under the symkey | Reserved for future per-main encrypted artifacts |
+| **C** | Cursor-paginated stream blob | Append on next-cursor, replace on filter change | `RecentActivityStore` (Transactions pane, key per-kind: all / incomes / expenses) |
+
+**Wire / consensus gotchas worth not relearning:**
+- **P2PKH spends require BCH-Schnorr.** ECDSA-DER is rejected by mainnet with the misleading error `Signature cannot be 65 bytes in CHECKMULTISIG`.
+- **FCDSL `query` vs `filter`.** Both are separate fields on the POJO. `base.search` consumes `query` via `queryExecutor.executeQuery`; `base.cashValid` mode-1 reaches for `filter`. Mixing them up causes silent timeouts.
+- **FUDP STREAM frames must be reassembled.** Responses ≥ ~1 KB span multiple STREAM frames sharing a `streamId`, with `offset` and `fin` only on the last. Decoding each as a complete AppMessage corrupts the receiver's state and breaks every call after the big one.
+- **Bootstrap fallback:** `base.cashValid` mode-2 (`params: {fid}`) is the known-working bootstrap. Incremental `base.search` is fail-soft — on any error it falls back to mode-2.
+
+**UX rules locked in (saved as feedback memory):**
+- Every FID and every toast/error is click-to-copy with a green-checkmark flash (`CopyableText` in FCUI).
+- Every truncated ID renders middle-elided: `head + "…" + tail`, never `prefix(N)`. Use `String.elidingMiddle` or `CopyableText.elidingMiddle`.
+
+### Phase 6 — App shell + auth flow · 2d · ✅ complete
 
 | # | Scope | Status |
 |---|---|---|
 | 6.1 | Auth flow scaffold — `AppState` (@Observable, owns vault + session + route), `AppRouter`, `WelcomeView` / `CreateIdentityView` / `ChooseIdentityView` / `UnlockView` / `HomeView` placeholder. Argon2id runs on a background `Task.detached` so the UI stays responsive during ~300 ms KDF. ⌘L lock + menu-bar entry. | ✅ |
-| 6.2 | Wire a real `FapiClient` factory into `AppState` (replacing `StubFapiClient`); WIF privkey import (`L`-prefix Base58Check → `IdentityVault.registerWithPrivkey`). | next |
-| 6.3 | Auto-lock via `ScenePhase`, About panel polish, Dock badge. | |
+| 6.2 | Real `FapiClient` factory in `AppState` (replacing `StubFapiClient`). WIF / hex / passphrase import paths in `AddMainView` (5.7d). | ✅ |
+| 6.3 | Auto-lock via `ScenePhase`, About panel polish, Dock badge. | deferred to Phase 10 |
 
 ### Phase 7 — Wallet features · 6d · in progress
 
 | # | Scope | Status |
 |---|---|---|
 | 7.1 | Sidebar-driven nav scaffold — `WalletPane` enum, selectable sidebar in `HomeView`, six pane shells (Overview, Send, Receive, Transactions, Contacts, Settings). `OverviewView` has a balance card with a Refresh action that surfaces the stub error inline. `ReceiveView` shows the live FID big with Copy. `SettingsView` form for FAPI host/port/pubkey/theme/auto-lock, persists to per-main `PreferencesStore`. Send/Transactions/Contacts are labeled empty-state panes. Renamed FCDomain `Settings`→`Preferences` and `SettingsStore`→`PreferencesStore` to dodge the SwiftUI `Settings` Scene collision. | ✅ |
-| 7.2 | Live `FapiClient` plumbing — `ActiveSession.fapi` is now mutable via `setFapi(_:)`; `wallet` is a computed property so swaps propagate. `AppState.applyFapiSettings(for:)` reads host/port/pubkey from `Preferences`, opens a real `FudpClient` (using main privkey for AsyTwoWay), wraps it in `FapiClient`, swaps into the session. SettingsView gained **Test connection** (one-shot `base.health` against form values) and **Save**-and-apply. Live transport torn down on `lockAll` / `returnToChooseMain`. | ✅ |
-| 7.3 | Real Send flow — recipient FID + amount form, signs via `WalletService.sendFromLive`, broadcast via `base.broadcastTx`. Watch-only fallback exports unsigned `TxInfo` for cold signing. | next |
-| 7.3 | Real Send flow — recipient FID + amount form, signs via `WalletService.sendFromLive`, broadcast via `base.broadcastTx`. Watch-only fallback exports unsigned `TxInfo` for cold signing. | |
-| 7.4 | Transactions history — paged search of the Cash index, expand-to-JSON detail. | |
-| 7.5 | Contacts CRUD on top of `ContactsStore` + cached pubkey lookups. | |
-| 7.6 | QR — `CIFilter.qrCodeGenerator` for receive, `AVCaptureMetadataOutput` for scan. | |
+| 7.2 | Live `FapiClient` plumbing — `ActiveSession.fapi` is now mutable via `setFapi(_:)`; `wallet` is a computed property so swaps propagate. `AppState.applyFapiSettings(for:)` reads host/port/pubkey from `Preferences`, opens a real `FudpClient` (using main privkey for AsyTwoWay), wraps it in `FapiClient`, swaps into the session. SettingsView gained **Test connection** (one-shot `base.health` against form values), **Discover** (plaintext HELLO → auto-fill pubkey), and **Save**-and-apply. Live transport torn down on `lockAll` / `returnToChooseMain`. | ✅ |
+| 7.3 | Real Send flow with **BCH-Schnorr** signatures (FCH rejects ECDSA-DER on P2PKH with a misleading "Signature cannot be 65 bytes in CHECKMULTISIG"). Sub-phases: 7.3.1 migrated cash fetching from `base.getUtxo` → `base.cashValid`, replacing `Utxo`/`UtxosStore` with `Cash`/`CashesStore`. 7.3.4 wired `BchSchnorr.sign` (BCH 2019 pre-BIP340: nonce = SHA-256(d ∥ m); challenge = SHA-256(R.x ∥ P_compressed_33 ∥ m); R selected so jacobi(R.y)==1) into `TxHandler.signP2pkhInput`; CoinSelector input-byte estimate dropped 148→141. 7.3.5 rewrote BchSchnorr over libsecp256k1 primitives, ~700× speedup (~30s → ~10ms per sig). | ✅ |
+| 7.4 | Cash incremental sync (Pattern A: watermark by `lastHeight`, sync = items with `lastHeight > localMax − reorgWindow(30)`). Post-send optimistic update marks spent inputs `pendingSpend=true` (kept for recovery) and synthesizes change cashes with the pre-computed `id` so server delta merges by id. 7.4.1 added Recover (un-mark a stuck `pendingSpend`) and Purge (drop the cash cache; next refresh re-bootstraps via `base.cashValid` mode-2). 7.4.2 made bootstrap mode-2 (`params: {fid}`) the fallback when incremental search fails. | ✅ |
+| 7.5 | Transactions pane via `base.search` on the cash index. Sub-phases: 7.5.1 fixed FCDSL — conditions go under `query`, not `filter` (matched Android `Freer/CashManager.java`). 7.5.2 fixed FUDP STREAM frame reassembly (large responses span multiple frames sharing a streamId; receiver was decoding each as a complete AppMessage — large `base.search` responses then broke subsequent calls). 7.5.3 added Pattern C cache (cursor-paginated stream blob, key per-kind via `RecentActivityStore.key(fid:kind:)`). 7.5.4 added per-tx grouping (TxGroup folds inputs+outputs of the same tx; valid==true→birthTxId is event, valid==false→spendTxId is event; mixed groups for self-sends). 7.5.5 added "Load more" pagination + Overview auto-refresh on appear. 7.5.6 added All / Incomes / Expenses tabs. 7.5.7 corrected Incomes/Expenses semantics (cashes with value > 0; income = owner==fid && issuer != fid; expense = issuer==fid && owner != fid; render flat per-cash, not per-tx). 7.5.8 made every UI ID render middle-elided (`head + "…" + tail`, never `prefix(N)`); Incomes/Expenses rows now lead with a 40 px FidAvatarView for the counterparty. | ✅ |
+| 7.6 | Contacts CRUD on top of `ContactsStore` + cached pubkey lookups. | next |
+| 7.7 | QR — `CIFilter.qrCodeGenerator` for receive, `AVCaptureMetadataOutput` for scan. | |
+| 7.8 | Watch-only Send fallback — export unsigned `TxInfo` for cold signing. | |
 
 ### Phase 8 — Smaller features · 3d
 - `ToolsView` — encrypt / decrypt / sign-msg / verify / totp / hash / random-bytes
