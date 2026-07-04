@@ -23,6 +23,9 @@ struct ContactsView: View {
 
     @State private var editorMode: EditorMode?
     @State private var pendingDelete: Contact?
+    @State private var pendingCarve: Contact?
+    @State private var carving = false
+    @State private var carveTxid: String?
 
     enum EditorMode: Identifiable {
         case create
@@ -88,6 +91,17 @@ struct ContactsView: View {
 
             if let err = syncError {
                 syncErrorBanner(err)
+            } else if let txid = carveTxid {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.seal")
+                        .foregroundStyle(.green)
+                    CopyableText(
+                        display: "Carve broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). Shows as On-chain once a block confirms it.",
+                        copy: txid,
+                        font: .caption
+                    )
+                    .foregroundStyle(.green)
+                }
             } else if let summary = syncSummary {
                 CopyableText(summary, font: .caption)
                     .foregroundStyle(.secondary)
@@ -137,13 +151,44 @@ struct ContactsView: View {
             )
         ) {
             Button("Cancel", role: .cancel) { pendingDelete = nil }
-            Button("Delete", role: .destructive) {
+            Button("Delete locally", role: .destructive) {
                 if let c = pendingDelete { delete(c) }
                 pendingDelete = nil
             }
+            if let c = pendingDelete, canDeleteOnChain(c) {
+                Button("Delete locally + on-chain", role: .destructive) {
+                    let contact = c
+                    pendingDelete = nil
+                    Task { await deleteOnChain(contact) }
+                }
+            }
         } message: {
             if let c = pendingDelete {
-                Text("Removes the local entry for \(c.id.elidingMiddle(head: 8, tail: 8)). On-chain records are not affected.")
+                if canDeleteOnChain(c) {
+                    Text("\(c.id.elidingMiddle(head: 8, tail: 8)) has an on-chain carve. Deleting only locally makes it come back on the next chain sync; deleting on-chain carves a removal record (small miner fee).")
+                } else {
+                    Text("Removes the local entry for \(c.id.elidingMiddle(head: 8, tail: 8)). On-chain records are not affected.")
+                }
+            }
+        }
+        .alert(
+            "Carve \(pendingCarve?.name ?? "contact") on-chain?",
+            isPresented: Binding(
+                get: { pendingCarve != nil },
+                set: { if !$0 { pendingCarve = nil } }
+            )
+        ) {
+            Button("Cancel", role: .cancel) { pendingCarve = nil }
+            Button(pendingCarve?.onChain == true ? "Carve update" : "Carve") {
+                let contact = pendingCarve
+                pendingCarve = nil
+                if let contact { Task { await carve(contact) } }
+            }
+        } message: {
+            if let c = pendingCarve {
+                Text(c.onChain == true
+                     ? "Writes the current titles/memo/permissions of \(c.name) as an on-chain update of the existing carve. Encrypted to your key; costs a small miner fee."
+                     : "Writes \(c.name)'s titles/memo/permissions to the FCH chain, encrypted so only you can read them. Costs a small miner fee, and the contact then syncs to any device you unlock with this key.")
             }
         }
     }
@@ -259,6 +304,19 @@ struct ContactsView: View {
                 .buttonStyle(.borderless)
                 .help("Edit")
 
+                if session.canSign {
+                    Button {
+                        pendingCarve = c
+                    } label: {
+                        Image(systemName: "link.badge.plus")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled(carving)
+                    .help(c.onChain == true
+                          ? "Carve an update of this contact on-chain"
+                          : "Carve this contact on-chain (encrypted to your key)")
+                }
+
                 Button(role: .destructive) {
                     pendingDelete = c
                 } label: {
@@ -350,10 +408,14 @@ struct ContactsView: View {
                 privkey: priv,
                 into: session.contacts
             )
+            carveTxid = nil
             if result.total == 0 {
                 syncSummary = "No carved contacts on-chain."
             } else {
                 var parts = ["\(result.merged) on-chain contact\(result.merged == 1 ? "" : "s") synced"]
+                if result.removed > 0 {
+                    parts.append("\(result.removed) removed (deleted on-chain)")
+                }
                 if result.undecryptable > 0 {
                     parts.append("\(result.undecryptable) could not be decrypted")
                     parts.append(contentsOf: result.failureReasons)
@@ -390,6 +452,44 @@ struct ContactsView: View {
             reload()
         } catch {
             loadError = String(describing: error)
+        }
+    }
+
+    // MARK: - carving
+
+    private func canDeleteOnChain(_ c: Contact) -> Bool {
+        session.canSign && c.onChain == true && !(c.carveId ?? "").isEmpty
+    }
+
+    /// Carve `c` on-chain (add, or update when a carveId is known).
+    /// The row is left untouched — the next sync flips it to On-chain
+    /// once a block confirms the carve.
+    private func carve(_ c: Contact) async {
+        guard session.canSign, !carving else { return }
+        carving = true
+        syncError = nil
+        carveTxid = nil
+        defer { carving = false }
+        do {
+            carveTxid = try await session.carveContactOnChain(c)
+        } catch {
+            syncError = String(describing: error)
+        }
+    }
+
+    /// Carve a delete op for `c`'s on-chain record, then remove the
+    /// local row. If the carve broadcast fails the row stays.
+    private func deleteOnChain(_ c: Contact) async {
+        guard let carveId = c.carveId, !carveId.isEmpty, !carving else { return }
+        carving = true
+        syncError = nil
+        carveTxid = nil
+        defer { carving = false }
+        do {
+            carveTxid = try await session.carveContactDeleteOnChain(carveIds: [carveId])
+            delete(c)
+        } catch {
+            syncError = String(describing: error)
         }
     }
 }

@@ -83,6 +83,18 @@ public enum ScriptBuilder {
         return Script(s)
     }
 
+    /// OP_RETURN data output: `OP_RETURN <push> <data>`. Matches
+    /// bitcoinj's `ScriptBuilder.createOpReturnScript` — the FEIP
+    /// carve path puts a whole JSON document here, so the push can be
+    /// well beyond 75 bytes (`OP_PUSHDATA1`/`2`). The output's value
+    /// is always zero; consensus treats it as provably unspendable.
+    public static func opReturnOutput(data: Data) -> Script {
+        var s = Data()
+        s.append(0x6A)  // OP_RETURN
+        s.append(pushData(data))
+        return Script(s)
+    }
+
     /// P2PKH scriptSig: `<push> <sig || hashType> <push> <pubkey>`.
     ///
     /// The signature can be either DER-encoded ECDSA (~70-72 bytes) or

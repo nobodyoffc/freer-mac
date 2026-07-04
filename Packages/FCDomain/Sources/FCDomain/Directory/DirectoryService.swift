@@ -92,11 +92,15 @@ public struct DirectoryService {
     public struct ContactSyncResult: Sendable {
         /// Contacts decrypted and written into the store.
         public let merged: Int
+        /// Local rows removed because the chain reports their newest
+        /// carve as deleted (`active == false`).
+        public let removed: Int
         /// On-chain records whose cipher couldn't be decrypted (legacy
         /// algorithm, key mismatch, corrupt payload). Skipped, since
         /// without the plaintext we don't even know the contact's FID.
         public let undecryptable: Int
-        /// Total active records the server returned for this owner.
+        /// Total records (active + deleted) the server returned for
+        /// this owner.
         public let total: Int
         /// Reasons for the first few failures — surfaced so a
         /// systematic mismatch (wrong algorithm, wrong key) is
@@ -104,11 +108,12 @@ public struct DirectoryService {
         public let failureReasons: [String]
     }
 
-    /// Fetch every *active* on-chain CONTACT record carved by `owner`.
-    /// Mirrors `ContactManager.makeFcdsl` (Android): `base.search` on
-    /// `entity: "contact"`, `query.terms active == "true"`,
-    /// `query.equals owner == fid`, sorted `lastHeight desc, id desc`,
-    /// cursor-paginated via `after`.
+    /// Fetch every on-chain CONTACT record carved by `owner` — active
+    /// AND deleted, like Android's `refreshEntitiesFromAPI` (which
+    /// passes `active = null` so deletions can clean the local DB).
+    /// Mirrors `ContactManager.makeFcdsl` otherwise: `base.search` on
+    /// `entity: "contact"`, `query.equals owner == fid`, sorted
+    /// `lastHeight desc, id desc`, cursor-paginated via `after`.
     public func fetchOnChainContactRecords(
         owner fid: String,
         pageSize: Int = 200,
@@ -119,7 +124,6 @@ public struct DirectoryService {
         var after: [String]? = nil
         for _ in 0..<maxPages {
             let query: [String: Any] = [
-                "terms":  ["fields": ["active"], "values": ["true"]],
                 "equals": ["fields": ["owner"],  "values": [fid]]
             ]
             var dict: [String: Any] = [
@@ -175,6 +179,13 @@ public struct DirectoryService {
     /// while Mac-local extras (`pinnedAt`, `addedAt`) are preserved.
     /// When the same FID was carved more than once, the highest
     /// `lastHeight` wins (the fetch is sorted newest-first).
+    ///
+    /// **Deletion cleanup.** The fetch includes deleted carves; when a
+    /// FID's *newest* carve is `active == false`, its local row is
+    /// removed — but only if that row came from the chain
+    /// (`onChain == true`). A purely local contact that happens to
+    /// share a FID with an old deleted carve stays put. Mirrors
+    /// Android's `updateToDBForNewer` + `isEntityDeleted`.
     @discardableResult
     public func syncOnChainContacts(
         owner fid: String,
@@ -227,14 +238,32 @@ public struct DirectoryService {
             }
         }
 
-        // Enrich all decrypted FIDs in one freerByIds round-trip.
+        // Split into live upserts and deletions by the newest carve's
+        // active flag before spending a freerByIds round-trip on FIDs
+        // we're about to remove.
+        let liveFids = order.filter { detailByFid[$0]?.record.active != false }
+
+        // Enrich all live FIDs in one freerByIds round-trip.
         // Fail-soft: a directory hiccup shouldn't lose the decrypted
         // contacts themselves.
-        let freers = (try? await freerByIds(order, timeoutMs: timeoutMs)) ?? [:]
+        let freers = (try? await freerByIds(liveFids, timeoutMs: timeoutMs)) ?? [:]
 
         var merged = 0
+        var removed = 0
         for contactFid in order {
             guard let (record, detail) = detailByFid[contactFid] else { continue }
+
+            if record.active == false {
+                // Newest carve is a deletion. Drop the local row iff it
+                // was chain-sourced; never touch local-only contacts.
+                if let existing = try? store.get(fid: contactFid),
+                   existing.onChain == true,
+                   (try? store.remove(fid: contactFid)) == true {
+                    removed += 1
+                }
+                continue
+            }
+
             var contact = (try? store.get(fid: contactFid))
                 ?? Contact(id: contactFid)
             contact.titles = detail.titles
@@ -245,6 +274,7 @@ public struct DirectoryService {
             if let h = record.lastHeight { contact.lastHeight = h }
             contact.active = record.active
             contact.onChain = true
+            contact.carveId = record.id
             if let freer = freers[contactFid] {
                 contact = contact.merging(freer)
             }
@@ -264,6 +294,7 @@ public struct DirectoryService {
 
         return ContactSyncResult(
             merged: merged,
+            removed: removed,
             undecryptable: undecryptable,
             total: records.count,
             failureReasons: failureReasons

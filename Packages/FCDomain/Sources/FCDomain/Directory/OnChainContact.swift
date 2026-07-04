@@ -102,6 +102,51 @@ public enum AsyOneWayCipher {
         "a5acd7077805": algGcm, "000000000004": algGcm,
     ]
 
+    /// Encrypt `plaintext` to `pubkeyB` in AsyOneWay mode and return
+    /// the CryptoDataStr JSON envelope — the exact string Android's
+    /// `new Encryptor(FC_EccK1AesGcm256_No1_NrC7)
+    ///     .encryptStrByAsyOneWay(data, pubkey).toJson()` produces
+    /// (modulo JSON key order, which every parser in the ecosystem
+    /// ignores): a fresh ephemeral secp256k1 keypair per call, random
+    /// 12-byte GCM iv, symkey = HKDF-SHA512(ECDH.x, salt: iv,
+    /// info: "hkdf"), `cipher` = base64(ciphertext ‖ tag). GCM carries
+    /// its own authentication, so — like the Java encryptor — no `sum`
+    /// field is emitted.
+    public static func encrypt(plaintext: Data, toPubkey pubkeyB: Data) throws -> String {
+        guard pubkeyB.count == 33 else { throw Failure.badField("pubkeyB") }
+
+        // Ephemeral scalar. SystemRandomNumberGenerator is
+        // cryptographically secure; the retry handles the ~2^-128
+        // chance of landing outside [1, n-1].
+        var ephemeralPrivkey: Data
+        var pubkeyA: Data
+        while true {
+            ephemeralPrivkey = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
+            if let pk = try? Secp256k1.publicKey(fromPrivateKey: ephemeralPrivkey) {
+                pubkeyA = pk
+                break
+            }
+        }
+        defer { ephemeralPrivkey.resetBytes(in: 0..<ephemeralPrivkey.count) }
+
+        let iv = Data((0..<AesGcm256.nonceLength).map { _ in UInt8.random(in: .min ... .max) })
+        let x = try Secp256k1.sharedSecretX(privateKey: ephemeralPrivkey, publicKey: pubkeyB)
+        let symkey = Hkdf.sha512(
+            ikm: x, salt: iv,
+            info: Data("hkdf".utf8),
+            outputLength: AesGcm256.keyLength
+        )
+        let box = try AesGcm256.seal(key: symkey, nonce: iv, plaintext: plaintext)
+
+        // base64 and hex never contain characters that need JSON
+        // escaping, so the envelope can be assembled literally — in
+        // the Java field-declaration order for byte-familiarity.
+        let cipherB64 = (box.ciphertext + box.tag).base64EncodedString()
+        let pubkeyAHex = pubkeyA.map { String(format: "%02x", $0) }.joined()
+        let ivHex = iv.map { String(format: "%02x", $0) }.joined()
+        return #"{"type":"AsyOneWay","alg":"\#(algGcm)","cipher":"\#(cipherB64)","pubkeyA":"\#(pubkeyAHex)","iv":"\#(ivHex)"}"#
+    }
+
     /// Decrypt an on-chain AsyOneWay cipher string (JSON envelope or
     /// base64 bundle) with the recipient's 32-byte privkey. Returns
     /// the plaintext bytes.

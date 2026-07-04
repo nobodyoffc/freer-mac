@@ -33,6 +33,21 @@ final class ScriptTests: XCTestCase {
         XCTAssertEqual(ScriptBuilder.pushData(minPushdata2).prefix(3), Data([0x4D, 0x00, 0x01]))
     }
 
+    /// OP_RETURN script = 0x6A + canonical pushdata. A FEIP carve JSON
+    /// is typically a few hundred bytes, so the PUSHDATA1/2 paths are
+    /// the ones that matter in production.
+    func testOpReturnOutput() {
+        let small = Data([0xDE, 0xAD, 0xBE, 0xEF])
+        XCTAssertEqual(
+            ScriptBuilder.opReturnOutput(data: small).bytes,
+            Data([0x6A, 0x04, 0xDE, 0xAD, 0xBE, 0xEF])
+        )
+        let feipSized = Data(repeating: 0x7B, count: 300) // > 255 → PUSHDATA2
+        let script = ScriptBuilder.opReturnOutput(data: feipSized).bytes
+        XCTAssertEqual(script.prefix(4), Data([0x6A, 0x4D, 0x2C, 0x01]))
+        XCTAssertEqual(script.count, 4 + 300)
+    }
+
     func testRejectsBadMultisig() {
         // required > total
         XCTAssertThrowsError(try ScriptBuilder.multisigOutput(

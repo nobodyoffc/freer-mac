@@ -107,4 +107,50 @@ final class TxBuilderTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - buildUnsignedCarve
+
+    func testBuildUnsignedCarveShape() throws {
+        let aFid = try fid(for: aPrivkey)
+        let feip = Data(#"{"type":"FEIP","sn":"12"}"#.utf8)
+
+        let plan = CoinSelector.Plan(
+            selected: [cash(owner: aFid, txid: String(repeating: "ab", count: 32), index: 0, value: 10_000)],
+            change: 9_700,
+            fee: 300,
+            estimatedSize: 300
+        )
+        let tx = try TxBuilder.buildUnsignedCarve(
+            plan: plan, changeFid: aFid, opReturn: feip
+        )
+
+        // Change first, OP_RETURN last — the Java createTx order.
+        XCTAssertEqual(tx.outputs.count, 2)
+        XCTAssertEqual(tx.outputs[0].value, 9_700)
+        XCTAssertEqual(tx.outputs[1].value, 0)
+
+        let opReturnScript = tx.outputs[1].scriptPubKey.bytes
+        XCTAssertEqual(opReturnScript[opReturnScript.startIndex], 0x6A)
+        XCTAssertTrue(opReturnScript.suffix(feip.count).elementsEqual(feip))
+
+        // Change output pays back to the sender's P2PKH.
+        let changeScript = tx.outputs[0].scriptPubKey.bytes
+        XCTAssertEqual(changeScript.prefix(3), Data([0x76, 0xA9, 0x14]))
+    }
+
+    func testBuildUnsignedCarveWithoutChangeHasOnlyOpReturn() throws {
+        let aFid = try fid(for: aPrivkey)
+        let plan = CoinSelector.Plan(
+            selected: [cash(owner: aFid, txid: String(repeating: "cd", count: 32), index: 2, value: 700)],
+            change: 0,
+            fee: 700,
+            estimatedSize: 263
+        )
+        let tx = try TxBuilder.buildUnsignedCarve(
+            plan: plan, changeFid: aFid, opReturn: Data("x".utf8)
+        )
+        XCTAssertEqual(tx.outputs.count, 1)
+        XCTAssertEqual(tx.outputs[0].value, 0)
+        XCTAssertEqual(tx.outputs[0].scriptPubKey.bytes, Data([0x6A, 0x01, 0x78]))
+    }
 }

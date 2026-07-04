@@ -231,4 +231,70 @@ public final class ActiveSession {
             timeoutMs: timeoutMs
         )
     }
+
+    // MARK: - contact carving (FEIP CONTACT)
+
+    /// Write `contact`'s editable detail onto the chain, encrypted to
+    /// the live FID's own pubkey. Mirrors Android's
+    /// `ContactActivity.sendContactOnChain` → `makeAddContactFeip` →
+    /// `TxSender.carveSimpleFeip`. When the contact already has a
+    /// known carve (``Contact/carveId``), an `update` op targeting it
+    /// is carved instead of a duplicate `add`.
+    ///
+    /// Returns the broadcast txid. The local row is *not* flipped to
+    /// on-chain here — the next chain sync picks the carve up once a
+    /// block confirms it.
+    @discardableResult
+    public func carveContactOnChain(
+        _ contact: Contact,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        let priv = try livePrikey()
+        let ownPubkey: Data
+        do {
+            ownPubkey = try Secp256k1.publicKey(fromPrivateKey: priv)
+        } catch {
+            throw Failure.underlying(error)
+        }
+        let detail = try ContactFeip.detailJson(for: contact)
+        let cipher = try AsyOneWayCipher.encrypt(
+            plaintext: Data(detail.utf8), toPubkey: ownPubkey
+        )
+        let opJson: String
+        if let carveId = contact.carveId, !carveId.isEmpty {
+            opJson = try ContactFeip.updateOp(contactId: carveId, cipher: cipher)
+        } else {
+            opJson = try ContactFeip.addOp(cipher: cipher)
+        }
+        let feipJson = ContactFeip.envelope(opJson: opJson)
+        let result = try await wallet.carve(
+            fromAddress: liveFid, privkey: priv,
+            opReturn: feipJson,
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+        return result.remoteTxid
+    }
+
+    /// Carve a `delete` op deactivating the given carve records.
+    /// Returns the broadcast txid. Callers usually also remove the
+    /// local row; the next sync would do it anyway once the delete
+    /// confirms.
+    @discardableResult
+    public func carveContactDeleteOnChain(
+        carveIds: [String],
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        let priv = try livePrikey()
+        let feipJson = ContactFeip.envelope(
+            opJson: try ContactFeip.deleteOp(contactIds: carveIds)
+        )
+        let result = try await wallet.carve(
+            fromAddress: liveFid, privkey: priv,
+            opReturn: feipJson,
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+        return result.remoteTxid
+    }
 }

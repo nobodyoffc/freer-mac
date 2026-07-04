@@ -80,6 +80,50 @@ public enum TxBuilder {
         )
     }
 
+    /// Assemble an unsigned data-carve tx: the plan's inputs, a change
+    /// output back to `changeFid` (when the plan has one), and a
+    /// zero-value OP_RETURN output carrying `opReturn` — in that
+    /// order, matching the Java `TxHandler.createTx` which appends
+    /// the OP_RETURN after pay/change outputs.
+    public static func buildUnsignedCarve(
+        plan: CoinSelector.Plan,
+        changeFid: String,
+        opReturn: Data
+    ) throws -> Transaction {
+        let inputs: [TxInput] = try plan.selected.map { cash in
+            let prevTxHash = try decodeTxid(cash.birthTxId)
+            let outpoint = try OutPoint(
+                prevTxHash: prevTxHash,
+                outIndex: UInt32(cash.birthIndex)
+            )
+            return TxInput(
+                outpoint: outpoint,
+                scriptSig: Script(Data()),    // empty until signed
+                sequence: defaultSequence
+            )
+        }
+
+        var outputs: [TxOutput] = []
+        if plan.hasChange {
+            let changeHash160 = try hash160(forFid: changeFid)
+            outputs.append(TxOutput(
+                value: UInt64(plan.change),
+                scriptPubKey: try ScriptBuilder.p2pkhOutput(hash160: changeHash160)
+            ))
+        }
+        outputs.append(TxOutput(
+            value: 0,
+            scriptPubKey: ScriptBuilder.opReturnOutput(data: opReturn)
+        ))
+
+        return Transaction(
+            version: defaultVersion,
+            inputs: inputs,
+            outputs: outputs,
+            locktime: 0
+        )
+    }
+
     /// Decode a display-order txid hex string to the 32-byte natural
     /// order required by ``OutPoint``. Same operation as
     /// `Utils.HEX.decode(txid).reversed()` in bitcoinj.

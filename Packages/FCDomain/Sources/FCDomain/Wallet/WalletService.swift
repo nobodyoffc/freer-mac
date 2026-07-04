@@ -626,32 +626,10 @@ public struct WalletService {
             snapshot = try await refreshCashes(forFid: fromAddress, timeoutMs: timeoutMs)
         }
 
-        // 1a. Filter cashes by the wire-level `lockScript`, not the
-        // `type` label. The server's `type` field is unreliable —
-        // `Cash.fromUtxo` leaves it nil — so trusting it can let
-        // multisig / CLTV outputs through and produce a tx the node
-        // rejects (mandatory-script-verify-flag-failed). The
-        // canonical P2PKH lockScript paying to *our* hash160 is the
-        // strongest test: it both rules out non-standard scripts AND
-        // proves we own the output.
-        let ownerHash160: Data
-        do {
-            ownerHash160 = try FchAddress(fid: fromAddress).hash160
-        } catch {
-            throw Failure.underlying(error)
-        }
-        // Exclude rows that are locally-marked as spent
-        // (`pendingSpend`) from selection. They stay in the cache so
-        // manual recovery can restore them, but they are not spendable
-        // until either the chain confirms the spend (we drop them) or
-        // the user decides to recover (we unmark).
-        let spendable = snapshot.cashes
-            .filter { !$0.pendingSpend && $0.locksToP2PKH(hash160: ownerHash160) }
-        if spendable.isEmpty, let sample = snapshot.cashes.first {
-            // Surface a clearer error than "insufficient funds" when
-            // the only thing the server returned is non-spendable.
-            throw Failure.unsupportedCashType(sample.type ?? sample.lockScript ?? "<no lockScript>")
-        }
+        // 1a. Filter to P2PKH cashes locking to our hash160 (the
+        // server's `type` label is unreliable) that aren't locally
+        // marked `pendingSpend`. See `spendableCashes`.
+        let spendable = try spendableCashes(in: snapshot, fromAddress: fromAddress)
 
         // 2. Coin select.
         let plan = try CoinSelector.select(
@@ -663,43 +641,11 @@ public struct WalletService {
             plan: plan, toFid: toFid, amount: amount, changeFid: fromAddress
         )
 
-        // 4. Sign each input. signP2pkhInput rebuilds the tx with the
-        // single input filled; we feed the result back in for the
-        // next index so the running tx state is current.
-        var signed = unsigned
-        for (idx, cash) in plan.selected.enumerated() {
-            signed = try TxHandler.signP2pkhInput(
-                tx: signed,
-                inputIndex: idx,
-                privateKey: privkey,
-                prevValueSats: UInt64(cash.value)
-            )
-        }
+        // 4. Sign each input.
+        let signed = try signAllInputs(unsigned: unsigned, plan: plan, privkey: privkey)
 
         // 5. Broadcast.
-        let rawHex = signed.serialized.map { String(format: "%02x", $0) }.joined()
-        let params = try JSONSerialization.data(
-            withJSONObject: ["rawTx": rawHex],
-            options: [.sortedKeys]
-        )
-        let reply = try await fapi.call(
-            api: "base.broadcastTx",
-            params: params, fcdsl: nil, binary: nil,
-            sid: nil, via: nil, maxCost: nil,
-            timeoutMs: timeoutMs
-        )
-        let resp = reply.response
-        guard resp.isSuccess else {
-            throw Failure.fapiNonZeroCode(api: "base.broadcastTx", code: resp.code ?? -1, message: resp.message)
-        }
-        // Java reference returns response.data.toString() for a
-        // successful broadcast. JSON-encoded that's a quoted string,
-        // so on our side we decode `data` and re-extract.
-        guard let data = resp.data,
-              let txidString = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? String
-        else {
-            throw Failure.unexpectedDataShape(api: "base.broadcastTx")
-        }
+        let txidString = try await broadcast(signed: signed, timeoutMs: timeoutMs)
 
         // 6. Optimistic post-broadcast update of the cash cache. We
         // know the chain hasn't confirmed yet, but the wallet UI
@@ -717,6 +663,138 @@ public struct WalletService {
         )
 
         return SendResult(transaction: signed, remoteTxid: txidString, plan: plan)
+    }
+
+    // MARK: - carve (OP_RETURN data tx)
+
+    /// Write `opReturn` (typically a FEIP JSON document) onto the
+    /// chain from `fromAddress`. No recipient — the tx spends the
+    /// sender's own cashes into a change output plus a zero-value
+    /// OP_RETURN carrying the data; the cost is the miner fee.
+    ///
+    /// Mirrors the Android `TxSender.carveSimpleFeip` → `sendTx`
+    /// path, including the CoinDays rule: carves must destroy
+    /// ``ContactFeip/cdRequired`` CD once the chain passes
+    /// ``ContactFeip/cddCheckHeight`` (below it — and when the height
+    /// is unknown after a fresh bootstrap that returned no height —
+    /// Android only waives the requirement for a *known* low height,
+    /// so we do the same).
+    public func carve(
+        fromAddress: String,
+        privkey: Data,
+        opReturn: String,
+        feePerByte: Int64 = 1,
+        useCache: Bool = false,
+        timeoutMs: Int = 10_000
+    ) async throws -> SendResult {
+        let snapshot: CashSnapshot
+        if useCache, let cached = try cachedSnapshot(forAddress: fromAddress) {
+            snapshot = cached
+        } else {
+            snapshot = try await refreshCashes(forFid: fromAddress, timeoutMs: timeoutMs)
+        }
+        let spendable = try spendableCashes(in: snapshot, fromAddress: fromAddress)
+
+        let requiredCd: Int64
+        if let height = snapshot.bestHeight, height < ContactFeip.cddCheckHeight {
+            requiredCd = 0
+        } else {
+            requiredCd = ContactFeip.cdRequired
+        }
+
+        let opReturnData = Data(opReturn.utf8)
+        let plan = try CoinSelector.selectForCarve(
+            cashes: spendable,
+            opReturnByteCount: opReturnData.count,
+            feePerByte: feePerByte,
+            requiredCd: requiredCd
+        )
+        let unsigned = try TxBuilder.buildUnsignedCarve(
+            plan: plan, changeFid: fromAddress, opReturn: opReturnData
+        )
+        let signed = try signAllInputs(unsigned: unsigned, plan: plan, privkey: privkey)
+        let txidString = try await broadcast(signed: signed, timeoutMs: timeoutMs)
+
+        try? applyOptimisticPostSend(
+            ownerFid: fromAddress,
+            spent: plan.selected,
+            transaction: signed,
+            remoteTxid: txidString
+        )
+        return SendResult(transaction: signed, remoteTxid: txidString, plan: plan)
+    }
+
+    // MARK: - send/carve shared steps
+
+    /// P2PKH-locking-to-us, not-pending-spend cashes — the only rows
+    /// the tx builder can sign today. Throws `unsupportedCashType`
+    /// when the server returned rows but none are spendable, so the
+    /// user sees a clearer story than "insufficient funds".
+    private func spendableCashes(
+        in snapshot: CashSnapshot,
+        fromAddress: String
+    ) throws -> [Cash] {
+        let ownerHash160: Data
+        do {
+            ownerHash160 = try FchAddress(fid: fromAddress).hash160
+        } catch {
+            throw Failure.underlying(error)
+        }
+        let spendable = snapshot.cashes
+            .filter { !$0.pendingSpend && $0.locksToP2PKH(hash160: ownerHash160) }
+        if spendable.isEmpty, let sample = snapshot.cashes.first {
+            throw Failure.unsupportedCashType(sample.type ?? sample.lockScript ?? "<no lockScript>")
+        }
+        return spendable
+    }
+
+    /// Sign each input in plan order. signP2pkhInput rebuilds the tx
+    /// with the single input filled; we feed the result back in for
+    /// the next index so the running tx state is current.
+    private func signAllInputs(
+        unsigned: Transaction,
+        plan: CoinSelector.Plan,
+        privkey: Data
+    ) throws -> Transaction {
+        var signed = unsigned
+        for (idx, cash) in plan.selected.enumerated() {
+            signed = try TxHandler.signP2pkhInput(
+                tx: signed,
+                inputIndex: idx,
+                privateKey: privkey,
+                prevValueSats: UInt64(cash.value)
+            )
+        }
+        return signed
+    }
+
+    /// `base.broadcastTx` with the serialized tx hex. Returns the
+    /// server-reported txid. The Java reference returns
+    /// `response.data.toString()` for a successful broadcast —
+    /// JSON-encoded that's a quoted string, so we decode `data` as a
+    /// fragment and re-extract.
+    private func broadcast(signed: Transaction, timeoutMs: Int) async throws -> String {
+        let rawHex = signed.serialized.map { String(format: "%02x", $0) }.joined()
+        let params = try JSONSerialization.data(
+            withJSONObject: ["rawTx": rawHex],
+            options: [.sortedKeys]
+        )
+        let reply = try await fapi.call(
+            api: "base.broadcastTx",
+            params: params, fcdsl: nil, binary: nil,
+            sid: nil, via: nil, maxCost: nil,
+            timeoutMs: timeoutMs
+        )
+        let resp = reply.response
+        guard resp.isSuccess else {
+            throw Failure.fapiNonZeroCode(api: "base.broadcastTx", code: resp.code ?? -1, message: resp.message)
+        }
+        guard let data = resp.data,
+              let txidString = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? String
+        else {
+            throw Failure.unexpectedDataShape(api: "base.broadcastTx")
+        }
+        return txidString
     }
 
     // MARK: - optimistic post-send

@@ -51,6 +51,7 @@ public enum CoinSelector {
         case nonPositiveAmount(Int64)
         case nonPositiveFeeRate(Int64)
         case insufficientFunds(needed: Int64, have: Int64)
+        case insufficientCoinDays(required: Int64, have: Int64)
 
         public var description: String {
             switch self {
@@ -60,6 +61,8 @@ public enum CoinSelector {
                 return "CoinSelector: feePerByte must be > 0, got \(n)"
             case let .insufficientFunds(needed, have):
                 return "CoinSelector: need \(needed) sat, have \(have) sat"
+            case let .insufficientCoinDays(required, have):
+                return "CoinSelector: carve requires destroying \(required) CoinDay(s), the spendable cashes only accumulate \(have) — wait for cashes to age or receive an older cash"
             }
         }
     }
@@ -131,5 +134,90 @@ public enum CoinSelector {
     /// 4 sequence). P2PKH output ≈ 34 B.
     public static func sizeFor(nIn: Int, nOut: Int) -> Int {
         txOverheadBytes + p2pkhInputBytes * nIn + p2pkhOutputBytes * nOut
+    }
+
+    // MARK: - carve (OP_RETURN) selection
+
+    /// Serialized size of an OP_RETURN output carrying `byteCount`
+    /// bytes of data: value(8) + scriptLen varint + script, where
+    /// script = OP_RETURN(1) + pushdata prefix (1/2/3) + data.
+    /// Mirrors the Java `TxHandler.calcOpReturnLen`.
+    public static func opReturnOutputBytes(_ byteCount: Int) -> Int {
+        let dataLen: Int
+        if byteCount < 76 {
+            dataLen = byteCount + 1        // direct push
+        } else if byteCount < 256 {
+            dataLen = byteCount + 2        // OP_PUSHDATA1
+        } else {
+            dataLen = byteCount + 3        // OP_PUSHDATA2
+        }
+        let scriptLen = dataLen + 1        // + OP_RETURN byte
+        let scriptVarInt = scriptLen < 0xFD ? 1 : 3
+        return 8 + scriptVarInt + scriptLen
+    }
+
+    /// Pick cashes to fund a data-carve tx: no recipient output, just
+    /// an OP_RETURN of `opReturnByteCount` bytes plus (usually) a
+    /// change output back to the sender. The whole payment is the fee.
+    ///
+    /// `requiredCd` is the CoinDays the inputs must jointly destroy —
+    /// FEIP carves require 1 CD once the chain passes
+    /// ``ContactFeip/cddCheckHeight``. Selection keeps adding inputs
+    /// until both the fee and the CD requirement are covered; a value
+    /// surplus can't substitute for missing CoinDays.
+    ///
+    /// Mirrors the Android path `getValidCashes(0, cd, 0, msgSize, …)`
+    /// → `TxHandler.calcFee`: change > dust gets its own output,
+    /// otherwise the remainder burns as extra fee.
+    public static func selectForCarve(
+        cashes: [Cash],
+        opReturnByteCount: Int,
+        feePerByte: Int64 = 1,
+        requiredCd: Int64 = 0
+    ) throws -> Plan {
+        guard feePerByte > 0 else { throw Failure.nonPositiveFeeRate(feePerByte) }
+
+        let opReturnLen = opReturnOutputBytes(opReturnByteCount)
+        let candidates = cashes.sorted { $0.value > $1.value }
+        var selected: [Cash] = []
+        var sum: Int64 = 0
+        var cdSum: Int64 = 0
+
+        for cash in candidates {
+            selected.append(cash)
+            sum += cash.value
+            cdSum += cash.cd ?? 0
+            guard cdSum >= requiredCd else { continue }
+
+            // With change: overhead + inputs + change(34) + opReturn.
+            let withChangeSize = sizeFor(nIn: selected.count, nOut: 1) + opReturnLen
+            let withChangeFee = Int64(withChangeSize) * feePerByte
+            let change = sum - withChangeFee
+            if change > dustThresholdSats {
+                return Plan(
+                    selected: selected,
+                    change: change,
+                    fee: withChangeFee,
+                    estimatedSize: withChangeSize
+                )
+            }
+            // Without change: the dust-or-less remainder burns as fee.
+            let noChangeSize = sizeFor(nIn: selected.count, nOut: 0) + opReturnLen
+            let noChangeFee = Int64(noChangeSize) * feePerByte
+            if sum >= noChangeFee {
+                return Plan(
+                    selected: selected,
+                    change: 0,
+                    fee: sum,
+                    estimatedSize: noChangeSize
+                )
+            }
+        }
+
+        if cdSum < requiredCd {
+            throw Failure.insufficientCoinDays(required: requiredCd, have: cdSum)
+        }
+        let neededAtMin = Int64(sizeFor(nIn: max(selected.count, 1), nOut: 0) + opReturnLen) * feePerByte
+        throw Failure.insufficientFunds(needed: neededAtMin, have: sum)
     }
 }

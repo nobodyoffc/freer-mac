@@ -92,6 +92,12 @@ public struct Contact: Codable, Equatable, Hashable, Sendable, Identifiable {
     public var onChain: Bool?
     public var active: Bool?
 
+    /// The id of the newest on-chain CONTACT carve for this FID
+    /// (sha256x2 of the carve op — NOT the FID). Set by the chain
+    /// sync; needed to target the record in `update` / `delete` /
+    /// `recover` FEIP ops.
+    public var carveId: String?
+
     // MARK: - Mac-local extras
 
     public var pinnedAt: Date?
