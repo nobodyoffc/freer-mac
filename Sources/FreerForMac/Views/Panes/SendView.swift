@@ -66,35 +66,41 @@ struct SendView: View {
     private var form: some View {
         Form {
             Section {
-                TextField("Recipient FID",
-                          text: $recipientFid,
-                          prompt: Text("F…"))
-                    .font(.system(.body, design: .monospaced))
-                if !recipientFid.isEmpty, !recipientLooksValid {
-                    Text("Not a valid FCH mainnet address.")
-                        .font(.caption)
-                        .foregroundStyle(.red)
+                LabeledField(
+                    "Recipient FID",
+                    hint: (!recipientFid.isEmpty && !recipientLooksValid)
+                        ? "Not a valid FCH mainnet address."
+                        : nil,
+                    hintIsError: true
+                ) {
+                    TextField("", text: $recipientFid, prompt: Text("F…"))
+                        .font(.system(.body, design: .monospaced))
+                        .fieldInputStyle()
                 }
             } header: {
                 Text("To")
             }
 
             Section {
-                HStack(spacing: 8) {
-                    TextField("Amount", text: $amountBch, prompt: Text("0.001"))
-                        .frame(maxWidth: 200)
-                    Text("FCH").foregroundStyle(.secondary)
-                }
-                if let sats = amountSatoshis {
-                    Text("= \(sats) sat")
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
+                LabeledField(
+                    "Amount",
+                    hint: amountSatoshis.map { "= \($0) sat" }
+                ) {
+                    HStack(spacing: 8) {
+                        TextField("", text: $amountBch, prompt: Text("0.001"))
+                            .fieldInputStyle()
+                            .frame(maxWidth: 200)
+                        Text("FCH").foregroundStyle(.secondary)
+                    }
                 }
 
-                HStack(spacing: 8) {
-                    TextField("Fee rate", text: $feePerByte, prompt: Text("1"))
-                        .frame(maxWidth: 80)
-                    Text("sat/byte").foregroundStyle(.secondary)
+                LabeledField("Fee rate") {
+                    HStack(spacing: 8) {
+                        TextField("", text: $feePerByte, prompt: Text("1"))
+                            .fieldInputStyle()
+                            .frame(maxWidth: 80)
+                        Text("sat/byte").foregroundStyle(.secondary)
+                    }
                 }
             } header: {
                 Text("Amount")

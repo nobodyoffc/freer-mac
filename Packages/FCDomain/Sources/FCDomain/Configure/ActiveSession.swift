@@ -191,6 +191,12 @@ public final class ActiveSession {
         WalletService(fapi: fapi, cashes: cashes, recentActivity: recentActivity)
     }
 
+    /// Identity-directory lookups (`base.freerByIds`). Computed so a
+    /// `setFapi(_:)` swap is picked up immediately.
+    public var directory: DirectoryService {
+        DirectoryService(fapi: fapi)
+    }
+
     // MARK: - mutating fapi
 
     /// Replace the active FAPI client. Used by the app shell after

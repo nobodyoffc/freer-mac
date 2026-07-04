@@ -2,44 +2,14 @@ import Foundation
 import FCCore
 import FCStorage
 
-/// One entry in the identity's local address book. Maps an FID to a
-/// human-friendly nickname plus opportunistic profile data we've
-/// learned over time.
-///
-/// `nickname` is the user's local label and is authoritative for UI.
-/// `displayName` is what the remote profile claims (cached from FAPI
-/// lookups) — we keep both so a user can rename someone locally
-/// without losing the remote-claimed name.
-public struct Contact: Codable, Equatable, Hashable, Sendable {
-    public var fid: String
-    public var nickname: String
-    public var displayName: String?
-    public var note: String?
-    public var pinnedAt: Date?
-    public var addedAt: Date
-    public var updatedAt: Date
-
-    public init(
-        fid: String,
-        nickname: String,
-        displayName: String? = nil,
-        note: String? = nil,
-        pinnedAt: Date? = nil,
-        addedAt: Date = Date(),
-        updatedAt: Date = Date()
-    ) {
-        self.fid = fid
-        self.nickname = nickname
-        self.displayName = displayName
-        self.note = note
-        self.pinnedAt = pinnedAt
-        self.addedAt = addedAt
-        self.updatedAt = updatedAt
-    }
-}
-
-/// Per-identity contacts list. Keyed by FID so add-or-update is
+/// Per-identity address book. Keyed by FID so add-or-update is
 /// idempotent without a separate uniqueness check.
+///
+/// Namespace `contacts.v2`: the schema changed in Phase 7.6 to mirror
+/// the Android `Contact` shape (cid / titles / memo / on-chain stats),
+/// and old `contacts` rows would fail to decode under the new struct.
+/// Bumping the namespace orphans them silently rather than tripping a
+/// loud decode error on first list load.
 public struct ContactsStore {
 
     public enum Failure: Error, CustomStringConvertible {
@@ -53,7 +23,7 @@ public struct ContactsStore {
         }
     }
 
-    public static let namespace = "contacts"
+    public static let namespace = "contacts.v2"
 
     private let inner: TypedStore<Contact>
 
@@ -62,19 +32,19 @@ public struct ContactsStore {
     }
 
     /// Insert or replace a contact. `updatedAt` is bumped so callers
-    /// don't need to remember to set it.
-    /// FID is validated against the FCH Base58Check encoding — silently
-    /// storing a malformed string would break `send()` later when
-    /// `TxBuilder` tries to derive a recipient hash160 from it.
+    /// don't need to remember to set it. FID is validated against the
+    /// FCH Base58Check encoding — silently storing a malformed string
+    /// would break `send()` later when `TxBuilder` tries to derive a
+    /// recipient hash160 from it.
     public func upsert(_ contact: Contact) throws {
         do {
-            _ = try FchAddress(fid: contact.fid)
+            _ = try FchAddress(fid: contact.id)
         } catch {
-            throw Failure.invalidFid(contact.fid, underlying: error)
+            throw Failure.invalidFid(contact.id, underlying: error)
         }
         var c = contact
         c.updatedAt = Date()
-        try inner.put(c, key: c.fid)
+        try inner.put(c, key: c.id)
     }
 
     public func get(fid: String) throws -> Contact? {
@@ -88,9 +58,21 @@ public struct ContactsStore {
         return true
     }
 
-    /// All contacts, sorted with pinned first, then nickname A→Z.
-    /// Cheap for human-scale address books (hundreds of entries);
-    /// switch to a SQL-backed query if it ever needs to scale.
+    /// Flip the pin state. Returns the new `pinnedAt` (nil = unpinned).
+    /// A FID that isn't in the store is a no-op returning nil.
+    @discardableResult
+    public func togglePin(fid: String) throws -> Date? {
+        guard var c = try inner.get(fid) else { return nil }
+        c.pinnedAt = (c.pinnedAt == nil) ? Date() : nil
+        c.updatedAt = Date()
+        try inner.put(c, key: c.id)
+        return c.pinnedAt
+    }
+
+    /// All contacts, sorted with pinned first, then ``Contact/name``
+    /// (cid → fid) A→Z. Cheap for human-scale address books (hundreds
+    /// of entries); switch to a SQL-backed query if it ever needs to
+    /// scale.
     public func all() throws -> [Contact] {
         let rows = try inner.all().map(\.value)
         return rows.sorted { lhs, rhs in
@@ -98,7 +80,7 @@ public struct ContactsStore {
             case (.some, .none): return true
             case (.none, .some): return false
             default:
-                return lhs.nickname.localizedCaseInsensitiveCompare(rhs.nickname) == .orderedAscending
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
         }
     }

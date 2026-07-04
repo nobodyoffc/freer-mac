@@ -97,42 +97,56 @@ final class StoresTests: XCTestCase {
         let f2 = try realFid(byte: 0xC2)
         let f3 = try realFid(byte: 0xC3)
 
-        try store.upsert(Contact(fid: f1, nickname: "Friend1"))
-        try store.upsert(Contact(fid: f2, nickname: "Friend2", pinnedAt: Date()))
-        try store.upsert(Contact(fid: f3, nickname: "AAA")) // sorts first by name
+        try store.upsert(Contact(id: f1, cid: "Friend1"))
+        try store.upsert(Contact(id: f2, cid: "Friend2", pinnedAt: Date()))
+        try store.upsert(Contact(id: f3, cid: "AAA")) // sorts first by name
 
         let listed = try store.all()
         XCTAssertEqual(listed.count, 3)
-        // Pinned bubbles to top regardless of nickname order.
-        XCTAssertEqual(listed.first?.fid, f2)
-        // Then alphabetical by nickname (case-insensitive).
-        XCTAssertEqual(listed[1].nickname, "AAA")
+        // Pinned bubbles to top regardless of name order.
+        XCTAssertEqual(listed.first?.id, f2)
+        // Then alphabetical by name (cid ?? id, case-insensitive).
+        XCTAssertEqual(listed[1].name, "AAA")
 
         // Re-upserting the same FID overwrites instead of duplicating.
-        try store.upsert(Contact(fid: f1, nickname: "RenamedFriend"))
+        try store.upsert(Contact(id: f1, cid: "RenamedFriend"))
         XCTAssertEqual(try store.all().count, 3)
-        XCTAssertEqual(try store.get(fid: f1)?.nickname, "RenamedFriend")
+        XCTAssertEqual(try store.get(fid: f1)?.name, "RenamedFriend")
 
         XCTAssertTrue(try store.remove(fid: f1))
         XCTAssertNil(try store.get(fid: f1))
         XCTAssertFalse(try store.remove(fid: f1)) // idempotent
     }
 
+    func testContactsTogglePin() throws {
+        let (a, _) = try makeTwoSessions()
+        let store = a.contacts
+        let fid = try realFid(byte: 0xC4)
+        try store.upsert(Contact(id: fid))
+
+        XCTAssertNotNil(try store.togglePin(fid: fid))
+        XCTAssertNotNil(try store.get(fid: fid)?.pinnedAt)
+        XCTAssertNil(try store.togglePin(fid: fid))
+        XCTAssertNil(try store.get(fid: fid)?.pinnedAt)
+        // Unknown FID is a no-op returning nil, not an error.
+        XCTAssertNil(try store.togglePin(fid: try realFid(byte: 0xC5)))
+    }
+
     func testContactsAreIsolatedPerMain() throws {
         let (a, b) = try makeTwoSessions()
-        try a.contacts.upsert(Contact(fid: try realFid(byte: 0xD0), nickname: "alice"))
+        try a.contacts.upsert(Contact(id: try realFid(byte: 0xD0), cid: "alice"))
         XCTAssertEqual(try b.contacts.all().count, 0)
     }
 
     func testContactsRejectsInvalidFid() throws {
         let (a, _) = try makeTwoSessions()
         let store = a.contacts
-        XCTAssertThrowsError(try store.upsert(Contact(fid: "not-a-fid", nickname: "x"))) { error in
+        XCTAssertThrowsError(try store.upsert(Contact(id: "not-a-fid", cid: "x"))) { error in
             guard case ContactsStore.Failure.invalidFid = error else {
                 XCTFail("expected invalidFid, got \(error)"); return
             }
         }
-        XCTAssertThrowsError(try store.upsert(Contact(fid: "", nickname: "x")))
+        XCTAssertThrowsError(try store.upsert(Contact(id: "", cid: "x")))
     }
 
     // MARK: - KeysStore (validation matters here)

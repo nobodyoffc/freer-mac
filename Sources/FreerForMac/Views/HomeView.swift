@@ -67,17 +67,7 @@ struct HomeView: View {
         case .transactions:
             TransactionsView(session: session)
         case .contacts:
-            PlaceholderPaneView(
-                session: session,
-                title: "Contacts",
-                systemImage: "person.2",
-                summary: "Address book of FIDs you transact with — backed by the per-main ContactsStore.",
-                bullets: [
-                    "Add by FID (validated via FchAddress on insert)",
-                    "Pin frequently-used contacts to the top",
-                    "Cached pubkey lookups so sends to known peers skip a roundtrip"
-                ]
-            )
+            ContactsView(session: session)
         case .settings:
             SettingsView(session: session)
         }

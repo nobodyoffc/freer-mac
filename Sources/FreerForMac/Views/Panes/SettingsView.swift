@@ -63,37 +63,45 @@ struct SettingsView: View {
     private var form: some View {
         Form {
             Section {
-                TextField("Host", text: $fapiHost, prompt: Text("localhost"))
-                TextField("Port", text: $fapiPort, prompt: Text("8500"))
-                    .frame(maxWidth: 140)
+                LabeledField("Host") {
+                    TextField("", text: $fapiHost, prompt: Text("localhost"))
+                        .fieldInputStyle()
+                }
+                LabeledField("Port") {
+                    TextField("", text: $fapiPort, prompt: Text("8500"))
+                        .fieldInputStyle()
+                        .frame(maxWidth: 140)
+                }
 
-                HStack(spacing: 8) {
-                    TextField("Server pubkey (66 hex chars)",
-                              text: $fapiPubkeyHex,
-                              prompt: Text("03cd14…"))
-                        .font(.system(.body, design: .monospaced))
+                LabeledField(
+                    "Server pubkey",
+                    hint: (!fapiPubkeyHex.isEmpty && !pubkeyLooksValid(fapiPubkeyHex))
+                        ? "Pubkey must be 66 hex characters (33 SEC1-compressed bytes)."
+                        : nil,
+                    hintIsError: true
+                ) {
+                    HStack(spacing: 8) {
+                        TextField("", text: $fapiPubkeyHex, prompt: Text("03cd14…"))
+                            .font(.system(.body, design: .monospaced))
+                            .fieldInputStyle()
 
-                    Button {
-                        Task { await runDiscover() }
-                    } label: {
-                        if discovering {
-                            HStack(spacing: 4) {
-                                ProgressView().controlSize(.small)
-                                Text("Discovering…")
+                        Button {
+                            Task { await runDiscover() }
+                        } label: {
+                            if discovering {
+                                HStack(spacing: 4) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Discovering…")
+                                }
+                            } else {
+                                Label("Discover", systemImage: "magnifyingglass")
                             }
-                        } else {
-                            Label("Discover", systemImage: "magnifyingglass")
                         }
+                        .disabled(discovering || !hostPortLooksValid)
+                        .help("Send a plaintext HELLO to the host:port and auto-fill the pubkey from the reply.")
                     }
-                    .disabled(discovering || !hostPortLooksValid)
-                    .help("Send a plaintext HELLO to the host:port and auto-fill the pubkey from the reply.")
                 }
 
-                if !fapiPubkeyHex.isEmpty, !pubkeyLooksValid(fapiPubkeyHex) {
-                    Text("Pubkey must be 66 hex characters (33 SEC1-compressed bytes).")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
                 if let err = discoverError {
                     HStack(alignment: .top, spacing: 4) {
                         Image(systemName: "xmark.octagon.fill")
@@ -146,18 +154,25 @@ struct SettingsView: View {
             }
 
             Section("Appearance") {
-                Picker("Theme", selection: $theme) {
-                    ForEach(Preferences.Theme.allCases, id: \.self) { t in
-                        Text(t.rawValue.capitalized).tag(t)
+                LabeledField("Theme") {
+                    Picker("", selection: $theme) {
+                        ForEach(Preferences.Theme.allCases, id: \.self) { t in
+                            Text(t.rawValue.capitalized).tag(t)
+                        }
                     }
+                    .labelsHidden()
                 }
             }
 
             Section("Security") {
-                TextField("Auto-lock after (minutes, blank = never)",
-                          text: $autoLockMinutes,
-                          prompt: Text("e.g. 10"))
-                    .frame(maxWidth: 240)
+                LabeledField(
+                    "Auto-lock after (minutes)",
+                    hint: "Blank = never auto-lock."
+                ) {
+                    TextField("", text: $autoLockMinutes, prompt: Text("e.g. 10"))
+                        .fieldInputStyle()
+                        .frame(maxWidth: 240)
+                }
             }
 
             Section {
