@@ -1074,7 +1074,7 @@ public final class VectorGen {
     // FUDP packet crypto vectors (Phase 4.2) -----------------------------
     //
     // AsyTwoWay bundle layout for FC_EccK1AesGcm256_No1_NrC7:
-    //   [6B algId = 00 00 00 00 00 04]
+    //   [6B algId = a5 ac d7 07 78 05]  (first 6B of the on-chain PID)
     //   [1B type  = 02 (AsyTwoWay)]
     //   [33B senderPubkey (compressed secp256k1)]
     //   [12B iv]
@@ -1086,7 +1086,8 @@ public final class VectorGen {
     // Per-message ECDH uses the LOCAL identity key (not ephemeral):
     // sender's pubkey on the wire IS the sender's FID-derived pubkey.
 
-    private static final byte[] ALG_ID_ECC_AES_GCM = {0, 0, 0, 0, 0, 4};
+    private static final byte[] ALG_ID_ECC_AES_GCM =
+            {(byte) 0xa5, (byte) 0xac, (byte) 0xd7, 0x07, 0x78, 0x05};
     private static final byte ENCRYPT_TYPE_ASY_TWO_WAY = 0x02;
     private static final byte[] HKDF_INFO_BYTES = "hkdf".getBytes(StandardCharsets.UTF_8);
 

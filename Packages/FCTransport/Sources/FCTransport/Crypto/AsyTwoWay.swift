@@ -15,7 +15,7 @@ import FCCore
 ///
 /// Bundle layout (`FC_EccK1AesGcm256_No1_NrC7` + `EncryptType.AsyTwoWay`):
 /// ```
-///   6 B   algId            00 00 00 00 00 04
+///   6 B   algId            a5 ac d7 07 78 05  (first 6 B of the on-chain PID)
 ///   1 B   encryptType      02 (AsyTwoWay)
 ///  33 B   senderPubkey     compressed secp256k1
 ///  12 B   iv               AES-GCM nonce (caller-supplied; production = random per call)
@@ -35,7 +35,16 @@ import FCCore
 /// every encrypted data/ACK packet. `aad` parameter here is that header.
 public enum AsyTwoWay {
 
-    public static let algorithmIdEccK1AesGcm256: [UInt8] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x04]
+    /// Bundle prefix written by `seal`: the first 6 bytes (12 hex chars) of
+    /// `FC_EccK1AesGcm256_No1_NrC7`'s on-chain protocol PID
+    /// (a5acd7077805d3e8ae6ddf7fb9d9ebd52c665942e5096e3d308f66d4cf5e844a).
+    /// Must match `ALG_PID_PREFIX_EccK1AesGcm256` in FC-JDK's `CryptoDataByte`.
+    public static let algorithmIdEccK1AesGcm256: [UInt8] = [0xa5, 0xac, 0xd7, 0x07, 0x78, 0x05]
+
+    /// Legacy sequential prefix used before the PID-based scheme. FC-JDK's
+    /// `fromBundle` still decrypts bundles carrying it, so `open` accepts it
+    /// too for backward-compatible reads. `seal` only ever writes the new one.
+    public static let legacyAlgorithmIdEccK1AesGcm256: [UInt8] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x04]
     public static let encryptTypeAsyTwoWay: UInt8 = 0x02
     public static let pubkeyLength = 33
     public static let ivLength = 12
@@ -130,7 +139,8 @@ public enum AsyTwoWay {
         // 6B algId
         let algIdEnd = 6
         let algId = Data(bytes[0..<algIdEnd])
-        guard algId == Data(algorithmIdEccK1AesGcm256) else {
+        guard algId == Data(algorithmIdEccK1AesGcm256)
+                || algId == Data(legacyAlgorithmIdEccK1AesGcm256) else {
             throw Failure.unknownAlgorithmId(prefix: algId)
         }
 
