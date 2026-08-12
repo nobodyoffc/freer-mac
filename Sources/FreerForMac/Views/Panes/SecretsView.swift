@@ -27,6 +27,7 @@ struct SecretsView: View {
 
     @State private var showEditor = false
     @State private var editorPresetTotp = false
+    @State private var detailSecret: Secret?
     @State private var pendingDelete: Secret?
     @State private var pendingCarve: Secret?
     @State private var carving = false
@@ -119,6 +120,11 @@ struct SecretsView: View {
             if !didAutoSync {
                 didAutoSync = true
                 Task { await syncFromChain() }
+            }
+        }
+        .sheet(item: $detailSecret) { s in
+            SecretDetailSheet(session: session, secret: s) {
+                detailSecret = nil
             }
         }
         .sheet(isPresented: $showEditor) {
@@ -253,6 +259,14 @@ struct SecretsView: View {
 
             HStack(spacing: 4) {
                 Button {
+                    detailSecret = s
+                } label: {
+                    Image(systemName: "info.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("Show detail — full memo, ids, chain status")
+
+                Button {
                     toggleReveal(s)
                 } label: {
                     Image(systemName: revealed[s.id] == nil ? "eye" : "eye.slash")
@@ -285,6 +299,9 @@ struct SecretsView: View {
             .foregroundStyle(.secondary)
         }
         .contentShape(Rectangle())
+        // Row click = show detail, like Android's long-press → Show
+        // detail. The inline buttons keep their own hit areas.
+        .onTapGesture { detailSecret = s }
     }
 
     private func icon(for s: Secret) -> String {
@@ -458,17 +475,8 @@ private struct TotpCardList: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
             } else {
                 VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("Codes rotate in")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text("\(countdown)s")
-                            .font(.caption.monospacedDigit().bold())
-                            .foregroundStyle(countdown <= 5 ? .orange : .secondary)
-                        if let err = decryptError {
-                            Spacer()
-                            CopyableText(err, font: .caption).foregroundStyle(.red)
-                        }
+                    if let err = decryptError {
+                        CopyableText(err, font: .caption).foregroundStyle(.red)
                     }
                     ScrollView {
                         LazyVStack(spacing: 0) {
@@ -522,6 +530,8 @@ private struct TotpCardList: View {
                     .foregroundStyle(.tertiary)
             }
 
+            countdownRing
+
             Button {
                 if visible.contains(s.id) {
                     visible.remove(s.id)
@@ -536,8 +546,34 @@ private struct TotpCardList: View {
         }
     }
 
+    /// The per-card 30-second dial — Android's `totpCountdown` label,
+    /// upgraded to a draining ring with the seconds inside. One shared
+    /// clock drives every card, so a single view suffices per row.
+    private var countdownRing: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: CGFloat(countdown) / CGFloat(Totp.timeStep))
+                .stroke(
+                    countdown <= 5 ? Color.orange : Color.accentColor,
+                    style: StrokeStyle(lineWidth: 3, lineCap: .round)
+                )
+                .rotationEffect(.degrees(-90))
+                .animation(.linear(duration: 1), value: countdown)
+            Text("\(countdown)")
+                .font(.caption2.monospacedDigit().bold())
+                .foregroundStyle(countdown <= 5 ? .orange : .secondary)
+        }
+        .frame(width: 30, height: 30)
+        .help("Seconds until the codes rotate")
+    }
+
     private func refreshAll() {
         decryptError = nil
+        // Seed the dial from the wall clock so it doesn't show a full
+        // ring for up to a second before the first tick.
+        countdown = Totp.secondsRemaining(unixTime: Int64(Date().timeIntervalSince1970))
         guard session.canSign, let priv = try? session.livePrikey() else {
             if !secrets.isEmpty {
                 decryptError = "Watch-only identity — cannot decrypt TOTP seeds"
@@ -573,6 +609,156 @@ private struct TotpCardList: View {
         let now = Int64(Date().timeIntervalSince1970)
         for (id, seed) in seeds {
             codes[id] = Totp.generate(secret: seed, unixTime: now)
+        }
+    }
+}
+
+// MARK: - detail sheet
+
+/// Full-field view of one secret — the Mac analogue of Android's
+/// `DetailActivity` (long-press → Show detail). Everything is shown
+/// untruncated and copyable; the content itself stays hidden behind an
+/// explicit Reveal that decrypts with the live privkey.
+private struct SecretDetailSheet: View {
+    let session: ActiveSession
+    let secret: Secret
+    let onDone: () -> Void
+
+    @State private var content: String?
+    @State private var error: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 8) {
+                Text(secret.name.isEmpty ? "Untitled secret" : secret.name)
+                    .font(.title3.bold())
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                if let type = secret.type, !type.isEmpty {
+                    chip(type, color: .purple)
+                }
+                chip(secret.onChain ? "On-chain" : "Local only",
+                     color: secret.onChain ? .blue : .gray)
+                Spacer()
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let title = secret.title, !title.isEmpty {
+                        field("Title") {
+                            CopyableText(title, font: .body)
+                        }
+                    }
+
+                    if let memo = secret.memo, !memo.isEmpty {
+                        field("Memo") {
+                            CopyableText(memo, font: .body)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    field("Content") {
+                        if let content {
+                            VStack(alignment: .leading, spacing: 6) {
+                                CopyableText(content, font: .system(.body, design: .monospaced))
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Button("Hide") { self.content = nil }
+                                    .controlSize(.small)
+                            }
+                        } else {
+                            Button {
+                                reveal()
+                            } label: {
+                                Label("Reveal", systemImage: "eye")
+                            }
+                            .disabled(!session.canSign)
+                            .help(session.canSign
+                                  ? "Decrypt with your private key"
+                                  : "Watch-only identity — no key to decrypt with")
+                        }
+                    }
+
+                    field("ID") {
+                        CopyableText.elidingMiddle(
+                            secret.id, head: 12, tail: 12,
+                            font: .system(.caption, design: .monospaced)
+                        )
+                    }
+
+                    if let carveId = secret.carveId, !carveId.isEmpty, carveId != secret.id {
+                        field("Carve ID") {
+                            CopyableText.elidingMiddle(
+                                carveId, head: 12, tail: 12,
+                                font: .system(.caption, design: .monospaced)
+                            )
+                        }
+                    }
+
+                    HStack(spacing: 24) {
+                        if let birthTime = secret.birthTime {
+                            field("Carved") {
+                                Text(Date(timeIntervalSince1970: TimeInterval(birthTime)),
+                                     format: .dateTime.year().month().day().hour().minute())
+                                    .font(.caption)
+                            }
+                        }
+                        if let lastHeight = secret.lastHeight {
+                            field("Last height") {
+                                Text("\(lastHeight)")
+                                    .font(.caption.monospacedDigit())
+                            }
+                        }
+                        field("Saved") {
+                            Text(secret.addedAt,
+                                 format: .dateTime.year().month().day().hour().minute())
+                                .font(.caption)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            if let error {
+                CopyableText(error, font: .caption).foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button("Done", action: onDone)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+        .frame(minHeight: 300, maxHeight: 560)
+    }
+
+    @ViewBuilder
+    private func field(_ label: String, @ViewBuilder value: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            value()
+        }
+    }
+
+    private func chip(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.caption2.bold())
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(color.opacity(0.15)))
+            .foregroundStyle(color)
+    }
+
+    private func reveal() {
+        error = nil
+        do {
+            let priv = try session.livePrikey()
+            content = try secret.decryptContent(privkey: priv)
+        } catch {
+            self.error = "Failed to decrypt: \(String(describing: error))"
         }
     }
 }
