@@ -66,7 +66,7 @@ struct HomeView: View {
                 }
             }
             Section("Network") {
-                ForEach([WalletPane.contacts, .tools, .settings]) { pane in
+                ForEach([WalletPane.contacts, .secrets, .tools, .settings]) { pane in
                     Label(pane.title, systemImage: pane.systemImage).tag(pane)
                 }
             }
@@ -87,6 +87,8 @@ struct HomeView: View {
             TransactionsView(session: session)
         case .contacts:
             ContactsView(session: session)
+        case .secrets:
+            SecretsView(session: session)
         case .tools:
             ToolsView(session: session)
         case .settings:

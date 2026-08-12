@@ -194,6 +194,7 @@ public final class ActiveSession {
 
     public lazy var preferences: PreferencesStore = PreferencesStore(kv: storage)
     public lazy var contacts: ContactsStore = ContactsStore(kv: storage)
+    public lazy var secrets: SecretsStore  = SecretsStore(kv: storage)
     public lazy var keys: KeysStore        = KeysStore(kv: storage)
     public lazy var cashes: CashesStore    = CashesStore(kv: storage)
     public lazy var recentActivity: RecentActivityStore = RecentActivityStore(kv: storage)
@@ -209,6 +210,12 @@ public final class ActiveSession {
     /// `setFapi(_:)` swap is picked up immediately.
     public var directory: DirectoryService {
         DirectoryService(fapi: fapi)
+    }
+
+    /// On-chain secret sync (`base.search` over entity `secret`).
+    /// Computed so a `setFapi(_:)` swap is picked up immediately.
+    public var secretService: SecretService {
+        SecretService(fapi: fapi)
     }
 
     // MARK: - mutating fapi
@@ -322,6 +329,73 @@ public final class ActiveSession {
         let priv = try livePrikey()
         let feipJson = ContactFeip.envelope(
             opJson: try ContactFeip.deleteOp(contactIds: carveIds)
+        )
+        let result = try await wallet.carve(
+            fromAddress: liveFid, privkey: priv,
+            opReturn: feipJson,
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+        return result.remoteTxid
+    }
+
+    // MARK: - secret carving (FEIP Secret)
+
+    /// Write a secret's detail onto the chain, encrypted to the live
+    /// FID's own pubkey. Mirrors Android's `CreateSecretActivity.
+    /// carveSecret` → `makeAddSecretFeip` → `TxSender.carveSimpleFeip`.
+    /// `content` is passed explicitly because the stored row holds only
+    /// the cipher — callers decrypt (or still have the fresh input)
+    /// before carving. Carves an `update` op when the secret already
+    /// has a known carve id.
+    ///
+    /// Returns the broadcast txid; the caller re-keys/refreshes the
+    /// local row (the next sync merges by that txid).
+    @discardableResult
+    public func carveSecretOnChain(
+        _ secret: Secret,
+        content: String,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        let priv = try livePrikey()
+        let ownPubkey: Data
+        do {
+            ownPubkey = try Secp256k1.publicKey(fromPrivateKey: priv)
+        } catch {
+            throw Failure.underlying(error)
+        }
+        let detail = try SecretFeip.detailJson(
+            type: secret.type, title: secret.title,
+            content: content, memo: secret.memo
+        )
+        let cipher = try AsyOneWayCipher.encrypt(
+            plaintext: Data(detail.utf8), toPubkey: ownPubkey
+        )
+        let opJson: String
+        if let carveId = secret.carveId, !carveId.isEmpty {
+            opJson = try SecretFeip.updateOp(secretId: carveId, cipher: cipher)
+        } else {
+            opJson = try SecretFeip.addOp(cipher: cipher)
+        }
+        let feipJson = SecretFeip.envelope(opJson: opJson)
+        let result = try await wallet.carve(
+            fromAddress: liveFid, privkey: priv,
+            opReturn: feipJson,
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+        return result.remoteTxid
+    }
+
+    /// Carve a `delete` op deactivating the given secret carves.
+    @discardableResult
+    public func carveSecretDeleteOnChain(
+        carveIds: [String],
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        let priv = try livePrikey()
+        let feipJson = SecretFeip.envelope(
+            opJson: try SecretFeip.deleteOp(secretIds: carveIds)
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
