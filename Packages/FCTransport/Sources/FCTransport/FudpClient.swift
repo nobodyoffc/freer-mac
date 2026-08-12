@@ -119,12 +119,21 @@ public final class FudpClient: @unchecked Sendable {
             host: NWEndpoint.Host(host),
             port: NWEndpoint.Port(rawValue: port)!
         )
+        let resolvedPeerFid = try peerFid ?? FchAddress(publicKey: peerPubkey).fid
         self.connection = try PeerConnection(
             connectionId: connectionId,
             peerPubkey: peerPubkey,
             peerAddress: peerAddress,
-            peerFid: peerFid
+            peerFid: resolvedPeerFid
         )
+        // Disjoint stream-id spaces per endpoint, mirroring the server's
+        // `Protocol.connect` / `handleIncomingPacket`: the lower FID gets
+        // even ids, the higher FID gets odd. Without this both sides
+        // would allocate 0, 4, 8, ... and every id after the first
+        // request would collide with one the server already retired —
+        // silently dropped, surfacing as a client-side timeout.
+        let localFid = try FchAddress(publicKey: self.localPubkey).fid
+        self.connection.initLocalStreamParity(localFid < resolvedPeerFid ? 0 : 1)
         self.sessionEpoch = sessionEpoch
         self.challengeHandler = challengeHandler
         self.transport = try await FudpConnection(host: host, port: port)
@@ -144,7 +153,7 @@ public final class FudpClient: @unchecked Sendable {
     /// `nextReceived(timeoutMs:)`.
     public func send(_ envelope: AppMessageEnvelope) async throws {
         let messageBytes = AppMessageCodec.encode(envelope)
-        let frame = StreamFrame(streamId: 0, offset: 0, data: messageBytes, fin: true)
+        let frame = StreamFrame(streamId: connection.nextStreamId(), offset: 0, data: messageBytes, fin: true)
         try await sendDataPacket(frames: [frame.encode()])
     }
 

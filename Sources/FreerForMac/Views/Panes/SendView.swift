@@ -9,8 +9,10 @@ import FCUI
 /// (refresh UTXOs → greedy select → build → sign each P2PKH input →
 /// `base.broadcastTx`). The signed tx never leaves the Mac unsigned.
 ///
-/// Watch-only FIDs see a banner and the Send button stays disabled —
-/// cold-sign export is a Phase 8 path.
+/// Watch-only FIDs get the cold-sign fallback instead: the same
+/// snapshot + coin selection produces a ``RawTxInfo`` document
+/// (Android `CreateTxActivity`'s import format) exported via copy /
+/// file / multi-part QR, to be signed where the key lives.
 struct SendView: View {
     let session: ActiveSession
 
@@ -21,8 +23,11 @@ struct SendView: View {
     @State private var sending: Bool = false
     @State private var sendError: String?
     @State private var result: WalletService.SendResult?
+    @State private var unsigned: WalletService.UnsignedSendResult?
 
     @State private var showConfirm: Bool = false
+    @State private var showScan: Bool = false
+    @State private var showUnsigned: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -47,12 +52,25 @@ struct SendView: View {
         } message: {
             Text("To: \(recipientFid)\nFee rate: \(feePerByte) sat/byte\n\nThis broadcasts immediately and cannot be undone.")
         }
+        .sheet(isPresented: $showScan) {
+            QrScanSheet(title: "Scan recipient FID") { scanned in
+                recipientFid = scanned
+                showScan = false
+            } onCancel: {
+                showScan = false
+            }
+        }
+        .sheet(isPresented: $showUnsigned) {
+            if let unsigned {
+                UnsignedTxSheet(result: unsigned) { showUnsigned = false }
+            }
+        }
     }
 
     private var watchOnlyBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "eye")
-            Text("Watch-only — this FID has no privkey, sending is disabled. Switch to a signing FID or export an unsigned TxInfo (Phase 8).")
+            Text("Watch-only — this FID has no privkey. Build the transaction here, then export the unsigned document (copy / file / QR) and sign it on the machine that holds the key.")
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(.callout)
@@ -73,9 +91,18 @@ struct SendView: View {
                         : nil,
                     hintIsError: true
                 ) {
-                    TextField("", text: $recipientFid, prompt: Text("F…"))
-                        .font(.system(.body, design: .monospaced))
-                        .fieldInputStyle()
+                    HStack(spacing: 8) {
+                        TextField("", text: $recipientFid, prompt: Text("F…"))
+                            .font(.system(.body, design: .monospaced))
+                            .fieldInputStyle()
+
+                        Button {
+                            showScan = true
+                        } label: {
+                            Image(systemName: "qrcode.viewfinder")
+                        }
+                        .help("Scan the recipient FID from a QR code (camera or image files)")
+                    }
                 }
             } header: {
                 Text("To")
@@ -119,24 +146,46 @@ struct SendView: View {
             Section {
                 HStack {
                     Spacer()
-                    Button {
-                        sendError = nil
-                        result = nil
-                        showConfirm = true
-                    } label: {
-                        if sending {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small)
-                                Text("Sending…")
+                    if session.canSign {
+                        Button {
+                            sendError = nil
+                            result = nil
+                            showConfirm = true
+                        } label: {
+                            if sending {
+                                HStack(spacing: 6) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Sending…")
+                                }
+                                .frame(width: 120)
+                            } else {
+                                Text("Send").frame(width: 120)
                             }
-                            .frame(width: 120)
-                        } else {
-                            Text("Send").frame(width: 120)
                         }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canSubmit)
+                    } else {
+                        // Cold-sign path: nothing is broadcast, so no
+                        // confirm alert — building is free to redo.
+                        Button {
+                            Task { await runBuildUnsigned() }
+                        } label: {
+                            if sending {
+                                HStack(spacing: 6) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Building…")
+                                }
+                                .frame(width: 160)
+                            } else {
+                                Text("Build unsigned tx").frame(width: 160)
+                            }
+                        }
+                        .keyboardShortcut(.defaultAction)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!canSubmit)
+                        .help("Select coins and build the transaction without signing — export it for cold signing.")
                     }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!canSubmit)
                 }
             }
         }
@@ -199,7 +248,6 @@ struct SendView: View {
     }
 
     private var canSubmit: Bool {
-        session.canSign &&
         !sending &&
         recipientLooksValid &&
         amountSatoshis != nil &&
@@ -222,6 +270,28 @@ struct SendView: View {
                 feePerByte: fee
             )
             result = r
+        } catch {
+            sendError = String(describing: error)
+        }
+    }
+
+    /// Watch-only path: same snapshot + coin selection as a real
+    /// send, but the output is a `RawTxInfo` export instead of a
+    /// broadcast.
+    @MainActor
+    private func runBuildUnsigned() async {
+        guard let amount = amountSatoshis, let fee = feeRate else { return }
+        sending = true
+        sendError = nil
+        result = nil
+        defer { sending = false }
+        do {
+            unsigned = try await session.buildUnsignedSendFromLive(
+                to: recipientFid,
+                amount: amount,
+                feePerByte: fee
+            )
+            showUnsigned = true
         } catch {
             sendError = String(describing: error)
         }

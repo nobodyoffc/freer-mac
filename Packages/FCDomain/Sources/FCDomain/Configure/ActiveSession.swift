@@ -27,6 +27,7 @@ public final class ActiveSession {
     public enum Failure: Error, CustomStringConvertible {
         case unknownLive(fid: String)
         case watchOnlyCannotSign(fid: String)
+        case cannotReplaceMain(fid: String)
         case underlying(Error)
 
         public var description: String {
@@ -35,6 +36,8 @@ public final class ActiveSession {
                 return "ActiveSession: \(fid) is not registered in this Setting"
             case .watchOnlyCannotSign(let fid):
                 return "ActiveSession: \(fid) is watch-only — cannot sign or decrypt"
+            case .cannotReplaceMain(let fid):
+                return "ActiveSession: \(fid) is the main FID — it cannot be replaced by a sub-identity"
             case .underlying(let err):
                 return "ActiveSession: \(err)"
             }
@@ -132,19 +135,30 @@ public final class ActiveSession {
     public func addWatchedFid(
         _ fid: String,
         label: String = "",
+        pubkey: Data? = nil,
         master: String? = nil
     ) throws -> KeyInfo {
         let info = KeyInfo(
             fid: fid,
-            pubkey: nil,
+            pubkey: pubkey,
             prikeyCipher: nil,
             label: label,
             kind: .watched,
             master: master
         )
-        setting.keyInfoMap[fid] = info
-        try saveSetting()
+        try addSubIdentity(info)
         return info
+    }
+
+    /// Register any non-main ``KeyInfo`` (watched / multisig /
+    /// servant — e.g. a master record fetched from the directory) in
+    /// this Setting and persist. Refuses to overwrite the main entry.
+    public func addSubIdentity(_ info: KeyInfo) throws {
+        guard info.fid != mainFid else {
+            throw Failure.cannotReplaceMain(fid: info.fid)
+        }
+        setting.keyInfoMap[info.fid] = info
+        try saveSetting()
     }
 
     @discardableResult
@@ -225,6 +239,25 @@ public final class ActiveSession {
         let priv = try livePrikey()
         return try await wallet.send(
             fromAddress: liveFid, privkey: priv,
+            to: toFid, amount: amount,
+            feePerByte: feePerByte,
+            useCache: useCache,
+            timeoutMs: timeoutMs
+        )
+    }
+
+    /// Build (but don't sign or broadcast) a send from the **live**
+    /// FID — the cold-sign path for watch-only identities. Works for
+    /// any live FID; ``canSign`` tells the UI which button to show.
+    public func buildUnsignedSendFromLive(
+        to toFid: String,
+        amount: Int64,
+        feePerByte: Int64 = 1,
+        useCache: Bool = false,
+        timeoutMs: Int = 10_000
+    ) async throws -> WalletService.UnsignedSendResult {
+        try await wallet.buildUnsignedSend(
+            fromAddress: liveFid,
             to: toFid, amount: amount,
             feePerByte: feePerByte,
             useCache: useCache,

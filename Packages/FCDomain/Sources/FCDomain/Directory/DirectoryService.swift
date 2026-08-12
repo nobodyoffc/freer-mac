@@ -86,6 +86,74 @@ public struct DirectoryService {
         return map[fid]
     }
 
+    // MARK: - partial-match search
+
+    /// One page of a ``searchFreers(matching:after:size:timeoutMs:)``
+    /// result.
+    public struct FreerSearchPage: Sendable {
+        /// Matches, in server order.
+        public let freers: [Freer]
+        /// Cursor to pass as `after` for the next page. Nil/empty when
+        /// the server didn't provide one.
+        public let last: [String]?
+        /// Total matches server-side, when reported — drives the
+        /// "N left" hint next to a Load-more control.
+        public let total: Int64?
+
+        public init(freers: [Freer], last: [String]?, total: Int64?) {
+            self.freers = freers
+            self.last = last
+            self.total = total
+        }
+    }
+
+    /// Partial-match search for Freers whose FID or any current/past
+    /// CID contains `term`. Mirrors the Android
+    /// `CreateContactActivity.searchPartialCid`: FCDSL `part` query on
+    /// `id` + `usedCids` against `base.search`, entity `freer`,
+    /// cursor-paginated via `after`.
+    ///
+    /// No matches (server 404) is a normal empty page, not an error.
+    public func searchFreers(
+        matching term: String,
+        after: [String]? = nil,
+        size: Int = 10,
+        timeoutMs: Int = 15_000
+    ) async throws -> FreerSearchPage {
+        var dict: [String: Any] = [
+            "entity": "freer",
+            "query": [
+                "part": ["fields": ["id", "usedCids"], "value": term]
+            ],
+            "size": String(size)
+        ]
+        if let after, !after.isEmpty { dict["after"] = after }
+        let body = try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
+
+        let reply = try await fapi.call(
+            api: "base.search",
+            params: nil, fcdsl: body, binary: nil,
+            sid: nil, via: nil, maxCost: nil,
+            timeoutMs: timeoutMs
+        )
+        let resp = reply.response
+        if let code = resp.code, code != 0 {
+            if code == 404 { return FreerSearchPage(freers: [], last: nil, total: 0) }
+            throw Failure.fapiNonZeroCode(
+                api: "base.search", code: code, message: resp.message
+            )
+        }
+        guard let data = resp.data else {
+            return FreerSearchPage(freers: [], last: nil, total: resp.total)
+        }
+        do {
+            let freers = try JSONDecoder().decode([Freer].self, from: data)
+            return FreerSearchPage(freers: freers, last: resp.last, total: resp.total)
+        } catch {
+            throw Failure.underlying(error)
+        }
+    }
+
     // MARK: - on-chain contact sync
 
     /// Outcome of one ``syncOnChainContacts(owner:privkey:into:)`` run.
@@ -95,6 +163,11 @@ public struct DirectoryService {
         /// Local rows removed because the chain reports their newest
         /// carve as deleted (`active == false`).
         public let removed: Int
+        /// Local rows whose `onChain` flag was cleared because the
+        /// chain has no carve for them at all (stale marking — e.g.
+        /// rows saved by an old build that flipped `onChain` on a
+        /// directory lookup).
+        public let demoted: Int
         /// On-chain records whose cipher couldn't be decrypted (legacy
         /// algorithm, key mismatch, corrupt payload). Skipped, since
         /// without the plaintext we don't even know the contact's FID.
@@ -292,9 +365,29 @@ public struct DirectoryService {
             }
         }
 
+        // The fetch above is exhaustive for this owner (active AND
+        // deleted carves), so a local row still claiming `onChain`
+        // whose FID appears in no carve at all is provably stale —
+        // e.g. marked by an old build that flipped `onChain` on a
+        // directory lookup. Clear the flag so the badge is honest.
+        // Skipped when any record failed to decrypt: those records'
+        // contact FIDs are unknown, and one of them might legitimately
+        // back a row we'd otherwise demote.
+        var demoted = 0
+        if undecryptable == 0, let rows = try? store.all() {
+            let carvedFids = Set(detailByFid.keys)
+            for var row in rows
+            where row.onChain == true && !carvedFids.contains(row.id) {
+                row.onChain = false
+                row.carveId = nil
+                if (try? store.upsert(row)) != nil { demoted += 1 }
+            }
+        }
+
         return ContactSyncResult(
             merged: merged,
             removed: removed,
+            demoted: demoted,
             undecryptable: undecryptable,
             total: records.count,
             failureReasons: failureReasons

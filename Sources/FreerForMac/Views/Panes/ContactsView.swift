@@ -136,8 +136,12 @@ struct ContactsView: View {
             ContactEditorSheet(
                 session: session,
                 mode: mode,
-                onSaved: {
+                onSaved: { txid in
                     editorMode = nil
+                    if let txid {
+                        syncError = nil
+                        carveTxid = txid
+                    }
                     reload()
                 },
                 onCancel: { editorMode = nil }
@@ -409,12 +413,15 @@ struct ContactsView: View {
                 into: session.contacts
             )
             carveTxid = nil
-            if result.total == 0 {
+            if result.total == 0 && result.demoted == 0 {
                 syncSummary = "No carved contacts on-chain."
             } else {
                 var parts = ["\(result.merged) on-chain contact\(result.merged == 1 ? "" : "s") synced"]
                 if result.removed > 0 {
                     parts.append("\(result.removed) removed (deleted on-chain)")
+                }
+                if result.demoted > 0 {
+                    parts.append("\(result.demoted) unmarked (no carve found on-chain)")
                 }
                 if result.undecryptable > 0 {
                     parts.append("\(result.undecryptable) could not be decrypted")

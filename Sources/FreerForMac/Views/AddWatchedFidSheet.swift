@@ -3,61 +3,57 @@ import FCCore
 import FCDomain
 import FCUI
 
-/// Add or edit a single contact. Locally-editable fields live in the
-/// form; on-chain identity facts (cid / pubkey / balance / cross-chain
-/// addresses / etc.) come from the **Look up** button. A valid FID
-/// does an exact `base.freerByIds` fetch; anything else runs a partial
-/// CID/FID search (`base.search`, `part` on `id`/`usedCids` — the
-/// Android `CreateContactActivity.performFidSearch` flow) and shows
-/// clickable results that fill the FID field on selection, with
-/// cursor-based Load-more pagination. The looked-up `Freer` is held in
-/// state and merged into the contact at save time. The CID is set
-/// on-chain by the Freer themself and is never editable here.
-struct ContactEditorSheet: View {
+/// Add a watch-only FID to the current Setting — the Mac port of
+/// Android's `AddWatchedFidActivity`: type (or QR-scan) a FID, or
+/// search Freers by partial CID and pick a result; **Look up**
+/// confirms the on-chain record (cid / pubkey / balance) before
+/// saving. The entry is stored as `KeyInfo(kind: .watched)` — no
+/// privkey, so living as it puts Send into the cold-sign path.
+struct AddWatchedFidSheet: View {
     let session: ActiveSession
-    let mode: ContactsView.EditorMode
-    /// Called after a successful save. The argument is the carve
-    /// txid when the user chose **Save & carve**, nil for a
-    /// local-only save.
-    let onSaved: (_ carveTxid: String?) -> Void
+    let onAdded: (KeyInfo) -> Void
     let onCancel: () -> Void
 
     @State private var fid: String = ""
-    @State private var titlesInput: String = ""
-    @State private var memo: String = ""
-    @State private var seeStatement: Bool = false
-    @State private var seeWritings: Bool = false
-
-    @State private var saveError: String?
-    @State private var saving: Bool = false
-    @State private var carving: Bool = false
+    @State private var label: String = ""
 
     @State private var lookedUpFreer: Freer?
-    @State private var lookingUp: Bool = false
+    @State private var lookingUp = false
     @State private var lookupError: String?
-    @State private var lookupKnownOffChain: Bool = false
+    @State private var lookupKnownOffChain = false
 
-    // Partial CID/FID search state (non-FID input in the FID field).
     @State private var searchResults: [Freer] = []
     @State private var searchTerm: String?
     @State private var searchAfter: [String]?
     @State private var searchTotal: Int64?
-    @State private var searchNoMatches: Bool = false
-    @State private var loadingMore: Bool = false
+    @State private var searchNoMatches = false
+    @State private var loadingMore = false
+
+    @State private var showScan = false
+    @State private var saveError: String?
 
     private static let searchPageSize = 10
-
-    private var isEdit: Bool {
-        if case .edit = mode { return true }
-        return false
-    }
 
     private var fidLooksValid: Bool {
         (try? FchAddress(fid: fid)) != nil
     }
 
-    private var canSave: Bool {
-        !saving && !carving && fidLooksValid
+    /// Why this FID can't be added, or nil when it can. Mirrors
+    /// Android's duplicate checks when confirming.
+    private var blockReason: String? {
+        let trimmed = fid.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, fidLooksValid else { return nil }
+        if trimmed == session.mainFid {
+            return "That's this Setting's main FID — it's already here."
+        }
+        if let existing = session.setting.keyInfoMap[trimmed] {
+            return "Already registered as \(existing.kind.rawValue)\(existing.label.isEmpty ? "" : " “\(existing.label)”")."
+        }
+        return nil
+    }
+
+    private var canAdd: Bool {
+        fidLooksValid && blockReason == nil
     }
 
     private var canLookup: Bool {
@@ -69,32 +65,33 @@ struct ContactEditorSheet: View {
             header
 
             Form {
-                Section {
+                Section("Watched FID") {
                     LabeledField(
                         "FID",
                         hint: (!fid.isEmpty && !fidLooksValid)
                             ? "Not a FID — Look up searches CIDs instead."
-                            : nil,
-                        hintIsError: false
+                            : blockReason,
+                        hintIsError: blockReason != nil
                     ) {
                         HStack(spacing: 8) {
                             TextField("", text: $fid, prompt: Text("F… or CID"))
                                 .font(.system(.body, design: .monospaced))
                                 .fieldInputStyle()
-                                .disabled(isEdit)
                                 .onSubmit { Task { await runLookup() } }
                                 .onChange(of: fid) { _, newValue in
-                                    // Stale results once the user
-                                    // retypes — but not when a search
-                                    // result was just selected (that
-                                    // sets fid and lookedUpFreer
-                                    // together).
                                     guard lookedUpFreer?.id != newValue else { return }
                                     lookedUpFreer = nil
                                     lookupKnownOffChain = false
                                     lookupError = nil
                                     searchNoMatches = false
                                 }
+
+                            Button {
+                                showScan = true
+                            } label: {
+                                Image(systemName: "qrcode.viewfinder")
+                            }
+                            .help("Scan a FID QR code")
 
                             Button {
                                 Task { await runLookup() }
@@ -109,7 +106,7 @@ struct ContactEditorSheet: View {
                                 }
                             }
                             .disabled(!canLookup)
-                            .help("A valid FID fetches its on-chain record (cid, pubkey, balance); any other text searches Freers by CID.")
+                            .help("A valid FID fetches its on-chain record; any other text searches Freers by CID.")
                         }
                     }
 
@@ -124,7 +121,7 @@ struct ContactEditorSheet: View {
                     } else if lookupKnownOffChain {
                         HStack(spacing: 6) {
                             Image(systemName: "questionmark.circle")
-                            Text("No on-chain record — this FID hasn't registered a Freer yet. You can still save the contact locally.")
+                            Text("No on-chain record — this FID hasn't registered a Freer yet. You can still watch it.")
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .foregroundStyle(.orange)
@@ -143,41 +140,14 @@ struct ContactEditorSheet: View {
                     } else if !searchResults.isEmpty {
                         searchResultsList
                     }
-                } header: {
-                    Text(isEdit ? "Identity" : "New contact")
-                }
 
-                Section {
                     LabeledField(
-                        "Titles",
-                        hint: "Comma-separated. Shown under the contact's name."
+                        "Label",
+                        hint: "Optional. Shown in the person menu; defaults to the CID when looked up."
                     ) {
-                        TextField("", text: $titlesInput,
-                                  prompt: Text("Friend, Engineer"))
+                        TextField("", text: $label, prompt: Text("Cold wallet"))
                             .fieldInputStyle()
                     }
-
-                    LabeledField("Memo") {
-                        TextEditor(text: $memo)
-                            .font(.body)
-                            .frame(minHeight: 70, maxHeight: 140)
-                            .padding(6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(Color(nsColor: .textBackgroundColor))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .strokeBorder(Color.secondary.opacity(0.3), lineWidth: 0.5)
-                            )
-                    }
-                } header: {
-                    Text("Detail")
-                }
-
-                Section("Permissions") {
-                    Toggle("See statement", isOn: $seeStatement)
-                    Toggle("See writings",  isOn: $seeWritings)
                 }
 
                 if let err = saveError {
@@ -191,10 +161,33 @@ struct ContactEditorSheet: View {
             .formStyle(.grouped)
 
             Divider()
-            footer
+
+            HStack {
+                Text("Watched FIDs are read-only: balances and history load normally, sending exports an unsigned tx for cold signing.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("Cancel", role: .cancel) { onCancel() }
+                    .keyboardShortcut(.cancelAction)
+                Button("Add") { add() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!canAdd)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
-        .frame(minWidth: 540, minHeight: 580)
-        .onAppear { loadFromMode() }
+        .frame(minWidth: 540, minHeight: 420)
+        .sheet(isPresented: $showScan) {
+            QrScanSheet(title: "Scan FID") { scanned in
+                fid = scanned
+                showScan = false
+                Task { await runLookup() }
+            } onCancel: {
+                showScan = false
+            }
+        }
     }
 
     private var header: some View {
@@ -206,12 +199,12 @@ struct ContactEditorSheet: View {
                     Circle()
                         .fill(Color.secondary.opacity(0.15))
                         .frame(width: 40, height: 40)
-                    Image(systemName: "person.crop.circle")
-                        .font(.title2)
+                    Image(systemName: "eye")
+                        .font(.title3)
                         .foregroundStyle(.secondary)
                 }
             }
-            Text(isEdit ? "Edit contact" : "Add contact")
+            Text("Add watched FID")
                 .font(.title2).bold()
             Spacer()
         }
@@ -219,68 +212,6 @@ struct ContactEditorSheet: View {
         .padding(.vertical, 12)
     }
 
-    /// Android's `CreateContactActivity` action row: **Save** keeps
-    /// the contact local-only (`onChain == false`), **Save & carve**
-    /// additionally broadcasts the FEIP CONTACT tx (`carveContact()`).
-    private var footer: some View {
-        HStack {
-            Spacer()
-            Button("Cancel", role: .cancel) { onCancel() }
-                .keyboardShortcut(.cancelAction)
-            if session.canSign {
-                saveButton
-                    .buttonStyle(.bordered)
-            } else {
-                saveButton
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.borderedProminent)
-            }
-
-            if session.canSign {
-                Button {
-                    Task { await saveAndCarve() }
-                } label: {
-                    if carving {
-                        HStack(spacing: 6) {
-                            ProgressView().controlSize(.small)
-                            Text("Carving…")
-                        }
-                        .frame(width: 120)
-                    } else {
-                        Text("Save & carve").frame(width: 120)
-                    }
-                }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .disabled(!canSave)
-                .help("Broadcast the contact as an encrypted FEIP CONTACT carve (small miner fee), then save it locally. Shows as On-chain once a block confirms it.")
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
-
-    private var saveButton: some View {
-        Button {
-            Task { await save() }
-        } label: {
-            if saving {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    Text("Saving…")
-                }
-                .frame(width: 100)
-            } else {
-                Text("Save").frame(width: 100)
-            }
-        }
-        .disabled(!canSave)
-        .help("Save locally only — nothing is written to the chain.")
-    }
-
-    /// Results of a partial CID search — clickable rows that fill the
-    /// FID field on selection, plus a cursor-paginated Load-more row.
-    /// The Mac take on Android's `KeyCardContainer` result cards.
     private var searchResultsList: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("\(searchResults.count) match\(searchResults.count == 1 ? "" : "es") — click one to select")
@@ -346,11 +277,6 @@ struct ContactEditorSheet: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                if let bal = f.balance {
-                    Text(formatBch(bal))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
@@ -385,23 +311,6 @@ struct ContactEditorSheet: View {
                 )
                 .foregroundStyle(.secondary)
             }
-            HStack(spacing: 12) {
-                if let bal = f.balance {
-                    Text("balance: \(formatBch(bal))")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                }
-                if let h = f.lastHeight {
-                    Text("last block: \(h)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                }
-                if let cd = f.cdd {
-                    Text("cdd: \(cd)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                }
-            }
         }
         .padding(8)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -411,44 +320,11 @@ struct ContactEditorSheet: View {
         )
     }
 
-    private func formatBch(_ sats: Int64) -> String {
-        let bch = Double(sats) / 100_000_000.0
-        let f = NumberFormatter()
-        f.minimumFractionDigits = 0
-        f.maximumFractionDigits = 8
-        return (f.string(from: NSNumber(value: bch)) ?? "0") + " FCH"
-    }
+    // MARK: - lookup / save
 
-    // MARK: - load / lookup / save
-
-    private func loadFromMode() {
-        if case .edit(let c) = mode {
-            fid = c.id
-            titlesInput = (c.titles ?? []).joined(separator: ", ")
-            memo = c.memo ?? ""
-            seeStatement = c.seeStatement ?? false
-            seeWritings = c.seeWritings ?? false
-            // Surface what we already know about the on-chain side
-            // so the editor doesn't pretend the contact is "fresh"
-            // when it isn't. Pubkey lives in `Contact` as 33 raw
-            // bytes; reconstitute hex for the status panel.
-            let pkHex = c.pubkey?
-                .map { String(format: "%02x", $0) }
-                .joined()
-            if c.cid != nil || pkHex != nil || c.lastHeight != nil {
-                var f = Freer()
-                f.cid = c.cid
-                f.pubkey = pkHex
-                f.balance = c.balance
-                f.lastHeight = c.lastHeight
-                f.cdd = c.cdd
-                lookedUpFreer = f
-            }
-        }
-    }
-
-    /// Android `performFidSearch`: a valid FID means an exact
-    /// `freerByIds` fetch; anything else runs a partial CID search.
+    /// Same split as ContactEditorSheet / Android's `performSearch`:
+    /// a valid FID means an exact `freerByIds` fetch, anything else
+    /// a partial CID search.
     @MainActor
     private func runLookup() async {
         let term = fid.trimmingCharacters(in: .whitespaces)
@@ -465,6 +341,7 @@ struct ContactEditorSheet: View {
                 let freer = try await session.directory.freer(byId: term)
                 if let freer {
                     lookedUpFreer = freer
+                    if label.isEmpty, let cid = freer.cid { label = cid }
                 } else {
                     lookedUpFreer = nil
                     lookupKnownOffChain = true
@@ -491,8 +368,6 @@ struct ContactEditorSheet: View {
         }
     }
 
-    /// True when the last page came back full and the server handed us
-    /// a cursor — same heuristic as Android's `updateMoreButtonVisibility`.
     private var hasMoreResults: Bool {
         guard let after = searchAfter, !after.isEmpty else { return false }
         if let total = searchTotal { return Int64(searchResults.count) < total }
@@ -510,7 +385,6 @@ struct ContactEditorSheet: View {
             let page = try await session.directory.searchFreers(
                 matching: term, after: after, size: Self.searchPageSize
             )
-            // Append, dropping anything already shown (cursor overlap).
             let seen = Set(searchResults.compactMap(\.id))
             searchResults.append(contentsOf: page.freers.filter {
                 guard let id = $0.id else { return false }
@@ -523,15 +397,12 @@ struct ContactEditorSheet: View {
         }
     }
 
-    /// A search-result row was clicked: adopt its FID and on-chain
-    /// record, collapse the result list. Android's `onFidSelected`.
     @MainActor
     private func select(_ f: Freer) {
         guard let id = f.id else { return }
-        // Set lookedUpFreer alongside fid — the fid onChange guard
-        // sees a matching id and leaves the fresh record in place.
         fid = id
         lookedUpFreer = f
+        if label.isEmpty, let cid = f.cid { label = cid }
         lookupError = nil
         lookupKnownOffChain = false
         clearSearchResults()
@@ -545,78 +416,23 @@ struct ContactEditorSheet: View {
         searchNoMatches = false
     }
 
-    /// The contact as currently described by the form: mode's base
-    /// row + edited detail + any looked-up on-chain facts. Shared by
-    /// the local save and the carve path.
-    private func buildContact() -> Contact {
-        let titles = titlesInput
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-        let titlesField: [String]? = titles.isEmpty ? nil : titles
-        let memoField: String? = memo.isEmpty ? nil : memo
-
-        switch mode {
-        case .create:
-            var c = Contact(
-                id: fid,
-                titles: titlesField,
-                memo: memoField,
-                seeStatement: seeStatement,
-                seeWritings: seeWritings
+    private func add() {
+        guard canAdd else { return }
+        let trimmed = fid.trimmingCharacters(in: .whitespaces)
+        // On-chain facts only when the looked-up record is for this
+        // exact FID (a stale record from an earlier lookup must not
+        // leak its pubkey onto a retyped address).
+        let onChain: KeyInfo? = (lookedUpFreer?.id == trimmed)
+            ? lookedUpFreer.flatMap { KeyInfo.from(freer: $0) }
+            : nil
+        do {
+            let info = try session.addWatchedFid(
+                trimmed,
+                label: label.trimmingCharacters(in: .whitespaces),
+                pubkey: onChain?.pubkey,
+                master: onChain?.master
             )
-            if let f = lookedUpFreer {
-                c = c.merging(f)
-            }
-            return c
-
-        case .edit(let original):
-            var c = original
-            if let f = lookedUpFreer {
-                c = c.merging(f)
-            }
-            c.titles = titlesField
-            c.memo = memoField
-            c.seeStatement = seeStatement
-            c.seeWritings = seeWritings
-            return c
-        }
-    }
-
-    /// Local-only save — Android's `saveContactToDatabase` (which
-    /// writes `onChain = false` and never touches the chain).
-    @MainActor
-    private func save() async {
-        guard fidLooksValid else { return }
-        saving = true
-        saveError = nil
-        defer { saving = false }
-
-        do {
-            try session.contacts.upsert(buildContact())
-            onSaved(nil)
-        } catch {
-            saveError = String(describing: error)
-        }
-    }
-
-    /// Android's `carveContact`: broadcast the FEIP CONTACT tx first,
-    /// save locally only on success (mirroring the `onSuccess`
-    /// callback), so a failed broadcast never leaves a row that
-    /// pretends to be heading on-chain. The row stays `onChain ==
-    /// false` until a chain sync confirms the carve.
-    @MainActor
-    private func saveAndCarve() async {
-        guard fidLooksValid, session.canSign else { return }
-        carving = true
-        saveError = nil
-        defer { carving = false }
-
-        let contact = buildContact()
-        do {
-            let txid = try await session.carveContactOnChain(contact)
-            try session.contacts.upsert(contact)
-            onSaved(txid)
+            onAdded(info)
         } catch {
             saveError = String(describing: error)
         }

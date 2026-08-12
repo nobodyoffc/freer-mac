@@ -61,9 +61,10 @@ public extension Contact {
     /// ``seeStatement``, ``seeWritings``, ``pinnedAt``, ``addedAt``).
     /// `updatedAt` is bumped so the store sees a change.
     ///
-    /// `onChain` flips to `true` unconditionally, since the only way
-    /// the server returned this row is if the FID has an on-chain
-    /// record.
+    /// ``Contact/onChain`` is deliberately left alone: it means "my
+    /// CONTACT carve for this FID exists on-chain", not "this FID has
+    /// a Freer record". Only the carve/sync paths may set it
+    /// (Android's save button likewise writes `setOnChain(false)`).
     func merging(_ freer: Freer) -> Contact {
         var c = self
 
@@ -102,7 +103,6 @@ public extension Contact {
         if let v = freer.lastHeight { c.lastHeight = v }
         if let v = freer.multisig { c.multisig = v }
 
-        c.onChain = true
         c.updatedAt = Date()
         return c
     }
@@ -125,5 +125,26 @@ public extension Contact {
         let prefix = data[0]
         guard prefix == 0x02 || prefix == 0x03 else { return nil }
         return data
+    }
+}
+
+public extension KeyInfo {
+
+    /// Build a privkey-less ``KeyInfo`` from an on-chain ``Freer``
+    /// record — the Android `KeyInfo.fromCid`. Used when registering
+    /// a sub-identity discovered through the directory (a master, a
+    /// watched FID). Label defaults to the CID so lists show the
+    /// human name when one exists. Returns nil when the record has
+    /// no `id` (nothing to key it by).
+    static func from(freer: Freer, kind: KeyKind = .watched) -> KeyInfo? {
+        guard let fid = freer.id else { return nil }
+        return KeyInfo(
+            fid: fid,
+            pubkey: freer.pubkey.flatMap(Contact.decodePubkeyHex),
+            prikeyCipher: nil,
+            label: freer.cid ?? "",
+            kind: kind,
+            master: freer.master
+        )
     }
 }

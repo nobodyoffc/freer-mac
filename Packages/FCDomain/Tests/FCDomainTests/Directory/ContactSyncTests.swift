@@ -137,6 +137,79 @@ final class ContactSyncTests: XCTestCase {
         XCTAssertEqual(ids, [aliveFid])
     }
 
+    /// A row wrongly claiming `onChain` (old builds flipped it on a
+    /// directory lookup) is demoted when the owner's exhaustive carve
+    /// fetch has no record of it. Rows that are local-only stay
+    /// untouched.
+    func testSyncDemotesStaleOnChainMarking() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+
+        let staleFid = try realFid(byte: 0xE1)
+        let localFid = try realFid(byte: 0xE2)
+        try session.contacts.upsert(Contact(id: staleFid, onChain: true))
+        try session.contacts.upsert(Contact(id: localFid, memo: "plain local"))
+
+        // Chain: no carves at all for this owner.
+        mock.responder = { call in
+            switch call.api {
+            case "base.search": return FapiResponse(code: 404, message: "NOT_FOUND")
+            default: return try makeResponse(data: [String: Any]())
+            }
+        }
+
+        let result = try await session.directory.syncOnChainContacts(
+            owner: session.liveFid,
+            privkey: try session.livePrikey(),
+            into: session.contacts
+        )
+
+        XCTAssertEqual(result.demoted, 1)
+        let stale = try XCTUnwrap(session.contacts.get(fid: staleFid))
+        XCTAssertEqual(stale.onChain, false)
+        XCTAssertNil(stale.carveId)
+        let local = try XCTUnwrap(session.contacts.get(fid: localFid))
+        XCTAssertNil(local.onChain)
+    }
+
+    /// When any record fails to decrypt its contact FID is unknown, so
+    /// the demote pass must not run — it could unmark a legitimately
+    /// carved row.
+    func testSyncSkipsDemoteWhenRecordsUndecryptable() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+
+        let markedFid = try realFid(byte: 0xE3)
+        try session.contacts.upsert(Contact(id: markedFid, onChain: true))
+
+        mock.responder = { call in
+            switch call.api {
+            case "base.search":
+                // One record whose cipher can't be decrypted.
+                return try makeResponse(data: [[
+                    "id": "carve-x",
+                    "cipher": "not-a-real-envelope",
+                    "owner": session.liveFid,
+                    "lastHeight": 100,
+                    "active": true
+                ]])
+            default:
+                return try makeResponse(data: [String: Any]())
+            }
+        }
+
+        let result = try await session.directory.syncOnChainContacts(
+            owner: session.liveFid,
+            privkey: try session.livePrikey(),
+            into: session.contacts
+        )
+
+        XCTAssertEqual(result.undecryptable, 1)
+        XCTAssertEqual(result.demoted, 0)
+        let marked = try XCTUnwrap(session.contacts.get(fid: markedFid))
+        XCTAssertEqual(marked.onChain, true)
+    }
+
     /// The search FCDSL must not filter on `active` — deletions are
     /// only visible when inactive records come back too.
     func testFetchQueriesBothActiveAndInactive() async throws {

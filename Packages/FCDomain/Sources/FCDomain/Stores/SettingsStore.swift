@@ -41,7 +41,16 @@ public struct Preferences: Codable, Equatable, Sendable {
         self.autoLockSeconds = autoLockSeconds
     }
 
-    public static let defaults = Preferences()
+    /// The project's FAPI server, used until the user points the app
+    /// somewhere else. New identities connect here automatically.
+    public static let defaultFapiService = "fapi.cid.cash:8500"
+    public static let defaultFapiServicePubkeyHex =
+        "03f55c464d74dc97f3636bfb713a86cb1af9ec9321255b58f107533579d2b4f89c"
+
+    public static let defaults = Preferences(
+        preferredFapiService: defaultFapiService,
+        preferredFapiServicePubkeyHex: defaultFapiServicePubkeyHex
+    )
 }
 
 /// Read/write the per-identity ``Preferences`` row. Single-key store

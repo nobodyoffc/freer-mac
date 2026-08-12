@@ -665,6 +665,55 @@ public struct WalletService {
         return SendResult(transaction: signed, remoteTxid: txidString, plan: plan)
     }
 
+    // MARK: - unsigned send (watch-only / cold signing, Phase 7.8.3)
+
+    /// Result of ``buildUnsignedSend`` — the exportable document plus
+    /// the plan it was built from (for fee/change display).
+    public struct UnsignedSendResult: Sendable {
+        public let info: RawTxInfo
+        public let plan: CoinSelector.Plan
+
+        public init(info: RawTxInfo, plan: CoinSelector.Plan) {
+            self.info = info
+            self.plan = plan
+        }
+    }
+
+    /// The watch-only counterpart of ``send``: same cash snapshot,
+    /// spendability filter and coin selection — but instead of
+    /// signing and broadcasting, returns a ``RawTxInfo`` document for
+    /// export to a machine that holds the key (Android's
+    /// `CreateTxActivity` imports it via paste or QR). Needs no
+    /// privkey, and deliberately does **not** mark the selected
+    /// inputs `pendingSpend` — nothing has been broadcast.
+    public func buildUnsignedSend(
+        fromAddress: String,
+        to toFid: String,
+        amount: Int64,
+        feePerByte: Int64 = 1,
+        useCache: Bool = false,
+        timeoutMs: Int = 10_000
+    ) async throws -> UnsignedSendResult {
+        let snapshot: CashSnapshot
+        if useCache, let cached = try cachedSnapshot(forAddress: fromAddress) {
+            snapshot = cached
+        } else {
+            snapshot = try await refreshCashes(forFid: fromAddress, timeoutMs: timeoutMs)
+        }
+        let spendable = try spendableCashes(in: snapshot, fromAddress: fromAddress)
+        let plan = try CoinSelector.select(
+            cashes: spendable, amount: amount, feePerByte: feePerByte
+        )
+        let info = RawTxInfo(
+            sender: fromAddress,
+            feeRate: RawTxInfo.feeRate(satsPerByte: feePerByte),
+            inputs: plan.selected.map(RawTxInfo.Slot.input(from:)),
+            outputs: [RawTxInfo.Slot.output(to: toFid, amount: amount)],
+            changeTo: fromAddress
+        )
+        return UnsignedSendResult(info: info, plan: plan)
+    }
+
     // MARK: - carve (OP_RETURN data tx)
 
     /// Write `opReturn` (typically a FEIP JSON document) onto the

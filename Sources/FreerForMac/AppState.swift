@@ -49,6 +49,12 @@ final class AppState {
     private(set) var activeSession: ActiveSession?
     private(set) var configures: [ConfigureRecord]
 
+    /// Observable mirror of `activeSession?.liveFid`. `ActiveSession`
+    /// is a plain class SwiftUI can't track, so every live-FID switch
+    /// goes through ``switchLive(fid:)`` which updates this — views
+    /// key off it (`.id(appState.liveFid)`) to rebuild after a switch.
+    private(set) var liveFid: String?
+
     var route: AppRoute
     var lastError: String?
 
@@ -150,6 +156,7 @@ final class AppState {
     func lockAll() {
         tearDownLiveFapi()
         activeSession = nil
+        liveFid = nil
         configureSession?.lock()
         configureSession = nil
         configures = (try? manager.listConfigures()) ?? configures
@@ -194,6 +201,7 @@ final class AppState {
                 try cs.unlockMain(fid: fid, fapi: factory(fid))
             }.value
             self.activeSession = session
+            self.liveFid = session.liveFid
             self.route = .home
             // Best-effort attempt to bring up the live FAPI client.
             // Failure is non-fatal — Overview will show the stub
@@ -212,6 +220,7 @@ final class AppState {
     func returnToChooseMain() {
         tearDownLiveFapi()
         activeSession = nil
+        liveFid = nil
         route = .chooseMain
     }
 
@@ -310,6 +319,7 @@ final class AppState {
         guard let session = activeSession else { return }
         do {
             try session.switchLive(fid: fid)
+            liveFid = session.liveFid
         } catch {
             lastError = String(describing: error)
         }

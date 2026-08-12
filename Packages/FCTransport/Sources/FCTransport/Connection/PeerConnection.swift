@@ -58,6 +58,8 @@ public final class PeerConnection: @unchecked Sendable {
     private var _peerSessionEpoch: Int64 = 0
     private var _ourEpochConfirmed: Bool = false
     private var _lastActivityMs: Int64
+    private var _nextLocalStreamId: UInt64 = 0
+    private var _streamParityInitialized: Bool = false
 
     public init(
         connectionId: Int64,
@@ -136,6 +138,36 @@ public final class PeerConnection: @unchecked Sendable {
     public var nextPacketNumberPreview: Int64 {
         lock.lock(); defer { lock.unlock() }
         return _nextPacketNumberToSend
+    }
+
+    // MARK: - stream ids
+
+    /// Set the local stream-ID allocator's parity (0 or 1) — mirrors
+    /// `fudp/stream/StreamManager.initLocalStreamParity` on the server.
+    /// Idempotent; must be called before the first `nextStreamId()`.
+    ///
+    /// Both endpoints derive their parity the same way (comparing FIDs)
+    /// so their allocators land in disjoint ID spaces without
+    /// negotiation — see ``FudpClient`` for the comparison.
+    public func initLocalStreamParity(_ parity: Int) {
+        lock.lock(); defer { lock.unlock() }
+        guard !_streamParityInitialized else { return }
+        _nextLocalStreamId = UInt64(parity & 0x01)
+        _streamParityInitialized = true
+    }
+
+    /// Reserve the next outbound stream id. Every new message needs a
+    /// fresh id — the server permanently retires a stream id once its
+    /// message is delivered, and silently drops any later frame that
+    /// reuses it (no response, which surfaces client-side as a
+    /// timeout). Increments by 4 to match the server's allocator
+    /// (bits 0-1 are reserved: parity + unidirectional flag).
+    @discardableResult
+    public func nextStreamId() -> UInt64 {
+        lock.lock(); defer { lock.unlock() }
+        let id = _nextLocalStreamId
+        _nextLocalStreamId += 4
+        return id
     }
 
     public var largestSentPacketNumber: Int64 {
