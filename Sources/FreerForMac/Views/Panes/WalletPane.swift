@@ -9,6 +9,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
     case receive
     case transactions
     case contacts
+    case tools
     case settings
 
     var id: String { rawValue }
@@ -20,6 +21,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .receive:      return "Receive"
         case .transactions: return "Transactions"
         case .contacts:     return "Contacts"
+        case .tools:        return "Tools"
         case .settings:     return "Settings"
         }
     }
@@ -31,6 +33,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .receive:      return "tray.and.arrow.down"
         case .transactions: return "list.bullet"
         case .contacts:     return "person.2"
+        case .tools:        return "wrench.and.screwdriver"
         case .settings:     return "gearshape"
         }
     }
