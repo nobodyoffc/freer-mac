@@ -1,0 +1,77 @@
+{
+  "generated_at": "2026-08-13T04:52:38.970972Z",
+  "schema_version": 1,
+  "generator": "FreerForMac VectorGen (domain wire formats from the real FC-AJDK classes)",
+  "hat": [
+    {
+      "label": "minimal",
+      "json": "{\"name\":\"readme.txt\",\"id\":\"aa11\"}",
+      "id_bytes_json": "{\"name\":\"readme.txt\",\"id\":\"aa11\"}",
+      "derived_id_without_id_field": "99ebebe0ec7516ab9115db27a30d3e00c4100ceed64855f15d5ee31b187c0174",
+      "derived_id_source_json": "{\"name\":\"readme.txt\"}"
+    },
+    {
+      "label": "full",
+      "json": "{\"hAlg\":\"sha256x2\",\"size\":1234,\"born\":1700000000000,\"last\":1700000009999,\"name\":\"photo.jpg\",\"desc\":\"a photo of the sea\",\"types\":[\"image/jpeg\",\"image\"],\"aids\":[\"app-1\",\"app-2\"],\"pids\":[\"pid-1\"],\"srcDid\":\"5c1d0000000000000000000000000000000000000000000000000000000000src\",\"preDid\":\"5c1d0000000000000000000000000000000000000000000000000000000000pre\",\"tDid\":\"5c1d00000000000000000000000000000000000000000000000000000000tdid\",\"tSize\":999999,\"offset\":4096,\"key\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\",\"Leaked\":false,\"cipherIds\":[\"c1c1\",\"c2c2\"],\"rank\":3,\"state\":\"ACTIVE\",\"locas\":[\"local:///Users/x/Pictures/photo.jpg\",\"(sid)abc123\",\"fudp://1.2.3.4:9000\"],\"objName\":\"Hat\",\"id\":\"0f3c000000000000000000000000000000000000000000000000000000000id0\"}",
+      "id_bytes_json": "{\"hAlg\":\"sha256x2\",\"size\":1234,\"born\":1700000000000,\"last\":1700000009999,\"name\":\"photo.jpg\",\"desc\":\"a photo of the sea\",\"types\":[\"image/jpeg\",\"image\"],\"aids\":[\"app-1\",\"app-2\"],\"pids\":[\"pid-1\"],\"srcDid\":\"5c1d0000000000000000000000000000000000000000000000000000000000src\",\"preDid\":\"5c1d0000000000000000000000000000000000000000000000000000000000pre\",\"tDid\":\"5c1d00000000000000000000000000000000000000000000000000000000tdid\",\"tSize\":999999,\"offset\":4096,\"key\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\",\"Leaked\":false,\"cipherIds\":[\"c1c1\",\"c2c2\"],\"rank\":3,\"state\":\"ACTIVE\",\"locas\":[\"local:///Users/x/Pictures/photo.jpg\",\"(sid)abc123\",\"fudp://1.2.3.4:9000\"],\"objName\":\"Hat\",\"id\":\"0f3c000000000000000000000000000000000000000000000000000000000id0\"}",
+      "derived_id_without_id_field": "217768432b4482030a2a7bafc70a5a9c369bc5d75fff605d8a87fb7e628b71b7",
+      "derived_id_source_json": "{\"hAlg\":\"sha256x2\",\"size\":1234,\"born\":1700000000000,\"last\":1700000009999,\"name\":\"photo.jpg\",\"desc\":\"a photo of the sea\",\"types\":[\"image/jpeg\",\"image\"],\"aids\":[\"app-1\",\"app-2\"],\"pids\":[\"pid-1\"],\"srcDid\":\"5c1d0000000000000000000000000000000000000000000000000000000000src\",\"preDid\":\"5c1d0000000000000000000000000000000000000000000000000000000000pre\",\"tDid\":\"5c1d00000000000000000000000000000000000000000000000000000000tdid\",\"tSize\":999999,\"offset\":4096,\"key\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\",\"Leaked\":false,\"cipherIds\":[\"c1c1\",\"c2c2\"],\"rank\":3,\"state\":\"ACTIVE\",\"locas\":[\"local:///Users/x/Pictures/photo.jpg\",\"(sid)abc123\",\"fudp://1.2.3.4:9000\"],\"objName\":\"Hat\"}"
+    },
+    {
+      "label": "cipher-hat",
+      "json": "{\"size\":4096,\"born\":1700000000000,\"last\":1700000000000,\"rawDid\":\"0f3c000000000000000000000000000000000000000000000000000000000id0\",\"kCipher\":\"{\\\"type\\\":\\\"AsyOneWay\\\",\\\"alg\\\":\\\"EccK1AesGcm256@No1_NrC7\\\",\\\"cipher\\\":\\\"YWJj\\\"}\",\"state\":\"ACTIVE\",\"locas\":[\"(sid)disk-service-1\"],\"id\":\"c1phe000000000000000000000000000000000000000000000000000000000r0\"}",
+      "id_bytes_json": "{\"size\":4096,\"born\":1700000000000,\"last\":1700000000000,\"rawDid\":\"0f3c000000000000000000000000000000000000000000000000000000000id0\",\"kCipher\":\"{\\\"type\\\":\\\"AsyOneWay\\\",\\\"alg\\\":\\\"EccK1AesGcm256@No1_NrC7\\\",\\\"cipher\\\":\\\"YWJj\\\"}\",\"state\":\"ACTIVE\",\"locas\":[\"(sid)disk-service-1\"],\"id\":\"c1phe000000000000000000000000000000000000000000000000000000000r0\"}",
+      "derived_id_without_id_field": "0ad221a6ac6e9de78b71d7050a5b1520e12a082bc413a0e1c2b423f5fb6afdad",
+      "derived_id_source_json": "{\"size\":4096,\"born\":1700000000000,\"last\":1700000000000,\"rawDid\":\"0f3c000000000000000000000000000000000000000000000000000000000id0\",\"kCipher\":\"{\\\"type\\\":\\\"AsyOneWay\\\",\\\"alg\\\":\\\"EccK1AesGcm256@No1_NrC7\\\",\\\"cipher\\\":\\\"YWJj\\\"}\",\"state\":\"ACTIVE\",\"locas\":[\"(sid)disk-service-1\"]}"
+    },
+    {
+      "label": "html-escapable-name",
+      "json": "{\"size\":7,\"name\":\"a&b<c>d='e'.txt\",\"desc\":\"x=1 & y<2 > z 'q'\",\"id\":\"e5ca9e00000000000000000000000000000000000000000000000000000000d0\"}",
+      "id_bytes_json": "{\"size\":7,\"name\":\"a\\u0026b\\u003cc\\u003ed\\u003d\\u0027e\\u0027.txt\",\"desc\":\"x\\u003d1 \\u0026 y\\u003c2 \\u003e z \\u0027q\\u0027\",\"id\":\"e5ca9e00000000000000000000000000000000000000000000000000000000d0\"}",
+      "derived_id_without_id_field": "1f7c3ae6993123b66d694d5c99a391c74fb950522d768f0163b643e705a6914c",
+      "derived_id_source_json": "{\"size\":7,\"name\":\"a\\u0026b\\u003cc\\u003ed\\u003d\\u0027e\\u0027.txt\",\"desc\":\"x\\u003d1 \\u0026 y\\u003c2 \\u003e z \\u0027q\\u0027\"}"
+    },
+    {
+      "label": "unicode-name",
+      "json": "{\"size\":2048,\"name\":\"自由现金 · 文件 🚀.pdf\",\"desc\":\"多字节描述\",\"types\":[\"application/pdf\"],\"id\":\"un1c0de0000000000000000000000000000000000000000000000000000000d0\"}",
+      "id_bytes_json": "{\"size\":2048,\"name\":\"自由现金 · 文件 🚀.pdf\",\"desc\":\"多字节描述\",\"types\":[\"application/pdf\"],\"id\":\"un1c0de0000000000000000000000000000000000000000000000000000000d0\"}",
+      "derived_id_without_id_field": "ae8f986f4c6f0143b00593ffe8f1bbb4c81ba918526dc048819fa7afc8d6c208",
+      "derived_id_source_json": "{\"size\":2048,\"name\":\"自由现金 · 文件 🚀.pdf\",\"desc\":\"多字节描述\",\"types\":[\"application/pdf\"]}"
+    },
+    {
+      "label": "empty-lists",
+      "json": "{\"types\":[],\"aids\":[],\"cipherIds\":[],\"locas\":[],\"id\":\"e0000000000000000000000000000000000000000000000000000000000000d0\"}",
+      "id_bytes_json": "{\"types\":[],\"aids\":[],\"cipherIds\":[],\"locas\":[],\"id\":\"e0000000000000000000000000000000000000000000000000000000000000d0\"}",
+      "derived_id_without_id_field": "e3a8e1835fbea040cca047c68eb19c96cd974b604d242f30ed0ada356ef32a5d",
+      "derived_id_source_json": "{\"types\":[],\"aids\":[],\"cipherIds\":[],\"locas\":[]}"
+    },
+    {
+      "label": "state-ACTIVE",
+      "json": "{\"state\":\"ACTIVE\",\"id\":\"state-active\"}",
+      "id_bytes_json": "{\"state\":\"ACTIVE\",\"id\":\"state-active\"}",
+      "derived_id_without_id_field": "3cf35ddd2aba94865a9d5f9db6e225786ebe49c139e80b045476d4268bb157b3",
+      "derived_id_source_json": "{\"state\":\"ACTIVE\"}"
+    },
+    {
+      "label": "state-DELETED",
+      "json": "{\"state\":\"DELETED\",\"id\":\"state-deleted\"}",
+      "id_bytes_json": "{\"state\":\"DELETED\",\"id\":\"state-deleted\"}",
+      "derived_id_without_id_field": "9e3ac3d9a8eaa510173c7d5fc09c2ac8f748ae816f7de9ce8387f4766a73f3f6",
+      "derived_id_source_json": "{\"state\":\"DELETED\"}"
+    },
+    {
+      "label": "state-OUTDATED",
+      "json": "{\"state\":\"OUTDATED\",\"id\":\"state-outdated\"}",
+      "id_bytes_json": "{\"state\":\"OUTDATED\",\"id\":\"state-outdated\"}",
+      "derived_id_without_id_field": "1300e460dd62c47c0e7f81088475419d71c909eb54315df6969add7473e90087",
+      "derived_id_source_json": "{\"state\":\"OUTDATED\"}"
+    },
+    {
+      "label": "state-ARCHIVED",
+      "json": "{\"state\":\"ARCHIVED\",\"id\":\"state-archived\"}",
+      "id_bytes_json": "{\"state\":\"ARCHIVED\",\"id\":\"state-archived\"}",
+      "derived_id_without_id_field": "59198100204f65a5b1d6a7916630d6de5ac09ae3a84e42dfb655c6520875bbcb",
+      "derived_id_source_json": "{\"state\":\"ARCHIVED\"}"
+    }
+  ]
+}

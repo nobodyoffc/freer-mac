@@ -81,6 +81,9 @@ public final class VectorGen {
         }
         Path cryptoOut = Paths.get(args[0]);
         Path fudpOut = Paths.get(args[1]);
+        // Domain-layer vectors (Hat wire format) go to FCDomain's test
+        // resources, beside the model they pin down.
+        Path domainOut = args.length > 2 ? Paths.get(args[2]) : null;
 
         JsonObject cryptoRoot = new JsonObject();
         cryptoRoot.addProperty("generated_at", Instant.now().toString());
@@ -128,6 +131,14 @@ public final class VectorGen {
         fudpRoot.add("proof_of_work", buildProofOfWorkVectors());
         fudpRoot.add("app_message", buildAppMessageVectors());
 
+        JsonObject domainRoot = new JsonObject();
+        domainRoot.addProperty("generated_at", Instant.now().toString());
+        domainRoot.addProperty("schema_version", 1);
+        domainRoot.addProperty("generator", "FreerForMac VectorGen (domain wire formats from the real FC-AJDK classes)");
+        // From the real FC-AJDK Hat class, so the Swift model is checked
+        // against the producer Android actually ships.
+        domainRoot.add("hat", HatRef.generate());
+
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(cryptoOut.toAbsolutePath().getParent());
         Files.writeString(cryptoOut, gson.toJson(cryptoRoot) + "\n");
@@ -136,6 +147,12 @@ public final class VectorGen {
         Files.createDirectories(fudpOut.toAbsolutePath().getParent());
         Files.writeString(fudpOut, gson.toJson(fudpRoot) + "\n");
         System.out.println("Wrote " + fudpOut.toAbsolutePath());
+
+        if (domainOut != null) {
+            Files.createDirectories(domainOut.toAbsolutePath().getParent());
+            Files.writeString(domainOut, gson.toJson(domainRoot) + "\n");
+            System.out.println("Wrote " + domainOut.toAbsolutePath());
+        }
     }
 
     private static JsonObject buildSampleKey() {

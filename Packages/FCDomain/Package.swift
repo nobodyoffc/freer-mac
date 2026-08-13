@@ -17,6 +17,12 @@ let package = Package(
             name: "FCDomain",
             dependencies: ["FCCore", "FCTransport", "FCStorage"]
         ),
-        .testTarget(name: "FCDomainTests", dependencies: ["FCDomain"])
+        .testTarget(
+            name: "FCDomainTests",
+            dependencies: ["FCDomain"],
+            resources: [
+                .process("Resources/domainVectors.json")
+            ]
+        )
     ]
 )

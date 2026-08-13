@@ -195,6 +195,7 @@ public final class ActiveSession {
     public lazy var preferences: PreferencesStore = PreferencesStore(kv: storage)
     public lazy var contacts: ContactsStore = ContactsStore(kv: storage)
     public lazy var secrets: SecretsStore  = SecretsStore(kv: storage)
+    public lazy var hats: HatsStore        = HatsStore(kv: storage)
     public lazy var keys: KeysStore        = KeysStore(kv: storage)
     public lazy var cashes: CashesStore    = CashesStore(kv: storage)
     public lazy var recentActivity: RecentActivityStore = RecentActivityStore(kv: storage)
