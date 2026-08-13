@@ -27,7 +27,7 @@ import FCCore
 /// `id` is the DID: for file data, the hex `sha256x2` of the content;
 /// for a HAT with no content id of its own, whatever
 /// ``checkIdWithCreate()`` derives.
-public struct Hat: Codable, Equatable, Sendable {
+public struct Hat: Codable, Equatable, Sendable, Identifiable {
 
     /// Lifecycle state. Serialized by name (`"ACTIVE"`), matching
     /// Gson's default enum handling; the byte numbers are kept for
@@ -191,6 +191,27 @@ public struct Hat: Codable, Equatable, Sendable {
 
     /// First declared MIME type, if any.
     public var mimeType: String? { types?.first }
+
+    /// Case-insensitive substring match across every field Android's
+    /// `HatManager.searchFromList` indexes. Lives here rather than on
+    /// the store so a list already in memory can filter as the user
+    /// types, without a round trip per keystroke.
+    public func matches(query: String) -> Bool {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return false }
+        func hit(_ s: String?) -> Bool {
+            guard let s else { return false }
+            return s.lowercased().contains(needle)
+        }
+        func hitList(_ list: [String]?) -> Bool {
+            guard let list else { return false }
+            return list.contains { $0.lowercased().contains(needle) }
+        }
+        return hit(id) || hit(name) || hit(desc)
+            || hitList(types) || hitList(aids) || hitList(pids)
+            || hit(srcDid) || hit(preDid) || hit(tDid) || hit(rawDid)
+            || hitList(locas)
+    }
 
     /// Locations that are remote DISK services (`fudp://` or `(sid)`).
     public var remoteLocas: [String] {

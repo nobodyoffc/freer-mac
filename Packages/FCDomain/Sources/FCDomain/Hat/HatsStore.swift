@@ -259,17 +259,6 @@ public struct HatsStore {
     }
 
     static func matches(_ hat: Hat, needle: String) -> Bool {
-        func hit(_ s: String?) -> Bool {
-            guard let s else { return false }
-            return s.lowercased().contains(needle)
-        }
-        func hitList(_ list: [String]?) -> Bool {
-            guard let list else { return false }
-            return list.contains { $0.lowercased().contains(needle) }
-        }
-        return hit(hat.id) || hit(hat.name) || hit(hat.desc)
-            || hitList(hat.types) || hitList(hat.aids) || hitList(hat.pids)
-            || hit(hat.srcDid) || hit(hat.preDid) || hit(hat.tDid) || hit(hat.rawDid)
-            || hitList(hat.locas)
+        hat.matches(query: needle)
     }
 }
