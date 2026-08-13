@@ -87,7 +87,9 @@ public struct ResponseMessage: Equatable, Sendable {
 
     public init(statusCode: UInt16, data: Data = Data()) {
         self.statusCode = statusCode
-        self.data = Data(data)
+        // Direct assignment (CoW gives value semantics): `data` may be
+        // a slice of a file-mapped download that must not be copied.
+        self.data = data
     }
 
     public init(status: Status, data: Data = Data()) {
@@ -105,13 +107,15 @@ public struct ResponseMessage: Equatable, Sendable {
         return out
     }
 
+    /// Parse a wrapper. `data` (and the returned `.data`) may be a
+    /// slice of a file-mapped download — indexing is relative and no
+    /// full copy is made.
     public static func parse(_ data: Data) throws -> ResponseMessage {
         guard data.count >= 2 else {
             throw AppMessageCodec.Failure.truncated(needed: 2, got: data.count)
         }
-        let bytes = [UInt8](data)
-        let status = (UInt16(bytes[0]) << 8) | UInt16(bytes[1])
-        let inner = Data(bytes[2..<bytes.count])
-        return ResponseMessage(statusCode: status, data: inner)
+        let base = data.startIndex
+        let status = (UInt16(data[base]) << 8) | UInt16(data[base + 1])
+        return ResponseMessage(statusCode: status, data: data[(base + 2)...])
     }
 }

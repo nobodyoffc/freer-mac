@@ -52,4 +52,22 @@ final class HashesTests: XCTestCase {
         let pubkey = Data(fromHex: vectors.sampleKey.pubkeyHex)
         XCTAssertEqual(Hash.hash160(pubkey).hex, vectors.sampleKey.pubkeyHash160Hex)
     }
+
+    func testStreamingFileDoubleSha256MatchesInMemory() throws {
+        // The streaming file variant (DID computation for HAT/DISK
+        // uploads) must agree with the in-memory hash. 3 MiB spans
+        // multiple 1 MiB read chunks including a partial tail.
+        var content = Data(capacity: 3 * 1024 * 1024 + 17)
+        var byte: UInt8 = 0
+        while content.count < 3 * 1024 * 1024 + 17 {
+            content.append(byte)
+            byte = byte &+ 41
+        }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hash-file-test-\(UUID().uuidString).bin")
+        try content.write(to: url)
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        XCTAssertEqual(try Hash.doubleSha256(fileAt: url), Hash.doubleSha256(content))
+    }
 }

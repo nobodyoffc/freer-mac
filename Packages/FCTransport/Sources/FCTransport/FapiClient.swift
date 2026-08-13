@@ -1,4 +1,5 @@
 import Foundation
+import FCCore
 
 /// Surface that any FAPI-speaking client exposes. Extracted as a
 /// protocol so domain-layer services can be unit-tested with an
@@ -198,5 +199,286 @@ public final class FapiClient: FapiCalling {
         }
 
         return Reply(response: response, binary: bin, messageId: messageId)
+    }
+}
+
+// MARK: - file transfer (Phase 8.4.1)
+
+extension FapiClient {
+
+    /// Baseline idle budget for file transfers. The effective budget
+    /// grows with the transfer size (1 s per 100 KB, covering
+    /// server-side hashing/storing), and is refreshed by ANY sign of
+    /// life from the peer — ACKs while the upload drains, response
+    /// bytes arriving — so only real silence times out.
+    public static let transferIdleTimeoutMs: Int64 = 30_000
+
+    /// Send a binary-operation request (`disk.put` / `disk.carve`)
+    /// whose body is streamed from `fileURL` — two sequential passes
+    /// over the file (hash, then send), never resident in memory.
+    ///
+    /// - parameters:
+    ///   - progress: cumulative payload bytes handed to the network,
+    ///     clamped to the file size.
+    @discardableResult
+    public func callUploadingFile(
+        api: String,
+        params: Data? = nil,
+        sid: String? = nil,
+        via: String? = nil,
+        maxCost: Int64? = nil,
+        fileURL: URL,
+        idleTimeoutMs: Int64 = FapiClient.transferIdleTimeoutMs,
+        progress: (@Sendable (Int64, Int64) -> Void)? = nil
+    ) async throws -> Reply {
+        let attrs: [FileAttributeKey: Any]
+        do {
+            attrs = try FileManager.default.attributesOfItem(atPath: fileURL.path)
+        } catch {
+            throw Failure.underlying(error)
+        }
+        let fileSize = (attrs[.size] as? NSNumber)?.int64Value ?? 0
+
+        // Pass 1: content hash (the server verifies the upload against it).
+        let dataHash: String
+        do {
+            dataHash = try Hash.doubleSha256(fileAt: fileURL)
+                .map { String(format: "%02x", $0) }.joined()
+        } catch {
+            throw Failure.underlying(error)
+        }
+
+        let request = FapiRequest(
+            id: FapiRequest.generateId(),
+            api: api,
+            sid: sid,
+            via: via,
+            params: params,
+            dataSize: fileSize,
+            dataHash: dataHash,
+            maxCost: maxCost
+        )
+
+        let unifiedHeader: Data
+        do {
+            unifiedHeader = try UnifiedCodec.encodeRequestHeaderOnly(request)
+        } catch let e as UnifiedCodec.Failure {
+            throw Failure.codec(e)
+        } catch {
+            throw Failure.underlying(error)
+        }
+        // FUDP-layer wrapper prefix: varint(sidLen) + sid + unified
+        // header. The file bytes complete the RequestMessage.data.
+        let wrapperPrefix = RequestMessage(sid: request.sid ?? "", data: unifiedHeader).encode()
+
+        let messageId = Int64.random(in: 1...Int64.max)
+        let handle: FileHandle
+        do {
+            handle = try FileHandle(forReadingFrom: fileURL)
+        } catch {
+            throw Failure.underlying(error)
+        }
+        defer { try? handle.close() }
+
+        // Pass 2: stream the request. Progress excludes the envelope/
+        // header prefix so callers can render sent/total of the file.
+        let prefixLen = Int64(wrapperPrefix.count)
+        let fileProgress: (@Sendable (Int64) -> Void)?
+        if let progress {
+            fileProgress = { sent in
+                progress(min(max(0, sent - prefixLen), fileSize), fileSize)
+            }
+        } else {
+            fileProgress = nil
+        }
+        try await fudpSend { fudp in
+            try await fudp.sendMessageStreaming(
+                type: .request,
+                messageId: messageId,
+                payloadPrefix: wrapperPrefix,
+                fileHandle: handle,
+                fileLength: fileSize,
+                progress: fileProgress
+            )
+        }
+
+        // Idle budget scaled by size: base + 1 s per 100 KB.
+        let idleBudget = idleTimeoutMs + (fileSize / 102_400) * 1000
+        let envelope = try await receiveRefreshedByActivity(
+            messageId: messageId, idleTimeoutMs: idleBudget)
+        return try decodeReply(envelope: envelope, request: request, messageId: messageId)
+    }
+
+    /// Perform a call whose response carries a large binary body
+    /// (`disk.get`), writing the binary straight to `outputURL`. The
+    /// transport spills oversized responses to a temp file and every
+    /// decode layer slices rather than copies, so the content stays
+    /// file-backed end to end. Returns the metadata reply (its
+    /// `binary` is nil — the body is on disk).
+    @discardableResult
+    public func callDownloadingToFile(
+        api: String,
+        params: Data? = nil,
+        fcdsl: Data? = nil,
+        sid: String? = nil,
+        via: String? = nil,
+        maxCost: Int64? = nil,
+        outputURL: URL,
+        idleTimeoutMs: Int64 = FapiClient.transferIdleTimeoutMs,
+        progress: (@Sendable (Int64) -> Void)? = nil
+    ) async throws -> Reply {
+        let request = FapiRequest(
+            id: FapiRequest.generateId(),
+            api: api,
+            sid: sid,
+            via: via,
+            fcdsl: fcdsl,
+            params: params,
+            dataSize: nil,
+            dataHash: nil,
+            maxCost: maxCost
+        )
+        let unified: Data
+        do {
+            unified = try UnifiedCodec.encodeRequest(request, binary: nil)
+        } catch let e as UnifiedCodec.Failure {
+            throw Failure.codec(e)
+        } catch {
+            throw Failure.underlying(error)
+        }
+        let wrapped = RequestMessage(sid: request.sid ?? "", data: unified).encode()
+        let messageId = Int64.random(in: 1...Int64.max)
+
+        // Cumulative-progress adapter over the pump's per-chunk counts.
+        if let progress {
+            let counter = ByteCounter()
+            fudp.setInboundProgressHandler { newBytes in
+                progress(counter.add(Int64(newBytes)))
+            }
+        }
+        defer { fudp.setInboundProgressHandler(nil) }
+
+        try await fudpSend { fudp in
+            try await fudp.send(AppMessageEnvelope(
+                type: .request,
+                messageId: messageId,
+                payload: wrapped
+            ))
+        }
+
+        let envelope = try await receiveRefreshedByActivity(
+            messageId: messageId, idleTimeoutMs: idleTimeoutMs)
+        let reply = try decodeReply(envelope: envelope, request: request, messageId: messageId)
+
+        // Stream the binary body (possibly a file-mapped slice) into
+        // the output file in bounded chunks.
+        let binary = reply.binary ?? Data()
+        do {
+            let dir = outputURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            FileManager.default.createFile(atPath: outputURL.path, contents: nil)
+            let out = try FileHandle(forWritingTo: outputURL)
+            defer { try? out.close() }
+            try out.truncate(atOffset: 0)
+            var idx = binary.startIndex
+            let step = 1 << 20
+            while idx < binary.endIndex {
+                let end = binary.index(idx, offsetBy: step, limitedBy: binary.endIndex) ?? binary.endIndex
+                try out.write(contentsOf: binary[idx..<end])
+                idx = end
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: outputURL)
+            throw Failure.underlying(error)
+        }
+
+        return Reply(response: reply.response, binary: nil, messageId: messageId)
+    }
+
+    // MARK: - private plumbing
+
+    /// The concrete `FudpClient`, needed for the streaming/progress
+    /// surface that `FapiCalling` deliberately doesn't expose.
+    private func fudpSend(_ body: (FudpClient) async throws -> Void) async throws {
+        do {
+            try await body(fudp)
+        } catch let e as FudpClient.Failure {
+            throw Failure.underlying(e)
+        }
+    }
+
+    /// Wait for the matching RESPONSE with an idle-based deadline: the
+    /// budget measures SILENCE, not wall time. `PeerConnection.touch()`
+    /// runs on every valid inbound packet (ACKs included), so a slow
+    /// but live transfer never times out mid-flight.
+    private func receiveRefreshedByActivity(
+        messageId: Int64,
+        idleTimeoutMs: Int64
+    ) async throws -> AppMessageEnvelope {
+        let sliceMs = 1_000
+        // The clock starts now — pre-send activity shouldn't count.
+        var lastSeen = PeerConnection.currentTimeMillis()
+        while true {
+            do {
+                return try await fudp.receive(matching: messageId, timeoutMs: sliceMs)
+            } catch FudpClient.Failure.timeout {
+                let activity = fudp.connection.lastActivityMs
+                if activity > lastSeen { lastSeen = activity }
+                if PeerConnection.currentTimeMillis() - lastSeen >= idleTimeoutMs {
+                    throw Failure.underlying(FudpClient.Failure.timeout)
+                }
+            } catch let e as FudpClient.Failure {
+                throw Failure.underlying(e)
+            }
+        }
+    }
+
+    /// Shared response unwrap: transport status → UnifiedCodec →
+    /// requestId echo check. Slice-preserving throughout.
+    private func decodeReply(
+        envelope: AppMessageEnvelope,
+        request: FapiRequest,
+        messageId: Int64
+    ) throws -> Reply {
+        guard envelope.type == .response else {
+            throw Failure.unexpectedType(envelope.type)
+        }
+        let outer: ResponseMessage
+        do {
+            outer = try ResponseMessage.parse(envelope.payload)
+        } catch {
+            throw Failure.underlying(error)
+        }
+        if !outer.isSuccess {
+            let body = String(data: outer.data, encoding: .utf8) ?? "<\(outer.data.count) B binary>"
+            throw Failure.transportStatus(code: outer.statusCode, body: body)
+        }
+        let response: FapiResponse
+        let bin: Data?
+        do {
+            (response, bin) = try UnifiedCodec.decodeResponse(outer.data)
+        } catch let e as UnifiedCodec.Failure {
+            throw Failure.codec(e)
+        } catch {
+            throw Failure.underlying(error)
+        }
+        if let sentId = request.id,
+           let gotId = response.requestId,
+           gotId != sentId {
+            throw Failure.requestIdMismatch(sent: sentId, got: gotId)
+        }
+        return Reply(response: response, binary: bin, messageId: messageId)
+    }
+}
+
+/// Tiny thread-safe accumulator for cumulative progress reporting.
+private final class ByteCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var total: Int64 = 0
+
+    func add(_ n: Int64) -> Int64 {
+        lock.lock(); defer { lock.unlock() }
+        total += n
+        return total
     }
 }

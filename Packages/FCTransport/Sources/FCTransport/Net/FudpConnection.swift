@@ -1,6 +1,16 @@
 import Foundation
 import Network
 
+/// Abstraction over a datagram pipe to one peer. `FudpConnection` is
+/// the production conformance (UDP via `NWConnection`); tests inject an
+/// in-process fake to exercise the client's reliability machinery
+/// (ACK processing, retransmission, congestion gating) without sockets.
+public protocol DatagramTransport: Sendable {
+    var datagrams: AsyncStream<FudpConnection.Datagram> { get }
+    func send(_ data: Data) async throws
+    func close()
+}
+
 /// Single-peer UDP connection for client-side use. Wraps an
 /// `NWConnection` (not an `NWListener`), so send and receive share one
 /// kernel socket and the server's reply arrives on the same UDP flow
@@ -10,10 +20,14 @@ import Network
 /// Use `FudpSocket` when you need to *receive from any peer* (server
 /// role). Use `FudpConnection` when you're talking to one known peer
 /// (client role) — it's simpler and avoids the source-port asymmetry.
-public final class FudpConnection: @unchecked Sendable {
+public final class FudpConnection: DatagramTransport, @unchecked Sendable {
 
     public struct Datagram: Sendable {
         public let data: Data
+
+        public init(data: Data) {
+            self.data = data
+        }
     }
 
     public enum Failure: Error, CustomStringConvertible {

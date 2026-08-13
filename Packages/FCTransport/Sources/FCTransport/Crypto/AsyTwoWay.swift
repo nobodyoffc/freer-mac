@@ -182,16 +182,35 @@ public enum AsyTwoWay {
 
     // MARK: - key derivation
 
+    /// F2: LRU cache for the ECDH shared secret. The secret depends
+    /// only on the key pair — not the per-packet IV — so during a bulk
+    /// transfer every packet to/from the same peer reuses one ECDH
+    /// (~0.8 ms each on this hardware; uncached it dominates transfer
+    /// throughput). Cap mirrors the Java repair (512 entries).
+    private static let ecdhCache = EcdhCache(capacity: 512)
+
     /// `symKey = HKDF-SHA512(ikm = ECDH(localPriv, peerPub),
     ///                       salt = iv, info = "hkdf", L = 32)`
     private static func deriveSymKey(localPrivkey: Data, peerPubkey: Data, iv: Data) throws -> Data {
+        // Cache key: digest of the pair, so raw private keys are never
+        // used as dictionary keys.
+        var keyMaterial = Data(capacity: localPrivkey.count + peerPubkey.count)
+        keyMaterial.append(localPrivkey)
+        keyMaterial.append(peerPubkey)
+        let cacheKey = Hash.sha256(keyMaterial)
+
         let sharedSecret: Data
-        do {
-            sharedSecret = try Secp256k1.sharedSecretX(
-                privateKey: localPrivkey, publicKey: peerPubkey
-            )
-        } catch {
-            throw Failure.ecdhFailed(underlying: error)
+        if let cached = ecdhCache.lookup(cacheKey) {
+            sharedSecret = cached
+        } else {
+            do {
+                sharedSecret = try Secp256k1.sharedSecretX(
+                    privateKey: localPrivkey, publicKey: peerPubkey
+                )
+            } catch {
+                throw Failure.ecdhFailed(underlying: error)
+            }
+            ecdhCache.store(cacheKey, sharedSecret)
         }
         return Hkdf.sha512(
             ikm: sharedSecret,
@@ -199,5 +218,42 @@ public enum AsyTwoWay {
             info: hkdfInfo,
             outputLength: 32
         )
+    }
+}
+
+/// Bounded LRU for ECDH shared secrets (AsyTwoWay F2).
+private final class EcdhCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var map: [Data: Data] = [:]
+    private var order: [Data] = []
+    private let capacity: Int
+
+    init(capacity: Int) {
+        self.capacity = capacity
+    }
+
+    func lookup(_ key: Data) -> Data? {
+        lock.lock(); defer { lock.unlock() }
+        guard let value = map[key] else { return nil }
+        // Touch: move to most-recently-used. O(entries) but the cap is
+        // small and the win (skipping an EC multiply) is three orders
+        // of magnitude larger.
+        if let idx = order.firstIndex(of: key) {
+            order.remove(at: idx)
+            order.append(key)
+        }
+        return value
+    }
+
+    func store(_ key: Data, _ value: Data) {
+        lock.lock(); defer { lock.unlock() }
+        if map[key] == nil {
+            order.append(key)
+            if order.count > capacity {
+                let evicted = order.removeFirst()
+                map.removeValue(forKey: evicted)
+            }
+        }
+        map[key] = value
     }
 }

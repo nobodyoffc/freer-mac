@@ -70,6 +70,16 @@ public enum UnifiedCodec {
         return try encode(headerDict: dict, binary: binary)
     }
 
+    /// Encode ONLY the `4B headerLen + headerJson` prefix of a request
+    /// — the streaming-upload path appends the binary body from a file
+    /// afterwards, never materialising it (mirror of the Java
+    /// `UnifiedCodec.encodeRequestHeaderOnly`). Set `dataSize` and
+    /// `dataHash` on the request beforehand; nothing is auto-derived
+    /// here since there is no in-memory binary to measure.
+    public static func encodeRequestHeaderOnly(_ request: FapiRequest) throws -> Data {
+        try encodeRequest(request, binary: nil)
+    }
+
     public static func decodeRequest(_ data: Data) throws -> (FapiRequest, binary: Data?) {
         let (headerDict, binary) = try splitHeaderAndBinary(data)
         var req = FapiRequest()
@@ -150,21 +160,26 @@ public enum UnifiedCodec {
         return out
     }
 
+    /// Split `4B headerLen + json + binary`. The returned binary is a
+    /// **slice** of the input (relative indexing, no copy) — a
+    /// file-mapped 100 MB download stays file-backed all the way to
+    /// the caller streaming it into its output file.
     private static func splitHeaderAndBinary(_ data: Data) throws -> (header: [String: Any], binary: Data?) {
         guard data.count >= headerLengthFieldSize else {
             throw Failure.truncated(needed: headerLengthFieldSize, got: data.count)
         }
-        let bytes = [UInt8](data)
+        let base = data.startIndex
         let headerLen = Int(
-            (UInt32(bytes[0]) << 24) |
-            (UInt32(bytes[1]) << 16) |
-            (UInt32(bytes[2]) <<  8) |
-             UInt32(bytes[3])
+            (UInt32(data[base])     << 24) |
+            (UInt32(data[base + 1]) << 16) |
+            (UInt32(data[base + 2]) <<  8) |
+             UInt32(data[base + 3])
         )
-        guard headerLen >= 0, headerLen <= bytes.count - 4 else {
+        guard headerLen >= 0, headerLen <= data.count - 4 else {
             throw Failure.invalidHeaderLength(headerLen)
         }
-        let jsonBytes = Data(bytes[4..<(4 + headerLen)])
+        let jsonStart = base + 4
+        let jsonBytes = data[jsonStart..<(jsonStart + headerLen)]
         let parsed: Any
         do {
             parsed = try JSONSerialization.jsonObject(with: jsonBytes, options: [])
@@ -175,8 +190,8 @@ public enum UnifiedCodec {
             throw Failure.headerNotObject
         }
         let binary: Data?
-        if bytes.count > 4 + headerLen {
-            binary = Data(bytes[(4 + headerLen)..<bytes.count])
+        if data.endIndex > jsonStart + headerLen {
+            binary = data[(jsonStart + headerLen)...]
         } else {
             binary = nil
         }

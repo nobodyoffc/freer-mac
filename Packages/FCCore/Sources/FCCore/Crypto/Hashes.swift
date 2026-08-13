@@ -15,6 +15,21 @@ public enum Hash {
         sha256(sha256(message))
     }
 
+    /// Streaming double-SHA-256 of a file — the FCH DID of its content
+    /// (`Hash.sha256x2Bytes(File)` in the Java stack). Reads in 1 MiB
+    /// chunks so hashing a multi-GB file never loads it into memory.
+    public static func doubleSha256(fileAt url: URL) throws -> Data {
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+        var hasher = CryptoKit.SHA256()
+        let chunkSize = 1 << 20
+        while true {
+            guard let chunk = try handle.read(upToCount: chunkSize), !chunk.isEmpty else { break }
+            hasher.update(data: chunk)
+        }
+        return sha256(Data(hasher.finalize()))
+    }
+
     public static func ripemd160(_ message: Data) -> Data {
         RIPEMD160.digest(message)
     }
