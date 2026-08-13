@@ -50,6 +50,10 @@ public final class ActiveSession {
     public private(set) var liveFid: String
 
     public let storage: EncryptedKVStore
+    /// Where this main's app-managed file copies live (downloads and
+    /// materialized copies). Sits beside the per-main store, so file
+    /// bytes inherit the same identity isolation the database has.
+    public let dataDirectory: URL
     /// The FAPI client used by ``wallet`` and any other domain
     /// service that talks to a server. Mutable so the app shell can
     /// swap a stub for a real `FapiClient` after the user configures
@@ -65,6 +69,7 @@ public final class ActiveSession {
         setting: Setting,
         settingUrl: URL,
         storage: EncryptedKVStore,
+        dataDirectory: URL,
         fapi: any FapiCalling
     ) {
         self.configureSession = configureSession
@@ -73,6 +78,7 @@ public final class ActiveSession {
         self.liveFid = mainFid
         self.settingUrl = settingUrl
         self.storage = storage
+        self.dataDirectory = dataDirectory
         self.fapi = fapi
     }
 
@@ -196,6 +202,8 @@ public final class ActiveSession {
     public lazy var contacts: ContactsStore = ContactsStore(kv: storage)
     public lazy var secrets: SecretsStore  = SecretsStore(kv: storage)
     public lazy var hats: HatsStore        = HatsStore(kv: storage)
+    /// Reference-mode file layer over ``hats``.
+    public lazy var files: FileVault       = FileVault(hats: hats, dataDirectory: dataDirectory)
     public lazy var keys: KeysStore        = KeysStore(kv: storage)
     public lazy var cashes: CashesStore    = CashesStore(kv: storage)
     public lazy var recentActivity: RecentActivityStore = RecentActivityStore(kv: storage)

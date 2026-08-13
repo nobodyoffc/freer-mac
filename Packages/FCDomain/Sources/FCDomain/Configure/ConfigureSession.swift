@@ -236,6 +236,7 @@ public final class ConfigureSession {
             setting: setting,
             settingUrl: settingUrl,
             storage: kv,
+            dataDirectory: dir.appendingPathComponent("data", isDirectory: true),
             fapi: fapi
         )
     }
