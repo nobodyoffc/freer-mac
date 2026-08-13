@@ -33,6 +33,7 @@ enum TestVectors {
         let transaction: [TransactionCase]
         let bchSighash: [BchSighashCase]
         let bchSignedTx: [BchSignedTxCase]
+        let diskCipherFile: [DiskCipherFileCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -59,6 +60,32 @@ enum TestVectors {
             case transaction
             case bchSighash = "bch_sighash"
             case bchSignedTx = "bch_signed_tx"
+            case diskCipherFile = "disk_cipher_file"
+        }
+    }
+
+    /// One FAPI DISK cipher-file vector, produced by the real FC-AJDK
+    /// `Encryptor.encryptFileBySymkey` (see tools/vector-gen FileCipherRef).
+    struct DiskCipherFileCase: Decodable {
+        let label: String
+        let symkeyHex: String
+        let ivHex: String
+        let plaintextHex: String
+        /// The complete cipher file: JSON header + ciphertext + tag.
+        let cipherFileHex: String
+        let headerJson: String
+        let headerLength: Int
+        let bodyHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case symkeyHex = "symkey_hex"
+            case ivHex = "iv_hex"
+            case plaintextHex = "plaintext_hex"
+            case cipherFileHex = "cipher_file_hex"
+            case headerJson = "header_json"
+            case headerLength = "header_length"
+            case bodyHex = "body_hex"
         }
     }
 

@@ -108,6 +108,9 @@ public final class VectorGen {
         cryptoRoot.add("transaction", buildTransactionVectors());
         cryptoRoot.add("bch_sighash", buildBchSighashVectors());
         cryptoRoot.add("bch_signed_tx", buildBchSignedTxVectors());
+        // Produced by the REAL FC-AJDK Encryptor/Decryptor (see FileCipherRef),
+        // so the Swift FileCipher is checked against the actual wire producer.
+        cryptoRoot.add("disk_cipher_file", FileCipherRef.generate());
 
         JsonObject fudpRoot = new JsonObject();
         fudpRoot.addProperty("generated_at", Instant.now().toString());
@@ -127,11 +130,11 @@ public final class VectorGen {
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(cryptoOut.toAbsolutePath().getParent());
-        Files.writeString(cryptoOut, gson.toJson(cryptoRoot));
+        Files.writeString(cryptoOut, gson.toJson(cryptoRoot) + "\n");
         System.out.println("Wrote " + cryptoOut.toAbsolutePath());
 
         Files.createDirectories(fudpOut.toAbsolutePath().getParent());
-        Files.writeString(fudpOut, gson.toJson(fudpRoot));
+        Files.writeString(fudpOut, gson.toJson(fudpRoot) + "\n");
         System.out.println("Wrote " + fudpOut.toAbsolutePath());
     }
 
