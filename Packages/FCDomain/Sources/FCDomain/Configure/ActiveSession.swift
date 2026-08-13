@@ -227,6 +227,27 @@ public final class ActiveSession {
         SecretService(fapi: fapi)
     }
 
+    /// DISK endpoints of the configured FAPI service.
+    public var disk: DiskService {
+        DiskService(fapi: fapi)
+    }
+
+    /// The two-HAT upload/download flows over ``disk``, ``hats`` and
+    /// ``files``. Computed so a `setFapi(_:)` swap is picked up.
+    ///
+    /// `serviceSid` tags new uploads with a `(sid)` location, which
+    /// survives the server changing address; it comes from the saved
+    /// preferences when the user has pinned a DISK provider.
+    public var hatSync: HatSyncService {
+        HatSyncService(
+            disk: disk,
+            hats: hats,
+            files: files,
+            serviceSid: try? preferences.load().preferredDiskServiceSid,
+            serviceUrl: try? preferences.load().preferredFapiService
+        )
+    }
+
     // MARK: - mutating fapi
 
     /// Replace the active FAPI client. Used by the app shell after

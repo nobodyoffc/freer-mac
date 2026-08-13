@@ -18,6 +18,12 @@ public struct Preferences: Codable, Equatable, Sendable {
     /// base-64 which is annoying to inspect by hand).
     public var preferredFapiService: String?
     public var preferredFapiServicePubkeyHex: String?
+    /// Service id of the DISK provider new uploads are tagged with.
+    /// A `(sid)` location survives the server changing address — the
+    /// client re-resolves it — so it is preferred over a raw
+    /// `fudp://host:port`. Nil until the user pins a provider, in
+    /// which case uploads fall back to the service URL.
+    public var preferredDiskServiceSid: String?
     public var theme: Theme?
     public var autoLockSeconds: Int?
 
@@ -31,12 +37,14 @@ public struct Preferences: Codable, Equatable, Sendable {
         version: Int = 1,
         preferredFapiService: String? = nil,
         preferredFapiServicePubkeyHex: String? = nil,
+        preferredDiskServiceSid: String? = nil,
         theme: Theme? = nil,
         autoLockSeconds: Int? = nil
     ) {
         self.version = version
         self.preferredFapiService = preferredFapiService
         self.preferredFapiServicePubkeyHex = preferredFapiServicePubkeyHex
+        self.preferredDiskServiceSid = preferredDiskServiceSid
         self.theme = theme
         self.autoLockSeconds = autoLockSeconds
     }

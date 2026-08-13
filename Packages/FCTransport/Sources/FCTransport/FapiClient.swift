@@ -23,6 +23,66 @@ public protocol FapiCalling: Sendable {
         maxCost: Int64?,
         timeoutMs: Int
     ) async throws -> FapiClient.Reply
+
+    /// Upload streamed from a file on disk (`disk.put` / `disk.carve`).
+    /// See ``FapiClient/callUploadingFile(api:params:sid:via:maxCost:fileURL:idleTimeoutMs:progress:)``.
+    func callUploadingFile(
+        api: String,
+        params: Data?,
+        sid: String?,
+        via: String?,
+        maxCost: Int64?,
+        fileURL: URL,
+        idleTimeoutMs: Int64,
+        progress: (@Sendable (Int64, Int64) -> Void)?
+    ) async throws -> FapiClient.Reply
+
+    /// Download whose binary body is written straight to a file
+    /// (`disk.get`). See
+    /// ``FapiClient/callDownloadingToFile(api:params:fcdsl:sid:via:maxCost:outputURL:idleTimeoutMs:progress:)``.
+    func callDownloadingToFile(
+        api: String,
+        params: Data?,
+        fcdsl: Data?,
+        sid: String?,
+        via: String?,
+        maxCost: Int64?,
+        outputURL: URL,
+        idleTimeoutMs: Int64,
+        progress: (@Sendable (Int64) -> Void)?
+    ) async throws -> FapiClient.Reply
+}
+
+extension FapiCalling {
+    /// Clients that speak only the JSON call surface — in-process test
+    /// stubs, mostly — inherit these and fail loudly rather than
+    /// silently pretending a transfer happened.
+    public func callUploadingFile(
+        api: String,
+        params: Data? = nil,
+        sid: String? = nil,
+        via: String? = nil,
+        maxCost: Int64? = nil,
+        fileURL: URL,
+        idleTimeoutMs: Int64 = FapiClient.transferIdleTimeoutMs,
+        progress: (@Sendable (Int64, Int64) -> Void)? = nil
+    ) async throws -> FapiClient.Reply {
+        throw FapiClient.Failure.fileTransferUnsupported(api: api)
+    }
+
+    public func callDownloadingToFile(
+        api: String,
+        params: Data? = nil,
+        fcdsl: Data? = nil,
+        sid: String? = nil,
+        via: String? = nil,
+        maxCost: Int64? = nil,
+        outputURL: URL,
+        idleTimeoutMs: Int64 = FapiClient.transferIdleTimeoutMs,
+        progress: (@Sendable (Int64) -> Void)? = nil
+    ) async throws -> FapiClient.Reply {
+        throw FapiClient.Failure.fileTransferUnsupported(api: api)
+    }
 }
 
 /// Application-layer FAPI client. Sits on top of ``FudpClient`` and
@@ -52,6 +112,7 @@ public final class FapiClient: FapiCalling {
         case requestIdMismatch(sent: String, got: String)
         case codec(UnifiedCodec.Failure)
         case transportStatus(code: UInt16, body: String)
+        case fileTransferUnsupported(api: String)
         case underlying(Error)
 
         public var description: String {
@@ -64,6 +125,8 @@ public final class FapiClient: FapiCalling {
                 return "FapiClient: \(inner)"
             case let .transportStatus(code, body):
                 return "FapiClient: transport status \(code) — \(body)"
+            case .fileTransferUnsupported(let api):
+                return "FapiClient: this client cannot stream files (\(api))"
             case .underlying(let e):
                 return "FapiClient: \(e)"
             }
