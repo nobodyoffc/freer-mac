@@ -58,16 +58,16 @@ struct HomeView: View {
         }
     }
 
+    /// Driven entirely by ``WalletPane/allCases``, so a new pane shows
+    /// up here the moment it is added to the enum. Listing cases by
+    /// hand here once meant a whole pane shipped unreachable.
     private var sidebar: some View {
         List(selection: $selection) {
-            Section("Wallet") {
-                ForEach([WalletPane.overview, .send, .receive, .transactions]) { pane in
-                    Label(pane.title, systemImage: pane.systemImage).tag(pane)
-                }
-            }
-            Section("Network") {
-                ForEach([WalletPane.contacts, .secrets, .tools, .settings]) { pane in
-                    Label(pane.title, systemImage: pane.systemImage).tag(pane)
+            ForEach(WalletPane.Group.allCases) { group in
+                Section(group.rawValue) {
+                    ForEach(WalletPane.panes(in: group)) { pane in
+                        Label(pane.title, systemImage: pane.systemImage).tag(pane)
+                    }
                 }
             }
         }
