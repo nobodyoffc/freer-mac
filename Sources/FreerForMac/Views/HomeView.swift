@@ -87,6 +87,8 @@ struct HomeView: View {
             TransactionsView(session: session)
         case .contacts:
             ContactsView(session: session)
+        case .mail:
+            MailView(session: session)
         case .files:
             FilesView(session: session)
         case .secrets:

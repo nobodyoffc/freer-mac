@@ -19,6 +19,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
     case receive
     case transactions
     case contacts
+    case mail
     case files
     case secrets
     case tools
@@ -39,7 +40,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         switch self {
         case .overview, .send, .receive, .transactions:
             return .wallet
-        case .contacts, .files, .secrets, .tools, .settings:
+        case .contacts, .mail, .files, .secrets, .tools, .settings:
             return .network
         }
     }
@@ -56,6 +57,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .receive:      return "Receive"
         case .transactions: return "Transactions"
         case .contacts:     return "Contacts"
+        case .mail:         return "Mail"
         case .files:        return "Files"
         case .secrets:      return "Secrets"
         case .tools:        return "Tools"
@@ -70,6 +72,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .receive:      return "tray.and.arrow.down"
         case .transactions: return "list.bullet"
         case .contacts:     return "person.2"
+        case .mail:         return "envelope"
         case .files:        return "folder"
         case .secrets:      return "lock.shield"
         case .tools:        return "wrench.and.screwdriver"
