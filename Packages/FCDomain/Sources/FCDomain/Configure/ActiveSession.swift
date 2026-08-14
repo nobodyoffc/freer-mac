@@ -201,6 +201,7 @@ public final class ActiveSession {
     public lazy var preferences: PreferencesStore = PreferencesStore(kv: storage)
     public lazy var contacts: ContactsStore = ContactsStore(kv: storage)
     public lazy var secrets: SecretsStore  = SecretsStore(kv: storage)
+    public lazy var mails: MailsStore      = MailsStore(kv: storage)
     public lazy var hats: HatsStore        = HatsStore(kv: storage)
     /// Reference-mode file layer over ``hats``.
     public lazy var files: FileVault       = FileVault(hats: hats, dataDirectory: dataDirectory)

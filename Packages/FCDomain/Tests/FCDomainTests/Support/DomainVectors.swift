@@ -16,6 +16,7 @@ enum DomainVectors {
         let schemaVersion: Int
         let generator: String
         let hat: [HatCase]
+        let mail: [MailCase]
         let asyTwoWayEnvelope: AsyTwoWayRoot
 
         enum CodingKeys: String, CodingKey {
@@ -23,7 +24,30 @@ enum DomainVectors {
             case schemaVersion = "schema_version"
             case generator
             case hat
+            case mail
             case asyTwoWayEnvelope = "asy_two_way_envelope"
+        }
+    }
+
+    /// One `Mail` vector as the Android class produced it. Unlike `Hat`,
+    /// Mail has a single encoder — `JsonUtils.toJson` with HTML escaping
+    /// disabled — so its stored JSON and its id-source bytes differ only
+    /// by the presence of the `id` field.
+    struct MailCase: Decodable {
+        let label: String
+        /// `JsonUtils.toJson(mail)`.
+        let json: String
+        /// The exact bytes `checkIdWithCreate()` hashes (the object minus
+        /// its id).
+        let idSourceJson: String
+        /// The id that derivation assigns.
+        let derivedIdWithoutIdField: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case json
+            case idSourceJson = "id_source_json"
+            case derivedIdWithoutIdField = "derived_id_without_id_field"
         }
     }
 

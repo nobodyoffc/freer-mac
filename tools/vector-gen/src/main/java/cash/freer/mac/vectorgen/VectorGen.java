@@ -141,6 +141,7 @@ public final class VectorGen {
         // Produced by the REAL FC-AJDK Encryptor and round-tripped through its
         // Decryptor before being written — the AsyTwoWay envelope every mail
         // rides in (see AsyTwoWayRef).
+        domainRoot.add("mail", MailRef.generate());
         JsonObject asyTwoWay = AsyTwoWayRef.generate();
         AsyTwoWayRef.verify(asyTwoWay);
         domainRoot.add("asy_two_way_envelope", asyTwoWay);
