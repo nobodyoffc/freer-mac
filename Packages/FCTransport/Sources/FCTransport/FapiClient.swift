@@ -37,6 +37,31 @@ public protocol FapiCalling: Sendable {
         progress: (@Sendable (Int64, Int64) -> Void)?
     ) async throws -> FapiClient.Reply
 
+    /// A call whose binary body is small enough to hold in memory and
+    /// which the server checks against a content hash (`dock.put`).
+    ///
+    /// Distinct from ``call(api:params:fcdsl:binary:sid:via:maxCost:timeoutMs:)``
+    /// only in that it can stamp `dataSize` and `dataHash` on the
+    /// request, and distinct from
+    /// ``callUploadingFile(api:params:sid:via:maxCost:fileURL:idleTimeoutMs:progress:)``
+    /// in that it does not stream from disk. A chat message is a few
+    /// kilobytes, so streaming it would be all cost and no benefit.
+    ///
+    /// **The caller supplies the hash**, because which hash is right is
+    /// the *server endpoint's* business and the endpoints disagree:
+    /// `disk.put` wants a double SHA-256 and `dock.put` wants a single
+    /// one. Computing one here would mean picking a side.
+    func callWithHashedBinary(
+        api: String,
+        params: Data?,
+        binary: Data,
+        dataHash: String?,
+        sid: String?,
+        via: String?,
+        maxCost: Int64?,
+        timeoutMs: Int
+    ) async throws -> FapiClient.Reply
+
     /// Download whose binary body is written straight to a file
     /// (`disk.get`). See
     /// ``FapiClient/callDownloadingToFile(api:params:fcdsl:sid:via:maxCost:outputURL:idleTimeoutMs:progress:)``.
@@ -54,6 +79,30 @@ public protocol FapiCalling: Sendable {
 }
 
 extension FapiCalling {
+    /// Falls back to the plain binary call, **dropping the hash**.
+    ///
+    /// That is the right default for an in-process stub, which has no
+    /// server to satisfy and wants to see the bytes. It would be the
+    /// wrong behaviour for a real client, which is why ``FapiClient``
+    /// overrides it — and why this is a separate method rather than an
+    /// optional argument on `call`, where the silent drop would be
+    /// invisible at the call site.
+    public func callWithHashedBinary(
+        api: String,
+        params: Data? = nil,
+        binary: Data,
+        dataHash: String? = nil,
+        sid: String? = nil,
+        via: String? = nil,
+        maxCost: Int64? = nil,
+        timeoutMs: Int = 5_000
+    ) async throws -> FapiClient.Reply {
+        try await call(
+            api: api, params: params, fcdsl: nil, binary: binary,
+            sid: sid, via: via, maxCost: maxCost, timeoutMs: timeoutMs
+        )
+    }
+
     /// Clients that speak only the JSON call surface — in-process test
     /// stubs, mostly — inherit these and fail loudly rather than
     /// silently pretending a transfer happened.
@@ -187,6 +236,34 @@ public final class FapiClient: FapiCalling {
             maxCost: maxCost
         )
         return try await call(request: request, binary: binary, messageId: messageId, timeoutMs: timeoutMs)
+    }
+
+    /// The in-memory binary call, stamped with `dataSize` and the
+    /// caller's `dataHash` — see
+    /// ``FapiCalling/callWithHashedBinary(api:params:binary:dataHash:sid:via:maxCost:timeoutMs:)``.
+    @discardableResult
+    public func callWithHashedBinary(
+        api: String,
+        params: Data? = nil,
+        binary: Data,
+        dataHash: String? = nil,
+        sid: String? = nil,
+        via: String? = nil,
+        maxCost: Int64? = nil,
+        timeoutMs: Int = 5_000
+    ) async throws -> Reply {
+        let request = FapiRequest(
+            id: FapiRequest.generateId(),
+            api: api,
+            sid: sid,
+            via: via,
+            fcdsl: nil,
+            params: params,
+            dataSize: Int64(binary.count),
+            dataHash: dataHash,
+            maxCost: maxCost
+        )
+        return try await call(request: request, binary: binary, timeoutMs: timeoutMs)
     }
 
     /// Lower-level entry point for callers that build the

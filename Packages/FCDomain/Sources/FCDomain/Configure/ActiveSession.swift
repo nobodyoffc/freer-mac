@@ -228,6 +228,44 @@ public final class ActiveSession {
     /// Lazy, so its SID→URL cache survives across sends.
     public lazy var homeServices: HomeServiceResolver = HomeServiceResolver(fapi: fapi)
 
+    /// Store-and-forward against our own DOCK — whatever server ``fapi``
+    /// is pointed at. A put aimed at *someone else's* DOCK goes through
+    /// this one's forwarding, which is what `targetDockUrl` is for.
+    public var dockService: DockService { DockService(fapi: fapi) }
+
+    /// The loop that moves messages: drains the outbox onto a DOCK and
+    /// collects what one is holding for us.
+    public var courier: MessageCourier {
+        let teams = self.teams
+        let squares = self.squares
+        let rooms = self.rooms
+        return MessageCourier(
+            outbox: outbox,
+            messages: messages,
+            chat: chat,
+            peers: peers,
+            dock: dockService,
+            resolver: homeServices,
+            directory: DirectoryService(fapi: fapi),
+            groupHome: { targetId in
+                if let team = try? teams.get(id: targetId)?.home { return team }
+                if let square = try? squares.get(id: targetId)?.home { return square }
+                return try? rooms.get(id: targetId)?.home
+            }
+        )
+    }
+
+    /// Everything a DOCK fetch should ask for: this identity, plus every
+    /// group it belongs to — a team's messages are addressed to the
+    /// team, so asking only for our FID would collect none of them.
+    public func dockRecipientIds() throws -> [String] {
+        var ids = [liveFid]
+        ids += try teams.joined(by: liveFid).compactMap(\.id)
+        ids += try squares.joined(by: liveFid).compactMap(\.id)
+        ids += try rooms.active().filter { $0.isMember(liveFid) }.compactMap(\.id)
+        return ids
+    }
+
     /// The send/receive path the chat pane and the transport share.
     public var chat: ChatService {
         ChatService(

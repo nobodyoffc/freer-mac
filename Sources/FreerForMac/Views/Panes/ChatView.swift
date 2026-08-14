@@ -16,11 +16,11 @@ import FCUI
 /// ``Conversation`` and a page of ``ImMessage``, and the only place the
 /// flavour shows through is a badge and what the header offers to do.
 ///
-/// **Nothing is delivered yet.** Sending seals a message, files it, and
-/// puts it in the outbox, where it waits: the transport that empties the
-/// queue is Phase 9.2.4b. The pane says so on every pending row rather
-/// than drawing a checkmark it has not earned — a chat app that lies
-/// about delivery is worse than one that admits it cannot.
+/// **Delivery is store-and-forward.** Sending seals a message, files it
+/// and queues it; the courier then parks it at the recipient's DOCK,
+/// where it waits until they next collect. So "Sent" here means *the
+/// DOCK took it*, and nothing more — a checkmark that claimed the
+/// recipient had it would be a claim this route cannot make.
 struct ChatView: View {
     let session: ActiveSession
 
@@ -35,6 +35,7 @@ struct ChatView: View {
     @State private var showNewChat = false
     @State private var syncing = false
     @State private var syncSummary: String?
+    @State private var delivering = false
 
     /// Resolved once per recipient, then reused: a P2P send needs the
     /// other party's pubkey and it never changes.
@@ -126,6 +127,18 @@ struct ChatView: View {
             }
             .disabled(syncing)
             .help("Pull the teams and squares this FID belongs to from the chain")
+
+            Button {
+                Task { await exchange() }
+            } label: {
+                if delivering {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Label("Send & receive", systemImage: "arrow.up.arrow.down")
+                }
+            }
+            .disabled(delivering || !session.canSign)
+            .help("Park queued messages at their recipients' DOCKs, and collect whatever ours is holding for us")
 
             Button {
                 showNewChat = true
@@ -333,9 +346,10 @@ struct ChatView: View {
         switch message.status {
         case .pending, .none:
             Label("Queued", systemImage: "clock")
-                .help("Sealed and waiting in the outbox. Delivery arrives with the transport in Phase 9.2.4b.")
+                .help("Sealed and waiting in the outbox. It goes out on the next send.")
         case .sent:
             Label("Sent", systemImage: "checkmark")
+                .help("Parked at their DOCK. They have it when they next collect.")
         case .delivered:
             Label("Delivered", systemImage: "checkmark.circle")
         case .read:
@@ -450,10 +464,13 @@ struct ChatView: View {
                 _ = try session.chat.sendText(
                     text, in: conversation.id, as: session.liveFid, keys: keys
                 )
-                await MainActor.run {
-                    draft = ""
-                    openSelected()
-                }
+                await MainActor.run { draft = "" }
+                // Try to move it straight away; if that fails it stays
+                // queued and the next send-and-receive picks it up.
+                _ = try? await session.courier.drainOutbox(
+                    as: session.liveFid, ownDockUrl: nil
+                )
+                await MainActor.run { openSelected() }
             } catch {
                 await MainActor.run { sendError = String(describing: error) }
             }
@@ -474,6 +491,36 @@ struct ChatView: View {
         }
         await MainActor.run { pubkeys[conversation.targetId] = pubkey }
         return .init(privkey: privkey, recipientPubkey: pubkey)
+    }
+
+    /// One round of delivery in both directions.
+    private func exchange() async {
+        await MainActor.run { delivering = true; sendError = nil }
+        var parts: [String] = []
+        do {
+            let sent = try await session.courier.drainOutbox(
+                as: session.liveFid, ownDockUrl: nil
+            )
+            let received = try await session.courier.collect(
+                as: session.liveFid,
+                recipientIds: try session.dockRecipientIds(),
+                privkey: try? session.livePrikey()
+            )
+            if sent.attempted > 0 {
+                parts.append("sent \(sent.sent)/\(sent.attempted)")
+            }
+            if sent.failed > 0 { parts.append("\(sent.failed) failed") }
+            parts.append("received \(received.filed)")
+            if received.sealed > 0 { parts.append("\(received.sealed) need a key") }
+        } catch {
+            await MainActor.run { sendError = String(describing: error) }
+        }
+        await MainActor.run {
+            delivering = false
+            syncSummary = parts.isEmpty ? nil : parts.joined(separator: " · ")
+            reload()
+            openSelected()
+        }
     }
 
     private func syncGroups() async {
