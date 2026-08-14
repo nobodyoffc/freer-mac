@@ -29,13 +29,21 @@ public struct MailsStore {
     /// Store a mail, deriving its id first if it has none. The plaintext
     /// body is dropped on the way in — a stored mail is always sealed,
     /// whatever the caller happened to be holding.
+    ///
+    /// ``Mail/decrypted`` **is** kept. It is not plaintext but a fact
+    /// about key availability: whether the body opened the last time
+    /// anyone tried. Persisting it is what lets a list distinguish "not
+    /// opened yet" from "needs a key this identity doesn't have", and it
+    /// saves an ECDH per row on the next sync. Read it as a statement
+    /// about the key, never as "content is loaded" — that is
+    /// ``Mail/content`` being non-nil, which for a stored row it never
+    /// is.
     public func upsert(_ mail: Mail) throws {
         var m = mail
         m.checkIdWithCreate()
         guard let id = m.id else { return }
         if m.cipher != nil {
             m.content = nil
-            m.decrypted = nil
         }
         try inner.put(m, key: id)
     }

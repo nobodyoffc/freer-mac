@@ -228,6 +228,11 @@ public final class ActiveSession {
         SecretService(fapi: fapi)
     }
 
+    /// On-chain mail sync (`base.search` over entity `mail`).
+    public var mailService: MailService {
+        MailService(fapi: fapi)
+    }
+
     /// DISK endpoints of the configured FAPI service.
     public var disk: DiskService {
         DiskService(fapi: fapi)

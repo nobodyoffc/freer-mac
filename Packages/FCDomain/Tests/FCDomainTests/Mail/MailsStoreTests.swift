@@ -67,6 +67,10 @@ final class MailsStoreTests: XCTestCase {
 
     /// The store is the boundary the plaintext must not cross. Even
     /// handed a fully decrypted mail, it persists only the cipher.
+    ///
+    /// The `decrypted` flag survives, though: it says whether the body
+    /// opened, not what the body was, and a list needs it to tell "not
+    /// read yet" from "needs a key you don't have here".
     func testPlaintextBodyIsNeverPersisted() throws {
         var m = mail(id: "m1")
         m.content = "the body"
@@ -75,7 +79,7 @@ final class MailsStoreTests: XCTestCase {
 
         let loaded = try XCTUnwrap(try store.get(id: "m1"))
         XCTAssertNil(loaded.content)
-        XCTAssertNil(loaded.decrypted)
+        XCTAssertEqual(loaded.decrypted, true)
         XCTAssertEqual(loaded.cipher, "sealed")
     }
 
