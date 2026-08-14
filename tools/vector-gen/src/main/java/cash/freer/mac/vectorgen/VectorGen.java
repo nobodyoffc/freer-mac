@@ -138,6 +138,12 @@ public final class VectorGen {
         // From the real FC-AJDK Hat class, so the Swift model is checked
         // against the producer Android actually ships.
         domainRoot.add("hat", HatRef.generate());
+        // Produced by the REAL FC-AJDK Encryptor and round-tripped through its
+        // Decryptor before being written — the AsyTwoWay envelope every mail
+        // rides in (see AsyTwoWayRef).
+        JsonObject asyTwoWay = AsyTwoWayRef.generate();
+        AsyTwoWayRef.verify(asyTwoWay);
+        domainRoot.add("asy_two_way_envelope", asyTwoWay);
 
         Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
         Files.createDirectories(cryptoOut.toAbsolutePath().getParent());

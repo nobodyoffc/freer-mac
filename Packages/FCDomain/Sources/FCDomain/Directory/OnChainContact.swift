@@ -62,6 +62,7 @@ public enum AsyOneWayCipher {
         case badField(String)
         case decryptFailed(alg: String, underlying: Error)
         case plaintextNotJson(alg: String)
+        case badSum(alg: String)
 
         public var description: String {
             switch self {
@@ -77,6 +78,8 @@ public enum AsyOneWayCipher {
                 return "decryption failed (alg=\(alg)) — \(e)"
             case .plaintextNotJson(let alg):
                 return "decrypted plaintext is not the expected JSON (alg=\(alg)) — wrong key?"
+            case .badSum(let alg):
+                return "checksum mismatch (alg=\(alg)) — the ciphertext was altered or the key is wrong"
             }
         }
     }
@@ -86,7 +89,14 @@ public enum AsyOneWayCipher {
         var alg: String?
         var cipher: String?
         var pubkeyA: String?
+        /// Only present on AsyTwoWay envelopes, where the sender's key is
+        /// real rather than ephemeral and both sides must be recorded —
+        /// see ``AsyTwoWayCipher``.
+        var pubkeyB: String?
         var iv: String?
+        /// `sha256(symkey ‖ iv ‖ sha256x2(plaintext))[0..<4]`, emitted by
+        /// the Java encryptor for the non-AEAD algorithms only.
+        var sum: String?
     }
 
     // Display names the Java `AlgorithmId` serializes to.
@@ -174,7 +184,8 @@ public enum AsyOneWayCipher {
             return try decryptParts(
                 alg: env.alg ?? algP7,
                 pubkeyA: pubkeyA, iv: iv, cipher: cipher,
-                privkey: privkey
+                privkey: privkey,
+                sum: env.sum.flatMap { Data(fcHex: $0) }
             )
         }
 
@@ -204,16 +215,22 @@ public enum AsyOneWayCipher {
         return try decryptParts(
             alg: alg,
             pubkeyA: Data(pubkeyA), iv: Data(iv), cipher: Data(cipher),
-            privkey: privkey
+            privkey: privkey,
+            sum: sumLen == 0 ? nil : Data(bundle.suffix(sumLen))
         )
     }
 
+    /// - Parameter sum: the envelope's `sum`, when it carried one. Only the
+    ///   non-AEAD algorithms emit it, and it is the only integrity check they
+    ///   have — CBC will happily "decrypt" a tampered ciphertext into garbage
+    ///   whenever the corrupted final block still unpads.
     static func decryptParts(
         alg: String,
         pubkeyA: Data,
         iv: Data,
         cipher: Data,
-        privkey: Data
+        privkey: Data,
+        sum: Data? = nil
     ) throws -> Data {
         guard pubkeyA.count == 33 else { throw Failure.badField("pubkeyA") }
         let x: Data
@@ -247,19 +264,36 @@ public enum AsyOneWayCipher {
             guard iv.count == 16 else { throw Failure.badField("iv") }
             // Ecc256K1.sharedSecretToSymkey: SHA-512(iv ‖ secret)[0..<32],
             // secret in BigInteger minimal encoding.
-            let symkey = Data(SHA512.hash(data: iv + bigIntMinimal(x))).prefix(32)
-            return try cbcOpen(alg: alg, key: Data(symkey), iv: iv, cipher: cipher)
+            let symkey = Data(Data(SHA512.hash(data: iv + bigIntMinimal(x))).prefix(32))
+            let plaintext = try cbcOpen(alg: alg, key: symkey, iv: iv, cipher: cipher)
+            try verifySum(sum, alg: alg, symkey: symkey, iv: iv, plaintext: plaintext)
+            return plaintext
 
         case algP7:
             guard iv.count == 16 else { throw Failure.badField("iv") }
             // EccAes256K1P7.asyKeyToSymkey:
             // sha256(sha256(sha256(secret) ‖ iv)).
             let symkey = Hash.sha256(Hash.sha256(Hash.sha256(bigIntMinimal(x)) + iv))
+            // No sum check: this legacy algorithm computes its sum over the
+            // *ciphertext* via `EccAes256K1P7.getSum4`, not over the plaintext
+            // did, so `verifySum` would reject every valid P7 payload.
             return try cbcOpen(alg: alg, key: symkey, iv: iv, cipher: cipher)
 
         default:
             throw Failure.unsupportedAlgorithm(alg)
         }
+    }
+
+    /// Java `CryptoDataByte.makeSum4`: `sha256(symkey ‖ iv ‖ did)[0..<4]`
+    /// where `did = sha256x2(plaintext)`. A no-op when the envelope carried
+    /// no `sum` — the AEAD algorithms omit it because the tag already covers
+    /// integrity, and Java's own `checkSum` short-circuits to true for them.
+    static func verifySum(
+        _ sum: Data?, alg: String, symkey: Data, iv: Data, plaintext: Data
+    ) throws {
+        guard let sum, !sum.isEmpty else { return }
+        let expected = Hash.sha256(symkey + iv + Hash.doubleSha256(plaintext)).prefix(4)
+        guard Data(expected) == sum else { throw Failure.badSum(alg: alg) }
     }
 
     /// Java `BigInteger.toByteArray()` of a positive 256-bit value:
