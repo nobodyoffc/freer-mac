@@ -213,6 +213,17 @@ public final class ActiveSession {
     /// The durable outbox, and what we last observed about each peer.
     public lazy var outbox: MessageQueue = MessageQueue(kv: storage)
     public lazy var peers: PeerBook = PeerBook(kv: storage)
+    public lazy var rooms: RoomsStore = RoomsStore(kv: storage)
+
+    /// The room protocol. Computed so it always carries the *live*
+    /// identity's privkey — a sub-identity joins rooms as itself, and a
+    /// service holding the main's key would open its shared keys with
+    /// the wrong one.
+    public var roomService: RoomService {
+        get throws {
+            RoomService(rooms: rooms, symkeys: symkeys).withPrivkey(try livePrikey())
+        }
+    }
     /// Reference-mode file layer over ``hats``.
     public lazy var files: FileVault       = FileVault(hats: hats, dataDirectory: dataDirectory)
     public lazy var keys: KeysStore        = KeysStore(kv: storage)

@@ -360,6 +360,13 @@ enum GsonCompatibleWriter {
         case int(Int64)
         case bool(Bool)
         case stringArray([String])
+        /// **Keys sorted.** Gson writes a map in its iteration order,
+        /// which for a `HashMap` is unspecified, so byte parity with
+        /// Android is not on offer here at any price. Sorting is the
+        /// reproducible choice, and no map we write is ever hashed —
+        /// only `Hat` derives an id from its own JSON, and it has no
+        /// map fields.
+        case stringMap([String: String])
     }
 
     static func object(_ fields: [(String, Value)], htmlSafe: Bool) -> String {
@@ -384,6 +391,12 @@ enum GsonCompatibleWriter {
         case .stringArray(let list):
             let items = list.map { "\"" + escape($0, htmlSafe: htmlSafe) + "\"" }
             return "[" + items.joined(separator: ",") + "]"
+        case .stringMap(let map):
+            let items = map.keys.sorted().map { key in
+                "\"" + escape(key, htmlSafe: htmlSafe) + "\":\""
+                    + escape(map[key] ?? "", htmlSafe: htmlSafe) + "\""
+            }
+            return "{" + items.joined(separator: ",") + "}"
         }
     }
 
