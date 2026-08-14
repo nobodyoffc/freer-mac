@@ -223,6 +223,14 @@ public final class ActiveSession {
     /// picked up.
     public var groups: GroupService { GroupService(fapi: fapi) }
 
+    /// The send/receive path the chat pane and the transport share.
+    public var chat: ChatService {
+        ChatService(
+            messages: messages, conversations: conversations,
+            symkeys: symkeys, outbox: outbox
+        )
+    }
+
     /// The room protocol. Computed so it always carries the *live*
     /// identity's privkey — a sub-identity joins rooms as itself, and a
     /// service holding the main's key would open its shared keys with
