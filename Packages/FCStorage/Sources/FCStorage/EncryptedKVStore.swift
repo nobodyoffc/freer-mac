@@ -158,6 +158,26 @@ public final class EncryptedKVStore {
         }
     }
 
+    /// Every namespace that currently holds at least one row, sorted.
+    ///
+    /// Namespaces are normally compile-time constants, so nothing needs
+    /// to enumerate them — except when they are *not* constant. Message
+    /// history allocates one namespace per conversation
+    /// (`MessagesStore`), and this is how that store finds threads whose
+    /// index row has been lost.
+    public func listNamespaces() throws -> [String] {
+        do {
+            return try dbQueue.read { db in
+                try String.fetchAll(
+                    db,
+                    sql: "SELECT DISTINCT namespace FROM kv ORDER BY namespace"
+                )
+            }
+        } catch {
+            throw Failure.underlying(error)
+        }
+    }
+
     public func listKeys(namespace: String) throws -> [String] {
         do {
             return try dbQueue.read { db in

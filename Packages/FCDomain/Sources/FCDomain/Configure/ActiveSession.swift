@@ -203,6 +203,10 @@ public final class ActiveSession {
     public lazy var secrets: SecretsStore  = SecretsStore(kv: storage)
     public lazy var mails: MailsStore      = MailsStore(kv: storage)
     public lazy var hats: HatsStore        = HatsStore(kv: storage)
+    /// Chat threads (the index) and their transcripts (one namespace
+    /// each) — see ``MessagesStore`` for why those are separate.
+    public lazy var conversations: ConversationsStore = ConversationsStore(kv: storage)
+    public lazy var messages: MessagesStore = MessagesStore(kv: storage)
     /// Reference-mode file layer over ``hats``.
     public lazy var files: FileVault       = FileVault(hats: hats, dataDirectory: dataDirectory)
     public lazy var keys: KeysStore        = KeysStore(kv: storage)
