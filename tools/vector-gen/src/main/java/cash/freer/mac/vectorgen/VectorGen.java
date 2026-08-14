@@ -142,6 +142,9 @@ public final class VectorGen {
         // Decryptor before being written — the AsyTwoWay envelope every mail
         // rides in (see AsyTwoWayRef).
         domainRoot.add("mail", MailRef.generate());
+        // The IM message: JSON for local storage and history sharing, plus the
+        // flag-word wire format and the enum ordinal tables it depends on.
+        domainRoot.add("im_message", ImMessageRef.generate());
         JsonObject asyTwoWay = AsyTwoWayRef.generate();
         AsyTwoWayRef.verify(asyTwoWay);
         domainRoot.add("asy_two_way_envelope", asyTwoWay);

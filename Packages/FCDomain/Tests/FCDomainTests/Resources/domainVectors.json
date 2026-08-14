@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-14T01:29:27.020242Z",
+  "generated_at": "2026-08-14T02:58:00.073552Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (domain wire formats from the real FC-AJDK classes)",
   "hat": [
@@ -118,6 +118,149 @@
       "derived_id_without_id_field": "efe3119fb87ea17503f805f723c6c558cbb0c3cf5a770b8575df95e60b93e04e"
     }
   ],
+  "im_message": {
+    "enum_ordinals": {
+      "ImType": [
+        "P2P",
+        "SQUARE",
+        "TEAM",
+        "ROOM"
+      ],
+      "ContentType": [
+        "TEXT",
+        "HAT",
+        "STREAM",
+        "SYMKEY",
+        "MEMBERS",
+        "HISTORY",
+        "REQUEST",
+        "RESPONSE",
+        "TYPING",
+        "RECEIPT",
+        "PRESENCE",
+        "REACTION",
+        "EDIT",
+        "DELETE",
+        "FORWARD",
+        "ROOM_INFO",
+        "ROOM_LEAVE",
+        "VOICE",
+        "ROOM_ACCEPT",
+        "ROOM_DISBAND",
+        "ROOM_REMOVED"
+      ],
+      "RequestType": [
+        "HAT",
+        "MEMBERS",
+        "SYMKEY",
+        "MESSAGE_SYNC",
+        "HISTORY",
+        "PUBLIC_KEY",
+        "SYMKEY_HISTORY",
+        "ROOM_INFO"
+      ],
+      "MessageStatus": [
+        "PENDING",
+        "QUARANTINED",
+        "SENT",
+        "DELIVERED",
+        "READ",
+        "FAILED",
+        "IMPORTED"
+      ],
+      "DeliveryMethod": [
+        "FUDP_DIRECT",
+        "ROAD_RELAY",
+        "DOCK_STORED"
+      ]
+    },
+    "vectors": [
+      {
+        "label": "p2p-text",
+        "json": "{\"type\":\"P2P\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100000123,\"contentType\":\"TEXT\",\"content\":\"Meet me at the usual place.\",\"status\":\"PENDING\",\"unread\":false,\"id\":\"00000000deadbeef\"}",
+        "wire_hex": "00002246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b22463676714e476b6241715a5131596b50574c6358664e6677764a584354476d7a554d00000198a41caf7b0101001b4d656574206d652061742074686520757375616c20706c6163652e001030303030303030306465616462656566",
+        "wire_decoded_json": "{\"type\":\"P2P\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100000123,\"contentType\":\"TEXT\",\"content\":\"Meet me at the usual place.\",\"id\":\"00000000deadbeef\"}"
+      },
+      {
+        "label": "p2p-text-unicode",
+        "json": "{\"type\":\"P2P\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100000456,\"contentType\":\"TEXT\",\"content\":\"老地方见 — naïve café 🚀\",\"status\":\"PENDING\",\"unread\":false,\"id\":\"0123456789abcdef\"}",
+        "wire_hex": "00002246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b22463676714e476b6241715a5131596b50574c6358664e6677764a584354476d7a554d00000198a41cb0c801010022e88081e59cb0e696b9e8a78120e28094206e61c3af766520636166c3a920f09f9a80001030313233343536373839616263646566",
+        "wire_decoded_json": "{\"type\":\"P2P\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100000456,\"contentType\":\"TEXT\",\"content\":\"老地方见 — naïve café 🚀\",\"id\":\"0123456789abcdef\"}"
+      },
+      {
+        "label": "p2p-text-html-escapable",
+        "json": "{\"type\":\"P2P\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100000789,\"contentType\":\"TEXT\",\"content\":\"a<b & c='d' => e\",\"status\":\"PENDING\",\"unread\":false,\"id\":\"fedcba9876543210\"}",
+        "wire_hex": "00002246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b22463676714e476b6241715a5131596b50574c6358664e6677764a584354476d7a554d00000198a41cb21501010010613c62202620633d276427203d3e2065001066656463626139383736353433323130",
+        "wire_decoded_json": "{\"type\":\"P2P\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100000789,\"contentType\":\"TEXT\",\"content\":\"a<b & c='d' => e\",\"id\":\"fedcba9876543210\"}"
+      },
+      {
+        "label": "no-id",
+        "json": "{\"type\":\"P2P\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100001000,\"contentType\":\"TEXT\",\"content\":\"sent before an id was assigned\",\"status\":\"PENDING\",\"unread\":false}",
+        "wire_hex": "00002246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b22463676714e476b6241715a5131596b50574c6358664e6677764a584354476d7a554d00000198a41cb2e80001001e73656e74206265666f726520616e206964207761732061737369676e6564",
+        "wire_decoded_json": "{\"type\":\"P2P\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100001000,\"contentType\":\"TEXT\",\"content\":\"sent before an id was assigned\"}"
+      },
+      {
+        "label": "hat-share",
+        "json": "{\"type\":\"ROOM\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\",\"timestamp\":1755100002000,\"contentType\":\"HAT\",\"content\":\"{\\\"key\\\":\\\"3d1f0c\\\",\\\"locas\\\":[\\\"disk1\\\"],\\\"size\\\":1048576,\\\"id\\\":\\\"abc123\\\"}\",\"status\":\"PENDING\",\"id\":\"00000000cafebabe\"}",
+        "wire_hex": "03012246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b406234633961316632653864373330363562346339613166326538643733303635623463396131663265386437333036356234633961316632653864373330363500000198a41cb6d00101003f7b226b6579223a22336431663063222c226c6f636173223a5b226469736b31225d2c2273697a65223a313034383537362c226964223a22616263313233227d001030303030303030306361666562616265",
+        "wire_decoded_json": "{\"type\":\"ROOM\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\",\"timestamp\":1755100002000,\"contentType\":\"HAT\",\"content\":\"{\\\"key\\\":\\\"3d1f0c\\\",\\\"locas\\\":[\\\"disk1\\\"],\\\"size\\\":1048576,\\\"id\\\":\\\"abc123\\\"}\",\"id\":\"00000000cafebabe\"}"
+      },
+      {
+        "label": "voice",
+        "json": "{\"type\":\"P2P\",\"senderId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"targetId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"timestamp\":1755100003000,\"contentType\":\"VOICE\",\"content\":\"{\\\"durationMs\\\":3400,\\\"sampleRate\\\":44100,\\\"format\\\":\\\"aac\\\"}\",\"dataBase64\":\"AAECAwQFBgcICQoLDA0ODw==\",\"status\":\"PENDING\",\"unread\":false,\"id\":\"00000000feedface\"}",
+        "wire_hex": "001122463676714e476b6241715a5131596b50574c6358664e6677764a584354476d7a554d2246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b00000198a41cbab8010300357b226475726174696f6e4d73223a333430302c2273616d706c6552617465223a34343130302c22666f726d6174223a22616163227d001841414543417751464267634943516f4c4441304f44773d3d001030303030303030306665656466616365",
+        "wire_decoded_json": "{\"type\":\"P2P\",\"senderId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"targetId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"timestamp\":1755100003000,\"contentType\":\"VOICE\",\"content\":\"{\\\"durationMs\\\":3400,\\\"sampleRate\\\":44100,\\\"format\\\":\\\"aac\\\"}\",\"dataBase64\":\"AAECAwQFBgcICQoLDA0ODw==\",\"id\":\"00000000feedface\"}"
+      },
+      {
+        "label": "request-symkey",
+        "json": "{\"type\":\"ROOM\",\"senderId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"targetId\":\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\",\"timestamp\":1755100004000,\"contentType\":\"REQUEST\",\"content\":\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\",\"requestType\":\"SYMKEY\",\"status\":\"PENDING\",\"id\":\"00000000a1b2c3d4\"}",
+        "wire_hex": "030622463676714e476b6241715a5131596b50574c6358664e6677764a584354476d7a554d406234633961316632653864373330363562346339613166326538643733303635623463396131663265386437333036356234633961316632653864373330363500000198a41cbea0011100406234633961316632653864373330363562346339613166326538643733303635623463396131663265386437333036356234633961316632653864373330363502001030303030303030306131623263336434",
+        "wire_decoded_json": "{\"type\":\"ROOM\",\"senderId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"targetId\":\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\",\"timestamp\":1755100004000,\"contentType\":\"REQUEST\",\"content\":\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\",\"requestType\":\"SYMKEY\",\"id\":\"00000000a1b2c3d4\"}"
+      },
+      {
+        "label": "response",
+        "json": "{\"type\":\"ROOM\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100005000,\"contentType\":\"RESPONSE\",\"content\":\"{\\\"keyName\\\":\\\"room-1\\\",\\\"key\\\":\\\"0f0e0d\\\"}\",\"requestId\":\"00000000a1b2c3d4\",\"status\":\"PENDING\",\"id\":\"00000000d4c3b2a1\"}",
+        "wire_hex": "03072246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b22463676714e476b6241715a5131596b50574c6358664e6677764a584354476d7a554d00000198a41cc288012100237b226b65794e616d65223a22726f6f6d2d31222c226b6579223a22306630653064227d001030303030303030306131623263336434001030303030303030306434633362326131",
+        "wire_decoded_json": "{\"type\":\"ROOM\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100005000,\"contentType\":\"RESPONSE\",\"content\":\"{\\\"keyName\\\":\\\"room-1\\\",\\\"key\\\":\\\"0f0e0d\\\"}\",\"requestId\":\"00000000a1b2c3d4\",\"id\":\"00000000d4c3b2a1\"}"
+      },
+      {
+        "label": "receipt",
+        "json": "{\"type\":\"P2P\",\"senderId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"targetId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"timestamp\":1755100006000,\"contentType\":\"RECEIPT\",\"content\":\"read\",\"requestId\":\"00000000deadbeef\",\"status\":\"PENDING\",\"id\":\"000000001a2b3c4d\"}",
+        "wire_hex": "000922463676714e476b6241715a5131596b50574c6358664e6677764a584354476d7a554d2246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b00000198a41cc6700121000472656164001030303030303030306465616462656566001030303030303030303161326233633464",
+        "wire_decoded_json": "{\"type\":\"P2P\",\"senderId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"targetId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"timestamp\":1755100006000,\"contentType\":\"RECEIPT\",\"content\":\"read\",\"requestId\":\"00000000deadbeef\",\"id\":\"000000001a2b3c4d\"}"
+      },
+      {
+        "label": "room-info",
+        "json": "{\"type\":\"ROOM\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100007000,\"contentType\":\"ROOM_INFO\",\"content\":\"{\\\"roomId\\\":\\\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\\\",\\\"name\\\":\\\"The Usual Place\\\",\\\"members\\\":[\\\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\\\",\\\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\\\"]}\",\"status\":\"PENDING\",\"id\":\"000000004d3c2b1a\"}",
+        "wire_hex": "030f2246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b22463676714e476b6241715a5131596b50574c6358664e6677764a584354476d7a554d00000198a41cca58010100bc7b22726f6f6d4964223a2262346339613166326538643733303635623463396131663265386437333036356234633961316632653864373330363562346339613166326538643733303635222c226e616d65223a2254686520557375616c20506c616365222c226d656d62657273223a5b2246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b222c22463676714e476b6241715a5131596b50574c6358664e6677764a584354476d7a554d225d7d001030303030303030303464336332623161",
+        "wire_decoded_json": "{\"type\":\"ROOM\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100007000,\"contentType\":\"ROOM_INFO\",\"content\":\"{\\\"roomId\\\":\\\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\\\",\\\"name\\\":\\\"The Usual Place\\\",\\\"members\\\":[\\\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\\\",\\\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\\\"]}\",\"id\":\"000000004d3c2b1a\"}"
+      },
+      {
+        "label": "team-cipher",
+        "json": "{\"type\":\"TEAM\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\",\"timestamp\":1755100008000,\"contentType\":\"TEXT\",\"status\":\"PENDING\",\"cipher\":\"{\\\"type\\\":\\\"Symkey\\\",\\\"alg\\\":\\\"Aes256Gcm@No1_NrC7\\\",\\\"cipher\\\":\\\"c2FtcGxl\\\"}\",\"symkeyVersion\":7,\"id\":\"00000000beefcafe\"}",
+        "wire_hex": "02002246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b406234633961316632653864373330363562346339613166326538643733303635623463396131663265386437333036356234633961316632653864373330363500000198a41cce40010c00407b2274797065223a2253796d6b6579222c22616c67223a2241657332353647636d404e6f315f4e724337222c22636970686572223a22633246746347786c227d00000007001030303030303030306265656663616665",
+        "wire_decoded_json": "{\"type\":\"TEAM\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\",\"timestamp\":1755100008000,\"contentType\":\"TEXT\",\"cipher\":\"{\\\"type\\\":\\\"Symkey\\\",\\\"alg\\\":\\\"Aes256Gcm@No1_NrC7\\\",\\\"cipher\\\":\\\"c2FtcGxl\\\"}\",\"symkeyVersion\":7,\"id\":\"00000000beefcafe\"}"
+      },
+      {
+        "label": "symkey-version-truncated",
+        "json": "{\"type\":\"TEAM\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\",\"timestamp\":1755100009000,\"contentType\":\"TEXT\",\"content\":\"key rotation past the int boundary\",\"status\":\"PENDING\",\"symkeyVersion\":6442450945,\"id\":\"00000000000000ff\"}",
+        "wire_hex": "02002246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b406234633961316632653864373330363562346339613166326538643733303635623463396131663265386437333036356234633961316632653864373330363500000198a41cd228010900226b657920726f746174696f6e20706173742074686520696e7420626f756e6461727980000001001030303030303030303030303030306666",
+        "wire_decoded_json": "{\"type\":\"TEAM\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\",\"timestamp\":1755100009000,\"contentType\":\"TEXT\",\"content\":\"key rotation past the int boundary\",\"symkeyVersion\":-2147483647,\"id\":\"00000000000000ff\"}"
+      },
+      {
+        "label": "empty-strings",
+        "json": "{\"type\":\"P2P\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100010000,\"contentType\":\"TEXT\",\"content\":\"\",\"status\":\"PENDING\",\"threadId\":\"\",\"unread\":false,\"id\":\"0000000000000000\"}",
+        "wire_hex": "00002246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b22463676714e476b6241715a5131596b50574c6358664e6677764a584354476d7a554d00000198a41cd610018100000000001030303030303030303030303030303030",
+        "wire_decoded_json": "{\"type\":\"P2P\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM\",\"timestamp\":1755100010000,\"contentType\":\"TEXT\",\"content\":\"\",\"threadId\":\"\",\"id\":\"0000000000000000\"}"
+      },
+      {
+        "label": "full",
+        "json": "{\"type\":\"ROOM\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\",\"timestamp\":1755100011000,\"sequence\":42,\"contentType\":\"TEXT\",\"content\":\"everything at once\",\"dataBase64\":\"AAECAw==\",\"requestType\":\"HISTORY\",\"requestId\":\"00000000deadbeef\",\"roadIds\":[\"road-a\",\"road-b\"],\"dockId\":\"dock-1\",\"deliveryMethod\":\"ROAD_RELAY\",\"status\":\"DELIVERED\",\"deliveredAt\":1755100012000,\"readAt\":1755100013000,\"cipher\":\"{\\\"type\\\":\\\"Symkey\\\",\\\"cipher\\\":\\\"c2FtcGxl\\\"}\",\"symkeyVersion\":3,\"replyToId\":\"00000000cafebabe\",\"threadId\":\"thread-1\",\"senderName\":\"alice\",\"unread\":true,\"pinned\":true,\"deleted\":false,\"id\":\"00000000ffffffff\"}",
+        "wire_hex": "03002246456b34314b716a61723435664c4472697a74554454556b646b69376d6d636a574b406234633961316632653864373330363562346339613166326538643733303635623463396131663265386437333036356234633961316632653864373330363500000198a41cd9f801ff001265766572797468696e67206174206f6e636500084141454341773d3d00257b2274797065223a2253796d6b6579222c22636970686572223a22633246746347786c227d000000030400103030303030303030646561646265656600103030303030303030636166656261626500087468726561642d31001030303030303030306666666666666666",
+        "wire_decoded_json": "{\"type\":\"ROOM\",\"senderId\":\"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\",\"targetId\":\"b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065\",\"timestamp\":1755100011000,\"contentType\":\"TEXT\",\"content\":\"everything at once\",\"dataBase64\":\"AAECAw==\",\"requestType\":\"HISTORY\",\"requestId\":\"00000000deadbeef\",\"cipher\":\"{\\\"type\\\":\\\"Symkey\\\",\\\"cipher\\\":\\\"c2FtcGxl\\\"}\",\"symkeyVersion\":3,\"replyToId\":\"00000000cafebabe\",\"threadId\":\"thread-1\",\"id\":\"00000000ffffffff\"}"
+      }
+    ]
+  },
   "asy_two_way_envelope": {
     "prikeyA": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575",
     "pubkeyA": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",

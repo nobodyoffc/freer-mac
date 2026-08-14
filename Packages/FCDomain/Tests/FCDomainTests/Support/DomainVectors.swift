@@ -17,6 +17,7 @@ enum DomainVectors {
         let generator: String
         let hat: [HatCase]
         let mail: [MailCase]
+        let imMessage: ImMessageRoot
         let asyTwoWayEnvelope: AsyTwoWayRoot
 
         enum CodingKeys: String, CodingKey {
@@ -25,7 +26,42 @@ enum DomainVectors {
             case generator
             case hat
             case mail
+            case imMessage = "im_message"
             case asyTwoWayEnvelope = "asy_two_way_envelope"
+        }
+    }
+
+    /// `ImMessage` vectors from the real FC-AJDK class (see
+    /// `ImMessageRef.java`), plus the enum ordinal tables the binary wire
+    /// format depends on.
+    struct ImMessageRoot: Decodable {
+        /// Java constant names in declaration order — so index *is* the
+        /// ordinal — keyed by enum name.
+        let enumOrdinals: [String: [String]]
+        let vectors: [ImMessageCase]
+
+        enum CodingKeys: String, CodingKey {
+            case enumOrdinals = "enum_ordinals"
+            case vectors
+        }
+    }
+
+    struct ImMessageCase: Decodable {
+        let label: String
+        /// `JsonUtils.toJson(message)` — the local-storage form, which
+        /// carries the local-only delivery fields too.
+        let json: String
+        /// `toWireBytes()`, hex.
+        let wireHex: String
+        /// `toJson(fromWireBytes(toWireBytes(m)))` — what survives the
+        /// trip. The local-only fields are gone from this one.
+        let wireDecodedJson: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case json
+            case wireHex = "wire_hex"
+            case wireDecodedJson = "wire_decoded_json"
         }
     }
 

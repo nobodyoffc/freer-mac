@@ -70,6 +70,7 @@ val compileFcAjdk by tasks.registering(JavaCompile::class) {
         include("com/fc/fc_ajdk/core/crypto/CryptoDataByte.java")
         include("com/fc/fc_ajdk/data/fcData/Hat.java")
         include("com/fc/fc_ajdk/data/feipData/Mail.java")
+        include("com/fc/fc_ajdk/data/fcData/ImMessage.java")
     }
     classpath = externalDeps
     destinationDirectory.set(fcAjdkClassesDir)
