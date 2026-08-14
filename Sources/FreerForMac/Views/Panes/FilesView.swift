@@ -182,9 +182,7 @@ struct FilesView: View {
 
     private var toolbar: some View {
         HStack(spacing: 12) {
-            TextField("Search name, description, type, location…", text: $search)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 320)
+            SearchField("Search name, description, type, location…", text: $search, maxWidth: 320)
 
             Spacer()
 

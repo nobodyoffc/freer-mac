@@ -19,6 +19,7 @@ struct SecretsView: View {
     @State private var tab: Tab = .secrets
     @State private var rows: [Secret] = []
     @State private var loadError: String?
+    @State private var search = ""
 
     @State private var syncing = false
     @State private var syncError: String?
@@ -36,6 +37,14 @@ struct SecretsView: View {
     /// Secret id → revealed plaintext (in memory only, per pane life).
     @State private var revealed: [String: String] = [:]
 
+    /// Rows surviving the search box. Content is never matched — see
+    /// `Secret.matches(query:)` for why.
+    private var filtered: [Secret] {
+        search.trimmingCharacters(in: .whitespaces).isEmpty
+            ? rows
+            : rows.filter { $0.matches(query: search) }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             PaneHeader(session: session)
@@ -50,6 +59,9 @@ struct SecretsView: View {
                 .frame(width: 220)
 
                 Spacer()
+
+                SearchField("Search title, type, memo…", text: $search, minWidth: 140)
+                    .help("Matches title, type, memo, and id — never the encrypted content")
 
                 Button {
                     Task { await syncFromChain() }
@@ -107,7 +119,7 @@ struct SecretsView: View {
             } else {
                 switch tab {
                 case .secrets: secretList
-                case .totp: TotpCardList(session: session, secrets: rows.filter(\.isTotp))
+                case .totp: totpList
                 }
             }
 
@@ -190,32 +202,56 @@ struct SecretsView: View {
 
     // MARK: - secret list
 
+    @ViewBuilder
     private var secretList: some View {
-        Group {
-            let visible = rows
-            if visible.isEmpty {
-                card {
-                    Label("No secrets yet", systemImage: "lock")
-                        .foregroundStyle(.secondary)
-                    Text("Save passwords, keys, TOTP seeds, or any text — encrypted to your key. Carve them on-chain to sync across devices.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(visible) { s in
-                            row(s)
-                                .padding(.vertical, 10)
-                                .padding(.horizontal, 16)
-                            Divider()
-                        }
-                    }
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                }
+        if rows.isEmpty {
+            card {
+                Label("No secrets yet", systemImage: "lock")
+                    .foregroundStyle(.secondary)
+                Text("Save passwords, keys, TOTP seeds, or any text — encrypted to your key. Carve them on-chain to sync across devices.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+        } else if filtered.isEmpty {
+            noMatchCard
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(filtered) { s in
+                        row(s)
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 16)
+                        Divider()
+                    }
+                }
+                .background(Color(NSColor.controlBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+        }
+    }
+
+    /// The TOTP tab, filtered by the same search box. An empty result
+    /// with TOTP rows present means the search excluded them all —
+    /// distinct from having imported no TOTP seeds at all.
+    @ViewBuilder
+    private var totpList: some View {
+        let visible = filtered.filter(\.isTotp)
+        if visible.isEmpty && rows.contains(where: \.isTotp) {
+            noMatchCard
+        } else {
+            TotpCardList(session: session, secrets: visible)
+        }
+    }
+
+    private var noMatchCard: some View {
+        card {
+            Label("No matches", systemImage: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            Text("Nothing matches “\(search)”. Search covers the title, type, memo, and id — not the encrypted content, which stays sealed until you reveal it.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

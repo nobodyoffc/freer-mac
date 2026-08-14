@@ -67,7 +67,7 @@ struct ContactsView: View {
                         .background(Capsule().fill(Color.secondary.opacity(0.15)))
                 }
                 Spacer()
-                searchField
+                SearchField("Search name, FID, title…", text: $search)
                 Button {
                     Task { await syncFromChain() }
                 } label: {
@@ -195,34 +195,6 @@ struct ContactsView: View {
                      : "Writes \(c.name)'s titles/memo/permissions to the FCH chain, encrypted so only you can read them. Costs a small miner fee, and the contact then syncs to any device you unlock with this key.")
             }
         }
-    }
-
-    private var searchField: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-            TextField("", text: $search, prompt: Text("Search name, FID, title…"))
-                .textFieldStyle(.plain)
-                .frame(minWidth: 180, maxWidth: 280)
-            if !search.isEmpty {
-                Button {
-                    search = ""
-                } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color(nsColor: .textBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(Color.secondary.opacity(0.3), lineWidth: 0.5)
-        )
     }
 
     private var list: some View {

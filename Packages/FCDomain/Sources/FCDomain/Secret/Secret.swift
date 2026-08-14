@@ -88,6 +88,26 @@ public struct Secret: Codable, Equatable, Sendable, Identifiable {
         type?.caseInsensitiveCompare(SecretType.totp.rawValue) == .orderedSame
     }
 
+    /// Case-insensitive substring match across the *searchable* fields.
+    ///
+    /// Deliberately excludes the content: at rest it exists only as
+    /// ``contentCipher`` (Pattern B), so matching it would mean
+    /// decrypting every row on every keystroke — and a filtered count
+    /// would leak what hidden values contain. Title, type, memo, and
+    /// id are enough to find a row you saved yourself.
+    ///
+    /// Lives here rather than on the store, like ``Hat/matches(query:)``,
+    /// so a list already in memory filters as the user types.
+    public func matches(query: String) -> Bool {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return false }
+        func hit(_ s: String?) -> Bool {
+            guard let s else { return false }
+            return s.lowercased().contains(needle)
+        }
+        return hit(title) || hit(type) || hit(memo) || hit(id) || hit(carveId)
+    }
+
     /// Decrypt ``contentCipher`` with the owner's 32-byte privkey.
     public func decryptContent(privkey: Data) throws -> String {
         guard let contentCipher, !contentCipher.isEmpty else {
