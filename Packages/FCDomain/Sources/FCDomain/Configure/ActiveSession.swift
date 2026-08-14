@@ -210,6 +210,9 @@ public final class ActiveSession {
     /// Versioned team/room keys. P2P is not in here — it seals
     /// AsyTwoWay and stores nothing.
     public lazy var symkeys: SymkeyStore = SymkeyStore(kv: storage)
+    /// The durable outbox, and what we last observed about each peer.
+    public lazy var outbox: MessageQueue = MessageQueue(kv: storage)
+    public lazy var peers: PeerBook = PeerBook(kv: storage)
     /// Reference-mode file layer over ``hats``.
     public lazy var files: FileVault       = FileVault(hats: hats, dataDirectory: dataDirectory)
     public lazy var keys: KeysStore        = KeysStore(kv: storage)
