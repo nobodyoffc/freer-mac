@@ -36,6 +36,17 @@ struct SettingsView: View {
     @State private var purgeOk: Bool = false
     @State private var showPurgeConfirm: Bool = false
 
+    /// Mail. `myNoticeFee` is on-chain and carved on its own button;
+    /// the other two are local preferences that ride the Save button.
+    @State private var myNoticeFee: String = ""
+    @State private var publishedNoticeFee: String?
+    @State private var loadingFee: Bool = false
+    @State private var carvingFee: Bool = false
+    @State private var feeCarveError: String?
+    @State private var feeCarveTxid: String?
+    @State private var maxPayingNoticeFee: String = ""
+    @State private var payBackNoticeFee: Bool = true
+
     enum TestResult: Equatable {
         case ok(String)
         case fail(String)
@@ -50,7 +61,10 @@ struct SettingsView: View {
         }
         .padding()
         .frame(minWidth: 480)
-        .onAppear { load() }
+        .onAppear {
+            load()
+            Task { await loadNoticeFee() }
+        }
         .alert("Purge cash cache for \(session.liveFid.elidingMiddle(head: 6, tail: 6))?",
                isPresented: $showPurgeConfirm) {
             Button("Cancel", role: .cancel) {}
@@ -164,6 +178,73 @@ struct SettingsView: View {
                 }
             }
 
+            Section {
+                LabeledField(
+                    "My notice fee",
+                    hint: myNoticeFeeHint,
+                    hintIsError: myNoticeFeeSats == nil && !myNoticeFee.isEmpty
+                ) {
+                    HStack(spacing: 8) {
+                        TextField("", text: $myNoticeFee, prompt: Text("0"))
+                            .fieldInputStyle()
+                            .frame(maxWidth: 160)
+                        Text("F").foregroundStyle(.secondary)
+
+                        Button {
+                            Task { await carveNoticeFee() }
+                        } label: {
+                            if carvingFee {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Text("Carve")
+                            }
+                        }
+                        .disabled(!canCarveNoticeFee)
+                        .help(session.canSign
+                              ? "Write this rate to the chain so senders' clients can read it"
+                              : "Watch-only identity — no key to sign a carve with")
+
+                        if loadingFee {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                }
+
+                LabeledField(
+                    "Most I'll pay",
+                    hint: maxPayingSats == nil && !maxPayingNoticeFee.isEmpty
+                        ? "Not a valid amount."
+                        : "Blank = \(NoticeFee.coinString(satoshis: NoticeFee.defaultMaxPayingSats)) F.",
+                    hintIsError: maxPayingSats == nil && !maxPayingNoticeFee.isEmpty
+                ) {
+                    HStack(spacing: 8) {
+                        TextField("", text: $maxPayingNoticeFee, prompt: Text("100"))
+                            .fieldInputStyle()
+                            .frame(maxWidth: 160)
+                        Text("F").foregroundStyle(.secondary)
+                    }
+                }
+
+                Toggle("Match what a sender paid me when I reply", isOn: $payBackNoticeFee)
+                    .help("If someone paid more than the rate you'd normally pay them, your reply returns the same amount — still capped by the limit above.")
+
+                if let err = feeCarveError {
+                    CopyableText(err, font: .callout).foregroundStyle(.red)
+                } else if let txid = feeCarveTxid {
+                    CopyableText(
+                        display: "Carved — tx \(txid.elidingMiddle(head: 8, tail: 8)). Senders see the new rate once a block confirms it.",
+                        copy: txid,
+                        font: .caption
+                    )
+                    .foregroundStyle(.green)
+                }
+            } header: {
+                Text("Mail")
+            } footer: {
+                Text("Your notice fee is what other people pay **you** to land a mail in your inbox — it lives on the chain, so raising it costs a carve and only applies to mail sent after it confirms. The other two settings are local: they bound what you spend, and never leave this device.")
+                    .font(.caption)
+            }
+
             Section("Security") {
                 LabeledField(
                     "Auto-lock after (minutes)",
@@ -229,6 +310,71 @@ struct SettingsView: View {
         .formStyle(.grouped)
     }
 
+    // MARK: - mail fees
+
+    private var myNoticeFeeSats: Int64? {
+        myNoticeFee.isEmpty ? 0 : NoticeFee.satoshis(coinString: myNoticeFee)
+    }
+
+    private var maxPayingSats: Int64? {
+        maxPayingNoticeFee.isEmpty ? nil : NoticeFee.satoshis(coinString: maxPayingNoticeFee)
+    }
+
+    /// The hint carries the one thing the field cannot: what the chain
+    /// currently says, which may differ from what is typed and may have
+    /// been carved from another device.
+    private var myNoticeFeeHint: String? {
+        if !myNoticeFee.isEmpty, myNoticeFeeSats == nil {
+            return "Not a valid amount."
+        }
+        if let sats = myNoticeFeeSats, sats > NoticeFee.maxPublishableSats {
+            return "Above the \(NoticeFee.coinString(satoshis: NoticeFee.maxPublishableSats)) F ceiling — a fee that high makes you unreachable."
+        }
+        guard let published = publishedNoticeFee else {
+            return loadingFee ? nil : "Nothing published yet — senders pay the \(NoticeFee.coinString(satoshis: NoticeFee.defaultFeeSats)) F default."
+        }
+        return "On chain now: \(published) F."
+    }
+
+    private var canCarveNoticeFee: Bool {
+        guard session.canSign, !carvingFee, let sats = myNoticeFeeSats else { return false }
+        guard sats <= NoticeFee.maxPublishableSats else { return false }
+        // Nothing to carve if the chain already says this. With
+        // nothing published, any valid rate is worth carving —
+        // including 0, which is a real statement ("I don't charge")
+        // and not the same as saying nothing.
+        guard let published = publishedNoticeFee else { return true }
+        return NoticeFee.coinString(satoshis: sats) != published
+    }
+
+    private func loadNoticeFee() async {
+        loadingFee = true
+        defer { loadingFee = false }
+        guard let sats = try? await session.publishedNoticeFee() else {
+            publishedNoticeFee = nil
+            return
+        }
+        let coins = NoticeFee.coinString(satoshis: sats)
+        publishedNoticeFee = coins
+        if myNoticeFee.isEmpty { myNoticeFee = coins }
+    }
+
+    private func carveNoticeFee() async {
+        guard let sats = myNoticeFeeSats, canCarveNoticeFee else { return }
+        carvingFee = true
+        feeCarveError = nil
+        feeCarveTxid = nil
+        defer { carvingFee = false }
+        do {
+            feeCarveTxid = try await session.carveNoticeFeeOnChain(satoshis: sats)
+            // Optimistic: the carve is broadcast, so stop offering to
+            // carve the same value again. A later load re-reads truth.
+            publishedNoticeFee = NoticeFee.coinString(satoshis: sats)
+        } catch {
+            feeCarveError = String(describing: error)
+        }
+    }
+
     // MARK: - load / save / apply
 
     private var fapiFormLooksValid: Bool {
@@ -249,6 +395,9 @@ struct SettingsView: View {
         if !autoLockMinutes.isEmpty, Int(autoLockMinutes) == nil {
             return false
         }
+        if !maxPayingNoticeFee.isEmpty, maxPayingSats == nil {
+            return false
+        }
         return true
     }
 
@@ -264,6 +413,10 @@ struct SettingsView: View {
             if let secs = s.autoLockSeconds, secs > 0 {
                 autoLockMinutes = String(secs / 60)
             }
+            if let cap = s.maxPayingNoticeFeeSats {
+                maxPayingNoticeFee = NoticeFee.coinString(satoshis: cap)
+            }
+            payBackNoticeFee = s.payBackNoticeFee ?? true
         } catch {
             saveError = String(describing: error)
         }
@@ -286,6 +439,8 @@ struct SettingsView: View {
                 } else {
                     s.autoLockSeconds = nil
                 }
+                s.maxPayingNoticeFeeSats = maxPayingSats
+                s.payBackNoticeFee = payBackNoticeFee
             }
             // Persist succeeded — now (re)build the live FAPI client
             // so other panes pick it up immediately.

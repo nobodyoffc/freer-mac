@@ -386,6 +386,71 @@ final class MailSendTests: XCTestCase {
         let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
         XCTAssertNotNil(raw.range(of: Data(#""op":"recover""#.utf8)))
     }
+
+    // MARK: - notice fee (9.1.6)
+
+    /// Publishing a rate is a statement about us, not a message, so it
+    /// pays nobody — unlike a mail, whose payment is its address.
+    func testNoticeFeeCarvePaysNoRecipient() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let broadcast = Captured()
+        try stage(mock, senderFid: session.mainFid, recipientFid: try recipientFid(),
+                  noticeFee: nil, pubkey: try recipientPubkey(),
+                  onBroadcast: { broadcast.value = $0 })
+
+        let txid = try await session.carveNoticeFeeOnChain(satoshis: 50_000_000)
+        XCTAssertEqual(txid, "mail-txid-001")
+
+        let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
+        XCTAssertNotNil(raw.range(of: Data(#"{"type":"FEIP","sn":"10","ver":"1","name":"NoticeFee""#.utf8)))
+        XCTAssertNotNil(raw.range(of: Data(#""noticeFee":"0.5""#.utf8)))
+        XCTAssertNil(
+            raw.range(of: try payOutputBytes(to: try recipientFid(), value: NoticeFee.defaultFeeSats)),
+            "publishing a rate must not pay anyone"
+        )
+    }
+
+    func testAnAbsurdNoticeFeeIsRefusedBeforeBroadcast() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let broadcast = Captured()
+        try stage(mock, senderFid: session.mainFid, recipientFid: try recipientFid(),
+                  noticeFee: nil, pubkey: try recipientPubkey(),
+                  onBroadcast: { broadcast.value = $0 })
+
+        do {
+            _ = try await session.carveNoticeFeeOnChain(
+                satoshis: NoticeFee.maxPublishableSats + 1
+            )
+            XCTFail("expected a ceiling failure")
+        } catch {
+            XCTAssertTrue("\(error)".contains("ceiling"), "\(error)")
+        }
+        XCTAssertNil(broadcast.value)
+    }
+
+    /// The rate is read back from the chain, not remembered locally: the
+    /// carve may have been made from another device.
+    func testPublishedNoticeFeeIsReadFromTheChain() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        try stage(mock, senderFid: session.mainFid, recipientFid: session.mainFid,
+                  noticeFee: "0.25", pubkey: try recipientPubkey())
+
+        let published = try await session.publishedNoticeFee()
+        XCTAssertEqual(published, 25_000_000)
+    }
+
+    func testPublishedNoticeFeeIsNilWhenNoneIsCarved() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        try stage(mock, senderFid: session.mainFid, recipientFid: session.mainFid,
+                  noticeFee: nil, pubkey: try recipientPubkey())
+
+        let published = try await session.publishedNoticeFee()
+        XCTAssertNil(published)
+    }
 }
 
 /// A reference box for values written from the mock's `@Sendable`

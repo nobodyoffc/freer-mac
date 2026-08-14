@@ -124,6 +124,13 @@ public enum NoticeFee {
         return NSDecimalNumber(decimal: rounded).int64Value
     }
 
+    /// The largest fee this app will let you *publish*. Not a protocol
+    /// rule — the chain would take any number — but a fee you cannot
+    /// undo without another carve, and one typo'd zero turns your FID
+    /// into one nobody can afford to write to. 1 000 F is far past any
+    /// plausible rate.
+    public static let maxPublishableSats: Int64 = 1_000 * satsPerCoin
+
     /// Digits with at most one `.`, and at least one digit — no sign, no
     /// exponent, no separators, nothing trailing.
     static func isPlainDecimal(_ s: String) -> Bool {
@@ -154,5 +161,54 @@ public enum NoticeFee {
             if s.hasSuffix(".") { s.removeLast() }
         }
         return s
+    }
+}
+
+/// Builder for the FEIP `NoticeFee` protocol (sn 10, ver 1) — the
+/// OP_RETURN JSON that publishes what you charge to receive mail:
+///
+/// ```json
+/// {"type":"FEIP","sn":"10","ver":"1","name":"NoticeFee",
+///  "data":{"noticeFee":"0.0001"}}
+/// ```
+///
+/// The value is a **decimal string in coins**, which is how it lands on
+/// ``Freer/noticeFee`` and how every sender reads it back. That is the
+/// one place in this codebase where a fee is not satoshis, and it is
+/// why ``NoticeFee/coinString(satoshis:)`` exists: the carve is written
+/// from a satoshi amount, converted once, here.
+///
+/// Unlike ``MailFeip``, there is no op field and no delete — the
+/// protocol has a single shape, and republishing simply overwrites.
+/// Publishing `"0"` is how you stop charging.
+public enum NoticeFeeFeip {
+
+    public static let sn = "10"
+    public static let ver = "1"
+    public static let protocolName = "NoticeFee"
+
+    public enum Failure: Error, CustomStringConvertible {
+        case negative
+        case tooLarge(sats: Int64)
+
+        public var description: String {
+            switch self {
+            case .negative:
+                return "NoticeFeeFeip: a notice fee cannot be negative"
+            case .tooLarge(let sats):
+                return "NoticeFeeFeip: \(NoticeFee.coinString(satoshis: sats)) F is above the \(NoticeFee.coinString(satoshis: NoticeFee.maxPublishableSats)) F ceiling this app will publish"
+            }
+        }
+    }
+
+    /// The complete OP_RETURN payload publishing `satoshis` as your
+    /// notice fee.
+    public static func carve(satoshis: Int64) throws -> String {
+        guard satoshis >= 0 else { throw Failure.negative }
+        guard satoshis <= NoticeFee.maxPublishableSats else {
+            throw Failure.tooLarge(sats: satoshis)
+        }
+        let coins = NoticeFee.coinString(satoshis: satoshis)
+        return #"{"type":"FEIP","sn":"\#(sn)","ver":"\#(ver)","name":"\#(protocolName)","data":{"noticeFee":"\#(coins)"}}"#
     }
 }

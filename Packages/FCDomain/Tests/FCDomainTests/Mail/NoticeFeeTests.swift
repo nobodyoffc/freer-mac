@@ -157,3 +157,77 @@ final class NoticeFeeTests: XCTestCase {
         )
     }
 }
+
+/// The `NoticeFee` FEIP (sn 10 ver 1) — publishing what you charge to
+/// receive mail.
+final class NoticeFeeFeipTests: XCTestCase {
+
+    private func data(_ carve: String) throws -> [String: Any] {
+        let root = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(carve.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(root["type"] as? String, "FEIP")
+        XCTAssertEqual(root["sn"] as? String, "10")
+        XCTAssertEqual(root["ver"] as? String, "1")
+        XCTAssertEqual(root["name"] as? String, "NoticeFee")
+        return try XCTUnwrap(root["data"] as? [String: Any])
+    }
+
+    /// The value goes on the wire as a **coin-denominated string** — the
+    /// one place a fee leaves satoshis, because that is how it lands on
+    /// `Freer.noticeFee` and how every sender reads it back.
+    func testCarveCarriesCoinsAsAString() throws {
+        let payload = try data(try NoticeFeeFeip.carve(satoshis: 10_000))
+        XCTAssertEqual(payload["noticeFee"] as? String, "0.0001")
+        XCTAssertEqual(Set(payload.keys), ["noticeFee"], "the protocol has no op field")
+    }
+
+    func testCarveNormalisesTheAmount() throws {
+        XCTAssertEqual(
+            try data(try NoticeFeeFeip.carve(satoshis: 100_000_000))["noticeFee"] as? String,
+            "1"
+        )
+        XCTAssertEqual(
+            try data(try NoticeFeeFeip.carve(satoshis: 150_000_000))["noticeFee"] as? String,
+            "1.5"
+        )
+    }
+
+    /// Publishing zero is a real statement — "I don't charge" — and is
+    /// how you stop charging, since the protocol has no delete.
+    func testZeroIsPublishable() throws {
+        XCTAssertEqual(try data(try NoticeFeeFeip.carve(satoshis: 0))["noticeFee"] as? String, "0")
+    }
+
+    /// A published fee can only be changed by another carve, so one
+    /// typo'd zero would make the FID unreachable. The ceiling is ours,
+    /// not the protocol's.
+    func testAbsurdlyHighFeesAreRefused() {
+        XCTAssertThrowsError(
+            try NoticeFeeFeip.carve(satoshis: NoticeFee.maxPublishableSats + 1)
+        ) { error in
+            guard case NoticeFeeFeip.Failure.tooLarge = error else {
+                return XCTFail("expected tooLarge, got \(error)")
+            }
+        }
+        XCTAssertNoThrow(try NoticeFeeFeip.carve(satoshis: NoticeFee.maxPublishableSats))
+    }
+
+    func testNegativeFeesAreRefused() {
+        XCTAssertThrowsError(try NoticeFeeFeip.carve(satoshis: -1)) { error in
+            guard case NoticeFeeFeip.Failure.negative = error else {
+                return XCTFail("expected negative, got \(error)")
+            }
+        }
+    }
+
+    /// What we publish must be what a sender's `decide` reads back.
+    func testPublishedFeeRoundTripsThroughThePolicy() throws {
+        for sats: Int64 in [0, 546, 10_000, 50_000_000, 100_000_000] {
+            let payload = try data(try NoticeFeeFeip.carve(satoshis: sats))
+            let published = try XCTUnwrap(payload["noticeFee"] as? String)
+            let decision = NoticeFee.decide(recipientNoticeFee: published)
+            XCTAssertEqual(decision, .pay(max(sats, NoticeFee.minimumPayableSats)), published)
+        }
+    }
+}

@@ -535,6 +535,38 @@ public final class ActiveSession {
         return SentMail(txid: result.remoteTxid, mail: mail, noticeFeePaidSats: feeSats)
     }
 
+    /// Publish what this FID charges to receive mail (FEIP `NoticeFee`,
+    /// sn 10). Pays nobody — it is a statement about us, not a message.
+    ///
+    /// There is no delete op: republishing overwrites, and `0` is how
+    /// you stop charging. Note that a fee only takes effect for senders
+    /// once the carve confirms *and* their client re-reads your record,
+    /// so raising it is not retroactive against mail already in flight.
+    @discardableResult
+    public func carveNoticeFeeOnChain(
+        satoshis: Int64,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        let priv = try livePrikey()
+        let result = try await wallet.carve(
+            fromAddress: liveFid, privkey: priv,
+            opReturn: try NoticeFeeFeip.carve(satoshis: satoshis),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+        return result.remoteTxid
+    }
+
+    /// What this FID currently publishes as its notice fee, in satoshis,
+    /// or nil if it publishes none. Read from the chain rather than
+    /// remembered locally: the carve may have been made from another
+    /// device, and a stale local copy would mislead about what senders
+    /// are actually being charged.
+    public func publishedNoticeFee(timeoutMs: Int = 10_000) async throws -> Int64? {
+        let freer = try await directory.freerByIds([liveFid], timeoutMs: timeoutMs)[liveFid]
+        return NoticeFee.satoshis(coinString: freer?.noticeFee)
+    }
+
     /// Carve a `delete` (or `recover`) op over the given mail carve ids.
     /// Pays nobody — only a `send` addresses anyone.
     @discardableResult
