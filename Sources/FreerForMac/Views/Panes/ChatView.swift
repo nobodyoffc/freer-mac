@@ -36,6 +36,9 @@ struct ChatView: View {
     @State private var syncing = false
     @State private var syncSummary: String?
     @State private var delivering = false
+    @State private var showEmoji = false
+    @State private var attaching = false
+    @State private var attachProgress: (sent: Int64, total: Int64)?
 
     /// Resolved once per recipient, then reused: a P2P send needs the
     /// other party's pubkey and it never changes.
@@ -321,7 +324,9 @@ struct ChatView: View {
 
     @ViewBuilder
     private func body(of message: ImMessage) -> some View {
-        if let content = message.content {
+        if message.contentType == .hat, let offer = session.fileShare.offer(in: message) {
+            fileBubble(offer, message: message)
+        } else if let content = message.content {
             Text(content).textSelection(.enabled)
         } else if message.isSealed {
             HStack(spacing: 4) {
@@ -335,6 +340,40 @@ struct ChatView: View {
             Text(Conversation.preview(for: message) ?? "")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    /// A shared file: what it is, and the one action that applies.
+    private func fileBubble(_ offer: FileShareService.Offer, message: ImMessage) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: offer.isDownloaded ? "doc.fill" : "doc")
+                .font(.title3)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(offer.name).lineLimit(1)
+                HStack(spacing: 6) {
+                    if let size = offer.size {
+                        Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                    }
+                    if !offer.hasKey {
+                        Text("no key — only fetchable if public")
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+            }
+            if offer.isDownloaded {
+                Button("Reveal") {
+                    if let url = offer.localURL {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                }
+                .buttonStyle(.borderless)
+                .font(.caption)
+            } else {
+                Button("Download") { download(message) }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+            }
         }
     }
 
@@ -375,7 +414,44 @@ struct ChatView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            if let progress = attachProgress {
+                ProgressView(
+                    value: Double(progress.sent),
+                    total: Double(max(progress.total, 1))
+                ) {
+                    Text("Uploading… the file goes to DISK before the message goes out")
+                        .font(.caption2)
+                }
+                .progressViewStyle(.linear)
+            }
             HStack(spacing: 8) {
+                Button {
+                    showEmoji.toggle()
+                } label: {
+                    Image(systemName: "face.smiling")
+                }
+                .buttonStyle(.borderless)
+                .help("Insert an emoji")
+                .popover(isPresented: $showEmoji, arrowEdge: .bottom) {
+                    EmojiPicker { emoji in
+                        draft += emoji
+                        showEmoji = false
+                    }
+                }
+
+                Button {
+                    attach(in: conversation)
+                } label: {
+                    if attaching {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "paperclip")
+                    }
+                }
+                .buttonStyle(.borderless)
+                .disabled(attaching || !session.canSign || conversation.leftGroup == true)
+                .help("Share a file — it is encrypted, uploaded to DISK, and the message carries the key")
+
                 TextField("Message", text: $draft, axis: .vertical)
                     .lineLimit(1...5)
                     .textFieldStyle(.roundedBorder)
@@ -491,6 +567,63 @@ struct ChatView: View {
         }
         await MainActor.run { pubkeys[conversation.targetId] = pubkey }
         return .init(privkey: privkey, recipientPubkey: pubkey)
+    }
+
+    /// Pick a file, upload it, and send the reference.
+    ///
+    /// The upload happens *before* the send, so a failed upload leaves
+    /// nothing queued — the alternative is a message pointing at bytes
+    /// that never arrived.
+    private func attach(in conversation: Conversation) {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        attaching = true
+        sendError = nil
+        Task {
+            do {
+                let pubkey = try Secp256k1.publicKey(fromPrivateKey: try session.livePrikey())
+                let message = try await session.fileShare.share(
+                    fileAt: url,
+                    in: conversation,
+                    as: session.liveFid,
+                    ownPubkey: pubkey,
+                    progress: { sent, total in
+                        Task { @MainActor in attachProgress = (sent, total) }
+                    }
+                )
+                let keys = try await sendKeys(for: conversation)
+                _ = try session.chat.send(
+                    message, in: conversation, as: session.liveFid, keys: keys
+                )
+                _ = try? await session.courier.drainOutbox(as: session.liveFid, ownDockUrl: nil)
+                await MainActor.run {
+                    attaching = false
+                    attachProgress = nil
+                    openSelected()
+                }
+            } catch {
+                await MainActor.run {
+                    attaching = false
+                    attachProgress = nil
+                    sendError = String(describing: error)
+                }
+            }
+        }
+    }
+
+    private func download(_ message: ImMessage) {
+        sendError = nil
+        Task {
+            do {
+                _ = try await session.fileShare.download(message)
+                await MainActor.run { openSelected() }
+            } catch {
+                await MainActor.run { sendError = String(describing: error) }
+            }
+        }
     }
 
     /// One round of delivery in both directions.

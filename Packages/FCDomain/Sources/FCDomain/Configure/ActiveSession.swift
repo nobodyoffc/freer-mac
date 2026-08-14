@@ -228,6 +228,11 @@ public final class ActiveSession {
     /// Lazy, so its SID→URL cache survives across sends.
     public lazy var homeServices: HomeServiceResolver = HomeServiceResolver(fapi: fapi)
 
+    /// Sharing a file in a chat, over the Phase 8.4 two-HAT flow.
+    public var fileShare: FileShareService {
+        FileShareService(files: files, hats: hats, sync: hatSync)
+    }
+
     /// Store-and-forward against our own DOCK — whatever server ``fapi``
     /// is pointed at. A put aimed at *someone else's* DOCK goes through
     /// this one's forwarding, which is what `targetDockUrl` is for.
