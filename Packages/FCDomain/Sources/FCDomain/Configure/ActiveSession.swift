@@ -214,6 +214,14 @@ public final class ActiveSession {
     public lazy var outbox: MessageQueue = MessageQueue(kv: storage)
     public lazy var peers: PeerBook = PeerBook(kv: storage)
     public lazy var rooms: RoomsStore = RoomsStore(kv: storage)
+    /// The two on-chain group flavours. Caches of what `base.search`
+    /// says — unlike ``rooms``, losing them costs only a sync.
+    public lazy var teams: TeamsStore = TeamsStore(kv: storage)
+    public lazy var squares: SquaresStore = SquaresStore(kv: storage)
+
+    /// On-chain group sync. Computed so a ``setFapi(_:)`` swap is
+    /// picked up.
+    public var groups: GroupService { GroupService(fapi: fapi) }
 
     /// The room protocol. Computed so it always carries the *live*
     /// identity's privkey — a sub-identity joins rooms as itself, and a
@@ -624,6 +632,85 @@ public final class ActiveSession {
                 return "the mail could not be prepared for sending"
             }
         }
+    }
+
+    // MARK: - group carves
+
+    /// Join a team, agreeing to `consensusId`.
+    ///
+    /// The consensus id is quoted back in the carve alongside a fixed
+    /// sentence, so joining is a signed statement about *which* document
+    /// was agreed to. Passing a stale one would sign agreement to
+    /// something the team has since replaced, which is why callers
+    /// should read it from the team record they just synced rather than
+    /// from a cached copy.
+    @discardableResult
+    public func carveTeamJoinOnChain(
+        teamId: String,
+        consensusId: String?,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.joinOp(tid: teamId, consensusId: consensusId)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// Leave one or more teams in a single carve — the protocol takes a
+    /// list, and for a paid operation that is the difference between one
+    /// fee and several.
+    @discardableResult
+    public func carveTeamLeaveOnChain(
+        teamIds: [String],
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.leaveOp(tids: teamIds)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    @discardableResult
+    public func carveSquareJoinOnChain(
+        squareId: String,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        try await carveGroupOp(
+            SquareFeip.envelope(opJson: try SquareFeip.joinOp(squareId: squareId)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    @discardableResult
+    public func carveSquareLeaveOnChain(
+        squareIds: [String],
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        try await carveGroupOp(
+            SquareFeip.envelope(opJson: try SquareFeip.leaveOp(squareIds: squareIds)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// The paymentless carve every group op uses. Joining a group pays
+    /// nobody — it is a statement about us, like publishing a notice fee
+    /// — which is what separates it from a mail.
+    private func carveGroupOp(
+        _ feipJson: String,
+        feePerByte: Int64,
+        timeoutMs: Int
+    ) async throws -> String {
+        let priv = try livePrikey()
+        let result = try await wallet.carve(
+            fromAddress: liveFid, privkey: priv,
+            opReturn: feipJson,
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+        return result.remoteTxid
     }
 
     /// Carve a `delete` op deactivating the given secret carves.
