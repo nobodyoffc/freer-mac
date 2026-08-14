@@ -417,6 +417,157 @@ public final class ActiveSession {
         return result.remoteTxid
     }
 
+    // MARK: - mail (Phase 9.1.3)
+
+    /// What it will cost to mail someone, and whether we can at all.
+    ///
+    /// Produced before the user writes anything, because both of its
+    /// answers change the shape of the compose screen: an unknown
+    /// pubkey means the mail cannot be encrypted *at all*, and a fee
+    /// over the limit means it will not be sent. Finding either out
+    /// after the user has typed a page is the wrong order.
+    public struct MailQuote: Sendable {
+        public let recipientFid: String
+        /// Nil when the FID has never published a pubkey — nothing has
+        /// ever been signed from it — so there is nothing to encrypt to.
+        public let recipientPubkey: Data?
+        public let fee: NoticeFee.Decision
+        /// The fee as the recipient published it (coins), for display.
+        public let publishedNoticeFee: String?
+
+        public var canSend: Bool { recipientPubkey != nil && fee.satoshis != nil }
+    }
+
+    /// Look up a recipient's on-chain record and decide the notice fee.
+    ///
+    /// `replyingTo` is the mail being answered, if any: its
+    /// ``Mail/noticeFee`` is what that correspondent paid us, which the
+    /// pay-back rule may match. Pass nil for a fresh mail.
+    public func quoteMail(
+        to recipientFid: String,
+        replyingTo: Mail? = nil,
+        timeoutMs: Int = 10_000
+    ) async throws -> MailQuote {
+        let freer = try? await directory.freerByIds([recipientFid], timeoutMs: timeoutMs)[recipientFid]
+        let prefs = (try? preferences.load()) ?? .defaults
+
+        let fee = NoticeFee.decide(
+            recipientNoticeFee: freer?.noticeFee,
+            maxPayingSats: prefs.maxPayingNoticeFeeSats ?? NoticeFee.defaultMaxPayingSats,
+            payBack: prefs.payBackNoticeFee ?? true,
+            receivedNoticeFeeSats: replyingTo?.noticeFee
+        )
+        return MailQuote(
+            recipientFid: recipientFid,
+            recipientPubkey: freer?.pubkey.flatMap { Data(fcHex: $0) },
+            fee: fee,
+            publishedNoticeFee: freer?.noticeFee
+        )
+    }
+
+    /// A mail that has been broadcast.
+    public struct SentMail: Sendable {
+        public let txid: String
+        /// The stored row: sealed, id = the carve txid.
+        public let mail: Mail
+        public let noticeFeePaidSats: Int64
+    }
+
+    /// Encrypt, carve, and store a mail. The carve pays the recipient —
+    /// that payment is how the mail is addressed, not a courtesy — so
+    /// this goes through ``WalletService/carve(fromAddress:privkey:opReturn:payTo:payAmount:feePerByte:useCache:timeoutMs:)``
+    /// rather than the paymentless path contacts and secrets use.
+    ///
+    /// Takes a ``MailQuote`` rather than a raw amount so a fee the user
+    /// declined cannot be paid by a caller that forgot to check: a
+    /// `.refuse` decision has no satoshi value to spend.
+    public func sendMailOnChain(
+        quote: MailQuote,
+        content: String,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> SentMail {
+        guard let feeSats = quote.fee.satoshis else {
+            guard case let .refuse(requested, limit) = quote.fee else {
+                throw Failure.underlying(MailFailure.noFee)
+            }
+            throw Failure.underlying(MailFailure.feeOverLimit(requested: requested, limit: limit))
+        }
+        guard let recipientPubkey = quote.recipientPubkey else {
+            throw Failure.underlying(MailFailure.recipientHasNoPubkey(quote.recipientFid))
+        }
+        let priv = try livePrikey()
+
+        var mail = Mail(from: liveFid, to: quote.recipientFid, content: content)
+        try mail.encryptContent(privkey: priv, recipientPubkey: recipientPubkey)
+        guard let cipher = mail.cipher else {
+            throw Failure.underlying(MailFailure.noFee)
+        }
+        // Throws before anything is broadcast when the body is too big
+        // for an OP_RETURN.
+        let feipJson = try MailFeip.sendCarve(cipher: cipher)
+
+        let result = try await wallet.carve(
+            fromAddress: liveFid, privkey: priv,
+            opReturn: feipJson,
+            payTo: quote.recipientFid, payAmount: feeSats,
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+
+        // Android's post-broadcast stamping: the id becomes the txid,
+        // `onChain` stays nil (broadcast ≠ confirmed), and lastHeight
+        // takes the sentinel so the mail sits at the top of the list
+        // until a sync replaces it with a real height.
+        mail.id = result.remoteTxid
+        mail.onChain = nil
+        mail.birthTime = Int64(Date().timeIntervalSince1970)
+        mail.lastHeight = MailsStore.unconfirmedHeight
+        mail.noticeFee = feeSats
+        mail.unread = false
+        mail.active = true
+        try mails.upsert(mail)
+
+        return SentMail(txid: result.remoteTxid, mail: mail, noticeFeePaidSats: feeSats)
+    }
+
+    /// Carve a `delete` (or `recover`) op over the given mail carve ids.
+    /// Pays nobody — only a `send` addresses anyone.
+    @discardableResult
+    public func carveMailDeleteOnChain(
+        mailIds: [String],
+        recover: Bool = false,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        let priv = try livePrikey()
+        let opJson = recover
+            ? try MailFeip.recoverOp(mailIds: mailIds)
+            : try MailFeip.deleteOp(mailIds: mailIds)
+        let result = try await wallet.carve(
+            fromAddress: liveFid, privkey: priv,
+            opReturn: MailFeip.envelope(opJson: opJson),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+        return result.remoteTxid
+    }
+
+    public enum MailFailure: Error, CustomStringConvertible {
+        case recipientHasNoPubkey(String)
+        case feeOverLimit(requested: Int64, limit: Int64)
+        case noFee
+
+        public var description: String {
+            switch self {
+            case .recipientHasNoPubkey(let fid):
+                return "\(fid) has never published a public key, so there is nothing to encrypt a mail to. They need to spend from that FID at least once."
+            case let .feeOverLimit(requested, limit):
+                return "This FID charges \(NoticeFee.coinString(satoshis: requested)) F to receive mail, over your \(NoticeFee.coinString(satoshis: limit)) F limit."
+            case .noFee:
+                return "the mail could not be prepared for sending"
+            }
+        }
+    }
+
     /// Carve a `delete` op deactivating the given secret carves.
     @discardableResult
     public func carveSecretDeleteOnChain(

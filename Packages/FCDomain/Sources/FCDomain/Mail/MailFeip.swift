@@ -1,4 +1,5 @@
 import Foundation
+import FCCore
 
 /// Builders for the FEIP `Mail` protocol (sn 7, ver 4) — the OP_RETURN
 /// JSON that carves a mail onto the FCH chain. Mirrors the Java
@@ -19,9 +20,56 @@ public enum MailFeip {
     public static let ver = "4"
     public static let protocolName = "Mail"
 
-    /// The largest body an OP_RETURN can carry, and the limit Android's
-    /// compose screen enforces before it will let you send.
+    /// The largest OP_RETURN the chain accepts. Android's compose
+    /// screen checks the *body* against this number, which is far too
+    /// generous — see ``maxBodyBytes``.
     public static let maxOpReturnSize = 4096
+
+    /// The largest UTF-8 body that still fits in a carve, once the FEIP
+    /// wrapper, the AsyTwoWay envelope, the GCM tag, base64 expansion
+    /// and JSON escaping have taken their share.
+    ///
+    /// It is far below ``maxOpReturnSize``: base64 alone costs a third,
+    /// so roughly 2 700 bytes of text is the real ceiling. Android
+    /// checks `content.length() > MaxOpReturnSize` and lets you write
+    /// 4 000 characters, which then fails at broadcast — after the mail
+    /// has been encrypted, the fee decided and the transaction signed
+    /// (Android issue C10). This is the number a compose screen should
+    /// count down from.
+    ///
+    /// Measured rather than derived: the constant is found by binary
+    /// search over a synthetic envelope of exactly the shape
+    /// ``AsyTwoWayCipher/encrypt(plaintext:privkeyA:toPubkey:)``
+    /// produces, so it cannot drift away from the real encoder the way
+    /// a hand-computed formula would. A note to self is sealed
+    /// AsyOneWay, whose envelope is ~70 bytes shorter, so this figure
+    /// is the conservative one for both.
+    public static let maxBodyBytes: Int = {
+        var best = 0
+        var lo = 0
+        var hi = maxOpReturnSize
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            if (try? sendCarve(cipher: syntheticEnvelope(bodyBytes: mid))) != nil {
+                best = mid
+                lo = mid + 1
+            } else {
+                hi = mid - 1
+            }
+        }
+        return best
+    }()
+
+    /// A stand-in for a real sealed envelope with the same *length* as
+    /// one wrapping `bodyBytes` of plaintext: 12-byte iv, 16-byte GCM
+    /// tag, two 33-byte pubkeys, all hex/base64 as the real encoder
+    /// emits them. Only its size is meaningful.
+    static func syntheticEnvelope(bodyBytes: Int) -> String {
+        let cipherB64 = Data(count: bodyBytes + AesGcm256.tagLength).base64EncodedString()
+        let pubkeyHex = String(repeating: "a", count: 66)
+        let ivHex = String(repeating: "a", count: 24)
+        return #"{"type":"AsyTwoWay","alg":"\#(AsyOneWayCipher.algGcm)","cipher":"\#(cipherB64)","pubkeyA":"\#(pubkeyHex)","pubkeyB":"\#(pubkeyHex)","iv":"\#(ivHex)"}"#
+    }
 
     public enum Failure: Error, CustomStringConvertible {
         case encoding(underlying: Error)

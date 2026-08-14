@@ -717,9 +717,14 @@ public struct WalletService {
     // MARK: - carve (OP_RETURN data tx)
 
     /// Write `opReturn` (typically a FEIP JSON document) onto the
-    /// chain from `fromAddress`. No recipient — the tx spends the
+    /// chain from `fromAddress`. With no recipient the tx spends the
     /// sender's own cashes into a change output plus a zero-value
-    /// OP_RETURN carrying the data; the cost is the miner fee.
+    /// OP_RETURN carrying the data, and the cost is the miner fee.
+    ///
+    /// Pass `payTo`/`payAmount` to also pay someone in the same
+    /// transaction — Android's `TxSender.carveFeipWithRecipient`. Mail
+    /// is the caller that needs it: a mail is *addressed by paying its
+    /// recipient*, so the payment is not a courtesy but the routing.
     ///
     /// Mirrors the Android `TxSender.carveSimpleFeip` → `sendTx`
     /// path, including the CoinDays rule: carves must destroy
@@ -732,6 +737,8 @@ public struct WalletService {
         fromAddress: String,
         privkey: Data,
         opReturn: String,
+        payTo: String? = nil,
+        payAmount: Int64 = 0,
         feePerByte: Int64 = 1,
         useCache: Bool = false,
         timeoutMs: Int = 10_000
@@ -751,15 +758,25 @@ public struct WalletService {
             requiredCd = ContactFeip.cdRequired
         }
 
+        // A payment needs a payee and vice versa; a half-specified one
+        // would silently become a plain carve, i.e. a mail nobody
+        // receives.
+        let paying = payTo != nil && payAmount > 0
+        if (payTo != nil) != (payAmount > 0) {
+            throw Failure.underlying(CoinSelector.Failure.nonPositiveAmount(payAmount))
+        }
+
         let opReturnData = Data(opReturn.utf8)
         let plan = try CoinSelector.selectForCarve(
             cashes: spendable,
             opReturnByteCount: opReturnData.count,
             feePerByte: feePerByte,
-            requiredCd: requiredCd
+            requiredCd: requiredCd,
+            payAmount: paying ? payAmount : 0
         )
         let unsigned = try TxBuilder.buildUnsignedCarve(
-            plan: plan, changeFid: fromAddress, opReturn: opReturnData
+            plan: plan, changeFid: fromAddress, opReturn: opReturnData,
+            toFid: paying ? payTo : nil, payAmount: paying ? payAmount : 0
         )
         let signed = try signAllInputs(unsigned: unsigned, plan: plan, privkey: privkey)
         let txidString = try await broadcast(signed: signed, timeoutMs: timeoutMs)

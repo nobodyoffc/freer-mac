@@ -24,6 +24,15 @@ public struct Preferences: Codable, Equatable, Sendable {
     /// `fudp://host:port`. Nil until the user pins a provider, in
     /// which case uploads fall back to the service URL.
     public var preferredDiskServiceSid: String?
+    /// The most this identity will pay as a mail notice fee, in
+    /// satoshis. Nil means ``NoticeFee/defaultMaxPayingSats``. A
+    /// recipient charging more than this gets no mail — see
+    /// ``NoticeFee/decide(recipientNoticeFee:maxPayingSats:payBack:receivedNoticeFeeSats:)``.
+    public var maxPayingNoticeFeeSats: Int64?
+    /// When replying, match a notice fee the correspondent paid us if it
+    /// was larger than what we would otherwise pay (Android's
+    /// `PAY_BACK_NOTICE_FEE`, on by default). Nil means on.
+    public var payBackNoticeFee: Bool?
     public var theme: Theme?
     public var autoLockSeconds: Int?
 
@@ -38,6 +47,8 @@ public struct Preferences: Codable, Equatable, Sendable {
         preferredFapiService: String? = nil,
         preferredFapiServicePubkeyHex: String? = nil,
         preferredDiskServiceSid: String? = nil,
+        maxPayingNoticeFeeSats: Int64? = nil,
+        payBackNoticeFee: Bool? = nil,
         theme: Theme? = nil,
         autoLockSeconds: Int? = nil
     ) {
@@ -45,6 +56,8 @@ public struct Preferences: Codable, Equatable, Sendable {
         self.preferredFapiService = preferredFapiService
         self.preferredFapiServicePubkeyHex = preferredFapiServicePubkeyHex
         self.preferredDiskServiceSid = preferredDiskServiceSid
+        self.maxPayingNoticeFeeSats = maxPayingNoticeFeeSats
+        self.payBackNoticeFee = payBackNoticeFee
         self.theme = theme
         self.autoLockSeconds = autoLockSeconds
     }

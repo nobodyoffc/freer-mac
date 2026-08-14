@@ -153,4 +153,73 @@ final class TxBuilderTests: XCTestCase {
         XCTAssertEqual(tx.outputs[0].value, 0)
         XCTAssertEqual(tx.outputs[0].scriptPubKey.bytes, Data([0x6A, 0x01, 0x78]))
     }
+
+    /// A mail carve: recipient, then change, then OP_RETURN — the Java
+    /// `TxHandler.createTx` order. The order is not cosmetic; the
+    /// indexer reads the recipient from the transaction's pay output,
+    /// which is the only place a mail records who it is for.
+    func testBuildUnsignedCarveWithRecipientOrdersPayChangeOpReturn() throws {
+        let aFid = try fid(for: aPrivkey)
+        let bFid = try fid(for: bPrivkey)
+        let feip = Data(#"{"type":"FEIP","sn":"7"}"#.utf8)
+
+        let plan = CoinSelector.Plan(
+            selected: [cash(owner: aFid, txid: String(repeating: "ab", count: 32), index: 0, value: 1_000_000)],
+            change: 989_669,
+            fee: 331,
+            estimatedSize: 331
+        )
+        let tx = try TxBuilder.buildUnsignedCarve(
+            plan: plan, changeFid: aFid, opReturn: feip,
+            toFid: bFid, payAmount: 10_000
+        )
+
+        XCTAssertEqual(tx.outputs.count, 3)
+        XCTAssertEqual(tx.outputs[0].value, 10_000)
+        XCTAssertEqual(tx.outputs[1].value, 989_669)
+        XCTAssertEqual(tx.outputs[2].value, 0)
+
+        // The payment locks to the recipient, the change to the sender.
+        let payHash160 = try FchAddress(fid: bFid).hash160
+        let changeHash160 = try FchAddress(fid: aFid).hash160
+        XCTAssertEqual(tx.outputs[0].scriptPubKey.bytes.dropFirst(3).prefix(20), payHash160)
+        XCTAssertEqual(tx.outputs[1].scriptPubKey.bytes.dropFirst(3).prefix(20), changeHash160)
+        XCTAssertEqual(tx.outputs[2].scriptPubKey.bytes.first, 0x6A)
+    }
+
+    /// No change and a recipient: two outputs, payment first.
+    func testBuildUnsignedCarveWithRecipientAndNoChange() throws {
+        let aFid = try fid(for: aPrivkey)
+        let bFid = try fid(for: bPrivkey)
+        let plan = CoinSelector.Plan(
+            selected: [cash(owner: aFid, txid: String(repeating: "cd", count: 32), index: 1, value: 10_500)],
+            change: 0,
+            fee: 500,
+            estimatedSize: 297
+        )
+        let tx = try TxBuilder.buildUnsignedCarve(
+            plan: plan, changeFid: aFid, opReturn: Data("x".utf8),
+            toFid: bFid, payAmount: 10_000
+        )
+        XCTAssertEqual(tx.outputs.count, 2)
+        XCTAssertEqual(tx.outputs[0].value, 10_000)
+        XCTAssertEqual(tx.outputs[1].value, 0)
+    }
+
+    /// Zero payment means no pay output at all — a contact or secret
+    /// carve keeps exactly the shape it had before mail existed.
+    func testBuildUnsignedCarveIgnoresARecipientWithZeroPayment() throws {
+        let aFid = try fid(for: aPrivkey)
+        let bFid = try fid(for: bPrivkey)
+        let plan = CoinSelector.Plan(
+            selected: [cash(owner: aFid, txid: String(repeating: "ef", count: 32), index: 0, value: 10_000)],
+            change: 9_700, fee: 300, estimatedSize: 300
+        )
+        let tx = try TxBuilder.buildUnsignedCarve(
+            plan: plan, changeFid: aFid, opReturn: Data("x".utf8),
+            toFid: bFid, payAmount: 0
+        )
+        XCTAssertEqual(tx.outputs.count, 2)
+        XCTAssertEqual(tx.outputs[0].value, 9_700)
+    }
 }

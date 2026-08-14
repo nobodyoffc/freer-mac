@@ -80,15 +80,23 @@ public enum TxBuilder {
         )
     }
 
-    /// Assemble an unsigned data-carve tx: the plan's inputs, a change
-    /// output back to `changeFid` (when the plan has one), and a
-    /// zero-value OP_RETURN output carrying `opReturn` — in that
-    /// order, matching the Java `TxHandler.createTx` which appends
-    /// the OP_RETURN after pay/change outputs.
+    /// Assemble an unsigned data-carve tx: the plan's inputs, an
+    /// optional payment to `toFid`, a change output back to `changeFid`
+    /// (when the plan has one), and a zero-value OP_RETURN output
+    /// carrying `opReturn` — **in that order**, matching the Java
+    /// `TxHandler.createTx`, which adds pay outputs, then change, then
+    /// the OP_RETURN last.
+    ///
+    /// The payment is how a mail is addressed: the recipient is whoever
+    /// the transaction pays, so `toFid`/`payAmount` are set for a mail
+    /// carve and left alone for a contact or secret carve, which pays
+    /// nobody.
     public static func buildUnsignedCarve(
         plan: CoinSelector.Plan,
         changeFid: String,
-        opReturn: Data
+        opReturn: Data,
+        toFid: String? = nil,
+        payAmount: Int64 = 0
     ) throws -> Transaction {
         let inputs: [TxInput] = try plan.selected.map { cash in
             let prevTxHash = try decodeTxid(cash.birthTxId)
@@ -104,6 +112,12 @@ public enum TxBuilder {
         }
 
         var outputs: [TxOutput] = []
+        if let toFid, payAmount > 0 {
+            outputs.append(TxOutput(
+                value: UInt64(payAmount),
+                scriptPubKey: try ScriptBuilder.p2pkhOutput(hash160: hash160(forFid: toFid))
+            ))
+        }
         if plan.hasChange {
             let changeHash160 = try hash160(forFid: changeFid)
             outputs.append(TxOutput(

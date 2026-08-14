@@ -184,4 +184,74 @@ final class CoinSelectorTests: XCTestCase {
             }
         }
     }
+
+    // MARK: - carve that also pays a recipient (mail)
+
+    /// A mail carve funds three things at once: the recipient's notice
+    /// fee, the miner fee, and its own change output.
+    func testCarveWithRecipientFundsPaymentAndChange() throws {
+        let plan = try CoinSelector.selectForCarve(
+            cashes: [cash(1_000_000)], opReturnByteCount: 100,
+            feePerByte: 1, payAmount: 10_000
+        )
+        // size = sizeFor(1 in, 2 out: pay + change) = 219, + opReturn 112 = 331
+        XCTAssertEqual(plan.estimatedSize, 331)
+        XCTAssertEqual(plan.fee, 331)
+        XCTAssertEqual(plan.change, 1_000_000 - 10_000 - 331)
+        XCTAssertTrue(plan.hasChange)
+    }
+
+    /// When the leftover is dust the change output goes away — but the
+    /// recipient still receives exactly what they were promised. Only
+    /// the sender's remainder burns.
+    func testCarveWithRecipientBurnsDustButPaysInFull() throws {
+        // 10 500 in: with change the leftover is 169 (dust) → no-change
+        // shape, size 185 + 112 = 297, and the surplus becomes fee.
+        let plan = try CoinSelector.selectForCarve(
+            cashes: [cash(10_500)], opReturnByteCount: 100,
+            feePerByte: 1, payAmount: 10_000
+        )
+        XCTAssertFalse(plan.hasChange)
+        XCTAssertEqual(plan.fee, 500)
+        XCTAssertEqual(plan.totalIn - plan.fee, 10_000, "the recipient is paid in full")
+    }
+
+    /// The payment counts toward what must be funded — otherwise a
+    /// wallet with just enough for the fee would build a tx that cannot
+    /// pay its recipient.
+    func testCarveWithRecipientNeedsThePaymentToo() {
+        XCTAssertThrowsError(try CoinSelector.selectForCarve(
+            cashes: [cash(5_000)], opReturnByteCount: 100,
+            feePerByte: 1, payAmount: 10_000
+        )) { error in
+            guard case CoinSelector.Failure.insufficientFunds(let needed, let have) = error else {
+                XCTFail("wrong error: \(error)"); return
+            }
+            XCTAssertGreaterThan(needed, 10_000)
+            XCTAssertEqual(have, 5_000)
+        }
+    }
+
+    /// A paying carve is strictly one output bigger than the same carve
+    /// without a payee.
+    func testPayingCarveIsOneOutputLargerThanPaymentlessCarve() throws {
+        let paymentless = try CoinSelector.selectForCarve(
+            cashes: [cash(1_000_000)], opReturnByteCount: 100, feePerByte: 1
+        )
+        let paying = try CoinSelector.selectForCarve(
+            cashes: [cash(1_000_000)], opReturnByteCount: 100,
+            feePerByte: 1, payAmount: 10_000
+        )
+        XCTAssertEqual(
+            paying.estimatedSize - paymentless.estimatedSize,
+            CoinSelector.p2pkhOutputBytes
+        )
+    }
+
+    func testNegativePayAmountIsRejected() {
+        XCTAssertThrowsError(try CoinSelector.selectForCarve(
+            cashes: [cash(1_000_000)], opReturnByteCount: 10,
+            feePerByte: 1, payAmount: -1
+        ))
+    }
 }

@@ -156,15 +156,22 @@ public enum CoinSelector {
         return 8 + scriptVarInt + scriptLen
     }
 
-    /// Pick cashes to fund a data-carve tx: no recipient output, just
-    /// an OP_RETURN of `opReturnByteCount` bytes plus (usually) a
-    /// change output back to the sender. The whole payment is the fee.
+    /// Pick cashes to fund a data-carve tx: an OP_RETURN of
+    /// `opReturnByteCount` bytes, an optional payment of `payAmount` to
+    /// one recipient, and (usually) a change output back to the sender.
+    ///
+    /// `payAmount` is what separates a plain carve from a **mail**. A
+    /// contact or secret carve pays nobody — the cost is just the miner
+    /// fee — but a mail is addressed by *paying its recipient*, so the
+    /// same transaction carries a real output alongside the data
+    /// (Android's `TxSender.carveFeipWithRecipient`). Leave it at 0 for
+    /// the paymentless carves.
     ///
     /// `requiredCd` is the CoinDays the inputs must jointly destroy —
     /// FEIP carves require 1 CD once the chain passes
     /// ``ContactFeip/cddCheckHeight``. Selection keeps adding inputs
-    /// until both the fee and the CD requirement are covered; a value
-    /// surplus can't substitute for missing CoinDays.
+    /// until the payment, the fee and the CD requirement are all
+    /// covered; a value surplus can't substitute for missing CoinDays.
     ///
     /// Mirrors the Android path `getValidCashes(0, cd, 0, msgSize, …)`
     /// → `TxHandler.calcFee`: change > dust gets its own output,
@@ -173,11 +180,17 @@ public enum CoinSelector {
         cashes: [Cash],
         opReturnByteCount: Int,
         feePerByte: Int64 = 1,
-        requiredCd: Int64 = 0
+        requiredCd: Int64 = 0,
+        payAmount: Int64 = 0
     ) throws -> Plan {
         guard feePerByte > 0 else { throw Failure.nonPositiveFeeRate(feePerByte) }
+        guard payAmount >= 0 else { throw Failure.nonPositiveAmount(payAmount) }
 
         let opReturnLen = opReturnOutputBytes(opReturnByteCount)
+        // The recipient output, when there is one, is present in both
+        // the with-change and no-change shapes — it is the payment, not
+        // the remainder.
+        let payOutputs = payAmount > 0 ? 1 : 0
         let candidates = cashes.sorted { $0.value > $1.value }
         var selected: [Cash] = []
         var sum: Int64 = 0
@@ -189,10 +202,10 @@ public enum CoinSelector {
             cdSum += cash.cd ?? 0
             guard cdSum >= requiredCd else { continue }
 
-            // With change: overhead + inputs + change(34) + opReturn.
-            let withChangeSize = sizeFor(nIn: selected.count, nOut: 1) + opReturnLen
+            // With change: overhead + inputs + pay? + change(34) + opReturn.
+            let withChangeSize = sizeFor(nIn: selected.count, nOut: payOutputs + 1) + opReturnLen
             let withChangeFee = Int64(withChangeSize) * feePerByte
-            let change = sum - withChangeFee
+            let change = sum - payAmount - withChangeFee
             if change > dustThresholdSats {
                 return Plan(
                     selected: selected,
@@ -202,13 +215,14 @@ public enum CoinSelector {
                 )
             }
             // Without change: the dust-or-less remainder burns as fee.
-            let noChangeSize = sizeFor(nIn: selected.count, nOut: 0) + opReturnLen
+            // The recipient still receives exactly `payAmount`.
+            let noChangeSize = sizeFor(nIn: selected.count, nOut: payOutputs) + opReturnLen
             let noChangeFee = Int64(noChangeSize) * feePerByte
-            if sum >= noChangeFee {
+            if sum >= payAmount + noChangeFee {
                 return Plan(
                     selected: selected,
                     change: 0,
-                    fee: sum,
+                    fee: sum - payAmount,
                     estimatedSize: noChangeSize
                 )
             }
@@ -217,7 +231,8 @@ public enum CoinSelector {
         if cdSum < requiredCd {
             throw Failure.insufficientCoinDays(required: requiredCd, have: cdSum)
         }
-        let neededAtMin = Int64(sizeFor(nIn: max(selected.count, 1), nOut: 0) + opReturnLen) * feePerByte
+        let neededAtMin = payAmount
+            + Int64(sizeFor(nIn: max(selected.count, 1), nOut: payOutputs) + opReturnLen) * feePerByte
         throw Failure.insufficientFunds(needed: neededAtMin, have: sum)
     }
 }

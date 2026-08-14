@@ -260,6 +260,32 @@ final class MailTests: XCTestCase {
         XCTAssertNoThrow(try MailFeip.sendCarve(cipher: String(repeating: "A", count: 3900)))
     }
 
+    /// `maxBodyBytes` is derived from a synthetic envelope, so it is
+    /// only useful if it agrees with what the real encryptor produces.
+    /// One byte either side of it must decide the carve.
+    func testMaxBodyBytesAgreesWithRealEncryption() throws {
+        let (priv, _) = try keypair(0x88)
+        let (_, recvPub) = try keypair(0x99)
+
+        func carveFits(bodyBytes: Int) throws -> Bool {
+            var mail = Mail(from: "F-a", to: "F-b",
+                            content: String(repeating: "A", count: bodyBytes))
+            try mail.encryptContent(privkey: priv, recipientPubkey: recvPub)
+            return (try? MailFeip.sendCarve(cipher: XCTUnwrap(mail.cipher))) != nil
+        }
+
+        XCTAssertTrue(try carveFits(bodyBytes: MailFeip.maxBodyBytes))
+        XCTAssertFalse(try carveFits(bodyBytes: MailFeip.maxBodyBytes + 1))
+    }
+
+    /// The real body budget is far below the OP_RETURN limit — base64
+    /// alone takes a third. Android compares the *body* against 4 096
+    /// and only discovers the overflow at broadcast.
+    func testMaxBodyBytesIsWellUnderTheOpReturnLimit() {
+        XCTAssertGreaterThan(MailFeip.maxBodyBytes, 2_000)
+        XCTAssertLessThan(MailFeip.maxBodyBytes, 3_000)
+    }
+
     // MARK: - helpers
 
     private func keypair(_ byte: UInt8) throws -> (Data, Data) {
