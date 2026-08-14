@@ -223,6 +223,11 @@ public final class ActiveSession {
     /// picked up.
     public var groups: GroupService { GroupService(fapi: fapi) }
 
+    /// Turns the `home` map of a FID, team, square or room into URLs —
+    /// what every delivery route needs before it can go anywhere.
+    /// Lazy, so its SID→URL cache survives across sends.
+    public lazy var homeServices: HomeServiceResolver = HomeServiceResolver(fapi: fapi)
+
     /// The send/receive path the chat pane and the transport share.
     public var chat: ChatService {
         ChatService(

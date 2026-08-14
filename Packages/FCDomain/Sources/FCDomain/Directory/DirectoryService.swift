@@ -1,8 +1,9 @@
 import Foundation
 import FCTransport
 
-/// Identity-directory FAPI calls. Today: `base.freerByIds` only —
-/// fetch the on-chain ``Freer`` block for one or more FIDs.
+/// Identity-directory FAPI calls: `base.freerByIds` for the on-chain
+/// ``Freer`` block behind a FID, and `base.serviceByIds` for the
+/// ``Service`` record behind a SID.
 ///
 /// Lives next to ``WalletService`` rather than inside it because the
 /// concerns are different: the wallet manages money state for a
@@ -84,6 +85,50 @@ public struct DirectoryService {
     public func freer(byId fid: String, timeoutMs: Int = 5_000) async throws -> Freer? {
         let map = try await freerByIds([fid], timeoutMs: timeoutMs)
         return map[fid]
+    }
+
+    /// Look up on-chain ``Service`` records by SID — Java's
+    /// `FapiClient.serviceByIds`, which is `entityByIds` over the
+    /// `service` index.
+    ///
+    /// This is how a `(sid)` in someone's `home` map becomes an address:
+    /// see ``HomeServiceResolver``. Same shape and same 404 handling as
+    /// ``freerByIds(_:timeoutMs:)``, against `base.serviceByIds`.
+    public func serviceByIds(
+        _ sids: [String],
+        timeoutMs: Int = 5_000
+    ) async throws -> [String: Service] {
+        guard !sids.isEmpty else { return [:] }
+        let body = try JSONSerialization.data(
+            withJSONObject: ["ids": sids],
+            options: [.sortedKeys]
+        )
+        let reply = try await fapi.call(
+            api: "base.serviceByIds",
+            params: nil, fcdsl: body, binary: nil,
+            sid: nil, via: nil, maxCost: nil,
+            timeoutMs: timeoutMs
+        )
+        let resp = reply.response
+        if let code = resp.code, code != 0 {
+            if code == 404 { return [:] }
+            throw Failure.fapiNonZeroCode(
+                api: "base.serviceByIds",
+                code: code,
+                message: resp.message
+            )
+        }
+        guard let data = resp.data else { return [:] }
+        do {
+            return try JSONDecoder().decode([String: Service].self, from: data)
+        } catch {
+            throw Failure.underlying(error)
+        }
+    }
+
+    /// One service by SID, or nil when the chain has no such record.
+    public func serviceById(_ sid: String, timeoutMs: Int = 5_000) async throws -> Service? {
+        try await serviceByIds([sid], timeoutMs: timeoutMs)[sid]
     }
 
     // MARK: - partial-match search
