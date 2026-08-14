@@ -207,6 +207,9 @@ public final class ActiveSession {
     /// each) — see ``MessagesStore`` for why those are separate.
     public lazy var conversations: ConversationsStore = ConversationsStore(kv: storage)
     public lazy var messages: MessagesStore = MessagesStore(kv: storage)
+    /// Versioned team/room keys. P2P is not in here — it seals
+    /// AsyTwoWay and stores nothing.
+    public lazy var symkeys: SymkeyStore = SymkeyStore(kv: storage)
     /// Reference-mode file layer over ``hats``.
     public lazy var files: FileVault       = FileVault(hats: hats, dataDirectory: dataDirectory)
     public lazy var keys: KeysStore        = KeysStore(kv: storage)
