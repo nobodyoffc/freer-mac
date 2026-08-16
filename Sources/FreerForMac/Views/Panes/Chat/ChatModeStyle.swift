@@ -27,7 +27,7 @@ struct ChatModeStyle: Identifiable {
     /// The tab label, and the pane heading.
     var title: String {
         switch mode {
-        case .p2p:    return "Chats"
+        case .p2p:    return "Freers"
         case .room:   return "Rooms"
         case .team:   return "Teams"
         case .square: return "Squares"
@@ -113,8 +113,8 @@ struct ChatModeStyle: Identifiable {
         switch mode {
         case .p2p:    return "New chat"
         case .room:   return "New room"
-        case .team:   return "Join a team"
-        case .square: return "Join a square"
+        case .team:   return "New team"
+        case .square: return "New square"
         }
     }
 
