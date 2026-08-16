@@ -28,6 +28,15 @@ public struct Service: Codable, Equatable, Sendable, Identifiable {
     public var home: [String: String]?
     public var protocols: [String]?
     public var owner: String?
+    /// The largest single item this service accepts, in bytes, written as
+    /// a decimal **string** (the chain carries every numeric service field
+    /// that way).
+    ///
+    /// For a DOCK this is the per-item ceiling FAPI13 enforces on
+    /// `dock.put`. It is the operator's to set, and it varies: the server
+    /// defaults to 64 KB when the record does not say. See
+    /// ``itemSizeLimit`` for the parsed form.
+    public var maxDataSize: String?
 
     public var birthTime: Int64?
     public var birthHeight: Int64?
@@ -50,6 +59,7 @@ public struct Service: Codable, Equatable, Sendable, Identifiable {
         home: [String: String]? = nil,
         protocols: [String]? = nil,
         owner: String? = nil,
+        maxDataSize: String? = nil,
         birthTime: Int64? = nil,
         birthHeight: Int64? = nil,
         lastTxId: String? = nil,
@@ -67,6 +77,7 @@ public struct Service: Codable, Equatable, Sendable, Identifiable {
         self.home = home
         self.protocols = protocols
         self.owner = owner
+        self.maxDataSize = maxDataSize
         self.birthTime = birthTime
         self.birthHeight = birthHeight
         self.lastTxId = lastTxId
@@ -93,6 +104,23 @@ public struct Service: Codable, Equatable, Sendable, Identifiable {
     /// A service is live unless the chain says otherwise — a missing
     /// flag is not a retirement.
     public var isActive: Bool { active ?? true }
+
+    /// ``maxDataSize`` as a byte count, when the record carries a usable
+    /// one.
+    ///
+    /// `nil` means "the record does not say", which is different from
+    /// zero and different from unlimited: the server then applies its own
+    /// default, so a caller should assume
+    /// ``ImMessage/assumedDockItemLimit`` rather than send freely. A
+    /// value that will not parse, or is not positive, is treated as
+    /// absent — the server does the same thing with it.
+    public var itemSizeLimit: Int? {
+        guard let maxDataSize,
+              let bytes = Int(maxDataSize.trimmingCharacters(in: .whitespaces)),
+              bytes > 0
+        else { return nil }
+        return bytes
+    }
 }
 
 /// Well-known service names, as they appear as keys in an entity's

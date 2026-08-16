@@ -40,7 +40,23 @@ final class MessageCourierTests: XCTestCase {
             password: Data("\(label)-pwd".utf8), kdfKind: .legacySha256
         )
         let info = try configure.addMain(privkey: privkey, label: label)
-        return try configure.unlockMain(fid: info.fid, fapi: server)
+        let session = try configure.unlockMain(fid: info.fid, fapi: server)
+        try acceptTheCast(session)
+        return session
+    }
+
+    /// Consent, stated once for the whole cast.
+    ///
+    /// These suites are about moving messages, and they all assume the
+    /// two ends are already talking. Since the stranger gate landed that
+    /// assumption has to be made explicit: an unaccepted FID's first P2P
+    /// message is **held**, not filed. That rule is tested where it
+    /// belongs, in `ContactPolicyTests`.
+    private func acceptTheCast(_ session: ActiveSession) throws {
+        for privkey in [alicePriv, bobPriv] {
+            let fid = try FchAddress(publicKey: Secp256k1.publicKey(fromPrivateKey: privkey)).fid
+            try session.contactPolicy.mutate(liveFid: session.liveFid) { $0.allow(fid) }
+        }
     }
 
     private func pubkey(_ privkey: Data) throws -> Data {

@@ -153,27 +153,27 @@ final class MessagesStoreTests: XCTestCase {
 
     // MARK: - storage rules
 
-    /// A message we could open is stored open: the cipher is an
+    /// A message we could open is stored open: the sealed body is an
     /// ephemeral transport wrapper whose symkey may be rotated away,
     /// while the plaintext beside it stays readable. This is the
     /// opposite of `MailsStore` and is the point of that comparison.
-    func testOpenedMessageDropsItsCipher() throws {
+    func testOpenedMessageDropsItsSealedBody() throws {
         var m = ImMessage.text(type: .p2p, from: them, to: me, "hello")
-        m.cipher = "{\"type\":\"Symkey\",\"cipher\":\"c2FtcGxl\"}"
+        m.body = Data([0xDE, 0xAD, 0xBE, 0xEF])
         m.timestamp = 1_000
         m.id = "0000000000000001"
         try store.put(m, in: conversationId)
 
         let stored = try XCTUnwrap(try store.get(messageId: m.id!, in: conversationId))
         XCTAssertEqual(stored.content, "hello")
-        XCTAssertNil(stored.cipher)
+        XCTAssertNil(stored.body)
     }
 
-    /// A message we could *not* open keeps its cipher — it is the only
-    /// copy, and a key we do not have yet might still arrive.
-    func testUnopenedMessageKeepsItsCipher() throws {
+    /// A message we could *not* open keeps its sealed body — it is the
+    /// only copy, and a key we do not have yet might still arrive.
+    func testUnopenedMessageKeepsItsSealedBody() throws {
         var m = ImMessage.make(type: .team, from: them, to: "team-1", contentType: .text)
-        m.cipher = "{\"type\":\"Symkey\",\"cipher\":\"c2FtcGxl\"}"
+        m.body = Data([0xDE, 0xAD, 0xBE, 0xEF])
         m.symkeyVersion = 4
         m.timestamp = 1_000
         m.id = "0000000000000001"
@@ -182,7 +182,7 @@ final class MessagesStoreTests: XCTestCase {
 
         let stored = try XCTUnwrap(try store.get(messageId: m.id!, in: team))
         XCTAssertNil(stored.content)
-        XCTAssertEqual(stored.cipher, m.cipher)
+        XCTAssertEqual(stored.body, m.body)
         XCTAssertEqual(stored.symkeyVersion, 4)
     }
 
@@ -259,8 +259,8 @@ final class MessagesStoreTests: XCTestCase {
         }
         try send("mine", at: 4_000, id: "0000000000000004")
 
-        XCTAssertEqual(try store.markAllRead(in: conversationId), 3)
-        XCTAssertEqual(try store.markAllRead(in: conversationId), 0)
+        XCTAssertEqual(try store.markAllRead(in: conversationId).count, 3)
+        XCTAssertEqual(try store.markAllRead(in: conversationId).count, 0)
         XCTAssertTrue(try store.page(in: conversationId, limit: 10).messages.allSatisfy { $0.unread != true })
     }
 

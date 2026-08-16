@@ -181,11 +181,15 @@ final class ImMessageRef {
         return m;
     }
 
-    /** Inline audio: metadata in content, AAC payload in dataBase64. */
+    /**
+     * Inline audio: metadata in the body's content section, AAC payload in its
+     * data section. Both are inside one body now, and in v2 both would be
+     * inside one seal -- which is the whole point of the version.
+     */
     private static ImMessage voice() {
         ImMessage m = ImMessage.createVoice(ImType.P2P, FID_B, FID_A,
                 "{\"durationMs\":3400,\"sampleRate\":44100,\"format\":\"aac\"}",
-                "AAECAwQFBgcICQoLDA0ODw==");
+                new byte[] {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15});
         m.setTimestamp(1755100003000L);
         m.setId("00000000feedface");
         return m;
@@ -225,10 +229,25 @@ final class ImMessageRef {
         return m;
     }
 
-    /** Team traffic: the body is sealed, so cipher carries it and content is null. */
+    /**
+     * Team traffic: the body is sealed, so `body` carries the bundle and both
+     * content and data are null.
+     *
+     * <p>The bundle bytes here are a fixed stand-in, not a real seal: a real
+     * one uses a random IV and would make the vector different on every run.
+     * The wire format treats the body as opaque, so a stand-in exercises it
+     * exactly as a real bundle would.
+     */
     private static ImMessage teamCipher() {
         ImMessage m = base(ImType.TEAM, FID_A, ROOM_ID, ContentType.TEXT);
-        m.setCipher("{\"type\":\"Symkey\",\"alg\":\"Aes256Gcm@No1_NrC7\",\"cipher\":\"c2FtcGxl\"}");
+        m.setBody(new byte[] {
+            // alg prefix for AesGcm256, then type=Symkey(0), keyName, iv, cipher
+            (byte) 0x76, (byte) 0xf7, (byte) 0xb2, (byte) 0x26, (byte) 0xa8, (byte) 0xb3,
+            0x00,
+            0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+            1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+            (byte) 0xde, (byte) 0xad, (byte) 0xbe, (byte) 0xef
+        });
         m.setSymkeyVersion(7L);
         m.setTimestamp(1755100008000L);
         m.setId("00000000beefcafe");
@@ -252,10 +271,15 @@ final class ImMessageRef {
     }
 
     /**
-     * Empty strings are not null: an empty content sets FLAG_CONTENT and writes
-     * a zero-length field, but the length-prefix readers return "" for length 0,
-     * so a null and an empty string are indistinguishable coming back. Pinning
-     * this stops a port from guessing the other way.
+     * Empty and null are the same thing on the far side, in two different ways.
+     *
+     * <p>A length-prefixed <em>string</em> field (threadId) writes a zero
+     * length and reads back as "". The <em>body</em> does not: its framing
+     * records a length rather than a presence, so an empty content section
+     * cannot come back as "" -- it comes back null, and the encoder therefore
+     * omits the body entirely rather than writing an all-zero framing that
+     * would not survive a second encode. Pinning both stops a port from
+     * guessing either way.
      */
     private static ImMessage emptyStrings() {
         ImMessage m = ImMessage.createText(ImType.P2P, FID_A, FID_B, "");
@@ -268,14 +292,18 @@ final class ImMessageRef {
     /**
      * Every field set, wire-carried and local-only alike. The local-only ones
      * exist here to be missing from {@code wire_decoded_json}.
+     *
+     * <p>Every field <em>except</em> a sealed body, which is mutually exclusive
+     * with content and data: a sealed message has one or the other, never both,
+     * and toWireBytes carries the sealed body in preference to framing the
+     * plaintext. The sealed shape is covered by the team-cipher vector.
      */
     private static ImMessage full() {
         ImMessage m = ImMessage.createText(ImType.ROOM, FID_A, ROOM_ID, "everything at once");
         m.setId("00000000ffffffff");
         m.setTimestamp(1755100011000L);
         m.setSequence(42L);
-        m.setDataBase64("AAECAw==");
-        m.setCipher("{\"type\":\"Symkey\",\"cipher\":\"c2FtcGxl\"}");
+        m.setData(new byte[] {0, 1, 2, 3});
         m.setSymkeyVersion(3L);
         m.setRequestType(RequestType.HISTORY);
         m.setRequestId("00000000deadbeef");

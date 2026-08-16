@@ -82,7 +82,7 @@ public enum ContentType: String, JavaOrdinalEnum, Codable, Sendable {
     case text = "TEXT"
     /// A file share: the HAT JSON travels, the bytes do not.
     case hat = "HAT"
-    /// Inline binary: metadata in `content`, payload in `dataBase64`.
+    /// Inline binary: metadata in `content`, payload in `data`.
     case stream = "STREAM"
     case symkey = "SYMKEY"
     case members = "MEMBERS"

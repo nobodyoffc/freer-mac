@@ -296,13 +296,16 @@ public final class FapiClient: FapiCalling {
         let wrapperSid = request.sid ?? ""
         let wrapped = RequestMessage(sid: wrapperSid, data: unified).encode()
 
-        try await fudp.send(AppMessageEnvelope(
-            type: .request,
-            messageId: messageId,
-            payload: wrapped
-        ))
-
-        let envelope = try await fudp.receive(matching: messageId, timeoutMs: timeoutMs)
+        // Send and receive are one exchange, and the mailbox underneath
+        // serves one at a time — see ``FudpClient/exchanging(_:)``.
+        let envelope = try await fudp.exchanging {
+            try await fudp.send(AppMessageEnvelope(
+                type: .request,
+                messageId: messageId,
+                payload: wrapped
+            ))
+            return try await fudp.receive(matching: messageId, timeoutMs: timeoutMs)
+        }
         guard envelope.type == .response else {
             throw Failure.unexpectedType(envelope.type)
         }
@@ -431,21 +434,26 @@ extension FapiClient {
         } else {
             fileProgress = nil
         }
-        try await fudpSend { fudp in
-            try await fudp.sendMessageStreaming(
-                type: .request,
-                messageId: messageId,
-                payloadPrefix: wrapperPrefix,
-                fileHandle: handle,
-                fileLength: fileSize,
-                progress: fileProgress
-            )
-        }
-
         // Idle budget scaled by size: base + 1 s per 100 KB.
         let idleBudget = idleTimeoutMs + (fileSize / 102_400) * 1000
-        let envelope = try await receiveRefreshedByActivity(
-            messageId: messageId, idleTimeoutMs: idleBudget)
+        // An upload holds the exchange for as long as it takes. That is
+        // the honest cost of a single-consumer mailbox: a reply arriving
+        // mid-upload would be dropped by the streaming send's own
+        // receive loop anyway.
+        let envelope = try await fudp.exchanging {
+            try await fudpSend { fudp in
+                try await fudp.sendMessageStreaming(
+                    type: .request,
+                    messageId: messageId,
+                    payloadPrefix: wrapperPrefix,
+                    fileHandle: handle,
+                    fileLength: fileSize,
+                    progress: fileProgress
+                )
+            }
+            return try await receiveRefreshedByActivity(
+                messageId: messageId, idleTimeoutMs: idleBudget)
+        }
         return try decodeReply(envelope: envelope, request: request, messageId: messageId)
     }
 
@@ -498,16 +506,20 @@ extension FapiClient {
         }
         defer { fudp.setInboundProgressHandler(nil) }
 
-        try await fudpSend { fudp in
-            try await fudp.send(AppMessageEnvelope(
-                type: .request,
-                messageId: messageId,
-                payload: wrapped
-            ))
+        // The whole download is one exchange: the inbound progress
+        // handler set above is per-connection state, so a second call
+        // running underneath this one would report into it too.
+        let envelope = try await fudp.exchanging {
+            try await fudpSend { fudp in
+                try await fudp.send(AppMessageEnvelope(
+                    type: .request,
+                    messageId: messageId,
+                    payload: wrapped
+                ))
+            }
+            return try await receiveRefreshedByActivity(
+                messageId: messageId, idleTimeoutMs: idleTimeoutMs)
         }
-
-        let envelope = try await receiveRefreshedByActivity(
-            messageId: messageId, idleTimeoutMs: idleTimeoutMs)
         let reply = try decodeReply(envelope: envelope, request: request, messageId: messageId)
 
         // Stream the binary body (possibly a file-mapped slice) into

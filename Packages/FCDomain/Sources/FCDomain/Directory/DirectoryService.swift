@@ -2,7 +2,7 @@ import Foundation
 import FCTransport
 
 /// Identity-directory FAPI calls: `base.freerByIds` for the on-chain
-/// ``Freer`` block behind a FID, and `base.serviceByIds` for the
+/// ``Freer`` block behind a FID, and `base.getByIds` for the
 /// ``Service`` record behind a SID.
 ///
 /// Lives next to ``WalletService`` rather than inside it because the
@@ -87,24 +87,33 @@ public struct DirectoryService {
         return map[fid]
     }
 
-    /// Look up on-chain ``Service`` records by SID — Java's
-    /// `FapiClient.serviceByIds`, which is `entityByIds` over the
-    /// `service` index.
+    /// The endpoint service records come from, and the index they live
+    /// in — Java's `entityByIds(IndicesNames.SERVICE, …)`.
+    ///
+    /// **Not `base.serviceByIds`.** Freers have a dedicated endpoint;
+    /// services do not, and go through the generic by-ids reader with
+    /// the index named in the query. Calling the endpoint that reads
+    /// like its sibling gets a 404, which this layer treats as "no such
+    /// record" — so the mistake did not raise an error, it just made
+    /// every SID unresolvable while leaving direct-URL homes working.
+    public static let getByIdsApi = "base.getByIds"
+    public static let serviceIndex = "service"
+
+    /// Look up on-chain ``Service`` records by SID.
     ///
     /// This is how a `(sid)` in someone's `home` map becomes an address:
-    /// see ``HomeServiceResolver``. Same shape and same 404 handling as
-    /// ``freerByIds(_:timeoutMs:)``, against `base.serviceByIds`.
+    /// see ``HomeServiceResolver``.
     public func serviceByIds(
         _ sids: [String],
         timeoutMs: Int = 5_000
     ) async throws -> [String: Service] {
         guard !sids.isEmpty else { return [:] }
         let body = try JSONSerialization.data(
-            withJSONObject: ["ids": sids],
+            withJSONObject: ["entity": Self.serviceIndex, "ids": sids],
             options: [.sortedKeys]
         )
         let reply = try await fapi.call(
-            api: "base.serviceByIds",
+            api: Self.getByIdsApi,
             params: nil, fcdsl: body, binary: nil,
             sid: nil, via: nil, maxCost: nil,
             timeoutMs: timeoutMs
@@ -113,7 +122,7 @@ public struct DirectoryService {
         if let code = resp.code, code != 0 {
             if code == 404 { return [:] }
             throw Failure.fapiNonZeroCode(
-                api: "base.serviceByIds",
+                api: Self.getByIdsApi,
                 code: code,
                 message: resp.message
             )

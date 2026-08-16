@@ -126,7 +126,12 @@ public struct DockService {
         var params: [String: Any] = ["recipients": recipients]
         if let maxDays { params["maxDays"] = maxDays }
         if let dataType, !dataType.isEmpty { params["dataType"] = dataType }
-        if let targetDockUrl, !targetDockUrl.isEmpty, targetDockUrl != ownDockUrl {
+        if let targetDockUrl, !targetDockUrl.isEmpty,
+           !FudpUrl.sameEndpoint(targetDockUrl, ownDockUrl), targetDockUrl != ownDockUrl {
+            // Compared as endpoints, not as strings: the same server is
+            // spelled `host:port` in our own settings and `fudp://…` or
+            // `https://…` in a peer's `home`, and a string comparison
+            // would ask it to forward to itself.
             params["targetDockUrl"] = targetDockUrl
         }
 
@@ -158,6 +163,16 @@ public struct DockService {
     /// Fetching does **not** delete. An item stays until
     /// ``delete(id:timeoutMs:)`` removes it or its TTL expires, which is
     /// what makes a fetch interrupted halfway lose nothing.
+    ///
+    /// **The sort is not decoration.** `after` is a cursor *into an
+    /// order*, so it means nothing unless the server is asked for the
+    /// same order every time. Android sorts by `createTime` then `id`,
+    /// both ascending, and a client that omitted it would get pages in
+    /// whatever order the index felt like — re-reading some items
+    /// forever and stepping over others once. The tiebreak on `id`
+    /// matters as much as the primary key: two items stored in the same
+    /// millisecond are otherwise ordered arbitrarily, and a cursor
+    /// cannot point *between* them.
     public func fetch(
         recipientIds: [String],
         after: [String]? = nil,
@@ -170,7 +185,13 @@ public struct DockService {
         var params: [String: Any] = ["recipientIds": recipientIds]
         if let dataType, !dataType.isEmpty { params["dataType"] = dataType }
 
-        var query: [String: Any] = ["size": String(size)]
+        var query: [String: Any] = [
+            "size": String(size),
+            "sort": [
+                ["field": "createTime", "order": "asc"],
+                ["field": "id", "order": "asc"],
+            ],
+        ]
         if let after, !after.isEmpty { query["after"] = after }
 
         let reply = try await fapi.call(

@@ -13,85 +13,93 @@ import FCCore
 /// row to show as locked and a key to go and ask for, not an error to
 /// abort the batch with.
 ///
+/// **What gets sealed is the whole body**, both ``ImMessage/content`` and
+/// ``ImMessage/data``, framed together by
+/// ``ImMessage/bodyFraming()``. v1 sealed `content` alone and left the
+/// binary payload beside it in the clear, so a voice note travelled with
+/// its metadata encrypted and its audio readable, and a file share
+/// travelled with the key next to the ciphertext it unlocked. Sealing the
+/// framing instead makes that state unrepresentable rather than merely
+/// discouraged.
+///
 /// **Which envelope depends on the conversation**, and the two are not
 /// interchangeable:
 ///
-/// - Team and Room bodies use a **symkey** envelope, because every
-///   member reads the same ciphertext. That is what makes group chat
-///   affordable and what makes a rotation necessary when someone leaves.
-/// - P2P bodies use the **AsyTwoWay** envelope from 9.1.1, which carries
-///   both pubkeys so either end can open it — without that, we could not
-///   reread what we ourselves sent.
+/// - Team and Room bodies use a **symkey** bundle, because every member
+///   reads the same ciphertext. That is what makes group chat affordable
+///   and what makes a rotation necessary when someone leaves.
+/// - P2P bodies use the **AsyTwoWay** bundle, sealed from our real key to
+///   theirs — on the DOCK and ROAD channels, where an intermediary would
+///   otherwise hold the plaintext.
 /// - Square bodies are not sealed at all. A square's membership is open
 ///   and on-chain, so there is nobody to keep out.
 public extension ImMessage {
 
     // MARK: - symkey (team, room)
 
-    /// Seal ``content`` into ``cipher`` under a group key, stamping the
-    /// version so the far end knows which key to reach for.
+    /// Seal the body under a group key, stamping the version so the far
+    /// end knows which key to reach for.
     mutating func sealBody(symkey: Data, version: Int64) throws {
-        guard let content else { throw BodyFailure.noContent }
-        cipher = try TextCipher.encryptWithSymkey(Data(content.utf8), symkey: symkey)
+        guard content != nil || data != nil else { throw BodyFailure.noContent }
+        body = try CryptoBundle.sealSymkey(plaintext: bodyFraming(), symkey: symkey)
         symkeyVersion = version
-        self.content = nil
+        content = nil
+        data = nil
     }
 
-    /// Recover ``content`` from a symkey-sealed ``cipher``.
+    /// Recover the body from a symkey-sealed ``body``.
     ///
-    /// ``cipher`` is left in place; ``MessagesStore`` drops it on the way
+    /// ``body`` is left in place; ``MessagesStore`` drops it on the way
     /// in, once the plaintext beside it makes it redundant.
     @discardableResult
     mutating func openBody(symkey: Data) -> Bool {
-        guard let cipher, !cipher.isEmpty else { return false }
-        guard let envelope = try? TextCipher.parse(cipher),
-              let plaintext = try? TextCipher.decrypt(envelope: envelope, symkey: symkey),
-              let text = String(data: plaintext, encoding: .utf8)
-        else { return false }
-        content = text
-        return true
+        guard let body, !body.isEmpty else { return false }
+        guard let framing = try? CryptoBundle.open(bundle: body, symkey: symkey) else { return false }
+        return (try? applyBodyFraming(framing)) != nil
     }
 
-    // MARK: - AsyTwoWay (p2p)
+    // MARK: - asymmetric (p2p)
 
-    /// Seal ``content`` for a single recipient, so that **both** ends can
-    /// reopen it.
+    /// Seal the body for a single recipient.
     ///
     /// A message to ourselves goes AsyOneWay instead, for the reason
     /// ``Mail/encryptContent(privkey:recipientPubkey:)`` gives: an
     /// AsyTwoWay envelope whose two pubkeys are the same is one the
     /// side-selection cannot resolve.
+    ///
+    /// Note that an AsyTwoWay *bundle* records only `pubkeyA`, so unlike
+    /// the JSON envelope it cannot be reopened by its sender. Nothing
+    /// needs that: ``MessagesStore`` keeps our own messages in plaintext
+    /// and never re-reads them off the wire.
     mutating func sealBody(privkey: Data, recipientPubkey: Data) throws {
-        guard let content else { throw BodyFailure.noContent }
-        let plaintext = Data(content.utf8)
+        guard content != nil || data != nil else { throw BodyFailure.noContent }
+        let framing = bodyFraming()
         if senderId != nil, senderId == targetId {
-            cipher = try AsyOneWayCipher.encrypt(plaintext: plaintext, toPubkey: recipientPubkey)
+            body = try CryptoBundle.sealAsyOneWay(plaintext: framing, toPubkey: recipientPubkey)
         } else {
-            cipher = try AsyTwoWayCipher.encrypt(
-                plaintext: plaintext, privkeyA: privkey, toPubkey: recipientPubkey
+            body = try CryptoBundle.sealAsyTwoWay(
+                plaintext: framing, privkeyA: privkey, toPubkey: recipientPubkey
             )
         }
-        self.content = nil
+        content = nil
+        data = nil
     }
 
-    /// Recover ``content`` from an AsyOneWay or AsyTwoWay ``cipher``.
-    /// ``AsyCipher`` picks the side for us — whichever pubkey in the
-    /// envelope is not ours is the one to agree against.
+    /// Recover the body from an AsyOneWay or AsyTwoWay ``body``. The
+    /// bundle records the one pubkey to agree against, so there is no side
+    /// to select.
     @discardableResult
     mutating func openBody(privkey: Data) -> Bool {
-        guard let cipher, !cipher.isEmpty else { return false }
-        guard let plaintext = try? AsyCipher.decrypt(cipherString: cipher, privkey: privkey),
-              let text = String(data: plaintext, encoding: .utf8)
-        else { return false }
-        content = text
-        return true
+        guard let body, !body.isEmpty else { return false }
+        guard let framing = try? CryptoBundle.open(bundle: body, privkey: privkey) else { return false }
+        return (try? applyBodyFraming(framing)) != nil
     }
 
     /// Whether this message is still sealed to us — a body we hold but
     /// have not opened. The cue for a locked row in the transcript, and
     /// for asking the group for the key version it names.
     var isSealed: Bool {
-        content == nil && !(cipher ?? "").isEmpty
+        content == nil && data == nil && !(body ?? Data()).isEmpty
     }
 
     enum BodyFailure: Error, Equatable, CustomStringConvertible {

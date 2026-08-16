@@ -322,7 +322,7 @@ final class SymkeyStoreTests: XCTestCase {
     /// The AsyTwoWay property that 9.1.1 exists for: the *sender* can
     /// reread what they sent. Without it a sent message would be
     /// write-only.
-    func testP2PBodyOpensAtBothEnds() throws {
+    func testP2PBodyOpensForTheRecipient() throws {
         var message = ImMessage.text(type: .p2p, from: "F-alice", to: "F-bob", "just between us")
         message.id = "0000000000000001"
         try message.sealBody(privkey: alice, recipientPubkey: pubkey(bob))
@@ -332,9 +332,12 @@ final class SymkeyStoreTests: XCTestCase {
         XCTAssertTrue(recipientCopy.openBody(privkey: bob))
         XCTAssertEqual(recipientCopy.content, "just between us")
 
+        // The bundle carries only pubkeyA, so unlike the JSON envelope it
+        // cannot be reopened by its sender. `MessagesStore` keeps our own
+        // messages as plaintext, so nothing asks it to.
         var senderCopy = message
-        XCTAssertTrue(senderCopy.openBody(privkey: alice))
-        XCTAssertEqual(senderCopy.content, "just between us")
+        XCTAssertFalse(senderCopy.openBody(privkey: alice))
+        XCTAssertNil(senderCopy.content)
 
         var strangerCopy = message
         XCTAssertFalse(strangerCopy.openBody(privkey: mallory))
@@ -349,8 +352,8 @@ final class SymkeyStoreTests: XCTestCase {
         message.id = "0000000000000001"
         try message.sealBody(privkey: alice, recipientPubkey: pubkey(alice))
 
-        let envelope = try TextCipher.parse(try XCTUnwrap(message.cipher))
-        XCTAssertEqual(envelope.type, "AsyOneWay")
+        let bundle = try XCTUnwrap(message.body)
+        XCTAssertEqual(CryptoBundle.encryptType(of: bundle), "asyOneWay")
         XCTAssertTrue(message.openBody(privkey: alice))
         XCTAssertEqual(message.content, "remember the milk")
     }

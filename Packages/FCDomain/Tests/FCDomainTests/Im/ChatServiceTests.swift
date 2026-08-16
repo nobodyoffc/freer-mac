@@ -33,6 +33,13 @@ final class ChatServiceTests: XCTestCase {
         configure = try manager.createConfigure(password: Data("pwd".utf8), kdfKind: .legacySha256)
         let info = try configure.addMain(privkey: alicePriv, label: "A")
         session = try configure.unlockMain(fid: info.fid, fapi: MockFapiClient())
+
+        // These tests are about sealing, filing and counting, and they
+        // all assume the two parties are already talking. Since the
+        // stranger gate landed that assumption has to be stated: an
+        // unaccepted FID's first P2P message is *held*, not filed, and
+        // that rule has its own suite (`ContactPolicyTests`).
+        try session.contactPolicy.mutate(liveFid: info.fid) { $0.allow(them) }
     }
 
     override func tearDownWithError() throws {
@@ -63,10 +70,15 @@ final class ChatServiceTests: XCTestCase {
 
     // MARK: - sealing is decided by the conversation
 
-    /// A P2P body goes AsyTwoWay, so the sender can reread what they
-    /// sent — and what we *keep* is the plaintext, because we can
-    /// obviously read our own message.
-    func testP2PSendSealsToBothEndsAndKeepsThePlaintext() throws {
+    /// A P2P body goes AsyTwoWay to the recipient, and what we *keep* is
+    /// the plaintext — because we can obviously read our own message, and
+    /// because the wire copy is no longer readable to us.
+    ///
+    /// An AsyTwoWay **bundle** records only `pubkeyA`, unlike the JSON
+    /// envelope, so the sender cannot reopen what they sealed. Nothing
+    /// depends on their being able to: the stored copy is the plaintext,
+    /// and the sealed copy exists only to be handed to a DOCK.
+    func testP2PSendSealsToTheRecipientAndKeepsThePlaintext() throws {
         try openConversation(.p2p, them)
         let conversationId = Conversation.id(type: .p2p, targetId: them)
 
@@ -89,7 +101,10 @@ final class ChatServiceTests: XCTestCase {
         XCTAssertTrue(recipientCopy.openBody(privkey: bobPriv))
         XCTAssertEqual(recipientCopy.content, "just between us")
         var senderCopy = queued
-        XCTAssertTrue(senderCopy.openBody(privkey: alicePriv), "the sender can reread it")
+        XCTAssertFalse(
+            senderCopy.openBody(privkey: alicePriv),
+            "the bundle records only pubkeyA, so the sender cannot reopen it — the store holds the plaintext instead"
+        )
         var strangerCopy = queued
         XCTAssertFalse(strangerCopy.openBody(privkey: mallory))
     }
@@ -118,7 +133,7 @@ final class ChatServiceTests: XCTestCase {
             "hello all", in: Conversation.id(type: .square, targetId: squareId), as: me, now: t0
         )
         let queued = try XCTUnwrap(try session.outbox.get(id: sent.id!)).message
-        XCTAssertNil(queued.cipher)
+        XCTAssertNil(queued.body)
         XCTAssertEqual(queued.content, "hello all")
     }
 
@@ -203,7 +218,7 @@ final class ChatServiceTests: XCTestCase {
         guard case .message(let stored) = try chat.receive(message, as: me, privkey: alicePriv, now: at(1))
         else { return XCTFail("expected .message") }
         XCTAssertEqual(stored.content, "sealed hello")
-        XCTAssertNil(stored.cipher, "the store drops a cipher once the plaintext is beside it")
+        XCTAssertNil(stored.body, "the store drops a sealed body once the plaintext is beside it")
     }
 
     /// A body we cannot open is **kept sealed and flagged**, not
@@ -253,6 +268,108 @@ final class ChatServiceTests: XCTestCase {
         XCTAssertEqual(try chat.page(conversationId).messages.count, 1, "the receipt is not a row")
     }
 
+    /// The same thing, but sealed — which is how a receipt actually
+    /// arrives, because a receipt is an ordinary P2P message and the
+    /// DOCK path seals every one of those.
+    ///
+    /// This is the case that was broken: `receive` read `content` to
+    /// decide what kind of receipt it was *before* opening the body, so
+    /// every real receipt looked like an empty one and was discarded,
+    /// and senders' messages sat at `sent` forever. The unsealed test
+    /// above passed throughout, which is why it went unnoticed.
+    func testASealedReceiptStillAdvancesOurMessage() throws {
+        try openConversation(.p2p, them)
+        let conversationId = Conversation.id(type: .p2p, targetId: them)
+        let sent = try chat.sendText(
+            "did you get this", in: conversationId, as: me,
+            keys: .init(privkey: alicePriv, recipientPubkey: try pubkey(bobPriv)), now: t0
+        )
+
+        var receipt = ImMessage.receipt(
+            from: them, to: me, originalMessageId: sent.id!, read: false, now: at(5)
+        )
+        receipt.setId(fudpId: ChatService.newMessageId())
+        // Sealed by them, to us — exactly what comes off the DOCK.
+        try receipt.sealBody(privkey: bobPriv, recipientPubkey: try pubkey(alicePriv))
+        XCTAssertNil(receipt.content, "the kind of receipt is inside the seal")
+
+        guard case .receipt(let updated) = try chat.receive(
+            receipt, as: me, privkey: alicePriv, now: at(5)
+        ) else {
+            return XCTFail("expected .receipt")
+        }
+        XCTAssertEqual(updated.status, .delivered)
+        XCTAssertEqual(try chat.page(conversationId).messages.count, 1, "the receipt is not a row")
+    }
+
+    /// A receipt we cannot open is reported as such rather than being
+    /// silently treated as one that named nothing.
+    func testASealedReceiptWeCannotOpenIsIgnoredNotMisread() throws {
+        try openConversation(.p2p, them)
+        let sent = try chat.sendText(
+            "did you get this", in: Conversation.id(type: .p2p, targetId: them), as: me,
+            keys: .init(privkey: alicePriv, recipientPubkey: try pubkey(bobPriv)), now: t0
+        )
+
+        var receipt = ImMessage.receipt(
+            from: them, to: me, originalMessageId: sent.id!, read: true, now: at(5)
+        )
+        receipt.setId(fudpId: ChatService.newMessageId())
+        try receipt.sealBody(privkey: bobPriv, recipientPubkey: try pubkey(mallory))
+
+        guard case .ignored(let reason) = try chat.receive(
+            receipt, as: me, privkey: alicePriv, now: at(5)
+        ) else {
+            return XCTFail("expected .ignored")
+        }
+        XCTAssertEqual(reason, "receipt still sealed")
+    }
+
+    /// Receiving someone else's message produces the receipt that tells
+    /// them so — sealed, addressed to them, and not filed as a row.
+    func testAcknowledgingAMessageQueuesASealedReceipt() throws {
+        try openConversation(.p2p, them)
+        let conversationId = Conversation.id(type: .p2p, targetId: them)
+
+        var incoming = ImMessage.text(type: .p2p, from: them, to: me, "hello", now: t0)
+        incoming.setId(fudpId: ChatService.newMessageId())
+        guard case .message(let filed) = try chat.receive(incoming, as: me, now: at(1)) else {
+            return XCTFail("expected .message")
+        }
+
+        let receipt = try XCTUnwrap(try chat.acknowledge(
+            filed, kind: .delivered, as: me,
+            keys: .init(privkey: alicePriv, recipientPubkey: try pubkey(bobPriv)), now: at(2)
+        ))
+        XCTAssertEqual(receipt.contentType, .receipt)
+        XCTAssertEqual(receipt.targetId, them, "addressed to the sender, not the conversation")
+        XCTAssertEqual(receipt.requestId, incoming.id)
+        XCTAssertNil(receipt.content, "sealed like any other P2P body")
+
+        // It is queued for delivery…
+        let queued = try XCTUnwrap(try session.outbox.get(id: receipt.id!)).message
+        var opened = queued
+        XCTAssertTrue(opened.openBody(privkey: bobPriv))
+        XCTAssertEqual(opened.content, "delivered")
+
+        // …and it is not a row in the transcript.
+        XCTAssertEqual(try chat.page(conversationId).messages.count, 1)
+    }
+
+    /// We do not acknowledge ourselves. A self-chat message would
+    /// otherwise generate a receipt addressed to us, which would then be
+    /// acknowledged in turn.
+    func testOurOwnMessageIsNotAcknowledged() throws {
+        try openConversation(.p2p, them)
+        var mine = ImMessage.text(type: .p2p, from: me, to: them, "hello", now: t0)
+        mine.setId(fudpId: ChatService.newMessageId())
+
+        XCTAssertNil(try chat.acknowledge(
+            mine, kind: .delivered, as: me,
+            keys: .init(privkey: alicePriv, recipientPubkey: try pubkey(bobPriv)), now: at(2)
+        ))
+    }
+
     /// Signals and protocol traffic are handed back for the caller to
     /// route, not filed — otherwise a typing indicator would be a
     /// message in the transcript.
@@ -287,7 +404,7 @@ final class ChatServiceTests: XCTestCase {
         let conversationId = Conversation.id(type: .p2p, targetId: them)
         XCTAssertEqual(try session.conversations.get(id: conversationId)?.unreadCount, 3)
 
-        XCTAssertEqual(try chat.markRead(conversationId, now: at(10)), 3)
+        XCTAssertEqual(try chat.markRead(conversationId, now: at(10)).count, 3)
         XCTAssertEqual(try session.conversations.get(id: conversationId)?.unreadCount, 0)
         XCTAssertTrue(try chat.page(conversationId).messages.allSatisfy { $0.unread != true })
     }

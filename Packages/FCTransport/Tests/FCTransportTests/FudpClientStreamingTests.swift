@@ -249,6 +249,85 @@ final class FudpClientStreamingTests: XCTestCase {
         XCTAssertEqual(response.messageId, messageId)
     }
 
+    /// Concurrent calls on one connection must not eat each other's
+    /// replies.
+    ///
+    /// The inbound mailbox is single-consumer and *discards* an envelope
+    /// the current waiter was not asked for. So with two exchanges in
+    /// flight, whichever `receive` wakes first can take the other's
+    /// reply, drop it, and leave a perfectly healthy call to time out.
+    /// It stayed invisible while the app made one call at a time; a
+    /// background poller overlaps a `dock.fetch` with whatever the user
+    /// is doing, and the symptom was a `FudpClient: timeout` on the
+    /// balance lookup at launch.
+    func testConcurrentCallsDoNotStealEachOthersReplies() async throws {
+        let (client, server, _) = try makeLoopback()
+        defer { client.close() }
+
+        server.makeResponse = { request in
+            AppMessageEnvelope(
+                type: .response,
+                messageId: request.messageId,
+                payload: request.payload
+            )
+        }
+
+        // Six at once, each with a distinct body, all launched together.
+        let bodies = (0..<6).map { Data("call-\($0)".utf8) }
+        let replies = try await withThrowingTaskGroup(of: (Int, Data).self) { group in
+            for (index, body) in bodies.enumerated() {
+                group.addTask {
+                    let id = Int64(1000 + index)
+                    let envelope = try await client.exchanging {
+                        try await client.send(AppMessageEnvelope(
+                            type: .request, messageId: id, payload: body))
+                        return try await client.receive(matching: id, timeoutMs: 5_000)
+                    }
+                    return (index, Data(envelope.payload))
+                }
+            }
+            var out: [Int: Data] = [:]
+            for try await (index, payload) in group { out[index] = payload }
+            return out
+        }
+
+        // Every call got *its own* answer — not just some answer.
+        for (index, body) in bodies.enumerated() {
+            XCTAssertEqual(replies[index], body, "call \(index) got the wrong reply")
+        }
+    }
+
+    /// The gate is FIFO: a burst is served in the order it was made,
+    /// rather than in whatever order the scheduler happens to wake the
+    /// waiters.
+    func testQueuedExchangesRunOneAtATime() async throws {
+        let (client, server, _) = try makeLoopback()
+        defer { client.close() }
+
+        server.makeResponse = { request in
+            AppMessageEnvelope(
+                type: .response, messageId: request.messageId, payload: request.payload)
+        }
+
+        let overlap = ConcurrencyProbe()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for index in 0..<8 {
+                group.addTask {
+                    let id = Int64(2000 + index)
+                    _ = try await client.exchanging {
+                        overlap.enter()
+                        defer { overlap.leave() }
+                        try await client.send(AppMessageEnvelope(
+                            type: .request, messageId: id, payload: Data("x".utf8)))
+                        return try await client.receive(matching: id, timeoutMs: 5_000)
+                    }
+                }
+            }
+            for try await _ in group {}
+        }
+        XCTAssertEqual(overlap.peak, 1, "never two exchanges on the wire at once")
+    }
+
     func testUploadSurvivesPacketLoss() async throws {
         let (client, server, _) = try makeLoopback()
         defer { client.close() }
@@ -381,4 +460,24 @@ private final class ByteHighWater: @unchecked Sendable {
 
     var maxSent: Int64 { lock.lock(); defer { lock.unlock() }; return _maxSent }
     var total: Int64 { lock.lock(); defer { lock.unlock() }; return _total }
+}
+
+/// Highest number of exchanges observed running at the same time.
+private final class ConcurrencyProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var current = 0
+    private var _peak = 0
+
+    var peak: Int { lock.lock(); defer { lock.unlock() }; return _peak }
+
+    func enter() {
+        lock.lock()
+        current += 1
+        _peak = max(_peak, current)
+        lock.unlock()
+    }
+
+    func leave() {
+        lock.lock(); current -= 1; lock.unlock()
+    }
 }

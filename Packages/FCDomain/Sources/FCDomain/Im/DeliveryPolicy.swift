@@ -29,10 +29,15 @@ public enum DeliveryPolicy {
     public enum Route: Equatable, Sendable {
         case fudpDirect
         case roadRelay(url: String)
-        /// Straight to the recipient's DOCK.
+        /// Straight to the recipient's DOCK, over a connection to it.
         case recipientDock(url: String)
         /// Our DOCK, forwarding to the recipient's.
-        case ownDockForward(recipientDockUrl: String?)
+        ///
+        /// The target is not optional: forwarding needs somewhere to
+        /// forward *to*. A recipient whose DOCK we could not resolve
+        /// has nowhere to collect from either, so parking their message
+        /// on our own server would store it where they will never look.
+        case ownDockForward(recipientDockUrl: String)
 
         /// The ``DeliveryMethod`` to stamp on a message this route
         /// delivered. Both DOCK routes end with the envelope stored, so
@@ -61,9 +66,13 @@ public enum DeliveryPolicy {
         public var roadRelayEnabled: Bool
         /// The peer's ROAD, resolved from their `Freer.home`.
         public var roadUrl: String?
-        /// The peer's DOCK, resolved from their `Freer.home`.
+        /// The peer's DOCK, resolved from their `Freer.home`. With no
+        /// value here there is no route at all: both DOCK routes end at
+        /// the recipient's server, one directly and one via ours.
         public var recipientDockUrl: String?
-        /// Whether we have a DOCK of our own that could forward.
+        /// Whether we have a DOCK connection of our own that could be
+        /// asked to forward. True whenever a FAPI server is configured
+        /// — it is the connection that matters, not knowing its URL.
         public var ownDockAvailable: Bool
 
         public init(
@@ -98,19 +107,19 @@ public enum DeliveryPolicy {
         }
         if let dock = capabilities.recipientDockUrl, !dock.isEmpty {
             routes.append(.recipientDock(url: dock))
-        }
-        if capabilities.ownDockAvailable {
-            routes.append(.ownDockForward(recipientDockUrl: capabilities.recipientDockUrl))
+            if capabilities.ownDockAvailable {
+                routes.append(.ownDockForward(recipientDockUrl: dock))
+            }
         }
         return routes
     }
 
     /// How to report a plan that came to nothing.
     ///
-    /// An empty plan is permanent: we have no address for this peer and
-    /// no DOCK of our own, and no amount of waiting changes either. A
-    /// plan that existed but whose every route failed is transient: the
-    /// addresses were real, the network was not.
+    /// An empty plan is permanent: we have no address for this peer, and
+    /// no amount of waiting produces one. A plan that existed but whose
+    /// every route failed is transient: the addresses were real, the
+    /// network was not.
     public static func outcome(plan: [Route], allRoutesFailed: Bool) -> SendResult {
         if plan.isEmpty { return .failPermanent }
         return allRoutesFailed ? .retryTransient : .success

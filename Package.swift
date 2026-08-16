@@ -23,6 +23,25 @@ let package = Package(
                 "FCStorage",
                 "FCDomain",
                 "FCUI"
+            ],
+            // Linked into the binary, not copied as a resource — see the
+            // linker settings below.
+            exclude: ["Info.plist"],
+            linkerSettings: [
+                // **The microphone needs this.** macOS kills a process
+                // that touches a TCC-protected device with no usage
+                // description to show the user, and a SwiftPM executable
+                // has no bundle to put one in. Writing the plist into
+                // the binary's own `__TEXT,__info_plist` section is
+                // where TCC looks when there is no bundle, so the voice
+                // note recorder gets a prompt rather than a crash.
+                // Phase 10's packaging replaces this with a real `.app`.
+                .unsafeFlags([
+                    "-Xlinker", "-sectcreate",
+                    "-Xlinker", "__TEXT",
+                    "-Xlinker", "__info_plist",
+                    "-Xlinker", "Sources/FreerForMac/Info.plist"
+                ])
             ]
         )
     ]

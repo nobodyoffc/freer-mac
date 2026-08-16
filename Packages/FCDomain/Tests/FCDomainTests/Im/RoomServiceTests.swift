@@ -236,6 +236,59 @@ final class RoomServiceTests: XCTestCase {
         XCTAssertEqual(try symkeys.currentVersion(for: roomId), 1, "no needless rotation")
     }
 
+    // MARK: - resetting the key
+
+    /// The owner's "reset key": a rotation everyone is told about, with
+    /// the new key riding in the same `ROOM_INFO` an invitation uses —
+    /// because a member needs the membership and the key together.
+    func testResettingTheKeyRotatesAndTellsEveryMember() throws {
+        let roomId = try XCTUnwrap(try aliceRoom(with: [bob, carol]).id)
+        let oldKey = try XCTUnwrap(try symkeys.currentKey(for: roomId))
+
+        let (version, outbound) = try service.resetSymkey(
+            roomId, as: alice, pubkeys: pubkeys, now: at(60)
+        )
+        XCTAssertEqual(version, 2)
+        XCTAssertNotEqual(try symkeys.currentKey(for: roomId), oldKey)
+        // Additive as ever: what was said under v1 still opens.
+        XCTAssertEqual(try symkeys.key(for: roomId, version: 1), oldKey)
+        XCTAssertEqual(try rooms.get(id: roomId)?.symkeyVersion, 2)
+
+        XCTAssertEqual(Set(outbound.compactMap(\.targetId)), [bob, carol])
+        for message in outbound {
+            XCTAssertEqual(message.contentType, .roomInfo)
+            let info = try RoomInfo.fromJson(try XCTUnwrap(message.content))
+            XCTAssertEqual(info.symkeyVersion, 2)
+            XCTAssertNotNil(info.symkey, "the new key has to travel with it")
+        }
+    }
+
+    /// An owner whose device lost the room's key reaches this from the
+    /// composer's key fork. It must **not** reuse the version the lost
+    /// key had: two different keys under one version is the one state
+    /// the store cannot represent.
+    func testResettingWithNoKeyHeldStillTakesTheNextVersion() throws {
+        let roomId = try XCTUnwrap(try aliceRoom(with: [bob]).id)
+        XCTAssertEqual(try symkeys.removeAll(for: roomId), 1)
+        XCTAssertFalse(try symkeys.has(entityId: roomId))
+
+        let (version, _) = try service.resetSymkey(
+            roomId, as: alice, pubkeys: pubkeys, now: at(60)
+        )
+        XCTAssertEqual(version, 1, "nothing is held, so the next version is the first one")
+        XCTAssertTrue(try symkeys.has(entityId: roomId))
+    }
+
+    /// Only the owner. A member with the room in their store must not be
+    /// able to rotate everyone else out of it.
+    func testAMemberCannotResetTheKey() throws {
+        let roomId = try XCTUnwrap(try aliceRoom(with: [bob]).id)
+        XCTAssertThrowsError(
+            try service.resetSymkey(roomId, as: bob, pubkeys: pubkeys, now: at(60))
+        )
+        XCTAssertEqual(try symkeys.currentVersion(for: roomId), 1)
+    }
+
     // MARK: - leaving and disbanding
 
     func testLeavingTellsTheOwnerAndTakesEffectLocallyAtOnce() throws {

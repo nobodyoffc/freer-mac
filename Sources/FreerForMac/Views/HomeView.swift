@@ -97,6 +97,8 @@ struct HomeView: View {
             SecretsView(session: session)
         case .tools:
             ToolsView(session: session)
+        case .system:
+            SystemMessagesView(session: session)
         case .settings:
             SettingsView(session: session)
         }

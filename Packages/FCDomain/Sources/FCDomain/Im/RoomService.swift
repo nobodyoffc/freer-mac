@@ -169,6 +169,40 @@ public struct RoomService {
         return (true, outbound)
     }
 
+    /// Rotate a room's key and give the new one to every member —
+    /// Android's `reset_symkey`, and the way out for an owner whose
+    /// device holds no key for a room it owns.
+    ///
+    /// **Rotating is additive**, like every other rotation here: the old
+    /// version stays, because it is the only thing that can still open
+    /// what was said under it. So this closes off *future* messages from
+    /// anyone who does not get the new key, and changes nothing about
+    /// the past — which is exactly what it should mean.
+    ///
+    /// The new key rides in a `ROOM_INFO`, the same envelope an
+    /// invitation uses, because a member receiving one needs the
+    /// membership and the key together and there is no version of this
+    /// where they should be applied separately.
+    @discardableResult
+    public func resetSymkey(
+        _ roomId: String,
+        as liveFid: String,
+        pubkeys: PubkeyProvider,
+        now: Date = Date()
+    ) throws -> (version: Int64, outbound: [ImMessage]) {
+        var room = try requireOwned(roomId, by: liveFid)
+
+        let rotated = try symkeys.rotate(for: roomId, now: now)
+        room.symkeyVersion = rotated.version
+        room.lastUpdated = Int64(now.timeIntervalSince1970 * 1000)
+        try rooms.upsert(room)
+
+        let outbound = try room.others(than: liveFid).map { fid in
+            try invitation(for: room, to: fid, from: liveFid, pubkeys: pubkeys, now: now)
+        }
+        return (rotated.version, outbound)
+    }
+
     /// Close a room we own, and tell everyone.
     ///
     /// The keys are **kept**: disbanding ends the conversation, it does

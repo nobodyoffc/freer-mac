@@ -72,7 +72,13 @@ final class HomeServiceResolverTests: XCTestCase {
 
         let dsl = try XCTUnwrap(mock.recorded.last?.fcdsl)
         let body = try XCTUnwrap(try JSONSerialization.jsonObject(with: dsl) as? [String: Any])
-        XCTAssertEqual(mock.recorded.last?.api, "base.serviceByIds")
+        // The endpoint and the index, both asserted: services have no
+        // dedicated by-ids endpoint the way freers do, and calling the
+        // one that reads like its sibling gets a 404 — which this layer
+        // treats as "no such service", so the mistake is silent and
+        // shows up only as SIDs never resolving.
+        XCTAssertEqual(mock.recorded.last?.api, "base.getByIds")
+        XCTAssertEqual(body["entity"] as? String, "service")
         XCTAssertEqual(body["ids"] as? [String], [dockSid])
     }
 
@@ -214,13 +220,82 @@ final class HomeServiceResolverTests: XCTestCase {
         XCTAssertTrue(mock.recorded.isEmpty)
     }
 
+    // MARK: - following the live client
+
+    /// The resolver outlives the client underneath it, and has to
+    /// follow when that is replaced.
+    ///
+    /// It is built lazily, so it captures whatever client existed the
+    /// first time anything touched it — the stub, if a view rendered
+    /// before the real one was connected. Since a `(sid)` home value is
+    /// reachable *only* through a `base.getByIds` lookup, a stale
+    /// client shows up with an oddly specific symptom: peers whose DOCK
+    /// is written as a URL work, and peers whose DOCK is a SID are
+    /// unreachable.
+    func testLookupsFollowAReplacedClient() async {
+        // The client it was built with cannot answer anything.
+        mock.responder = { _ in try makeResponse(code: 500) }
+        var url = await resolver.resolve(dockSid)
+        XCTAssertNil(url, "the original client fails, as staged")
+
+        let live = MockFapiClient()
+        live.responder = { call in
+            guard call.api == "base.getByIds" else { return try makeResponse(code: 0) }
+            return try makeResponse(data: [
+                self.dockSid: ["id": self.dockSid, "home": ["API": "https://dock.live"], "active": true],
+            ])
+        }
+        resolver.setFapi(live)
+
+        url = await resolver.resolve(dockSid)
+        XCTAssertEqual(url, "https://dock.live", "the SID resolves against the new client")
+        XCTAssertEqual(live.recorded.last?.api, "base.getByIds", "and it was the one asked")
+    }
+
+    /// The swap takes effect before the caller's next line runs. Hopping
+    /// onto the actor with a `Task` instead would make two swaps racy —
+    /// a tear-down to the stub could land after the bring-up of the real
+    /// client and leave every SID unresolvable again.
+    func testTheSwapIsVisibleImmediately() async {
+        let live = MockFapiClient()
+        live.responder = { call in
+            guard call.api == "base.getByIds" else { return try makeResponse(code: 0) }
+            return try makeResponse(data: [
+                self.dockSid: ["id": self.dockSid, "home": ["API": "https://dock.live"], "active": true],
+            ])
+        }
+        // Last writer wins, synchronously — no interleaving to lose.
+        resolver.setFapi(MockFapiClient())
+        resolver.setFapi(live)
+
+        let url = await resolver.resolve(dockSid)
+        XCTAssertEqual(url, "https://dock.live")
+    }
+
+    /// The SID cache survives the swap: a SID resolves to whatever the
+    /// chain says, so the answer does not depend on which server was
+    /// asked, and dropping it would cost a round trip per peer to
+    /// relearn facts that have not changed.
+    func testTheCacheSurvivesASwap() async {
+        stageServices([dockSid: "https://dock.example"])
+        _ = await resolver.resolve(dockSid)
+
+        let live = MockFapiClient()
+        live.responder = { _ in try makeResponse(code: 500) }
+        resolver.setFapi(live)
+
+        let url = await resolver.resolve(dockSid)
+        XCTAssertEqual(url, "https://dock.example", "served from cache")
+        XCTAssertTrue(live.recorded.isEmpty, "without asking the new client at all")
+    }
+
     // MARK: - staging
 
-    /// `base.serviceByIds` answers with the records it knows, keyed by
+    /// `base.getByIds` answers with the records it knows, keyed by
     /// SID, and omits the rest.
     private func stageServices(_ urlBySid: [String: String]) {
         mock.responder = { call in
-            guard call.api == "base.serviceByIds" else { return try makeResponse(code: 0) }
+            guard call.api == "base.getByIds" else { return try makeResponse(code: 0) }
             let requested = (try? JSONSerialization.jsonObject(with: call.fcdsl ?? Data()))
                 .flatMap { ($0 as? [String: Any])?["ids"] as? [String] } ?? []
             var data: [String: Any] = [:]

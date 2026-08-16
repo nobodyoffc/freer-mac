@@ -176,7 +176,7 @@ final class DeliveryTests: XCTestCase {
     /// between them is who pays, not what happens to the message.
     func testBothDockRoutesReportStored() {
         XCTAssertEqual(DeliveryPolicy.Route.recipientDock(url: "u").deliveryMethod, .dockStored)
-        XCTAssertEqual(DeliveryPolicy.Route.ownDockForward(recipientDockUrl: nil).deliveryMethod, .dockStored)
+        XCTAssertEqual(DeliveryPolicy.Route.ownDockForward(recipientDockUrl: "u").deliveryMethod, .dockStored)
         XCTAssertEqual(DeliveryPolicy.Route.fudpDirect.deliveryMethod, .fudpDirect)
         XCTAssertEqual(DeliveryPolicy.Route.roadRelay(url: "u").deliveryMethod, .roadRelay)
     }
@@ -184,10 +184,14 @@ final class DeliveryTests: XCTestCase {
     /// Every omission is traceable to one capability being absent — a
     /// setting the user turned off, or an address we could not resolve.
     func testEachRouteIsGatedIndependently() {
-        // The user has direct sends off, so a reachable peer is skipped.
-        XCTAssertEqual(
-            DeliveryPolicy.plan(.init(fudpDirectEnabled: false, peerFudpReachable: true, ownDockAvailable: true)),
-            [.ownDockForward(recipientDockUrl: nil)]
+        // The user has direct sends off, so a reachable peer is skipped
+        // — and with no DOCK resolved for them, having one of our own
+        // adds nothing: there is nowhere to forward to, and a message
+        // parked on our server is one they will never look for.
+        XCTAssertTrue(
+            DeliveryPolicy.plan(.init(
+                fudpDirectEnabled: false, peerFudpReachable: true, ownDockAvailable: true
+            )).isEmpty
         )
         // Relay is on but we have no relay address for them.
         XCTAssertEqual(

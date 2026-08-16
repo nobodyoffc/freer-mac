@@ -85,7 +85,7 @@ public struct MessagesStore {
         guard let id = message.id, !id.isEmpty else { throw Failure.messageHasNoId }
 
         var stored = message
-        if stored.content != nil { stored.cipher = nil }
+        if stored.content != nil || stored.data != nil { stored.body = nil }
 
         let s = store(conversationId)
         let newKey = Self.key(timestamp: stored.timestamp, id: id)
@@ -135,23 +135,27 @@ public struct MessagesStore {
     }
 
     /// Clears the unread flag on every message in one conversation,
-    /// returning how many changed.
+    /// returning the ones that were actually flipped.
     ///
     /// This is the one method that walks a whole conversation, and it
     /// does so because opening a chat means exactly that. It is a user
     /// action on a thread they are looking at, not something a sync loop
     /// should call.
+    ///
+    /// The return is the messages rather than a count so a caller can
+    /// tell the senders: a read receipt is owed for each one from
+    /// somebody else, and only the ones that changed are owed one.
     @discardableResult
-    public func markAllRead(in conversationId: String, at: Date = Date()) throws -> Int {
+    public func markAllRead(in conversationId: String, at: Date = Date()) throws -> [ImMessage] {
         let s = store(conversationId)
         let stamp = Int64(at.timeIntervalSince1970 * 1000)
-        var changed = 0
+        var changed: [ImMessage] = []
         for key in try s.keys() {
             guard var message = try s.get(key), message.unread == true else { continue }
             message.unread = false
             message.readAt = stamp
             try s.put(message, key: key)
-            changed += 1
+            changed.append(message)
         }
         return changed
     }

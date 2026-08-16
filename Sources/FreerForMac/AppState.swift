@@ -1,5 +1,7 @@
 import Foundation
 import Observation
+import AppKit
+import Network
 import FCCore
 import FCDomain
 import FCTransport
@@ -36,11 +38,19 @@ enum AppRoute: Equatable {
 /// Children read it via `@Environment(AppState.self)`.
 ///
 /// **Live FAPI lifecycle.** When the user saves an FAPI server in
-/// Settings, ``applyFapiSettings(_:)`` builds a real `FudpClient` +
-/// `FapiClient` and swaps it into the active session via
-/// `setFapi(_:)`. The previous `FudpClient` (if any) is closed so
-/// its UDP socket is released. Lock-vault / switch-identity tear it
+/// Settings, ``applyFapiSettings(_:)`` builds a real `FudpClient`
+/// wrapped in a `ReconnectingFapiClient` and swaps it into the active
+/// session via `setFapi(_:)`. The previous client (if any) is closed
+/// so its UDP socket is released. Lock-vault / switch-identity tear it
 /// down too.
+///
+/// **Surviving sleep/wake.** A UDP flow does not survive the machine
+/// sleeping, changing network, or idling past its NAT mapping's
+/// lifetime — the socket looks fine and every reply silently vanishes.
+/// So the session holds the reconnecting wrapper, not a bare client,
+/// and ``AppState`` nudges it with `markStale()` on wake and on path
+/// changes; the wrapper reconnects at the next call, by which time the
+/// network is actually back.
 @Observable
 final class AppState {
 
@@ -58,10 +68,37 @@ final class AppState {
     var route: AppRoute
     var lastError: String?
 
-    /// Owned UDP transport behind the live `FapiClient`, kept here
+    /// Owned FAPI client (and, inside it, the UDP transport) kept here
     /// so the lock-vault / switch-identity / save-new-settings paths
-    /// can close it. nil when the session is using the stub client.
-    private var liveFudpClient: FudpClient?
+    /// can close it, and so the wake / network-change observers can
+    /// mark it stale. nil when the session is using the stub client.
+    @ObservationIgnored
+    private var liveFapi: ReconnectingFapiClient?
+
+    /// Wake-from-sleep and network-path observers. Held for their
+    /// lifetime — they live as long as the app does. Not observable:
+    /// a Wi-Fi flap is no reason to redraw the UI.
+    @ObservationIgnored private var wakeObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
+    @ObservationIgnored private var lastPathSummary: String?
+    @ObservationIgnored private var activationObservers: [any NSObjectProtocol] = []
+
+    /// Polls the DOCKs so messages arrive on their own. Lives exactly as
+    /// long as a live FAPI client does: with no server configured there
+    /// is nothing to poll.
+    @ObservationIgnored private var fetchScheduler: DockFetchScheduler?
+
+    /// The two inputs to the polling layer, kept apart because they
+    /// change independently: the OS tells us about one, the chat pane
+    /// about the other.
+    @ObservationIgnored private var appIsActive = true
+    @ObservationIgnored private var chatIsOpen = false
+
+    /// Bumped whenever a background collect filed something. Views watch
+    /// it to reload — an observable counter is the smallest thing that
+    /// can carry "the transcript changed underneath you" from a
+    /// non-UI task into SwiftUI.
+    private(set) var inboxRevision = 0
 
     /// Closure that produces the *initial* (pre-settings-applied)
     /// FAPI client for a freshly-unlocked main. Default = stub. The
@@ -88,6 +125,7 @@ final class AppState {
             self.configures = []
             self.route = .password
             self.lastError = "Couldn't open vault storage: \(error). Data won't persist."
+            self.installConnectivityObservers()
             return
         }
         self.manager = resolved
@@ -96,6 +134,143 @@ final class AppState {
         // the vault index is empty.
         self.configures = (try? resolved.listConfigures()) ?? []
         self.route = .password
+        self.installConnectivityObservers()
+    }
+
+    deinit {
+        if let wakeObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(wakeObserver)
+        }
+        for observer in activationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        pathMonitor?.cancel()
+    }
+
+    // MARK: - connectivity observers
+
+    /// Watch the two events that silently kill a live UDP flow, and
+    /// mark the FAPI client stale so the next call comes up on a fresh
+    /// socket. Marking (rather than reconnecting here and now) is
+    /// deliberate: at wake time Wi-Fi has usually not reassociated
+    /// yet, so an immediate reconnect would just build a second dead
+    /// socket.
+    private func installConnectivityObservers() {
+        wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.markTransportsStale()
+        }
+
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { [weak self] path in
+            // Interfaces flap during a wake; only a real change of
+            // status or interface set means the old flow is finished.
+            let summary = "\(path.status)|"
+                + path.availableInterfaces.map(\.name).joined(separator: ",")
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.lastPathSummary != summary else { return }
+                let hadPath = self.lastPathSummary != nil
+                self.lastPathSummary = summary
+                // The first update just records the baseline — there is
+                // no connection to invalidate at startup.
+                if hadPath { self.markTransportsStale() }
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "fc.path-monitor", qos: .utility))
+        pathMonitor = monitor
+
+        // How hard to poll depends on whether anyone is looking. An app
+        // in the background still collects — a message that arrived
+        // while it was hidden should be there when it comes back — just
+        // at a third of the rate.
+        let center = NotificationCenter.default
+        for (name, active) in [
+            (NSApplication.didBecomeActiveNotification, true),
+            (NSApplication.didResignActiveNotification, false),
+        ] {
+            activationObservers.append(
+                center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    guard let self else { return }
+                    self.appIsActive = active
+                    self.applyFetchLayer()
+                }
+            )
+        }
+    }
+
+    // MARK: - background collection
+
+    /// Whether a chat pane is on screen. Drives the polling rate: an
+    /// open conversation wants an answer in seconds, a wallet screen
+    /// does not.
+    func setChatOpen(_ open: Bool) {
+        guard chatIsOpen != open else { return }
+        chatIsOpen = open
+        applyFetchLayer()
+    }
+
+    /// Put one conversation's DOCK on the fast lane. Pass nil when the
+    /// conversation closes.
+    func setPriorityDock(_ dockUrl: String?) {
+        guard let fetchScheduler else { return }
+        Task { await fetchScheduler.setPriorityDock(dockUrl) }
+    }
+
+    /// Collect from every DOCK right now, off the schedule.
+    func fetchInboxNow() {
+        guard let fetchScheduler else { return }
+        Task { await fetchScheduler.fetchNow() }
+    }
+
+    private func applyFetchLayer() {
+        guard let fetchScheduler else { return }
+        let layer: DockFetchScheduler.Layer =
+            !appIsActive ? .background : (chatIsOpen ? .active : .normal)
+        Task { await fetchScheduler.setLayer(layer) }
+    }
+
+    /// Build and start the poller for `session`.
+    ///
+    /// The collect closure is the only thing that reaches back into the
+    /// session, and it deliberately re-reads `activeSession` each pass
+    /// rather than capturing it: a scheduler holding a session the user
+    /// has since locked would keep decrypting into a store nobody is
+    /// looking at.
+    private func startFetchScheduler(for session: ActiveSession) {
+        stopFetchScheduler()
+        let scheduler = DockFetchScheduler(
+            collect: { [weak self] selection in
+                guard let session = self?.activeSession else { return .none }
+                do {
+                    return try await session.courier.collect(
+                        as: session.liveFid,
+                        docks: selection,
+                        privkey: try? session.livePrikey()
+                    )
+                } catch {
+                    return .none
+                }
+            },
+            drain: { [weak self] in
+                guard let session = self?.activeSession else { return }
+                _ = try? await session.courier.drainOutbox(as: session.liveFid)
+            },
+            report: { [weak self] _ in
+                Task { @MainActor in self?.inboxRevision += 1 }
+            }
+        )
+        fetchScheduler = scheduler
+        applyFetchLayer()
+        Task { await scheduler.start() }
+    }
+
+    private func stopFetchScheduler() {
+        guard let fetchScheduler else { return }
+        self.fetchScheduler = nil
+        Task { await fetchScheduler.stop() }
     }
 
     // MARK: - password flow
@@ -229,8 +404,9 @@ final class AppState {
     /// Tear down the FUDP transport behind the live FAPI client and
     /// reset the session's `fapi` to the stub. Idempotent.
     private func tearDownLiveFapi() {
-        liveFudpClient?.close()
-        liveFudpClient = nil
+        stopFetchScheduler()
+        liveFapi?.close()
+        liveFapi = nil
         activeSession?.setFapi(StubFapiClient())
     }
 
@@ -266,21 +442,97 @@ final class AppState {
             return
         }
 
-        do {
-            let fudp = try await FudpClient(
+        // Everything the transport needs, captured once so the wrapper
+        // can rebuild it later without re-reading preferences (which
+        // would need the session — and its unlocked privkey — on a
+        // background reconnect).
+        let factory: @Sendable () async throws -> FudpClient = {
+            try await FudpClient(
                 host: host,
                 port: port,
                 peerPubkey: pubkey,
                 localPrivkey: priv
             )
+        }
+
+        // Opens a client to *any other* DOCK, given only its URL.
+        //
+        // The peer's pubkey is not configured anywhere — it cannot be,
+        // since the URL comes off the chain at send time — so it is
+        // discovered with a plaintext HELLO first, exactly as the
+        // Settings pane's "fetch pubkey" button does and as Android's
+        // `bootstrapFromUrl` does before building its client. The
+        // discovery is repeated on every reconnect because a server
+        // that moved may also have re-keyed.
+        let connect: @Sendable (String) async throws -> any FapiCalling = { url in
+            guard let endpoint = FudpUrl.hostPort(url) else {
+                throw DockConnectFailure.unusableUrl(url)
+            }
+            let build: @Sendable () async throws -> FudpClient = {
+                let peerPubkey = try await FudpDiscovery.discoverPubkey(
+                    host: endpoint.host, port: endpoint.port
+                )
+                return try await FudpClient(
+                    host: endpoint.host,
+                    port: endpoint.port,
+                    peerPubkey: peerPubkey,
+                    localPrivkey: priv
+                )
+            }
+            return ReconnectingFapiClient(factory: build, initial: try await build())
+        }
+
+        do {
+            // Connect eagerly so a bad host/port/pubkey is reported
+            // now, in Settings, rather than at the next chain sync.
+            let fudp = try await factory()
             // Swap atomically: close old → assign new → publish.
-            liveFudpClient?.close()
-            liveFudpClient = fudp
-            session.setFapi(FapiClient(fudp: fudp))
+            liveFapi?.close()
+            let client = ReconnectingFapiClient(factory: factory, initial: fudp)
+            liveFapi = client
+            session.setFapi(client)
+            // Our own DOCK is whatever server we just connected to; the
+            // registry needs it by URL so a put aimed there is a plain
+            // store rather than a forward to ourselves.
+            await session.dockRegistry.configure(
+                ownDockUrl: "\(host):\(port)", ownClient: client, connect: connect
+            )
+            await session.refreshDockRegistry()
+            // Only now: a poller started before the registry knows where
+            // anything lives would spend its first passes fetching from
+            // nowhere.
+            startFetchScheduler(for: session)
+            SystemLog.shared.info(
+                SystemSource.fapi, "Connected to \(host):\(port)"
+            )
         } catch {
             lastError = "FAPI connect failed: \(error)"
+            SystemLog.shared.error(
+                SystemSource.fapi,
+                "Could not connect to \(host):\(port)",
+                detail: "\(error)\nWallet, chat and sync all run over this connection."
+            )
             tearDownLiveFapi()
         }
+    }
+
+    /// Retire the live transport: the next FAPI call opens a fresh
+    /// socket. For callers that learn the old one can't be trusted —
+    /// a wake, a network change, a successful connection test.
+    func markFapiStale() {
+        liveFapi?.markStale()
+    }
+
+    /// Retire **every** socket, not just the one to our own server.
+    ///
+    /// A wake or a network change kills each per-DOCK connection the
+    /// registry is holding exactly as it kills the main one, and a dead
+    /// one that is never dropped means a group whose messages stop
+    /// arriving until the app is relaunched.
+    private func markTransportsStale() {
+        liveFapi?.markStale()
+        guard let session = activeSession else { return }
+        Task { await session.dockRegistry.invalidateAllClients() }
     }
 
     // MARK: - helpers
@@ -322,6 +574,18 @@ final class AppState {
             liveFid = session.liveFid
         } catch {
             lastError = String(describing: error)
+        }
+    }
+}
+
+/// Why a DOCK we were asked to reach could not be connected to.
+enum DockConnectFailure: Error, CustomStringConvertible {
+    case unusableUrl(String)
+
+    var description: String {
+        switch self {
+        case .unusableUrl(let url):
+            return "DOCK address '\(url)' does not name a host we can reach"
         }
     }
 }

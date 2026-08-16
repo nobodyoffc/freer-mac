@@ -44,11 +44,28 @@ public struct ConversationsStore {
         try all().filter { $0.archived != true }
     }
 
+    /// The visible threads of one flavour.
+    ///
+    /// The pane asks per flavour rather than filtering one list, because
+    /// the four are four different security models and the whole point
+    /// of separating them is that they never share a list: a square is
+    /// public and unencrypted, a P2P thread is sealed to one person, and
+    /// a row that can be mistaken for the other kind is the mistake this
+    /// exists to prevent.
+    public func visible(type: ImType) throws -> [Conversation] {
+        try visible().filter { $0.type == type }
+    }
+
     /// Unread across every thread, for a dock badge. Muted threads still
     /// count here: muting silences a notification, it does not make
     /// messages disappear.
     public func totalUnread() throws -> Int {
         try all().reduce(0) { $0 + ($1.unreadCount ?? 0) }
+    }
+
+    /// Unread within one flavour — the badge on that flavour's tab.
+    public func unread(type: ImType) throws -> Int {
+        try visible(type: type).reduce(0) { $0 + ($1.unreadCount ?? 0) }
     }
 
     public func search(_ query: String) throws -> [Conversation] {

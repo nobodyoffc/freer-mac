@@ -141,7 +141,7 @@ final class ConversationsStoreTests: XCTestCase {
     /// the value is stored, so two clients showing a thread differently
     /// would be a visible disagreement about the same cached field.
     func testPreviewsMatchAndroidsPlaceholders() throws {
-        var voice = ImMessage.voice(type: .p2p, from: them, to: me, metaJson: "{}", dataBase64: "AA==")
+        var voice = ImMessage.voice(type: .p2p, from: them, to: me, metaJson: "{}", data: Data([0x00]))
         voice.timestamp = 1_000
         voice.id = "0000000000000001"
         XCTAssertEqual(try store.record(voice, myFid: me)?.lastMessageContent, "[Voice]")

@@ -34,6 +34,10 @@ public final class FudpClient: @unchecked Sendable {
     public enum Failure: Error, CustomStringConvertible {
         case challengeFailed(underlying: Error)
         case timeout
+        /// The socket underneath died (sleep/wake, Wi-Fi change, peer
+        /// gone). Distinct from ``timeout`` because no amount of
+        /// waiting fixes it — the transport has to be rebuilt.
+        case transportClosed
         case sendStalled(String)
         case unexpectedSenderPubkey(got: Data, expected: Data)
         case underlying(Error)
@@ -42,6 +46,7 @@ public final class FudpClient: @unchecked Sendable {
             switch self {
             case .challengeFailed(let e):                return "FudpClient: challenge failed — \(e)"
             case .timeout:                               return "FudpClient: timeout"
+            case .transportClosed:                       return "FudpClient: connection lost (network changed or server unreachable)"
             case .sendStalled(let why):                  return "FudpClient: send stalled — \(why)"
             case let .unexpectedSenderPubkey(got, exp):  return "FudpClient: peer pubkey mismatch (\(got.prefix(4).hex)…  vs \(exp.prefix(4).hex)…)"
             case .underlying(let e):                     return "FudpClient: \(e)"
@@ -92,6 +97,9 @@ public final class FudpClient: @unchecked Sendable {
     private var pumpTask: Task<Void, Never>?
     private var retransmitTask: Task<Void, Never>?
     private var closed = false
+    /// Set when the transport's datagram stream ends — the socket is
+    /// gone, so nothing will ever arrive again on this client.
+    private var transportEnded = false
     private var _inboundProgress: (@Sendable (Int) -> Void)?
 
     /// Completed inbound AppMessages, fed by the pump, drained by
@@ -99,6 +107,8 @@ public final class FudpClient: @unchecked Sendable {
     /// timed-out or cancelled wait cannot terminate the channel — see
     /// ``InboundMailbox``.
     private let inboundMailbox = InboundMailbox<ReceivedMessage>()
+    /// Serialises request/response exchanges — see ``exchanging(_:)``.
+    private let exchangeGate = ExchangeGate()
 
     /// Per-streamId reassembly buffers (pump-task-confined).
     private var streamBuffers: [UInt64: InboundStreamBuffer] = [:]
@@ -183,6 +193,61 @@ public final class FudpClient: @unchecked Sendable {
     deinit {
         pumpTask?.cancel()
         retransmitTask?.cancel()
+    }
+
+    // MARK: - liveness
+
+    /// True while this client can still carry a request/response pair.
+    /// Goes false when it is closed, when the transport's datagram
+    /// stream ends, or when the socket reports its path is gone — the
+    /// three ways a laptop's connection dies over a sleep/wake cycle.
+    ///
+    /// A dead client never recovers: the AsyTwoWay session, the
+    /// connection id and the peer's NAT mapping all belong to the old
+    /// socket. Callers rebuild — see ``ReconnectingFapiClient``.
+    public var isAlive: Bool {
+        stateLock.lock()
+        let dead = closed || transportEnded
+        stateLock.unlock()
+        return !dead && transport.isViable
+    }
+
+    // MARK: - request/response exclusion
+
+    /// Run one request/response exchange with exclusive use of the
+    /// inbound mailbox.
+    ///
+    /// **Why this has to exist.** ``receive(matching:timeoutMs:)`` is a
+    /// single-consumer queue that *discards* envelopes it was not
+    /// waiting for. With two exchanges in flight, whichever `receive`
+    /// wakes first takes the next arrival, drops it if it belongs to the
+    /// other, and the rightful owner then waits out its full timeout for
+    /// a reply that has already been thrown away. Both calls are
+    /// well-formed; one simply eats the other's answer.
+    ///
+    /// That never surfaced while the app made one call at a time. A
+    /// background poller makes several — a balance lookup, a
+    /// `dock.fetch` and an outbox drain can now overlap on one socket —
+    /// and the symptom is a `FudpClient: timeout` on whichever call was
+    /// unlucky, on a connection that is working perfectly.
+    ///
+    /// The gate lives here, on the object that owns the mailbox, rather
+    /// than in ``FapiClient``: a `FapiClient` is created per call (it
+    /// holds no state but its `fudp`), so exclusion kept there would
+    /// guard nothing. Serialising rather than demultiplexing costs
+    /// pipelining, which this protocol never had — the mailbox has
+    /// always been single-consumer, and the calls were merely never
+    /// concurrent enough to prove it.
+    public func exchanging<T>(_ body: () async throws -> T) async throws -> T {
+        await exchangeGate.acquire()
+        do {
+            let value = try await body()
+            await exchangeGate.release()
+            return value
+        } catch {
+            await exchangeGate.release()
+            throw error
+        }
     }
 
     // MARK: - sizing helpers
@@ -376,17 +441,21 @@ public final class FudpClient: @unchecked Sendable {
     public func ping(timeoutMs: Int = 3_000) async throws -> PongMessage {
         let messageId = Int64.random(in: 1...Int64.max)
         let pingTs = ReplayProtection.currentTimeMillis()
-        try await send(AppMessageEnvelope(
-            type: .ping,
-            messageId: messageId,
-            payload: PingMessage(timestamp: pingTs).payload()
-        ))
-        log("sent PING messageId=\(messageId) ts=\(pingTs)")
+        // A ping is an exchange like any other, and a connection test
+        // fired while a fetch is in flight must not eat its reply.
+        let envelope = try await exchanging {
+            try await send(AppMessageEnvelope(
+                type: .ping,
+                messageId: messageId,
+                payload: PingMessage(timestamp: pingTs).payload()
+            ))
+            log("sent PING messageId=\(messageId) ts=\(pingTs)")
 
-        let envelope = try await receive(
-            matching: { $0.type == .pong && $0.messageId == messageId },
-            timeoutMs: timeoutMs
-        )
+            return try await receive(
+                matching: { $0.type == .pong && $0.messageId == messageId },
+                timeoutMs: timeoutMs
+            )
+        }
         return try PongMessage.parse(payload: envelope.payload)
     }
 
@@ -396,9 +465,13 @@ public final class FudpClient: @unchecked Sendable {
     /// equals `id`. Throws ``Failure/timeout`` if nothing matches in
     /// `timeoutMs`.
     ///
-    /// **Concurrency:** single consumer — don't issue overlapping
-    /// `receive` calls; they would race for arrivals. FapiClient
-    /// serializes calls.
+    /// **Concurrency:** single consumer — overlapping `receive` calls
+    /// race for arrivals, and the loser's reply is *discarded* by the
+    /// winner rather than put back. Callers must hold
+    /// ``exchanging(_:)`` for the whole send-then-receive, which is
+    /// what every path in `FapiClient` does. (This note used to claim
+    /// `FapiClient` serialized calls on its own; it never did, and a
+    /// `FapiClient` is built per call, so it could not.)
     public func receive(
         matching messageId: Int64,
         timeoutMs: Int = 3_000
@@ -415,7 +488,11 @@ public final class FudpClient: @unchecked Sendable {
             let remaining = deadlineMs - PeerConnection.currentTimeMillis()
             guard remaining > 0 else { throw Failure.timeout }
             guard let received = await inboundMailbox.next(timeoutMs: Int(remaining)) else {
-                throw Failure.timeout
+                // A finished mailbox returns nil immediately, so a
+                // dead socket looks exactly like a wait that expired.
+                // Tell them apart — only one of the two is fixable by
+                // reconnecting.
+                throw isAlive ? Failure.timeout : Failure.transportClosed
             }
             if predicate(received.envelope) {
                 return received.envelope
@@ -434,8 +511,19 @@ public final class FudpClient: @unchecked Sendable {
                 if Task.isCancelled { break }
                 await self.handleDatagram(datagram.data)
             }
+            // The stream only ends when the socket is gone (or we
+            // closed it). Record that so `receive` can say "connection
+            // lost" instead of the misleading "timeout" a finished
+            // mailbox would otherwise produce.
+            self?.markTransportEnded()
             self?.inboundMailbox.finish()
         }
+    }
+
+    private func markTransportEnded() {
+        stateLock.lock()
+        transportEnded = true
+        stateLock.unlock()
     }
 
     private func handleDatagram(_ data: Data) async {
@@ -817,6 +905,37 @@ public final class FudpClient: @unchecked Sendable {
 }
 
 // MARK: - hex display helper for debug strings
+
+/// One-at-a-time admission, FIFO.
+///
+/// Deliberately not a lock: holding one across the `await` that a
+/// request/response exchange *is* would block a thread for the whole
+/// round trip. Waiters queue in arrival order, so a burst of calls is
+/// served in the order it was made rather than by whoever the scheduler
+/// happens to wake.
+private actor ExchangeGate {
+    private var busy = false
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    func acquire() async {
+        guard busy else {
+            busy = true
+            return
+        }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    /// Hands the slot straight to the next waiter rather than clearing
+    /// `busy`: releasing it first would let a call that arrived later
+    /// overtake the queue.
+    func release() {
+        if waiting.isEmpty {
+            busy = false
+        } else {
+            waiting.removeFirst().resume()
+        }
+    }
+}
 
 private extension Data {
     var hex: String { map { String(format: "%02x", $0) }.joined() }

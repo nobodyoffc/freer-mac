@@ -519,6 +519,10 @@ struct SettingsView: View {
             )
             if reply.response.isSuccess {
                 testResult = .ok("Connected — server replied OK")
+                // This proves the network is back. The live client may
+                // still be sitting on a socket that died while the
+                // machine slept, so retire it: the next call reconnects.
+                appState.markFapiStale()
             } else {
                 let code = reply.response.code ?? -1
                 let msg = reply.response.message ?? ""

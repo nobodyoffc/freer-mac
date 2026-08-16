@@ -24,6 +24,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
     case files
     case secrets
     case tools
+    case system
     case settings
 
     var id: String { rawValue }
@@ -41,7 +42,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         switch self {
         case .overview, .send, .receive, .transactions:
             return .wallet
-        case .contacts, .chat, .mail, .files, .secrets, .tools, .settings:
+        case .contacts, .chat, .mail, .files, .secrets, .tools, .system, .settings:
             return .network
         }
     }
@@ -63,6 +64,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .files:        return "Files"
         case .secrets:      return "Secrets"
         case .tools:        return "Tools"
+        case .system:       return "System"
         case .settings:     return "Settings"
         }
     }
@@ -79,6 +81,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .files:        return "folder"
         case .secrets:      return "lock.shield"
         case .tools:        return "wrench.and.screwdriver"
+        case .system:       return "exclamationmark.bubble"
         case .settings:     return "gearshape"
         }
     }

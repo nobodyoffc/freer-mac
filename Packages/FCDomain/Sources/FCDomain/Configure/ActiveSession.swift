@@ -238,6 +238,38 @@ public final class ActiveSession {
     /// this one's forwarding, which is what `targetDockUrl` is for.
     public var dockService: DockService { DockService(fapi: fapi) }
 
+    /// Which DOCK each conversation lives on, and a connected client per
+    /// server. Lazy and long-lived: it caches one connection per DOCK,
+    /// and rebuilding it per send would open a new socket for every
+    /// message. The app shell configures it (see
+    /// ``DockRegistry/configure(ownDockUrl:ownClient:connect:)``)
+    /// whenever the FAPI settings change.
+    public lazy var dockRegistry: DockRegistry = DockRegistry(
+        resolver: homeServices, kv: storage
+    )
+
+    /// Re-derive which DOCK each group we belong to lives on.
+    ///
+    /// Call after a group sync, after joining or leaving one, and at
+    /// startup: the registry is what a collect polls, so a group missing
+    /// from it is a conversation that silently receives nothing.
+    public func refreshDockRegistry() async {
+        var groups: [DockRegistry.GroupRef] = []
+        for team in (try? teams.joined(by: liveFid)) ?? [] {
+            guard let id = team.id else { continue }
+            groups.append(.init(id: id, type: .team, home: team.home))
+        }
+        for square in (try? squares.joined(by: liveFid)) ?? [] {
+            guard let id = square.id else { continue }
+            groups.append(.init(id: id, type: .square, home: square.home))
+        }
+        for room in (try? rooms.active()) ?? [] {
+            guard let id = room.id, room.isMember(liveFid) else { continue }
+            groups.append(.init(id: id, type: .room, home: room.home))
+        }
+        await dockRegistry.refresh(liveFid: liveFid, groups: groups)
+    }
+
     /// The loop that moves messages: drains the outbox onto a DOCK and
     /// collects what one is holding for us.
     public var courier: MessageCourier {
@@ -252,13 +284,50 @@ public final class ActiveSession {
             dock: dockService,
             resolver: homeServices,
             directory: DirectoryService(fapi: fapi),
+            registry: dockRegistry,
             groupHome: { targetId in
                 if let team = try? teams.get(id: targetId)?.home { return team }
                 if let square = try? squares.get(id: targetId)?.home { return square }
                 return try? rooms.get(id: targetId)?.home
-            }
+            },
+            routeSignal: signalRoute
         )
     }
+
+    /// Room notifications, key shares and key requests.
+    ///
+    /// Built here and handed to the courier as a closure, because the
+    /// router needs this identity's private key and four stores, and the
+    /// courier should keep knowing about none of them.
+    ///
+    /// **Nil when the session cannot sign.** Every branch of the router
+    /// either opens a key sealed to us or seals one to somebody else,
+    /// and a watch-only session can do neither; a router without a key
+    /// would answer "no" to everything, which is harder to read than not
+    /// being there.
+    private var signalRoute: (@Sendable (ImMessage, String, Date) throws -> SignalRouter.Outcome)? {
+        guard let privkey = try? livePrikey(), let service = try? roomService else { return nil }
+        let rooms = self.rooms
+        let teams = self.teams
+        let symkeys = self.symkeys
+        let invites = self.roomInvites
+        let contacts = self.contacts
+        return { message, liveFid, now in
+            let router = SignalRouter(
+                rooms: rooms,
+                teams: teams,
+                symkeys: symkeys,
+                invites: invites,
+                roomService: service,
+                privkey: privkey,
+                pubkeys: { fid in try contacts.get(fid: fid)?.pubkey }
+            )
+            return try router.route(message, as: liveFid, now: now)
+        }
+    }
+
+    /// Room invitations waiting for an answer.
+    public lazy var roomInvites: RoomInvitesStore = RoomInvitesStore(kv: storage)
 
     /// Everything a DOCK fetch should ask for: this identity, plus every
     /// group it belongs to — a team's messages are addressed to the
@@ -272,11 +341,77 @@ public final class ActiveSession {
     }
 
     /// The send/receive path the chat pane and the transport share.
+    ///
+    /// The stranger gate is wired in here rather than at the call sites,
+    /// so there is no way to receive a message on a path that skips it.
     public var chat: ChatService {
-        ChatService(
+        let contacts = self.contacts
+        return ChatService(
             messages: messages, conversations: conversations,
-            symkeys: symkeys, outbox: outbox
+            symkeys: symkeys, outbox: outbox,
+            policy: contactPolicy, requests: messageRequests,
+            isContact: { fid in ((try? contacts.get(fid: fid)) ?? nil) != nil }
         )
+    }
+
+    /// Who may start a conversation with this identity.
+    public lazy var contactPolicy: ContactPolicyStore = ContactPolicyStore(kv: storage)
+    private lazy var requestsStore: MessageRequestsStore = MessageRequestsStore(kv: storage)
+
+    /// Messages held from senders this identity has not agreed to hear
+    /// from.
+    public var messageRequests: MessageRequests {
+        MessageRequests(
+            requests: requestsStore, messages: messages, conversations: conversations
+        )
+    }
+
+    /// Everything ``ChatGate`` needs to answer whether this identity may
+    /// send into this conversation.
+    ///
+    /// Gathering the facts is this session's job because it owns the
+    /// four stores they come from; deciding on them is ``ChatGate``'s,
+    /// so the rule stays testable without any of this.
+    ///
+    /// A conversation whose backing record is *missing* reads as "not a
+    /// member", which is the safe reading: a team we have never synced
+    /// and a team we were thrown out of look identical from here, and of
+    /// the two possible mistakes, refusing to send is the recoverable
+    /// one.
+    public func chatGateFacts(for conversation: Conversation) -> ChatGate.Facts {
+        var facts = ChatGate.Facts(type: conversation.type, canSign: canSign)
+        facts.leftGroup = conversation.leftGroup == true
+
+        switch conversation.type {
+        case .p2p:
+            return facts
+
+        case .room:
+            let room = try? rooms.get(id: conversation.targetId)
+            facts.isOwner = room?.isOwner(liveFid) ?? false
+            facts.isMember = facts.isOwner || (room?.isMember(liveFid) ?? false)
+            facts.hasDock = ChatGate.declaresDock(home: room?.home)
+            // A closed room is one nobody may write in again, owner
+            // included — the same shape as having been removed.
+            if room?.isInactive == true { facts.leftGroup = true }
+
+        case .team:
+            let team = try? teams.get(id: conversation.targetId)
+            facts.isOwner = team?.isOwner(liveFid) ?? false
+            facts.isMember = facts.isOwner || (team?.isMember(liveFid) ?? false)
+            facts.hasDock = ChatGate.declaresDock(home: team?.home)
+            if team?.isActive == false { facts.leftGroup = true }
+
+        case .square:
+            let square = try? squares.get(id: conversation.targetId)
+            facts.isMember = square?.isMember(liveFid) ?? false
+            facts.hasDock = ChatGate.declaresDock(home: square?.home)
+        }
+
+        facts.hasSymkey = ChatGate.requiresSymkey(conversation.type)
+            ? ((try? symkeys.has(entityId: conversation.targetId)) ?? false)
+            : true
+        return facts
     }
 
     /// The room protocol. Computed so it always carries the *live*
@@ -348,8 +483,16 @@ public final class ActiveSession {
     /// for closing the *previous* transport if it owns one (the
     /// `ActiveSession` is type-erased to `FapiCalling` and can't
     /// know how to tear it down).
+    /// **Every long-lived holder has to be told.** Most services here
+    /// are computed properties that read `fapi` afresh, so they pick the
+    /// new client up for free. ``homeServices`` is the exception: it is
+    /// lazy, because its SID→URL cache has to outlive a send, which
+    /// means it captured whatever client existed the first time anyone
+    /// touched it — the stub, if a view rendered before the real client
+    /// was built. See ``HomeServiceResolver/setFapi(_:)``.
     public func setFapi(_ client: any FapiCalling) {
         self.fapi = client
+        homeServices.setFapi(client)
     }
 
     // MARK: - send convenience
@@ -724,6 +867,95 @@ public final class ActiveSession {
     ) async throws -> String {
         try await carveGroupOp(
             TeamFeip.envelope(opJson: try TeamFeip.leaveOp(tids: teamIds)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// Create a team.
+    ///
+    /// **The team's id is the carve's txid**, which is why nothing is
+    /// returned but that: there is no local record to make, and the team
+    /// only exists once the transaction confirms and the indexer has
+    /// seen it. A row appears here on the next sync, not now.
+    ///
+    /// `consensusId` names the document members agree to when they join
+    /// — the `join` op quotes it, and that quotation in a signed
+    /// transaction is what makes agreement a public act rather than a
+    /// checkbox. A team created without one has nothing for its members
+    /// to agree *to*.
+    @discardableResult
+    public func carveTeamCreateOnChain(
+        stdName: String,
+        desc: String? = nil,
+        consensusId: String? = nil,
+        home: [String: String]? = nil,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        try await carveGroupOp(
+            TeamFeip.envelope(
+                opJson: try TeamFeip.createOp(
+                    stdName: stdName, consensusId: consensusId, desc: desc, home: home
+                )
+            ),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// Create a square. Same shape as a team's create, and the same
+    /// caveat about the id — but no consensus document, because a square
+    /// has no membership to agree to anything: anyone may join.
+    @discardableResult
+    public func carveSquareCreateOnChain(
+        name: String,
+        desc: String? = nil,
+        home: [String: String]? = nil,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        try await carveGroupOp(
+            SquareFeip.envelope(
+                opJson: try SquareFeip.createOp(name: name, desc: desc, home: home)
+            ),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// Invite FIDs to a team we own.
+    ///
+    /// **An invitation is not a membership.** The invitee still has to
+    /// carve their own `join`, quoting the consensus document — which is
+    /// what makes belonging to a team a signed act by the member rather
+    /// than something an owner can do to somebody.
+    @discardableResult
+    public func carveTeamInviteOnChain(
+        teamId: String,
+        fids: [String],
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.inviteOp(tid: teamId, fids: fids)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// Dismiss members from a team we own.
+    ///
+    /// This ends their membership on the chain; it does **not** take
+    /// back what they can read. Every key they hold still opens what it
+    /// always did, so the key has to be rotated as well — the same
+    /// bargain ``RoomService/removeMember(_:from:as:pubkeys:now:)``
+    /// makes, except that here the two halves are separate acts.
+    @discardableResult
+    public func carveTeamDismissOnChain(
+        teamId: String,
+        fids: [String],
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.dismissOp(tid: teamId, fids: fids)),
             feePerByte: feePerByte, timeoutMs: timeoutMs
         )
     }

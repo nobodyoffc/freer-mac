@@ -42,10 +42,20 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
 
     public var contentType: ContentType?
     /// Text, or the metadata/JSON payload for the structured kinds.
+    /// On the wire this is the **first section of the body**, not a field
+    /// of its own — see ``toWireBytes()``.
     public var content: String?
-    /// Small binary payloads, Base64. Anything over
-    /// ``maxInlineDataSize`` goes to a DISK instead and travels as a HAT.
-    public var dataBase64: String?
+    /// Inline binary payload — audio, an attachment, a wrapped key.
+    ///
+    /// **Raw bytes, not Base64.** v1 carried this as a Base64 *string*
+    /// because the wire had no way to express bytes; v2's body framing
+    /// does, so the +33% is gone. Local storage still writes it as
+    /// `dataBase64` (see ``wireJson()``), because a history file is read
+    /// by Android's Gson and that key is part of the file format.
+    ///
+    /// Whether a payload may travel inline at all is a property of the
+    /// destination, not a constant — see ``DockRegistry/inlineBudget(for:)``.
+    public var data: Data?
 
     public var requestType: RequestType?
     /// The id of the request a `RESPONSE` (or `RECEIPT`) answers.
@@ -64,11 +74,18 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     /// Local-only.
     public var readAt: Int64?
 
-    /// The sealed body, for the flavours that seal one. Which envelope it
-    /// is depends on ``type``: AsyTwoWay for P2P, a versioned symkey for
+    /// The sealed body, for the flavours that seal one — a binary
+    /// ``CryptoBundle``. Which envelope it holds depends on ``type``:
+    /// AsyTwoWay for P2P (AsyOneWay for self-chat), a versioned symkey for
     /// team and room, nothing at all for a square.
-    public var cipher: String?
-    /// Which symkey version ``cipher`` was sealed with. **Long here, but
+    ///
+    /// This replaces v1's `cipher`, and the replacement is the point of
+    /// the version break: v1 sealed `content` and left `dataBase64` beside
+    /// it in the clear, so a voice note travelled with its metadata
+    /// encrypted and its audio readable. Here the seal covers
+    /// ``content`` *and* ``data`` together, so that state cannot be built.
+    public var body: Data?
+    /// Which symkey version ``body`` was sealed with. **Long here, but
     /// only 32 bits of it survive the wire** — see ``toWireBytes()``.
     public var symkeyVersion: Int64?
 
@@ -96,7 +113,7 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         sequence: Int64? = nil,
         contentType: ContentType? = nil,
         content: String? = nil,
-        dataBase64: String? = nil,
+        data: Data? = nil,
         requestType: RequestType? = nil,
         requestId: String? = nil,
         roadIds: [String]? = nil,
@@ -105,7 +122,7 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         status: MessageStatus? = nil,
         deliveredAt: Int64? = nil,
         readAt: Int64? = nil,
-        cipher: String? = nil,
+        body: Data? = nil,
         symkeyVersion: Int64? = nil,
         replyToId: String? = nil,
         threadId: String? = nil,
@@ -122,7 +139,7 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         self.sequence = sequence
         self.contentType = contentType
         self.content = content
-        self.dataBase64 = dataBase64
+        self.data = data
         self.requestType = requestType
         self.requestId = requestId
         self.roadIds = roadIds
@@ -131,7 +148,7 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         self.status = status
         self.deliveredAt = deliveredAt
         self.readAt = readAt
-        self.cipher = cipher
+        self.body = body
         self.symkeyVersion = symkeyVersion
         self.replyToId = replyToId
         self.threadId = threadId
@@ -142,10 +159,20 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         self.id = id
     }
 
-    /// The largest payload that may travel inline in ``dataBase64``
-    /// (900 KB — 100 KB of headroom under a DOCK server's 1 MB limit).
-    /// Anything larger goes to a DISK and is shared as a HAT reference.
-    public static let maxInlineDataSize = 900 * 1024
+    /// What to assume a DOCK will accept per item when its service record
+    /// does not say — FAPI13's own `DEFAULT_MAX_DATA_SIZE`.
+    ///
+    /// This is a **floor to fall back on, not a limit to enforce**. The
+    /// real ceiling is whatever the destination DOCK advertises in its
+    /// on-chain service record, and it varies by operator; resolve it with
+    /// ``DockRegistry/inlineBudget(for:)`` and measure the encoded
+    /// envelope against that.
+    ///
+    /// v1 had a fixed `maxInlineDataSize` of 900 KB here, justified by an
+    /// assumed 1 MB server limit that does not exist. The server's default
+    /// is this value — 14× smaller — so inline binary failed long before
+    /// the documented limit and the failure looked like a wire bug.
+    public static let assumedDockItemLimit = 64 * 1024
 
     // MARK: - id
 
@@ -217,14 +244,14 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     }
 
     /// Inline binary: `metaJson` describes it (name, size, type), the
-    /// payload rides Base64 in `dataBase64`.
+    /// payload rides raw in ``data``.
     public static func stream(
         type: ImType, from: String, to: String,
-        metaJson: String, dataBase64: String, now: Date = Date()
+        metaJson: String, data: Data, now: Date = Date()
     ) -> ImMessage {
         var m = make(type: type, from: from, to: to, contentType: .stream, now: now)
         m.content = metaJson
-        m.dataBase64 = dataBase64
+        m.data = data
         m.unread = false
         return m
     }
@@ -244,11 +271,11 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     /// `{"durationMs":…,"sampleRate":…,"format":"aac"}`.
     public static func voice(
         type: ImType, from: String, to: String,
-        metaJson: String, dataBase64: String, now: Date = Date()
+        metaJson: String, data: Data, now: Date = Date()
     ) -> ImMessage {
         var m = make(type: type, from: from, to: to, contentType: .voice, now: now)
         m.content = metaJson
-        m.dataBase64 = dataBase64
+        m.data = data
         m.unread = false
         return m
     }
@@ -309,11 +336,11 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     /// `kCipherBase64` is the file's symkey sealed to the receiver.
     public static func history(
         type: ImType, from: String, to: String,
-        hatJson: String, kCipherBase64: String?, now: Date = Date()
+        hatJson: String, kCipher: Data?, now: Date = Date()
     ) -> ImMessage {
         var m = make(type: type, from: from, to: to, contentType: .history, now: now)
         m.content = hatJson
-        m.dataBase64 = kCipherBase64
+        m.data = kCipher
         return m
     }
 
@@ -352,6 +379,25 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         try JSONDecoder().decode(ImMessage.self, from: Data(json.utf8))
     }
 
+    /// Local storage renames v1's `dataBase64` and `cipher` to match the
+    /// model, and FIMP0V2 §7 fixes both as **Base64 strings** — which is
+    /// what Swift's `Data` Codable already produces.
+    ///
+    /// Keeping the old names would have been friendlier to read and worse
+    /// to debug: the *encoding* of both values changed (a JSON envelope
+    /// became a binary bundle), so a v1 record under a v1 name would look
+    /// decodable and fail deep inside the crypto instead of at the field.
+    /// A hard break should break loudly.
+    enum CodingKeys: String, CodingKey {
+        case type, senderId, targetId, timestamp, sequence
+        case contentType, content, data
+        case requestType, requestId
+        case roadIds, dockId, deliveryMethod, status, deliveredAt, readAt
+        case body
+        case symkeyVersion, replyToId, threadId
+        case senderName, unread, pinned, deleted, id
+    }
+
     /// Declaration order: `ImMessage`'s own fields, then `FcEntity`'s
     /// `id`. `FcEntity` also declares `meta`, which this app never sets
     /// and Gson therefore never writes, so it is not modelled.
@@ -369,7 +415,12 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         put("sequence", sequence)
         put("contentType", contentType?.rawValue)
         put("content", content)
-        put("dataBase64", dataBase64)
+        // Local storage keeps the *opened* body. A history file is read by
+        // the other client, so this is file format, not wire format, and
+        // FIMP0V2 §7 pins it: binary fields are Base64 strings, because
+        // JSON has no way to hold bytes and Gson's default for `byte[]` (a
+        // JSON array of signed numbers) is neither compact nor obvious.
+        put("data", data?.base64EncodedString())
         put("requestType", requestType?.rawValue)
         put("requestId", requestId)
         put("roadIds", roadIds)
@@ -378,7 +429,7 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         put("status", status?.rawValue)
         put("deliveredAt", deliveredAt)
         put("readAt", readAt)
-        put("cipher", cipher)
+        put("body", body?.base64EncodedString())
         put("symkeyVersion", symkeyVersion)
         put("replyToId", replyToId)
         put("threadId", threadId)
@@ -392,54 +443,66 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
 
     // MARK: - binary wire format
 
-    /// Bit positions in the 2-byte flag word. Bits 9–15 are reserved.
-    private enum WireFlag {
-        static let content: UInt16        = 0x0001
-        static let dataBase64: UInt16     = 0x0002
-        static let cipher: UInt16         = 0x0004
-        static let symkeyVersion: UInt16  = 0x0008
-        static let requestType: UInt16    = 0x0010
-        static let requestId: UInt16      = 0x0020
-        static let replyToId: UInt16      = 0x0040
-        static let threadId: UInt16       = 0x0080
-        static let messageId: UInt16      = 0x0100
+    /// Bit positions in the 2-byte flag word. Bits 8–15 are reserved.
+    enum WireFlag {
+        static let body: UInt16           = 0x0001
+        static let bodySealed: UInt16     = 0x0002
+        static let symkeyVersion: UInt16  = 0x0004
+        static let requestType: UInt16    = 0x0008
+        static let requestId: UInt16      = 0x0010
+        static let replyToId: UInt16      = 0x0020
+        static let threadId: UInt16       = 0x0040
+        static let messageId: UInt16      = 0x0080
     }
 
-    /// The shortest legal encoding: the fixed header alone, with both
-    /// ids empty and no optional fields.
-    static let wireHeaderSize = 14
+    /// `0xF1 0x02` — FIMP magic, then the wire version.
+    ///
+    /// The magic byte is load-bearing, not decoration. A v1 envelope opens
+    /// with the `ImType` ordinal, a value in 0…3, so a bare version byte
+    /// of 2 is indistinguishable from a v1 **TEAM** message: a v2 reader
+    /// would parse legacy team traffic as v2 and misparse it silently
+    /// instead of rejecting it. `0xF1` cannot occur as a v1 first byte, so
+    /// the rejection is deterministic in both directions.
+    public static let wireMagic: UInt8 = 0xF1
+    public static let wireVersion: UInt8 = 0x02
 
-    /// Port of `toWireBytes()`:
+    /// The shortest legal encoding: magic, version, the fixed header,
+    /// both ids empty, no optional fields.
+    static let wireHeaderSize = 16
+
+    /// The FIMP v2 envelope:
     ///
     /// ```
+    ///   magic(1)=0xF1 version(1)=0x02
     ///   type(1) contentType(1)
     ///   senderId(u8-prefixed) targetId(u8-prefixed)
     ///   timestamp(8, big-endian)
     ///   flags(2, big-endian)
-    ///   [content] [dataBase64] [cipher]   — each u16-prefixed
+    ///   [body(u32-prefixed)]
     ///   [symkeyVersion(4)] [requestType(1)]
     ///   [requestId] [replyToId] [threadId] [id]  — each u16-prefixed
     /// ```
     ///
-    /// Three things here are lossy, and all three are reproduced rather
-    /// than repaired, because the other end is the Android client and it
-    /// is the format that has to match:
+    /// **One private field.** ``content`` and ``data`` are not fields here
+    /// at all: they are framed together into the body (``bodyFraming()``),
+    /// and it is that framing the mode's cipher seals. v1 had three
+    /// payload fields and sealed one of them, which is how a voice note
+    /// shipped with encrypted metadata and cleartext audio. With a single
+    /// field the rule is "seal the body", and the half-sealed state has no
+    /// encoding.
+    ///
+    /// Two v1 behaviours are kept deliberately, because Android reproduces
+    /// them and the format is what has to match:
     ///
     /// 1. **``symkeyVersion`` is truncated to 32 bits** (Java writes
     ///    `putInt(intValue())` and reads back `(long) getInt()`), so a
-    ///    version past 2³¹ comes out the far side sign-extended and
-    ///    negative. Rotations would have to run for a very long time to
-    ///    reach that, but a port that widened the field would simply
-    ///    desynchronise from Android at the first message.
+    ///    version past 2³¹ comes out sign-extended and negative.
     /// 2. **A nil ``type`` or ``contentType`` writes ordinal 0**, so it
     ///    arrives as `P2P`/`TEXT` rather than as nothing.
-    /// 3. **Empty and nil are the same on the far side** for the
-    ///    length-prefixed strings: the flag says the field is present,
-    ///    the length says zero, and the reader produces `""`.
     ///
-    /// A sender id longer than 255 UTF-8 bytes cannot be length-prefixed
-    /// with one byte; FIDs are 34, so this throws rather than silently
-    /// truncating.
+    /// One is fixed: a length that does not fit its prefix now throws.
+    /// v1's 16-bit prefix silently wrapped on Android, corrupting every
+    /// field after it, which is the failure this version exists to end.
     public func toWireBytes() throws -> Data {
         let sender = Data((senderId ?? "").utf8)
         let target = Data((targetId ?? "").utf8)
@@ -447,10 +510,30 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
             throw WireFailure.idTooLong
         }
 
+        // A sealed body is carried as-is; an unsealed one is framed here.
+        //
+        // **Empty counts as absent.** The framing records a length, not a
+        // presence, so a zero-length section reads back as nil and cannot
+        // read back as `""`. Encoding an empty payload as an 8-byte
+        // all-zero framing would therefore make the round trip unstable:
+        // decode would yield nil, and re-encoding would emit no body at
+        // all. Treating empty as absent on the way out keeps
+        // encode→decode→encode byte-identical, which is what lets a relay
+        // forward a message it decoded. v1 said the same thing about its
+        // length-prefixed strings ("empty and nil are the same on the far
+        // side"); v2 just has to apply it one level up.
+        let wireBody: Data?
+        if let body {
+            wireBody = body
+        } else if !(content ?? "").isEmpty || !(data ?? Data()).isEmpty {
+            wireBody = bodyFraming()
+        } else {
+            wireBody = nil
+        }
+
         var flags: UInt16 = 0
-        if content != nil       { flags |= WireFlag.content }
-        if dataBase64 != nil    { flags |= WireFlag.dataBase64 }
-        if cipher != nil        { flags |= WireFlag.cipher }
+        if wireBody != nil      { flags |= WireFlag.body }
+        if body != nil          { flags |= WireFlag.bodySealed }
         if symkeyVersion != nil { flags |= WireFlag.symkeyVersion }
         if requestType != nil   { flags |= WireFlag.requestType }
         if requestId != nil     { flags |= WireFlag.requestId }
@@ -459,6 +542,8 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         if id != nil            { flags |= WireFlag.messageId }
 
         var out = Data()
+        out.append(Self.wireMagic)
+        out.append(Self.wireVersion)
         out.append(type?.wireOrdinal ?? 0)
         out.append(contentType?.wireOrdinal ?? 0)
         try Self.appendLen8(&out, sender)
@@ -466,9 +551,11 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         Self.appendBE(&out, UInt64(bitPattern: timestamp ?? 0))
         Self.appendBE(&out, flags)
 
-        try Self.appendLen16(&out, content)
-        try Self.appendLen16(&out, dataBase64)
-        try Self.appendLen16(&out, cipher)
+        if let wireBody {
+            guard wireBody.count <= Int(UInt32.max) else { throw WireFailure.fieldTooLong("body") }
+            Self.appendBE(&out, UInt32(wireBody.count))
+            out.append(wireBody)
+        }
         if let symkeyVersion {
             Self.appendBE(&out, UInt32(truncatingIfNeeded: symkeyVersion))
         }
@@ -480,16 +567,26 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         return out
     }
 
-    /// Port of `fromWireBytes(byte[])`. Everything local-only comes back
-    /// nil — see the type's note.
+    /// Read a v2 envelope. Everything local-only comes back nil — see the
+    /// type's note.
+    ///
+    /// A sealed body lands in ``body`` and stays sealed; ``content`` and
+    /// ``data`` are populated only once something opens it (see
+    /// `ImMessageBody`). An unsealed body is unframed here and there is
+    /// nothing left to open.
     ///
     /// When the flag word has no ``WireFlag/messageId`` bit the message
     /// arrives nameless and the caller must name it, from the FUDP
     /// message id or the ROAD/DOCK header.
-    public static func fromWireBytes(_ data: Data) throws -> ImMessage {
-        guard data.count >= wireHeaderSize else { throw WireFailure.truncated }
-        var cursor = Cursor(data)
+    public static func fromWireBytes(_ bytes: Data) throws -> ImMessage {
+        guard bytes.count >= wireHeaderSize else { throw WireFailure.truncated }
+        var cursor = Cursor(bytes)
         var m = ImMessage()
+
+        let magic = try cursor.byte()
+        let version = try cursor.byte()
+        guard magic == wireMagic else { throw WireFailure.notFimp(magic: magic) }
+        guard version == wireVersion else { throw WireFailure.wrongVersion(version) }
 
         m.type = ImType(wireOrdinal: try cursor.byte())
         m.contentType = ContentType(wireOrdinal: try cursor.byte())
@@ -498,9 +595,18 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         m.timestamp = Int64(bitPattern: try cursor.u64())
 
         let flags = try cursor.u16()
-        if flags & WireFlag.content != 0       { m.content = try cursor.len16String() }
-        if flags & WireFlag.dataBase64 != 0    { m.dataBase64 = try cursor.len16String() }
-        if flags & WireFlag.cipher != 0        { m.cipher = try cursor.len16String() }
+        if flags & WireFlag.body != 0 {
+            let length = Int(try cursor.u32())
+            let raw = Data(try cursor.bytes(length))
+            if flags & WireFlag.bodySealed != 0 {
+                m.body = raw
+            } else {
+                try m.applyBodyFraming(raw)
+            }
+        } else if flags & WireFlag.bodySealed != 0 {
+            // Sealed-but-absent is not a shape any encoder produces.
+            throw WireFailure.sealedWithoutBody
+        }
         if flags & WireFlag.symkeyVersion != 0 {
             // Sign-extend, as Java's `(long) buf.getInt()` does.
             m.symkeyVersion = Int64(Int32(bitPattern: try cursor.u32()))
@@ -513,10 +619,49 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         return m
     }
 
-    public enum WireFailure: Error, CustomStringConvertible {
+    // MARK: - body framing
+
+    /// The plaintext layout inside the body:
+    /// `contentLen(4) ‖ content ‖ dataLen(4) ‖ data`.
+    ///
+    /// Both sections are always framed; an absent one is a zero length.
+    /// This is what a cipher seals, and what it returns on opening — so
+    /// the two payloads are inside or outside the seal *together*, never
+    /// one without the other.
+    public func bodyFraming() -> Data {
+        let contentBytes = Data((content ?? "").utf8)
+        let dataBytes = data ?? Data()
+        var out = Data()
+        Self.appendBE(&out, UInt32(contentBytes.count))
+        out.append(contentBytes)
+        Self.appendBE(&out, UInt32(dataBytes.count))
+        out.append(dataBytes)
+        return out
+    }
+
+    /// Unframe a body into ``content`` and ``data``.
+    ///
+    /// A zero-length section reads back as `nil`, not as `""`/empty: the
+    /// framing cannot tell absent from empty, and every producer of an
+    /// empty section means absent.
+    public mutating func applyBodyFraming(_ framing: Data) throws {
+        var cursor = Cursor(framing)
+        let contentLength = Int(try cursor.u32())
+        let contentBytes = try cursor.bytes(contentLength)
+        let dataLength = Int(try cursor.u32())
+        let dataBytes = try cursor.bytes(dataLength)
+
+        content = contentLength == 0 ? nil : String(decoding: contentBytes, as: UTF8.self)
+        data = dataLength == 0 ? nil : Data(dataBytes)
+    }
+
+    public enum WireFailure: Error, Equatable, CustomStringConvertible {
         case truncated
         case idTooLong
         case fieldTooLong(String)
+        case notFimp(magic: UInt8)
+        case wrongVersion(UInt8)
+        case sealedWithoutBody
 
         public var description: String {
             switch self {
@@ -525,7 +670,19 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
             case .idTooLong:
                 return "ImMessage: senderId/targetId exceeds the 255-byte length prefix"
             case .fieldTooLong(let name):
-                return "ImMessage: \(name) exceeds the 65535-byte length prefix"
+                return "ImMessage: \(name) exceeds its length prefix"
+            case .notFimp(let magic):
+                // A v1 envelope opens with the ImType ordinal, so a first
+                // byte in 0…3 is almost certainly one — worth saying,
+                // because "not a FIMP envelope" would be misleading for
+                // the one case that really is a FIMP envelope.
+                return magic <= 3
+                    ? "ImMessage: looks like a FIMP v1 envelope — v2 does not read v1, and there is no negotiation"
+                    : String(format: "ImMessage: not a FIMP envelope (first byte 0x%02x, expected 0xf1)", magic)
+            case .wrongVersion(let version):
+                return "ImMessage: unsupported FIMP wire version \(version)"
+            case .sealedWithoutBody:
+                return "ImMessage: bodySealed flag with no body"
             }
         }
     }
