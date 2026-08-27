@@ -16,5 +16,13 @@ struct AppRouter: View {
             }
         }
         .animation(.snappy, value: appState.route)
+        // Hosted at the root, not per pane: a transaction can be
+        // raised from inside a sheet, or by a background carve with no
+        // pane on screen at all. See ``TxApprovalHost`` for why it is
+        // a panel rather than a sheet.
+        .background(TxApprovalHost(
+            center: appState.txApprovals,
+            session: appState.activeSession
+        ))
     }
 }

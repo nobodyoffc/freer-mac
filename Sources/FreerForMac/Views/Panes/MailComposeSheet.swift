@@ -39,6 +39,7 @@ struct MailComposeSheet: View {
     @State private var sendError: String?
     @State private var showScan = false
     @State private var showConfirm = false
+    @State private var pick: FidPickerRequest?
 
     private var replyingTo: Mail? { preset?.replyingTo }
 
@@ -97,6 +98,14 @@ struct MailComposeSheet: View {
                 showScan = false
             }
         }
+        .sheet(item: $pick) { request in
+            FidPickerSheet(session: session, request: request) { picked in
+                if let one = picked.first { recipient = one.fid }
+                pick = nil
+            } onCancel: {
+                pick = nil
+            }
+        }
         .alert("Send this mail?", isPresented: $showConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Send") { Task { await send() } }
@@ -141,18 +150,15 @@ struct MailComposeSheet: View {
                     .font(.system(.body, design: .monospaced))
                     .fieldInputStyle()
 
-                if !contacts.isEmpty {
-                    Menu {
-                        ForEach(contacts, id: \.id) { contact in
-                            Button(contact.name) { recipient = contact.id }
-                        }
-                    } label: {
-                        Image(systemName: "person.2")
-                    }
-                    .menuStyle(.borderlessButton)
-                    .frame(width: 34)
-                    .help("Pick from contacts")
+                Button {
+                    pick = .one(
+                        title: "Who is this mail for?",
+                        subtitle: "Search your contacts, or look up a FID or CID on chain."
+                    )
+                } label: {
+                    Image(systemName: "person.text.rectangle")
                 }
+                .help("Find the recipient in contacts or on chain")
 
                 Button {
                     showScan = true
@@ -293,10 +299,6 @@ struct MailComposeSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(color.opacity(0.08))
         .clipShape(RoundedRectangle(cornerRadius: 8))
-    }
-
-    private var contacts: [Contact] {
-        (try? session.contacts.all()) ?? []
     }
 
     // MARK: - actions

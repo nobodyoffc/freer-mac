@@ -65,6 +65,25 @@ public enum WifPrivkey {
         }
     }
 
+    /// Accept a private key in any form a user is likely to paste —
+    /// 64-character hex (with or without a `0x` prefix), or WIF in
+    /// either the compressed (`L`/`K`) or uncompressed (`5`) form.
+    /// Android's `KeyTools.getPrikey32`.
+    ///
+    /// Unlike Android's, this does not gate the WIF branch on the
+    /// leading character: the version byte and checksum already decide
+    /// validity, and a prefix check merely rejects otherwise-good keys
+    /// whose first character falls outside the expected set.
+    public static func privkey32(from input: String) throws -> Data {
+        let key = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if Hex.isHex(key) {
+            let bytes = try Hex.decode(key)
+            guard bytes.count == 32 else { throw Failure.wrongPayloadLength(bytes.count) }
+            return bytes
+        }
+        return try decode(key).privkey
+    }
+
     /// Encode a 32-byte privkey to WIF. `compressed` decides which
     /// flag byte and Base58 prefix the result will have.
     public static func encode(privkey: Data, compressed: Bool = true) -> String {

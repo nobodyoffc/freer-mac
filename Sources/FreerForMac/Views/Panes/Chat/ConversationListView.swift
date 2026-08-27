@@ -15,6 +15,10 @@ struct ConversationListView: View {
     let style: ChatModeStyle
     let conversations: [Conversation]
     @Binding var selectedId: String?
+    /// Asked for by the row's context menu. The list does not delete
+    /// anything itself — it has no stores and no way to warn — so it
+    /// says which row and lets the pane confirm.
+    var onDelete: ((Conversation) -> Void)?
 
     var body: some View {
         ScrollView {
@@ -38,6 +42,11 @@ struct ConversationListView: View {
                         }
                         .contentShape(Rectangle())
                         .onTapGesture { selectedId = conversation.id }
+                        .contextMenu {
+                            if let onDelete {
+                                Button("Delete", role: .destructive) { onDelete(conversation) }
+                            }
+                        }
                     Divider()
                 }
             }
@@ -48,7 +57,20 @@ struct ConversationListView: View {
 
     private func row(_ conversation: Conversation) -> some View {
         HStack(alignment: .top, spacing: 8) {
-            FidAvatarView(fid: conversation.targetId, size: 32)
+            // A P2P thread's target *is* a FID, so it gets the person's
+            // circle. A group's target is a room id or a txid, which
+            // ``AvatarMaker`` cannot read and must never be handed —
+            // it would either fail or composite a face out of a
+            // transaction id. Groups get the square tile instead.
+            if conversation.type == .p2p {
+                FidAvatarView(fid: conversation.targetId, size: 32)
+            } else {
+                GroupAvatarView(
+                    groupId: conversation.targetId,
+                    ownerFid: conversation.avatarDid,
+                    size: 32
+                )
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {

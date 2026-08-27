@@ -82,6 +82,38 @@ public final class ConfigureSession {
         return keyInfo
     }
 
+    /// Rename a main FID. Returns false when the FID isn't a main
+    /// under this Configure.
+    ///
+    /// The label is duplicated between here and the main's own
+    /// ``Setting`` on purpose: the identity chooser runs before any
+    /// Setting is decrypted, so it can only read what the Configure
+    /// body holds. ``ActiveSession/setLabel(_:forFid:)`` writes both.
+    @discardableResult
+    public func setMainLabel(_ label: String, fid: String) throws -> Bool {
+        try ensureUnlocked()
+        guard var info = configure.mainCidInfoMap[fid] else { return false }
+        guard info.label != label else { return true }
+        info.label = label
+        configure.mainCidInfoMap[fid] = info
+        try persistBody()
+        return true
+    }
+
+    /// Record a main FID's registered CID in the Configure body, so the
+    /// identity chooser can show it without decrypting a Setting.
+    /// Returns false when the FID isn't a main under this Configure.
+    @discardableResult
+    public func setMainCid(_ cid: String?, fid: String) throws -> Bool {
+        try ensureUnlocked()
+        guard var info = configure.mainCidInfoMap[fid] else { return false }
+        guard info.cid != cid else { return true }
+        info.cid = cid
+        configure.mainCidInfoMap[fid] = info
+        try persistBody()
+        return true
+    }
+
     /// Remove a main FID. The associated Setting directory (if any)
     /// is **not** automatically deleted — call
     /// ``deleteMainAndSetting(fid:)`` if you want both gone.

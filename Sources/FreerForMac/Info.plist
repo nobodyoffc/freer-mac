@@ -22,6 +22,8 @@
 	<string>14.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>Freer scans QR codes — a FID, a privkey backup, a signed transaction. The camera runs only while a scan is open.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Freer records voice notes you send in a chat. The microphone runs only while you are recording one.</string>
 </dict>

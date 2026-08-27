@@ -138,6 +138,46 @@ public enum TxBuilder {
         )
     }
 
+    /// Assemble an unsigned **reorg**: the plan's inputs, and one
+    /// P2PKH output back to `ownerFid` per entry in
+    /// ``CashReorg/Plan/outputs``. Every output pays the same address,
+    /// which is the whole point — a reorg moves no money, it only
+    /// changes the denominations the money sits in.
+    ///
+    /// There is no separate change output here because a reorg's
+    /// change is already one of the plan's outputs; the planner
+    /// decided whether the remainder was worth its own bill.
+    public static func buildUnsignedReorg(
+        plan: CashReorg.Plan,
+        ownerFid: String
+    ) throws -> Transaction {
+        let inputs: [TxInput] = try plan.inputs.map { cash in
+            let prevTxHash = try decodeTxid(cash.birthTxId)
+            let outpoint = try OutPoint(
+                prevTxHash: prevTxHash,
+                outIndex: UInt32(cash.birthIndex)
+            )
+            return TxInput(
+                outpoint: outpoint,
+                scriptSig: Script(Data()),    // empty until signed
+                sequence: defaultSequence
+            )
+        }
+
+        let ownerHash160 = try hash160(forFid: ownerFid)
+        let script = try ScriptBuilder.p2pkhOutput(hash160: ownerHash160)
+        let outputs = plan.outputs.map {
+            TxOutput(value: UInt64($0), scriptPubKey: script)
+        }
+
+        return Transaction(
+            version: defaultVersion,
+            inputs: inputs,
+            outputs: outputs,
+            locktime: 0
+        )
+    }
+
     /// Decode a display-order txid hex string to the 32-byte natural
     /// order required by ``OutPoint``. Same operation as
     /// `Utils.HEX.decode(txid).reversed()` in bitcoinj.

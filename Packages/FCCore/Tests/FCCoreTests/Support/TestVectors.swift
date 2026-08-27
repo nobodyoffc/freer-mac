@@ -34,6 +34,7 @@ enum TestVectors {
         let bchSighash: [BchSighashCase]
         let bchSignedTx: [BchSignedTxCase]
         let diskCipherFile: [DiskCipherFileCase]
+        let p2sh: P2shVectors
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -57,6 +58,7 @@ enum TestVectors {
             case varint
             case fchAddress = "fch_address"
             case script
+            case p2sh
             case transaction
             case bchSighash = "bch_sighash"
             case bchSignedTx = "bch_signed_tx"
@@ -430,6 +432,81 @@ enum TestVectors {
             case label
             case inputHex = "input_hex"
             case outputHex = "output_hex"
+        }
+    }
+
+    // MARK: - P2SH / fee
+
+    struct P2shVectors: Decodable {
+        let cltv: P2shCase
+        let multisig: P2shCase
+        let multisigCltv: P2shCase
+        let opReturnManifest: OpReturnManifestCase
+
+        enum CodingKeys: String, CodingKey {
+            case cltv
+            case multisig
+            case multisigCltv = "multisig_cltv"
+            case opReturnManifest = "op_return_manifest"
+        }
+    }
+
+    struct P2shCase: Decodable {
+        let redeemScriptHex: String
+        let scriptHashHex: String
+        let type: String
+        let fid: String?
+        let address: String
+        let lockTime: Int64?
+        let m: Int?
+        let n: Int?
+        let inputFid: String?
+        let inputLockTime: Int64?
+        let inputPubkeys: [String]?
+        let inputM: Int?
+        let inputN: Int?
+        let reparsed: Reparsed?
+
+        struct Reparsed: Decodable {
+            let redeemScriptHex: String
+            let scriptHashHex: String
+            let type: String
+            let fid: String?
+            let address: String
+            let lockTime: Int64?
+            let m: Int?
+            let n: Int?
+
+            enum CodingKeys: String, CodingKey {
+                case redeemScriptHex = "redeem_script_hex"
+                case scriptHashHex = "script_hash_hex"
+                case type, fid, address, m, n
+                case lockTime = "lock_time"
+            }
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case redeemScriptHex = "redeem_script_hex"
+            case scriptHashHex = "script_hash_hex"
+            case type, fid, address, m, n, reparsed
+            case lockTime = "lock_time"
+            case inputFid = "input_fid"
+            case inputLockTime = "input_lock_time"
+            case inputPubkeys = "input_pubkeys"
+            case inputM = "input_m"
+            case inputN = "input_n"
+        }
+    }
+
+    struct OpReturnManifestCase: Decodable {
+        let inputRedeemScripts: [String]
+        let json: String
+        let byteLength: Int
+
+        enum CodingKeys: String, CodingKey {
+            case inputRedeemScripts = "input_redeem_scripts"
+            case json
+            case byteLength = "byte_length"
         }
     }
 

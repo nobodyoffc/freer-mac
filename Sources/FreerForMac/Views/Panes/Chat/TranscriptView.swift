@@ -23,29 +23,76 @@ struct TranscriptView: View {
     let onLoadOlder: () -> Void
     let onDownload: (ImMessage) -> Void
 
+    /// The empty row pinned under the last bubble. Scrolling to a bubble
+    /// would stop at the top of a tall one; scrolling here always lands
+    /// on the true end of the transcript.
+    private static let bottomAnchor = "transcript.bottom"
+
+    /// False until the first scroll has happened, so a transcript that is
+    /// merely being opened *starts* at the bottom instead of animating
+    /// down to it in front of the user.
+    @State private var settled = false
+
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 10) {
-                if page.hasOlder {
-                    Button("Load earlier messages", action: onLoadOlder)
-                        .buttonStyle(.borderless)
-                        .font(.caption)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    if page.hasOlder {
+                        Button("Load earlier messages", action: onLoadOlder)
+                            .buttonStyle(.borderless)
+                            .font(.caption)
+                    }
+                    ForEach(page.messages) { message in
+                        bubble(message)
+                    }
+                    if page.messages.isEmpty {
+                        Text("Nothing said here yet.")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                            .padding(.vertical, 20)
+                    }
+                    Color.clear
+                        .frame(height: 1)
+                        .id(Self.bottomAnchor)
                 }
-                ForEach(page.messages) { message in
-                    bubble(message)
-                }
-                if page.messages.isEmpty {
-                    Text("Nothing said here yet.")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                        .padding(.vertical, 20)
-                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
+            // The newest message, not the count: loading *earlier* pages
+            // grows the list too, and yanking the view to the bottom
+            // there would undo what the user just asked for.
+            .onChange(of: newestId, initial: true) { _, _ in
+                scrollToBottom(proxy)
+            }
+            .onChange(of: conversation.id) { _, _ in
+                settled = false
+                scrollToBottom(proxy)
+            }
         }
         .background(Color(NSColor.textBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// What the user thinks of as "the latest message" — a new one sent
+    /// or received changes this; a status flipping to Sent does not.
+    private var newestId: String? {
+        page.messages.last?.id
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        // The row that triggered this doesn't exist in the lazy stack yet
+        // on the turn the page changes, so the scroll is asked for once
+        // that layout pass is behind us.
+        Task { @MainActor in
+            if settled {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                }
+            } else {
+                proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
+                settled = true
+            }
+        }
     }
 
     // MARK: - bubbles

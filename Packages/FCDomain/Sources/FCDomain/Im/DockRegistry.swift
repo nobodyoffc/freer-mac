@@ -95,7 +95,12 @@ public actor DockRegistry {
     /// Normalised URL of the server ``ownClient`` is pointed at.
     public private(set) var ownDockUrl: String?
 
-    private var liveFid: String?
+    /// The FID whose mailbox this registry polls — always the session's
+    /// **main**, never whatever sub-identity happens to be live. The
+    /// connection under it is handshaked with the main's key, so the
+    /// main's DOCK is the only one it can reach; see
+    /// ``ActiveSession/refreshDockRegistry()``.
+    private var ownFid: String?
     private var cursors: [String: [String]] = [:]
     private var cursorsLoadedFor: String?
 
@@ -145,17 +150,17 @@ public actor DockRegistry {
     /// *moved* its DOCK and a group we have *left* both have to
     /// disappear from the old server's recipient list, and a patch that
     /// only adds would keep polling it forever.
-    public func refresh(liveFid: String, groups: [GroupRef]) async {
-        loadCursorsIfNeeded(for: liveFid)
-        self.liveFid = liveFid
+    public func refresh(ownFid: String, groups: [GroupRef]) async {
+        loadCursorsIfNeeded(for: ownFid)
+        self.ownFid = ownFid
 
         var rebuilt: [String: Entry] = [:]
         if let ownDockUrl {
-            rebuilt["\(EntityType.ownFid.rawValue):\(liveFid)"] = Entry(
-                entityId: liveFid,
+            rebuilt["\(EntityType.ownFid.rawValue):\(ownFid)"] = Entry(
+                entityId: ownFid,
                 entityType: .ownFid,
                 dockUrl: ownDockUrl,
-                recipientId: liveFid
+                recipientId: ownFid
             )
         }
         for group in groups {
@@ -335,7 +340,7 @@ public actor DockRegistry {
     }
 
     private func saveCursors() {
-        guard let liveFid else { return }
-        try? kv.put(cursors, namespace: Self.cursorNamespace, key: liveFid)
+        guard let ownFid else { return }
+        try? kv.put(cursors, namespace: Self.cursorNamespace, key: ownFid)
     }
 }

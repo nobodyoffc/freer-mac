@@ -71,6 +71,12 @@ val compileFcAjdk by tasks.registering(JavaCompile::class) {
         include("com/fc/fc_ajdk/data/fcData/Hat.java")
         include("com/fc/fc_ajdk/data/feipData/Mail.java")
         include("com/fc/fc_ajdk/data/fcData/ImMessage.java")
+        // Phase 9.3: the real P2SH script builder/parser and the real
+        // fee calculator, so the Swift `P2sh` / `TxFee` port is checked
+        // against the code Android runs rather than against our reading
+        // of it. Both pull their closure in via -sourcepath below.
+        include("com/fc/fc_ajdk/data/fchData/P2SH.java")
+        include("com/fc/fc_ajdk/core/fch/TxHandler.java")
     }
     classpath = externalDeps
     destinationDirectory.set(fcAjdkClassesDir)

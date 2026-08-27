@@ -144,7 +144,8 @@ public extension KeyInfo {
             prikeyCipher: nil,
             label: freer.cid ?? "",
             kind: kind,
-            master: freer.master
+            master: freer.master,
+            cid: freer.cid
         )
     }
 }

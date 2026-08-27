@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-14T01:29:25.646063Z",
+  "generated_at": "2026-08-20T04:36:14.006251Z",
   "schema_version": 1,
   "generator": "FreerForMac VectorGen (freecashj v0.16 + BouncyCastle)",
   "sample_key": {
@@ -566,6 +566,88 @@
       "signed_txid_display_hex": "ebcad38f82528771ab77eb7aea60eb010d93c54794d4e5b7e1836e2511379fc3"
     }
   ],
+  "p2sh": {
+    "cltv": {
+      "redeem_script_hex": "03a0bb0db17576a91461c42abb6e3435e63bd88862f3746a3f8b86354288ac",
+      "script_hash_hex": "9b7331426e032133231f0696c2b76261dbebf03e",
+      "type": "CLTV",
+      "fid": "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK",
+      "address": "3FrxezCv3aF6Y2HRpZUCYEhf6BV7Cki7Va",
+      "lock_time": 900000,
+      "input_fid": "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK",
+      "input_lock_time": 900000,
+      "reparsed": {
+        "redeem_script_hex": "03a0bb0db17576a91461c42abb6e3435e63bd88862f3746a3f8b86354288ac",
+        "script_hash_hex": "9b7331426e032133231f0696c2b76261dbebf03e",
+        "type": "CLTV",
+        "fid": "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK",
+        "address": "3FrxezCv3aF6Y2HRpZUCYEhf6BV7Cki7Va",
+        "lock_time": 900000
+      }
+    },
+    "multisig": {
+      "redeem_script_hex": "5221030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a21034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa2102466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f2753ae",
+      "script_hash_hex": "79ce4c84f853ea1125a051d9fb735f710937fe1a",
+      "type": "MULTISIG",
+      "fid": "3Co4peuZUuKkdRZpuzuCyJLcUoXVz8Enqi",
+      "address": "3Co4peuZUuKkdRZpuzuCyJLcUoXVz8Enqi",
+      "m": 2,
+      "n": 3,
+      "input_pubkeys": [
+        "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",
+        "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+        "02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+      ],
+      "input_m": 2,
+      "input_n": 3,
+      "reparsed": {
+        "redeem_script_hex": "5221030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a21034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa2102466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f2753ae",
+        "script_hash_hex": "79ce4c84f853ea1125a051d9fb735f710937fe1a",
+        "type": "MULTISIG",
+        "fid": "3Co4peuZUuKkdRZpuzuCyJLcUoXVz8Enqi",
+        "address": "3Co4peuZUuKkdRZpuzuCyJLcUoXVz8Enqi",
+        "m": 2,
+        "n": 3
+      }
+    },
+    "multisig_cltv": {
+      "redeem_script_hex": "03a0bb0db1755221030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a21034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa2102466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f2753ae",
+      "script_hash_hex": "6b835fa184d8341c0f0fc4888cae6d960f065318",
+      "type": "MULTISIG_CLTV",
+      "fid": "3Co4peuZUuKkdRZpuzuCyJLcUoXVz8Enqi",
+      "address": "3BVVc4h7nay4ksyYiQLSAyuHir8p2daVtp",
+      "lock_time": 900000,
+      "m": 2,
+      "n": 3,
+      "input_pubkeys": [
+        "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a",
+        "034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa",
+        "02466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f27"
+      ],
+      "input_m": 2,
+      "input_n": 3,
+      "input_lock_time": 900000,
+      "reparsed": {
+        "redeem_script_hex": "03a0bb0db1755221030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a21034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa2102466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f2753ae",
+        "script_hash_hex": "6b835fa184d8341c0f0fc4888cae6d960f065318",
+        "type": "MULTISIG_CLTV",
+        "fid": "3Co4peuZUuKkdRZpuzuCyJLcUoXVz8Enqi",
+        "address": "3BVVc4h7nay4ksyYiQLSAyuHir8p2daVtp",
+        "lock_time": 900000,
+        "m": 2,
+        "n": 3
+      }
+    },
+    "op_return_manifest": {
+      "input_redeem_scripts": [
+        "03a0bb0db17576a91461c42abb6e3435e63bd88862f3746a3f8b86354288ac",
+        "03a0bb0db1755221030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a21034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa2102466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f2753ae",
+        "03a0bb0db17576a91461c42abb6e3435e63bd88862f3746a3f8b86354288ac"
+      ],
+      "json": "[\"03a0bb0db17576a91461c42abb6e3435e63bd88862f3746a3f8b86354288ac\",\"03a0bb0db1755221030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a21034f355bdcb7cc0af728ef3cceb9615d90684bb5b2ca5f859ab0f0b704075871aa2102466d7fcae563e5cb09a0d1870bb580344804617879a14949cf22285f1bae3f2753ae\"]",
+      "byte_length": 291
+    }
+  },
   "disk_cipher_file": [
     {
       "label": "empty",

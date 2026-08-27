@@ -306,42 +306,13 @@ public final class FapiClient: FapiCalling {
             ))
             return try await fudp.receive(matching: messageId, timeoutMs: timeoutMs)
         }
-        guard envelope.type == .response else {
-            throw Failure.unexpectedType(envelope.type)
-        }
-
-        // Unwrap the FUDP-layer status. A non-zero status means the
-        // server couldn't build a meaningful FapiResponse — surface
-        // it directly without trying to UnifiedCodec.decode the body
-        // (which on errors may be a plain string).
-        let outer: ResponseMessage
-        do {
-            outer = try ResponseMessage.parse(envelope.payload)
-        } catch {
-            throw Failure.underlying(error)
-        }
-        if !outer.isSuccess {
-            let body = String(data: outer.data, encoding: .utf8) ?? "<\(outer.data.count) B binary>"
-            throw Failure.transportStatus(code: outer.statusCode, body: body)
-        }
-
-        let response: FapiResponse
-        let bin: Data?
-        do {
-            (response, bin) = try UnifiedCodec.decodeResponse(outer.data)
-        } catch let e as UnifiedCodec.Failure {
-            throw Failure.codec(e)
-        } catch {
-            throw Failure.underlying(error)
-        }
-
-        if let sentId = request.id,
-           let gotId = response.requestId,
-           gotId != sentId {
-            throw Failure.requestIdMismatch(sent: sentId, got: gotId)
-        }
-
-        return Reply(response: response, binary: bin, messageId: messageId)
+        // One unwrap for every caller. This used to be a second copy
+        // of ``decodeReply(envelope:request:messageId:)`` inline, which
+        // is how the two came to disagree about what a non-success
+        // status means — a fix applied to one left the other throwing.
+        return try decodeReply(
+            envelope: envelope, request: request, messageId: messageId
+        )
     }
 }
 
@@ -601,18 +572,46 @@ extension FapiClient {
         } catch {
             throw Failure.underlying(error)
         }
-        if !outer.isSuccess {
-            let body = String(data: outer.data, encoding: .utf8) ?? "<\(outer.data.count) B binary>"
-            throw Failure.transportStatus(code: outer.statusCode, body: body)
-        }
         let response: FapiResponse
         let bin: Data?
-        do {
-            (response, bin) = try UnifiedCodec.decodeResponse(outer.data)
-        } catch let e as UnifiedCodec.Failure {
-            throw Failure.codec(e)
-        } catch {
-            throw Failure.underlying(error)
+        if outer.isSuccess {
+            do {
+                (response, bin) = try UnifiedCodec.decodeResponse(outer.data)
+            } catch let e as UnifiedCodec.Failure {
+                throw Failure.codec(e)
+            } catch {
+                throw Failure.underlying(error)
+            }
+        } else {
+            // **A non-success status is not automatically a transport
+            // failure.** The server answers a query that matched
+            // nothing with status 404 and a complete, well-formed
+            // FapiResponse in the body — `{"code":404,"message":"No
+            // data found","bestHeight":…}` — and "no data found" is an
+            // ordinary answer, not a broken connection.
+            //
+            // Throwing here discarded that body as a string, so every
+            // empty search surfaced as a raw JSON dump in an error
+            // banner, while the `code == 404 → empty page` handling
+            // that every reader in FCDomain already carries could
+            // never run: nothing downstream ever saw the response.
+            //
+            // So a body that decodes and carries a non-zero `code` is
+            // handed up as a Reply and **the caller decides what the
+            // code means** — which is where that decision belongs and
+            // where it is already written down. Two things are still
+            // refused: a body that will not decode (a proxy's HTML
+            // error page, a plain string), which is a genuine
+            // transport failure; and a body claiming `code: 0` under
+            // an error status, which is a contradiction and must not
+            // be promoted to success.
+            guard let decoded = try? UnifiedCodec.decodeResponse(outer.data),
+                  let code = decoded.0.code, code != 0
+            else {
+                let body = String(data: outer.data, encoding: .utf8) ?? "<\(outer.data.count) B binary>"
+                throw Failure.transportStatus(code: outer.statusCode, body: body)
+            }
+            (response, bin) = decoded
         }
         if let sentId = request.id,
            let gotId = response.requestId,

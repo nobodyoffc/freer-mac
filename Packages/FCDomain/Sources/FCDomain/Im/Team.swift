@@ -126,6 +126,14 @@ public struct Team: Codable, Equatable, Sendable, Identifiable {
         return invitees?.contains(fid) ?? false
     }
 
+    /// Everyone but `fid` — who a key share actually goes to. Invitees
+    /// are **not** here: an invitation is a transaction saying they may
+    /// join, and until they carve the join they are not in the team and
+    /// have no business holding its key.
+    public func others(than fid: String) -> [String] {
+        (members ?? []).filter { $0 != fid }
+    }
+
     /// A team is live unless the chain says otherwise. `nil` means the
     /// server did not report the field, which is not the same as
     /// disbanded — Android reads it the same way.
@@ -154,13 +162,25 @@ public struct Team: Codable, Equatable, Sendable, Identifiable {
 /// encrypted**. Anyone may join by carving a `join`, so there is no
 /// membership to keep a key from — a symkey shared with everyone who
 /// asks is not a secret, it is a formality that would imply a privacy
-/// the square does not have. There is no owner and no manager either;
-/// `namers` may rename it, and that is the whole of its governance.
+/// the square does not have.
+///
+/// **Nobody owns a square and nobody is privileged in one.** There is no
+/// owner, no manager, and no list of who may rename it. What governs a
+/// square is an auction: **anyone may update it whose transaction
+/// destroys more coin-days than the last update destroyed**
+/// (``cddToUpdate``). Renaming is therefore not a permission but a
+/// price, and one that rises each time somebody pays it — which is what
+/// makes a square's name hard to take, without anybody having to be
+/// trusted to hold it.
 public struct Square: Codable, Equatable, Sendable, Identifiable {
 
     public var name: String?
     public var desc: String?
-    /// FIDs allowed to rename the square — its only privileged role.
+    /// Who has renamed this square, oldest first — a **history, not a
+    /// permission list**. Nobody in it is privileged; the last entry is
+    /// simply whoever most recently outbid the standing price, which is
+    /// why the avatar badges `namers.last` and nothing checks
+    /// membership of this array before offering an update.
     public var namers: [String]?
     public var members: [String]?
     public var memberNum: Int64?
@@ -170,8 +190,11 @@ public struct Square: Codable, Equatable, Sendable, Identifiable {
     public var lastTxId: String?
     public var lastTime: Int64?
     public var lastHeight: Int64?
-    /// The coin-days a rename costs, which is how a square resists being
-    /// renamed on a whim.
+    /// The coin-days the **last** update destroyed, and therefore the
+    /// standing price of the next one: an update is accepted only if it
+    /// destroys *more* than this. A square with none stated has never
+    /// been updated, so the next update need only meet what any FEIP
+    /// carve costs.
     public var cddToUpdate: Int64?
     public var tCdd: Int64?
     public var home: [String: String]?
@@ -218,7 +241,12 @@ public struct Square: Codable, Equatable, Sendable, Identifiable {
         return members?.contains(fid) ?? false
     }
 
-    public func isNamer(_ fid: String?) -> Bool {
+    /// Whether `fid` has ever renamed this square. **Past tense, and not
+    /// a permission**: it answers who did, never who may. Anyone whose
+    /// carve outbids ``cddToUpdate`` may rename a square, so a check
+    /// that gated the act on this would deny it to almost everybody
+    /// entitled to it.
+    public func hasNamed(_ fid: String?) -> Bool {
         guard let fid else { return false }
         return namers?.contains(fid) ?? false
     }

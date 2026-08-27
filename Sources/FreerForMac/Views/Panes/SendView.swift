@@ -14,6 +14,7 @@ import FCUI
 /// (Android `CreateTxActivity`'s import format) exported via copy /
 /// file / multi-part QR, to be signed where the key lives.
 struct SendView: View {
+    @Environment(AppState.self) private var appState
     let session: ActiveSession
 
     @State private var recipientFid: String = ""
@@ -28,6 +29,7 @@ struct SendView: View {
     @State private var showConfirm: Bool = false
     @State private var showScan: Bool = false
     @State private var showUnsigned: Bool = false
+    @State private var pick: FidPickerRequest?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -58,6 +60,14 @@ struct SendView: View {
                 showScan = false
             } onCancel: {
                 showScan = false
+            }
+        }
+        .sheet(item: $pick) { request in
+            FidPickerSheet(session: session, request: request) { picked in
+                if let one = picked.first { recipientFid = one.fid }
+                pick = nil
+            } onCancel: {
+                pick = nil
             }
         }
         .sheet(isPresented: $showUnsigned) {
@@ -95,6 +105,16 @@ struct SendView: View {
                         TextField("", text: $recipientFid, prompt: Text("F…"))
                             .font(.system(.body, design: .monospaced))
                             .fieldInputStyle()
+
+                        Button {
+                            pick = .one(
+                                title: "Who is this payment for?",
+                                subtitle: "Search your contacts, or look up a FID or CID on chain. Check the address before you send — a payment cannot be undone."
+                            )
+                        } label: {
+                            Image(systemName: "person.text.rectangle")
+                        }
+                        .help("Find the recipient in contacts or on chain")
 
                         Button {
                             showScan = true
@@ -150,7 +170,18 @@ struct SendView: View {
                         Button {
                             sendError = nil
                             result = nil
-                            showConfirm = true
+                            // With the global confirmation on, the
+                            // approval dialog is about to show the
+                            // *built* transaction — inputs, fee,
+                            // change and all. Asking twice, the
+                            // second time with better information,
+                            // trains people to click through the
+                            // first one.
+                            if session.confirmBeforeSigning {
+                                Task { await runSend() }
+                            } else {
+                                showConfirm = true
+                            }
                         } label: {
                             if sending {
                                 HStack(spacing: 6) {
@@ -270,6 +301,12 @@ struct SendView: View {
                 feePerByte: fee
             )
             result = r
+            // The FID bar's numbers are now wrong by the amount just
+            // sent. The chain index only catches up when the tx
+            // confirms, so this may well come back unchanged — but the
+            // pass costs one call and the alternative is a balance that
+            // stays stale until the user thinks to hit refresh.
+            await appState.refreshLiveFidInfo()
         } catch {
             sendError = String(describing: error)
         }

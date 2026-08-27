@@ -8,6 +8,13 @@ import Foundation
 public struct FchAddress: Equatable, Hashable, Sendable {
 
     public static let mainnetVersionByte: UInt8 = 0x23
+
+    /// P2SH version byte — the "3…" addresses. Same value Bitcoin
+    /// mainnet uses, and the one Android's `KeyTools.hash160ToMultiAddr`
+    /// hardcodes. A P2SH address is the hash of a *script*, so it is
+    /// never derived from a public key.
+    public static let p2shVersionByte: UInt8 = 0x05
+
     public static let hash160Length = 20
 
     public let versionByte: UInt8
@@ -69,6 +76,19 @@ public struct FchAddress: Equatable, Hashable, Sendable {
         }
         self.versionByte = version
         self.hash160 = Data(normalized.dropFirst())
+    }
+
+    /// True when this address locks to a script rather than a key —
+    /// the "3…" form. Callers that assume P2PKH (coin selection,
+    /// change output sizing, plain signing) must branch on it.
+    public var isP2sh: Bool { versionByte == FchAddress.p2shVersionByte }
+
+    /// Whether `fid` is a "3…" P2SH address, without throwing on
+    /// anything that isn't an address at all. Matches the Android
+    /// call sites that just test `fid.startsWith("3")`, but by version
+    /// byte rather than by first character.
+    public static func isP2sh(fid: String) -> Bool {
+        (try? FchAddress(fid: fid, expectedVersionByte: nil))?.isP2sh ?? false
     }
 
     /// Encoded Base58Check FID (e.g. `FEk41Kqjar45fLDriztUDTUkdki7mmcjWK`).

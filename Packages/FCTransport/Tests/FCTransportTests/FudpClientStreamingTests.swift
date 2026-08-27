@@ -481,3 +481,133 @@ private final class ConcurrencyProbe: @unchecked Sendable {
         lock.lock(); current -= 1; lock.unlock()
     }
 }
+
+// MARK: - non-success statuses that carry a real answer
+
+/// What the client does with a FUDP status that is not `success`.
+///
+/// The server answers a query matching nothing with **status 404 and a
+/// complete FapiResponse in the body**. That is an ordinary answer, and
+/// every reader in FCDomain already knows what `code == 404` means — but
+/// only if the response reaches them. Throwing at the transport turned
+/// each of those into a raw JSON dump in an error banner.
+final class FapiNonSuccessStatusTests: XCTestCase {
+
+    private let clientPriv = Hash.sha256(Data("status-client".utf8))
+    private let serverPriv = Hash.sha256(Data("status-server".utf8))
+
+    private func makeLoopback() throws -> (FudpClient, LoopbackServer, FakeTransport) {
+        let transport = FakeTransport()
+        let clientPub = try Secp256k1.publicKey(fromPrivateKey: clientPriv)
+        let server = try LoopbackServer(privkey: serverPriv, clientPubkey: clientPub, transport: transport)
+        transport.setHandler { [weak server] data in server?.handle(data) }
+        let client = try FudpClient(
+            transport: transport,
+            host: "127.0.0.1",
+            port: 1,
+            peerPubkey: server.pubkey,
+            localPrivkey: clientPriv
+        )
+        return (client, server, transport)
+    }
+
+    /// Reply with `status`, and whatever body `makeBody` builds from the
+    /// decoded request.
+    private func respond(
+        _ server: LoopbackServer,
+        status: ResponseMessage.Status,
+        makeBody: @escaping @Sendable (FapiRequest) -> Data
+    ) {
+        server.makeResponse = { request in
+            guard let wrapper = try? RequestMessage.parse(Data(request.payload)),
+                  let (fapiRequest, _) = try? UnifiedCodec.decodeRequest(wrapper.data)
+            else { return nil }
+            return AppMessageEnvelope(
+                type: .response,
+                messageId: request.messageId,
+                payload: ResponseMessage(status: status, data: makeBody(fapiRequest)).encode()
+            )
+        }
+    }
+
+    /// The case from the field: 404 with `"No data found"`. The caller
+    /// gets the response and decides; nothing throws.
+    func testA404CarryingAFapiResponseIsDeliveredNotThrown() async throws {
+        let (client, server, _) = try makeLoopback()
+        defer { client.close() }
+        respond(server, status: .notFound) { request in
+            var resp = FapiResponse()
+            resp.requestId = request.id
+            resp.code = 404
+            resp.message = "No data found"
+            resp.bestHeight = 3_398_023
+            return (try? UnifiedCodec.encodeResponse(resp)) ?? Data()
+        }
+
+        let reply = try await FapiClient(fudp: client).call(api: "base.search")
+        XCTAssertEqual(reply.response.code, 404)
+        XCTAssertEqual(reply.response.message, "No data found")
+        XCTAssertEqual(reply.response.bestHeight, 3_398_023,
+                       "the rest of the body survives too — a 404 still reports the chain tip")
+    }
+
+    /// Other error codes ride the same path, so a reader sees `500` and
+    /// raises its own error rather than a transport dump.
+    func testAnyDecodableErrorBodyReachesTheCaller() async throws {
+        let (client, server, _) = try makeLoopback()
+        defer { client.close() }
+        respond(server, status: .internalError) { request in
+            var resp = FapiResponse()
+            resp.requestId = request.id
+            resp.code = 500
+            resp.message = "boom"
+            return (try? UnifiedCodec.encodeResponse(resp)) ?? Data()
+        }
+
+        let reply = try await FapiClient(fudp: client).call(api: "base.search")
+        XCTAssertEqual(reply.response.code, 500)
+        XCTAssertEqual(reply.response.message, "boom")
+    }
+
+    /// A body that will not decode is a real transport failure — a
+    /// proxy's error page, a bare string. It must still throw.
+    func testAnUndecodableErrorBodyStillThrows() async throws {
+        let (client, server, _) = try makeLoopback()
+        defer { client.close() }
+        respond(server, status: .badRequest) { _ in Data("<html>gateway timeout</html>".utf8) }
+
+        do {
+            _ = try await FapiClient(fudp: client).call(api: "base.search")
+            XCTFail("expected a throw")
+        } catch let e as FapiClient.Failure {
+            guard case .transportStatus(let code, let body) = e else {
+                return XCTFail("wrong case: \(e)")
+            }
+            XCTAssertEqual(code, 400)
+            XCTAssertTrue(body.contains("gateway timeout"), "the body is still reported")
+        }
+    }
+
+    /// A body claiming success under an error status is a contradiction.
+    /// Promoting it would hand the caller an "OK" the server never sent.
+    func testAnErrorStatusClaimingCodeZeroIsRefused() async throws {
+        let (client, server, _) = try makeLoopback()
+        defer { client.close() }
+        respond(server, status: .forbidden) { request in
+            var resp = FapiResponse()
+            resp.requestId = request.id
+            resp.code = 0
+            return (try? UnifiedCodec.encodeResponse(resp)) ?? Data()
+        }
+
+        do {
+            _ = try await FapiClient(fudp: client).call(api: "base.search")
+            XCTFail("expected a throw")
+        } catch let e as FapiClient.Failure {
+            guard case .transportStatus(let code, _) = e else {
+                return XCTFail("wrong case: \(e)")
+            }
+            XCTAssertEqual(code, 403)
+        }
+    }
+}

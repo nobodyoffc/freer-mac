@@ -177,6 +177,45 @@ final class ConfigureManagerTests: XCTestCase {
         }
     }
 
+    func testRemoveMainPersistsAndLeavesSettingDirectory() throws {
+        let mgr = try makeManager()
+        let pwd = Data("remove-main".utf8)
+        let session = try mgr.createConfigure(password: pwd, kdfKind: .legacySha256)
+        let info = try session.addMain(privkey: Data(repeating: 0x55, count: 32), label: "doomed")
+
+        // A Setting directory, as unlockMain would have left one behind.
+        let dir = mgr.settingDirectory(passwordName: session.passwordName, mainFid: info.fid)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        XCTAssertTrue(try session.removeMain(fid: info.fid))
+        XCTAssertTrue(session.listMains().isEmpty)
+        XCTAssertFalse(try session.removeMain(fid: info.fid))    // idempotent
+        // Key gone, data kept: re-importing the same privkey finds it again.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.path))
+
+        // Persisted, not merely mutated in memory.
+        let name = session.passwordName
+        session.lock()
+        let reopened = try makeManager().openConfigure(passwordName: name, password: pwd)
+        XCTAssertTrue(reopened.listMains().isEmpty)
+    }
+
+    func testDeleteMainAndSettingRemovesDirectoryToo() throws {
+        let mgr = try makeManager()
+        let session = try mgr.createConfigure(
+            password: Data("delete-main".utf8), kdfKind: .legacySha256
+        )
+        let info = try session.addMain(privkey: Data(repeating: 0x66, count: 32))
+        let dir = mgr.settingDirectory(passwordName: session.passwordName, mainFid: info.fid)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data("cached".utf8).write(to: dir.appendingPathComponent("setting.json"))
+
+        XCTAssertTrue(try session.deleteMainAndSetting(fid: info.fid))
+        XCTAssertTrue(session.listMains().isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir.path))
+        XCTAssertFalse(try session.deleteMainAndSetting(fid: info.fid))   // idempotent
+    }
+
     // MARK: - lock semantics
 
     func testLockRefusesPostLockOps() throws {

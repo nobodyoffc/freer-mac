@@ -27,6 +27,7 @@ public struct CopyableText: View {
     private let display: String
     private let copyValue: String
     private let font: Font?
+    private let color: Color
 
     @State private var copied = false
 
@@ -35,20 +36,27 @@ public struct CopyableText: View {
     ///     visible string is exactly what the user wants on the
     ///     clipboard.
     ///   - font: optional explicit font; nil inherits.
-    public init(_ text: String, font: Font? = nil) {
+    ///   - color: resting text colour. Set explicitly rather than with
+    ///     an outer `.foregroundStyle` — this view sets its own so the
+    ///     copied-flash can turn green, and the inner modifier wins.
+    public init(_ text: String, font: Font? = nil, color: Color = .primary) {
         self.display = text
         self.copyValue = text
         self.font = font
+        self.color = color
     }
 
     /// - parameters:
     ///   - display: what the user sees (may be truncated / formatted).
     ///   - copy: what gets put on the clipboard (the full value).
     ///   - font: optional explicit font; nil inherits.
-    public init(display: String, copy: String, font: Font? = nil) {
+    public init(
+        display: String, copy: String, font: Font? = nil, color: Color = .primary
+    ) {
         self.display = display
         self.copyValue = copy
         self.font = font
+        self.color = color
     }
 
     /// Display `value` with its middle elided (`head + "…" + tail`)
@@ -58,19 +66,21 @@ public struct CopyableText: View {
         _ value: String,
         head: Int = 8,
         tail: Int = 8,
-        font: Font? = nil
+        font: Font? = nil,
+        color: Color = .primary
     ) -> CopyableText {
         CopyableText(
             display: value.elidingMiddle(head: head, tail: tail),
             copy: value,
-            font: font
+            font: font,
+            color: color
         )
     }
 
     public var body: some View {
         Text(display)
             .font(font)
-            .foregroundStyle(copied ? Color.green : Color.primary)
+            .foregroundStyle(copied ? Color.green : color)
             .contentShape(Rectangle())
             .onTapGesture { copy() }
             .onHover { hovering in

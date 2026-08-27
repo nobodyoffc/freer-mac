@@ -1,4 +1,5 @@
 import XCTest
+import FCCore
 import FCTransport
 @testable import FCDomain
 
@@ -69,6 +70,94 @@ final class FreerSearchTests: XCTestCase {
         XCTAssertTrue(page.freers.isEmpty)
         XCTAssertNil(page.last)
         XCTAssertEqual(page.total, 0)
+    }
+
+    // MARK: - findFreers: the one entry point pickers call
+
+    /// A well-formed FID must never reach `base.search` — it is an
+    /// exact identity, and a `part` match on it would return the FID
+    /// itself plus anything that merely contains it.
+    func testFindWithValidFidFetchesExactlyAndSkipsSearch() async throws {
+        let fid = try FchAddress(
+            publicKey: Secp256k1.publicKey(fromPrivateKey: Data(repeating: 0x41, count: 32))
+        ).fid
+
+        let mock = MockFapiClient()
+        mock.responder = { call in
+            XCTAssertEqual(call.api, "base.freerByIds")
+            return try makeResponse(data: [fid: ["id": fid, "cid": "alice"]])
+        }
+
+        let directory = DirectoryService(fapi: mock)
+        let page = try await directory.findFreers(matching: "  \(fid) ")
+
+        XCTAssertTrue(page.isExactFid)
+        XCTAssertEqual(page.freers.count, 1)
+        XCTAssertEqual(page.freers.first?.cid, "alice")
+        // Exact fetches are one record: nothing to paginate.
+        XCTAssertNil(page.last)
+        XCTAssertEqual(page.total, 1)
+        XCTAssertEqual(mock.recorded.count, 1)
+        XCTAssertEqual(mock.recorded.first?.api, "base.freerByIds")
+    }
+
+    /// A valid FID the chain has never seen is an empty page that still
+    /// reports `isExactFid` — the picker offers it anyway rather than
+    /// claiming there is no such address.
+    func testFindWithUnknownFidIsEmptyButStillExact() async throws {
+        let fid = try FchAddress(
+            publicKey: Secp256k1.publicKey(fromPrivateKey: Data(repeating: 0x42, count: 32))
+        ).fid
+
+        let mock = MockFapiClient()
+        mock.responder = { _ in FapiResponse(code: 404, message: "NOT_FOUND") }
+
+        let directory = DirectoryService(fapi: mock)
+        let page = try await directory.findFreers(matching: fid)
+
+        XCTAssertTrue(page.isExactFid)
+        XCTAssertTrue(page.freers.isEmpty)
+        XCTAssertEqual(page.total, 0)
+    }
+
+    func testFindWithNonFidTermRunsPartSearch() async throws {
+        let mock = MockFapiClient()
+        mock.responder = { call in
+            XCTAssertEqual(call.api, "base.search")
+            var resp = try makeResponse(data: [["id": "FTestFid111", "cid": "alice"]])
+            resp.total = 3
+            resp.last = ["c1"]
+            return resp
+        }
+
+        let directory = DirectoryService(fapi: mock)
+        let page = try await directory.findFreers(matching: "ali", size: 10)
+
+        XCTAssertFalse(page.isExactFid)
+        XCTAssertEqual(page.freers.count, 1)
+        XCTAssertEqual(page.last, ["c1"])
+        XCTAssertEqual(page.total, 3)
+
+        let dict = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: try XCTUnwrap(mock.recorded.first?.fcdsl)
+            ) as? [String: Any]
+        )
+        let part = try XCTUnwrap((dict["query"] as? [String: Any])?["part"] as? [String: Any])
+        XCTAssertEqual(part["value"] as? String, "ali")
+    }
+
+    /// An empty box asks nobody anything.
+    func testFindWithBlankTermMakesNoCall() async throws {
+        let mock = MockFapiClient()
+        mock.responder = { _ in XCTFail("no call expected"); return FapiResponse(code: 0) }
+
+        let directory = DirectoryService(fapi: mock)
+        let page = try await directory.findFreers(matching: "   ")
+
+        XCTAssertTrue(page.freers.isEmpty)
+        XCTAssertFalse(page.isExactFid)
+        XCTAssertTrue(mock.recorded.isEmpty)
     }
 
     func testSearchNonZeroCodeThrows() async throws {

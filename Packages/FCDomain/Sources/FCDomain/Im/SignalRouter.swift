@@ -26,6 +26,7 @@ public struct SignalRouter {
     private let symkeys: SymkeyStore
     private let invites: RoomInvitesStore
     private let roomService: RoomService
+    private let roomConversations: RoomConversations
     private let privkey: Data?
     private let pubkeys: (String) throws -> Data?
 
@@ -35,6 +36,7 @@ public struct SignalRouter {
         symkeys: SymkeyStore,
         invites: RoomInvitesStore,
         roomService: RoomService,
+        roomConversations: RoomConversations,
         privkey: Data?,
         pubkeys: @escaping (String) throws -> Data? = { _ in nil }
     ) {
@@ -43,6 +45,7 @@ public struct SignalRouter {
         self.symkeys = symkeys
         self.invites = invites
         self.roomService = roomService
+        self.roomConversations = roomConversations
         self.privkey = privkey
         self.pubkeys = pubkeys
     }
@@ -107,16 +110,21 @@ public struct SignalRouter {
     ) throws -> Outcome {
         switch try roomService.handle(message, as: liveFid, pubkeys: pubkeys, now: now) {
         case .memberLeft(let fid, let outbound):
+            try mirrorRoom(named: message.content)
             return Outcome(outbound: outbound, note: "\(fid) left the room; key rotated")
         case .memberConfirmed(let fid):
+            // Nothing the list shows has changed: a confirmation clears
+            // the owner's pending flag, and the member was already one.
             return Outcome(note: "\(fid) accepted the invitation")
         case .disbanded:
             return Outcome(note: "a room was closed by its owner")
         case .removed:
+            try mirrorRoom(named: message.content)
             return Outcome(note: "removed from a room")
         case .updated(let room):
             // An update carries the current key when the owner could
             // seal one to us, so this is also how a rotation lands.
+            if let roomId = room.id { try roomConversations.sync(roomId) }
             return Outcome(learnedKeyFor: room.id, note: "room updated")
         case .invitation(let from, let json):
             // Stored, because a collect that runs in the background is
@@ -137,6 +145,19 @@ public struct SignalRouter {
         case .ignored:
             return .nothing
         }
+    }
+
+    /// Carry a changed room record across into the row the chat list
+    /// draws, for the notices that name their room in the content —
+    /// which is every `ROOM_*` except `ROOM_INFO`, whose room is named
+    /// inside its payload and which is handled where it is parsed.
+    ///
+    /// A room has no chain sync to repair this later, so a membership
+    /// that changed here and not there is a header counting the room as
+    /// it was, indefinitely.
+    private func mirrorRoom(named roomId: String?) throws {
+        guard let roomId, !roomId.isEmpty else { return }
+        try roomConversations.sync(roomId)
     }
 
     // MARK: - keys

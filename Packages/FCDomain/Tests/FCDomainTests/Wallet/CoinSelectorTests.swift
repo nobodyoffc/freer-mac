@@ -254,4 +254,41 @@ final class CoinSelectorTests: XCTestCase {
             feePerByte: 1, payAmount: -1
         ))
     }
+
+    // MARK: - fixed inputs
+
+    func testFixedSpendsEveryInputInOrder() throws {
+        let inputs = [cash(10_000, txidByte: 1), cash(1_000, txidByte: 2), cash(5_000, txidByte: 3)]
+        let plan = try CoinSelector.fixed(cashes: inputs, amount: 4_000)
+        // Untouched: not sorted, not trimmed. Selection had its
+        // chance before the user ticked these rows.
+        XCTAssertEqual(plan.selected, inputs)
+        // size = 10 + 141*3 + 34*2 = 501 → fee 501
+        XCTAssertEqual(plan.estimatedSize, 501)
+        XCTAssertEqual(plan.fee, 501)
+        XCTAssertEqual(plan.change, 16_000 - 4_000 - 501)
+    }
+
+    func testFixedBurnsDustRemainderAsFee() throws {
+        // One-output size = 10 + 141 + 34 = 185. Leave 200 over the
+        // amount: enough for the fee, too little for a change output.
+        let plan = try CoinSelector.fixed(cashes: [cash(1_200)], amount: 1_000)
+        XCTAssertFalse(plan.hasChange)
+        XCTAssertEqual(plan.fee, 200)
+        XCTAssertEqual(plan.estimatedSize, 185)
+    }
+
+    func testFixedThrowsWhenTheChosenInputsCantCoverIt() {
+        XCTAssertThrowsError(try CoinSelector.fixed(cashes: [cash(1_000)], amount: 1_000)) { err in
+            guard case CoinSelector.Failure.insufficientFunds = err else {
+                return XCTFail("wrong error: \(err)")
+            }
+        }
+    }
+
+    func testFixedRejectsNonPositiveAmountAndFeeRate() {
+        XCTAssertThrowsError(try CoinSelector.fixed(cashes: [cash(10_000)], amount: 0))
+        XCTAssertThrowsError(try CoinSelector.fixed(cashes: [cash(10_000)], amount: 100, feePerByte: 0))
+    }
+
 }

@@ -11,7 +11,9 @@ import Foundation
 ///
 /// This builds messages and does not send them — the same split
 /// ``RoomService`` and ``DeliveryPolicy`` use, so the rules are testable
-/// with no network under them.
+/// with no network under them. What it builds is **named**
+/// (``ImMessage/named()``), because the caller's next move is the
+/// outbox and the outbox refuses a message with no id.
 public enum KeyExchange {
 
     /// Push our current key for `entityId` at one member.
@@ -41,37 +43,22 @@ public enum KeyExchange {
             symkeyData: SymkeyShare.payload(entityId: entityId, cipher: cipher),
             version: version,
             now: now
-        )
+        ).named()
     }
 
-    /// Push the current key at every member we can seal it to.
+    /// **There is deliberately no "share with everyone" here.**
     ///
-    /// A member we cannot seal to is skipped rather than throwing: a
-    /// rotation that failed because one of twelve members has no
-    /// published pubkey would leave the other eleven unable to read
-    /// anything said afterwards, which is a worse outcome than that one
-    /// member having to ask.
-    public static func shareWithAll(
-        entityId: String,
-        version: Int64,
-        members: [String],
-        from senderFid: String,
-        symkeys: SymkeyStore,
-        pubkeys: (String) throws -> Data?,
-        now: Date = Date()
-    ) throws -> [ImMessage] {
-        var out: [ImMessage] = []
-        for fid in members where fid != senderFid {
-            guard let pubkey = try pubkeys(fid) else { continue }
-            if let message = try share(
-                entityId: entityId, version: version, to: fid,
-                recipientPubkey: pubkey, from: senderFid, symkeys: symkeys, now: now
-            ) {
-                out.append(message)
-            }
-        }
-        return out
-    }
+    /// A key pushed at a whole membership unasked is an announcement
+    /// about which conversation everyone is having, and only an entity's
+    /// owner may make one — otherwise a member could mint a key, push it
+    /// round, and split the group in two with nothing to say which half
+    /// was real. That check needs the entity's record, which this type
+    /// does not have and should not learn, so the broadcast lives with
+    /// whoever can check: ``TeamKeyService`` for a team and
+    /// ``RoomService`` for a room. What is left here is the envelope and
+    /// the two things any member may legitimately do — answer a request
+    /// (``share(entityId:version:to:recipientPubkey:from:symkeys:now:)``,
+    /// which ``SignalRouter`` calls) and ask one.
 
     /// Ask someone for the key to `entityId`.
     ///
@@ -87,7 +74,7 @@ public enum KeyExchange {
         ImMessage.request(
             type: .p2p, from: senderFid, to: fid,
             requestType: .symkey, data: entityId, now: now
-        )
+        ).named()
     }
 
     /// Ask someone for a room's details — its name, its membership and
@@ -108,7 +95,7 @@ public enum KeyExchange {
         ImMessage.request(
             type: .p2p, from: senderFid, to: fid,
             requestType: .roomInfo, data: roomId, now: now
-        )
+        ).named()
     }
 
     /// Ask several people at once. Whoever answers first wins, and the

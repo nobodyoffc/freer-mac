@@ -28,13 +28,16 @@ let package = Package(
             // linker settings below.
             exclude: ["Info.plist"],
             linkerSettings: [
-                // **The microphone needs this.** macOS kills a process
+                // **The microphone and camera need this.** macOS kills a process
                 // that touches a TCC-protected device with no usage
                 // description to show the user, and a SwiftPM executable
                 // has no bundle to put one in. Writing the plist into
                 // the binary's own `__TEXT,__info_plist` section is
                 // where TCC looks when there is no bundle, so the voice
-                // note recorder gets a prompt rather than a crash.
+                // note recorder and the QR scanner get a prompt rather
+                // than a crash. Note SwiftPM does not treat the plist as
+                // a linker input: edit it and the binary keeps the old
+                // section until something else forces a relink.
                 // Phase 10's packaging replaces this with a real `.app`.
                 .unsafeFlags([
                     "-Xlinker", "-sectcreate",

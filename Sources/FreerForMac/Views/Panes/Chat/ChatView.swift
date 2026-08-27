@@ -71,6 +71,10 @@ struct ChatView: View {
     @State private var showRequests = false
     @State private var showPolicy = false
     @State private var showMembers = false
+    @State private var showRoomSettings = false
+    /// The on-chain twin of `showRoomSettings` — a team's or a square's
+    /// details, which are changed by carving rather than by telling.
+    @State private var showGroupSettings = false
     /// Which "ask somebody for something" sheet is open, if any. Nil is
     /// closed — the sheet needs to know *what* is being asked for, so a
     /// bare Bool could not say it.
@@ -79,6 +83,10 @@ struct ChatView: View {
     /// or a square is joined by carving, not by being invited here.
     @State private var invites: [RoomInvite] = []
     @State private var confirmLeave = false
+    /// The thread the user asked to delete, held until they confirm.
+    /// Nil is "nothing pending" — a Bool could not name the row, and the
+    /// row can be any of the four flavours.
+    @State private var confirmDelete: Conversation?
     @State private var syncing = false
     @State private var syncSummary: String?
     @State private var delivering = false
@@ -153,6 +161,35 @@ struct ChatView: View {
         }
     }
 
+    private func deleteTitle(_ conversation: Conversation?) -> String {
+        guard let conversation else { return "Delete?" }
+        let name = ChatFormat.title(of: conversation)
+        return "Delete \(name)?"
+    }
+
+    /// What deleting actually destroys, said before it is done.
+    ///
+    /// The four flavours differ in what *survives* it, and the
+    /// difference is not cosmetic. A room lives only on the devices that
+    /// hold it, so deleting our copy is the last word here — including,
+    /// for an owner, the membership itself. A team or a square is on the
+    /// chain, so this only forgets the local transcript: we are still in
+    /// it, and the next sync opens the thread again.
+    private func deleteMessage(_ conversation: Conversation) -> String {
+        let common = "Every message in it goes too, and there is no copy anywhere else."
+        switch conversation.type {
+        case .room:
+            let owned = session.chatGateFacts(for: conversation).isOwner
+            return owned
+                ? "\(common) This room's key and its membership exist only on this Mac, so both are gone with it — the other members are not told, and are not removed from their own copies. Close the room first if they should be."
+                : "\(common) The room's key goes with it, so nothing said here can be reopened. The other members are not told; leave the room first if they should be."
+        case .team, .square:
+            return "\(common) Only this Mac's copy — your membership is on the chain, so you are still in it and the thread reappears at the next sync. Leave it first if that is what you meant."
+        case .p2p:
+            return "\(common) They are not told, and nothing stops them writing again."
+        }
+    }
+
     private func unread(_ type: ImType) -> Int {
         (threads[type] ?? []).reduce(0) { $0 + ($1.unreadCount ?? 0) }
     }
@@ -184,7 +221,8 @@ struct ChatView: View {
                     ConversationListView(
                         style: style,
                         conversations: filtered,
-                        selectedId: selectedId
+                        selectedId: selectedId,
+                        onDelete: { confirmDelete = $0 }
                     )
                     .frame(width: 260)
                     Divider()
@@ -197,6 +235,10 @@ struct ChatView: View {
         .padding()
         .frame(minWidth: 720)
         .onAppear {
+            // An Overview tile can ask for a specific flavour. Consume it
+            // before the first reload so the pane never paints the wrong
+            // tab first.
+            if let requested = appState.consumePendingChatMode() { mode = requested }
             reload()
             if selection[mode] == nil { selection[mode] = conversations.first?.id }
             openSelected()
@@ -269,6 +311,27 @@ struct ChatView: View {
                 )
             }
         }
+        .sheet(isPresented: $showRoomSettings) {
+            if let conversation = selected, conversation.type == .room {
+                RoomSettingsSheet(
+                    session: session,
+                    roomId: conversation.targetId,
+                    onClose: { showRoomSettings = false },
+                    onSaved: { summary in
+                        showRoomSettings = false
+                        syncSummary = summary
+                        reload()
+                        // The room may have moved to a different DOCK,
+                        // and the poller is still watching the old one.
+                        Task {
+                            await session.refreshDockRegistry()
+                            await MainActor.run { updatePriorityDock() }
+                        }
+                    }
+                )
+            }
+        }
+        .sheet(isPresented: $showGroupSettings) { groupSettingsSheet }
         .confirmationDialog(
             leaveTitle,
             isPresented: $confirmLeave,
@@ -280,6 +343,26 @@ struct ChatView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(leaveMessage)
+        }
+        // The dialog is driven by the row itself (`presenting:`), never
+        // by the selection: right-clicking Delete on a thread does not
+        // open it, so a dialog that acted on "the selection" would
+        // cheerfully delete a different conversation from the one whose
+        // name it was showing. That is the worst bug a destructive
+        // action can have, and it is one binding away.
+        .confirmationDialog(
+            deleteTitle(confirmDelete),
+            isPresented: Binding(
+                get: { confirmDelete != nil },
+                set: { if !$0 { confirmDelete = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: confirmDelete
+        ) { conversation in
+            Button("Delete", role: .destructive) { delete(conversation) }
+            Button("Cancel", role: .cancel) { confirmDelete = nil }
+        } message: { conversation in
+            Text(deleteMessage(conversation))
         }
         .sheet(isPresented: $showRequests) {
             MessageRequestsSheet(
@@ -298,13 +381,14 @@ struct ChatView: View {
             NewChatSheet(
                 session: session,
                 mode: mode,
-                onOpened: { id in
+                onOpened: { id, note in
                     showNewChat = false
                     reload()
                     if let opened = try? session.conversations.get(id: id) {
                         mode = opened.type
                     }
                     selection[mode] = id
+                    syncSummary = note
                 },
                 onCancel: { showNewChat = false }
             )
@@ -312,6 +396,25 @@ struct ChatView: View {
     }
 
     // MARK: - chrome
+
+    /// A team's or a square's on-chain details. Lifted out of `body`
+    /// because the two flavours share one sheet and the check for which
+    /// is which does not belong in an already long view builder.
+    @ViewBuilder
+    private var groupSettingsSheet: some View {
+        if let conversation = selected, ChatModeStyle.of(conversation.type).syncsFromChain {
+            GroupSettingsSheet(
+                session: session,
+                mode: conversation.type,
+                groupId: conversation.targetId,
+                onClose: { showGroupSettings = false },
+                onSaved: { summary in
+                    showGroupSettings = false
+                    syncSummary = summary
+                }
+            )
+        }
+    }
 
     /// The four flavours, as tabs rather than as rows in one list.
     private var modeTabs: some View {
@@ -590,7 +693,7 @@ struct ChatView: View {
             switch conversation.type {
             case .p2p:
                 Button("Block this FID") { block(conversation) }
-                Button("Remove this thread", role: .destructive) { removeThread(conversation) }
+                Button("Delete…", role: .destructive) { confirmDelete = conversation }
 
             case .room:
                 Button("Members…") { showMembers = true }
@@ -598,21 +701,28 @@ struct ChatView: View {
                 Button("Ask for this room's details…") { asking = .roomInfo }
                 if facts.isOwner {
                     Divider()
+                    Button("Room settings…") { showRoomSettings = true }
                     Button("Share the room's details") { shareRoomInfo(conversation) }
                     Button("Reset the key") { generateKey(for: conversation) }
                     Button("Close this room", role: .destructive) { disband(conversation) }
                 } else {
                     Button("Leave this room", role: .destructive) { confirmLeave = true }
                 }
+                Button("Delete…", role: .destructive) { confirmDelete = conversation }
 
             case .team:
                 Button("Members…") { showMembers = true }
                 Button("Ask for the key…") { asking = .symkey }
                 if facts.isOwner {
+                    // Owner-only, as on Android, where updating a team
+                    // sits in the owner sub-menu. The chain enforces it;
+                    // this only declines to offer a fee for nothing.
+                    Button("Team settings (carve)…") { showGroupSettings = true }
                     Button("Reset the key") { generateKey(for: conversation) }
                 }
                 Divider()
                 Button("Leave this team (carve)…", role: .destructive) { confirmLeave = true }
+                Button("Delete…", role: .destructive) { confirmDelete = conversation }
 
             case .square:
                 // **No "ask for the key".** A square has no key, and an
@@ -621,8 +731,15 @@ struct ChatView: View {
                 // item in `popup_group_chat_menu.xml` — with no click
                 // listener bound, so it does nothing at all.
                 Button("Members…") { showMembers = true }
+                // Offered to every member, and that is the rule rather
+                // than a convenience: nobody owns a square and nobody is
+                // privileged in one. An update is accepted from whoever
+                // destroys more coin-days than the last update did, so
+                // there is no role here to gate the item on.
+                Button("Square settings (carve)…") { showGroupSettings = true }
                 Divider()
                 Button("Leave this square (carve)…", role: .destructive) { confirmLeave = true }
+                Button("Delete…", role: .destructive) { confirmDelete = conversation }
             }
         } label: {
             Image(systemName: "ellipsis.circle")
@@ -643,6 +760,12 @@ struct ChatView: View {
 
     private func reload() {
         do {
+            // Who each group avatar badges, from the records already on
+            // this device. Rows written before the owner was recorded
+            // have no other occasion to learn it — the syncs that know it
+            // are events, and those already fired.
+            try session.groupOwners.refill()
+
             var rebuilt: [ImType: [Conversation]] = [:]
             for style in ChatModeStyle.all {
                 rebuilt[style.mode] = try session.conversations.visible(type: style.mode)
@@ -892,20 +1015,20 @@ struct ChatView: View {
                 outbound = try service.resetSymkey(
                     conversation.targetId,
                     as: session.liveFid,
-                    pubkeys: { fid in try session.contacts.get(fid: fid)?.pubkey }
+                    pubkeys: { fid in try session.knownPubkey(of: fid) }
                 ).outbound
 
             case .team:
-                let team = try session.teams.get(id: conversation.targetId)
-                let rotated = try session.symkeys.rotate(for: conversation.targetId)
-                outbound = try KeyExchange.shareWithAll(
-                    entityId: conversation.targetId,
-                    version: rotated.version,
-                    members: team?.members ?? [],
-                    from: session.liveFid,
-                    symkeys: session.symkeys,
-                    pubkeys: { fid in try session.contacts.get(fid: fid)?.pubkey }
-                )
+                // Through the service, not straight at the store: the
+                // owner-only rule is the whole security of a group key,
+                // and a rule enforced by whether a menu item was drawn
+                // is not enforced at all.
+                outbound = try session.teamKeys.resetSymkey(
+                    for: conversation.targetId,
+                    as: session.liveFid,
+                    pubkeys: { fid in try session.knownPubkey(of: fid) },
+                    homes: { fid in try session.knownHome(of: fid) }
+                ).outbound
 
             case .p2p, .square:
                 // Neither has a group key: a P2P body is sealed to the
@@ -935,19 +1058,26 @@ struct ChatView: View {
 
     /// Re-send the room's details — membership and current key — to
     /// every member. The owner's answer to "I can't read anything".
+    ///
+    /// **Owner only, and the check is ``RoomService/shareInfo(_:as:pubkeys:homes:now:)``'s
+    /// rather than this menu's.** An unasked-for `ROOM_INFO` is an
+    /// announcement about the room, and a member has nothing to
+    /// announce: their copy of the membership is only what they were
+    /// last told. A member who wants to help someone stuck answers a
+    /// request instead, which ``SignalRouter`` allows.
     private func shareRoomInfo(_ conversation: Conversation) {
         sendError = nil
         do {
-            let service = try session.roomService
-            guard let room = try session.rooms.get(id: conversation.targetId) else { return }
-            let outbound = try room.others(than: session.liveFid).map { fid in
-                try service.invitation(
-                    for: room, to: fid, from: session.liveFid,
-                    pubkeys: { f in try session.contacts.get(fid: f)?.pubkey }
-                )
-            }
+            let (outbound, unreachable) = try session.roomService.shareInfo(
+                conversation.targetId,
+                as: session.liveFid,
+                pubkeys: { fid in try session.knownPubkey(of: fid) },
+                homes: { fid in try session.knownHome(of: fid) }
+            )
             try queue(outbound)
-            syncSummary = "\(outbound.count) update(s) queued."
+            syncSummary = unreachable.isEmpty
+                ? "\(outbound.count) update(s) queued."
+                : "\(outbound.count) update(s) queued. \(unreachable.count) member(s) publish no DOCK, so there is nowhere to leave one for them."
         } catch {
             sendError = String(describing: error)
         }
@@ -1029,6 +1159,46 @@ struct ChatView: View {
         }
     }
 
+    /// Delete a thread and everything under it — the left list's
+    /// `Delete`, and the one action in this pane that destroys something
+    /// no other device is holding for us.
+    ///
+    /// **A room is deleted whole**: the record and its keys go with the
+    /// transcript, because a room exists nowhere but on the devices that
+    /// hold it and leaving a keyed, memberless shell behind would be a
+    /// row that can neither be read nor rejoined. A team or a square
+    /// keeps its record — that one is the chain's, not ours, and the
+    /// next sync would only fetch it again.
+    ///
+    /// **Nobody is told.** Deleting is not leaving and not disbanding:
+    /// those are separate items in the same menu, and the dialog on the
+    /// way in says which one the user probably wanted.
+    private func delete(_ conversation: Conversation) {
+        sendError = nil
+        confirmDelete = nil
+        do {
+            // The room record goes first, so a failure here leaves the
+            // transcript intact rather than half-deleted. A bare
+            // service, not `session.roomService`: forgetting needs no
+            // identity key — only *opening* a shared room key does — and
+            // a read-only session must still be able to delete a room.
+            if conversation.type == .room {
+                try RoomService(rooms: session.rooms, symkeys: session.symkeys)
+                    .forget(conversation.targetId)
+                _ = try? session.roomInvites.remove(roomId: conversation.targetId)
+            }
+            _ = try session.messages.deleteConversation(conversation.id)
+            _ = try session.conversations.remove(id: conversation.id)
+            if selection[mode] == conversation.id { selection[mode] = nil }
+            drafts[conversation.id] = nil
+            reload()
+            if selection[mode] == nil { selection[mode] = conversations.first?.id }
+            openSelected()
+        } catch {
+            sendError = String(describing: error)
+        }
+    }
+
     /// Forget a thread on this device. The messages go with it — there
     /// is no copy anywhere else, which the alert on the way in has to
     /// say and this comment records for whoever writes it.
@@ -1053,6 +1223,10 @@ struct ChatView: View {
             )
             if let reply { try queue([reply]) }
             _ = try session.roomInvites.remove(roomId: invite.roomId)
+            // Opens the thread. Without it the room is on this device and
+            // nowhere on screen — the invitation is gone, and the room
+            // surfaces only once somebody says something in it.
+            try session.roomConversations.sync(invite.roomId)
             reload()
             selection[.room] = Conversation.id(type: .room, targetId: invite.roomId)
             openSelected()
@@ -1153,6 +1327,7 @@ struct ChatView: View {
             if teams.left + squares.left > 0 {
                 parts.append("\(teams.left + squares.left) left")
             }
+            if let keyed = keyOwnedTeams() { parts.append(keyed) }
         } catch {
             parts = ["sync failed: \(error)"]
         }
@@ -1164,6 +1339,42 @@ struct ChatView: View {
             syncSummary = parts.joined(separator: " · ")
             reload()
         }
+    }
+
+    /// Give every team we own its first key, and hand it round.
+    ///
+    /// **This is where "a new team gets a key" happens, and it has to
+    /// be here.** Creating a team is a transaction whose id is the
+    /// carve's own txid, so at the moment the user presses Create there
+    /// is no team to key — it does not exist until the carve confirms
+    /// and this sync finds it. The first sync that shows us a team we
+    /// own without a key is the earliest point where minting one is even
+    /// well-defined.
+    ///
+    /// Running on *every* sync is safe and deliberate:
+    /// ``TeamKeyService/ensureSymkey(for:as:pubkeys:homes:now:)`` is
+    /// idempotent, so a team that already has a key gets nothing. A
+    /// rotation stays a deliberate act.
+    ///
+    /// Returns a line for the sync summary, or nil when nothing was
+    /// minted — which is the ordinary case.
+    private func keyOwnedTeams() -> String? {
+        var minted = 0
+        var shares: [ImMessage] = []
+        for team in (try? session.teams.owned(by: session.liveFid)) ?? [] {
+            guard let id = team.id, team.isActive else { continue }
+            guard let keyed = try? session.teamKeys.ensureSymkey(
+                for: id,
+                as: session.liveFid,
+                pubkeys: { fid in try session.knownPubkey(of: fid) },
+                homes: { fid in try session.knownHome(of: fid) }
+            ), keyed.created else { continue }
+            minted += 1
+            shares += keyed.outbound
+        }
+        guard minted > 0 else { return nil }
+        try? queue(shares)
+        return "keyed \(minted) team(s), \(shares.count) share(s) queued"
     }
 
     // MARK: - chrome helpers

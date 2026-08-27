@@ -60,6 +60,7 @@ final class SignalRouterTests: XCTestCase {
             symkeys: session.symkeys,
             invites: session.roomInvites,
             roomService: try session.roomService,
+            roomConversations: session.roomConversations,
             privkey: alicePriv,
             pubkeys: { fid in
                 switch fid {
@@ -306,6 +307,32 @@ final class SignalRouterTests: XCTestCase {
         XCTAssertEqual(stored.name, "Somewhere new")
         // Not joined: the room itself is still not in the store.
         XCTAssertNil(try session.rooms.get(id: roomId))
+    }
+
+    /// The owner announces a new membership, and the row the chat list
+    /// draws follows it. Nothing else would ever bring the two back
+    /// together: a room has no chain to sync from, so a member added on
+    /// the owner's device and applied here would otherwise leave this
+    /// header counting the room as it was.
+    func testAnOwnersUpdateReachesTheConversationRow() throws {
+        try bobsRoom()
+        try session.roomConversations.sync(roomId)
+        XCTAssertEqual(
+            try session.conversations.get(type: .room, targetId: roomId)?.memberNum, 3
+        )
+
+        var info = RoomInfo(name: "Bob's other place", owner: bob, members: [bob, me, carol, mallory])
+        info.id = roomId
+        var message = ImMessage.roomNotice(
+            .roomInfo, from: bob, to: me, content: info.wireJson(), now: t0
+        )
+        message.type = .p2p
+        message.id = ImMessage.hexId(fudpId: 9_250)
+
+        _ = try router().route(message, as: me, now: at(10))
+        let row = try XCTUnwrap(try session.conversations.get(type: .room, targetId: roomId))
+        XCTAssertEqual(row.memberNum, 4)
+        XCTAssertEqual(row.displayName, "Bob's other place")
     }
 
     /// Anything else is left alone rather than guessed at.

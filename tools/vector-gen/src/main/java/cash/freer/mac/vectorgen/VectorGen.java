@@ -84,6 +84,11 @@ public final class VectorGen {
         // Domain-layer vectors (Hat wire format) go to FCDomain's test
         // resources, beside the model they pin down.
         Path domainOut = args.length > 2 ? Paths.get(args[2]) : null;
+        // Fee vectors live in their own file rather than in
+        // domainVectors.json, because that one carries randomly-IV'd
+        // envelopes: folding a deterministic table into it would churn
+        // two hundred unrelated lines every time the table changed.
+        Path txFeeOut = args.length > 3 ? Paths.get(args[3]) : null;
 
         JsonObject cryptoRoot = new JsonObject();
         cryptoRoot.addProperty("generated_at", Instant.now().toString());
@@ -111,6 +116,10 @@ public final class VectorGen {
         cryptoRoot.add("transaction", buildTransactionVectors());
         cryptoRoot.add("bch_sighash", buildBchSighashVectors());
         cryptoRoot.add("bch_signed_tx", buildBchSignedTxVectors());
+        // Produced by the REAL FC-AJDK P2SH + TxHandler, so the Swift
+        // `P2sh` / `TxFee` port is checked against Android's own script
+        // encoding and fee arithmetic.
+        cryptoRoot.add("p2sh", P2shRef.generate());
         // Produced by the REAL FC-AJDK Encryptor/Decryptor (see FileCipherRef),
         // so the Swift FileCipher is checked against the actual wire producer.
         cryptoRoot.add("disk_cipher_file", FileCipherRef.generate());
@@ -162,6 +171,18 @@ public final class VectorGen {
             Files.createDirectories(domainOut.toAbsolutePath().getParent());
             Files.writeString(domainOut, gson.toJson(domainRoot) + "\n");
             System.out.println("Wrote " + domainOut.toAbsolutePath());
+        }
+
+        if (txFeeOut != null) {
+            JsonObject txFeeRoot = new JsonObject();
+            txFeeRoot.addProperty("generated_at", Instant.now().toString());
+            txFeeRoot.addProperty("schema_version", 1);
+            txFeeRoot.addProperty("generator",
+                "FreerForMac VectorGen (fees from the real FC-AJDK TxHandler.calcFee)");
+            txFeeRoot.add("calc_fee", P2shRef.feeVectors());
+            Files.createDirectories(txFeeOut.toAbsolutePath().getParent());
+            Files.writeString(txFeeOut, gson.toJson(txFeeRoot) + "\n");
+            System.out.println("Wrote " + txFeeOut.toAbsolutePath());
         }
     }
 

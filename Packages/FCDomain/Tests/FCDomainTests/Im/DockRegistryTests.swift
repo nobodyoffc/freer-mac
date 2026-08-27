@@ -249,6 +249,46 @@ final class DockRegistryTests: XCTestCase {
         XCTAssertEqual(Set(targets.first?.recipientIds ?? []), [alice.liveFid, squareId])
     }
 
+    /// Living as a watch-only sub-identity must not disturb the poll
+    /// set. The registry is keyed on the **main** FID, because the
+    /// connection under it is handshaked with the main's key and the
+    /// main's DOCK is the only one it can reach.
+    ///
+    /// Keying it on the *live* FID broke this twice over: the own-FID
+    /// entry asked the main's server for items addressed to a FID it
+    /// holds nothing for, and — since group membership is a test
+    /// against that same FID — a watch-only identity belongs to no
+    /// team, square or room, so a rebuild dropped **every group entry**
+    /// and the square stopped being polled at all.
+    func testAWatchOnlyIdentityDoesNotDisturbTheDockRegistry() async throws {
+        let alice = try await makeSession(privkey: alicePriv, label: "alice", ownDock: aliceDock)
+        try alice.squares.upsert(Square(
+            name: "The Square", members: [alice.liveFid],
+            home: [ServiceName.dock: aliceDockHome], id: squareId
+        ))
+        await alice.refreshDockRegistry()
+        let asMain = await alice.dockRegistry.fetchTargets()
+
+        // Switch to a watched FID and rebuild, exactly as opening the
+        // Chat pane does.
+        let watched = try alice.addWatchedFid(
+            "FWatchedOnlyFidWithNoKeyAtAll000000", label: "watched"
+        )
+        try alice.switchLive(fid: watched.fid)
+        await alice.refreshDockRegistry()
+
+        let asWatched = await alice.dockRegistry.fetchTargets()
+        XCTAssertEqual(asWatched, asMain, "the poll set is the main's, whoever is live")
+        XCTAssertEqual(
+            Set(asWatched.first?.recipientIds ?? []), [alice.mainFid, squareId],
+            "still our own inbox and the square — not the watched FID, which this server holds nothing for"
+        )
+        XCTAssertFalse(
+            asWatched.first?.recipientIds.contains(watched.fid) ?? true,
+            "a sub-identity's mail does not rest in the main's DOCK"
+        )
+    }
+
     // MARK: - helpers
 
     private func sendP2P(

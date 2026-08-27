@@ -65,6 +65,47 @@ final class AppState {
     /// key off it (`.id(appState.liveFid)`) to rebuild after a switch.
     private(set) var liveFid: String?
 
+    /// On-chain stats for the live FID — what the FID bar shows beyond
+    /// the locally-stored KeyInfo. Cache-first: the stored row renders
+    /// immediately on switch, then a `base.freerByIds` refresh replaces
+    /// it. Lives here rather than in `PaneHeader` because the bar is on
+    /// every pane, and per-view state would re-fetch on every pane
+    /// switch.
+    /// Bumped whenever something edits the live identity's `KeyInfo` —
+    /// today only its label. The `Setting` is a plain struct behind a
+    /// plain class, so SwiftUI cannot see a write to it; views that
+    /// render `liveKeyInfo` read this counter to pick the change up.
+    private(set) var identityRevision = 0
+
+    private(set) var liveFidInfo: LiveFidInfo?
+    private(set) var liveFidInfoLoading = false
+    private(set) var liveFidInfoError: String?
+
+    /// Which detail pane is on screen. Hoisted out of `HomeView` so
+    /// anything can navigate — the FID bar's numbers jump to Cash, and
+    /// the Overview tiles jump to whatever they are counting. A
+    /// `@State` in `HomeView` would have meant threading a binding
+    /// through all twenty-odd panes to achieve the same thing.
+    var selectedPane: WalletPane = .overview
+
+    /// A chat flavour the Chat pane should open on, set by whoever
+    /// navigated there. One-shot: the pane reads it and clears it, so
+    /// coming back to Chat later lands on whatever tab the user last
+    /// used rather than re-running an old deep link.
+    private(set) var pendingChatMode: ImType?
+
+    /// Open the Chat pane on `mode`. The two writes belong together —
+    /// setting the tab without switching panes does nothing visible.
+    func openChat(mode: ImType) {
+        pendingChatMode = mode
+        selectedPane = .chat
+    }
+
+    func consumePendingChatMode() -> ImType? {
+        defer { pendingChatMode = nil }
+        return pendingChatMode
+    }
+
     var route: AppRoute
     var lastError: String?
 
@@ -93,6 +134,13 @@ final class AppState {
     /// about the other.
     @ObservationIgnored private var appIsActive = true
     @ObservationIgnored private var chatIsOpen = false
+
+    /// Raises the "approve this transaction?" modal for every signing
+    /// path, when the identity has that setting on. Lives on AppState
+    /// because the dialog has to be presentable from the root view no
+    /// matter which pane started the transaction — and because a
+    /// background carve (the chat outbox, a retry) has no pane at all.
+    let txApprovals = TxApprovalCenter()
 
     /// Bumped whenever a background collect filed something. Views watch
     /// it to reload — an observable counter is the smallest thing that
@@ -329,9 +377,14 @@ final class AppState {
     /// the user back to the password screen. Closes the live FUDP
     /// transport (if any) so its UDP socket is released.
     func lockAll() {
+        // Anything parked on a confirmation dialog is answered "no"
+        // first: the session is about to disappear, and a question
+        // nobody can answer must not turn into a signature.
+        txApprovals.cancelAll()
         tearDownLiveFapi()
         activeSession = nil
         liveFid = nil
+        clearLiveFidInfo()
         configureSession?.lock()
         configureSession = nil
         configures = (try? manager.listConfigures()) ?? configures
@@ -360,6 +413,33 @@ final class AppState {
         }
     }
 
+    /// Delete a main FID from the unlocked Configure. The vault holds
+    /// the only copy of its encrypted privkey, so this cannot be undone.
+    ///
+    /// `deletingSetting` also removes the FID's on-disk Setting
+    /// directory — contacts, caches, chat state. Leaving it behind is
+    /// the kinder default: re-importing the same privkey later picks the
+    /// directory straight back up, so only the key is actually lost.
+    func deleteMain(fid: String, deletingSetting: Bool) async {
+        guard let cs = configureSession else {
+            lastError = "No unlocked Configure."
+            return
+        }
+        lastError = nil
+        do {
+            let removed = try await Task.detached(priority: .userInitiated) {
+                deletingSetting
+                    ? try cs.deleteMainAndSetting(fid: fid)
+                    : try cs.removeMain(fid: fid)
+            }.value
+            if !removed {
+                lastError = "That identity is no longer in this vault."
+            }
+        } catch {
+            lastError = String(describing: error)
+        }
+    }
+
     /// Unlock one of the main FIDs and open an ActiveSession. The
     /// session starts with the stub `FapiClient`; if the per-main
     /// preferences have an FAPI server configured the real client is
@@ -375,9 +455,13 @@ final class AppState {
             let session = try await Task.detached(priority: .userInitiated) {
                 try cs.unlockMain(fid: fid, fapi: factory(fid))
             }.value
+            session.txApprover = self.txApprovals.approver()
             self.activeSession = session
             self.liveFid = session.liveFid
             self.route = .home
+            // Show whatever the last session cached before the network
+            // is even up — the bar should never start blank.
+            self.loadCachedLiveFidInfo()
             // Best-effort attempt to bring up the live FAPI client.
             // Failure is non-fatal — Overview will show the stub
             // error and the Settings pane lets the user fix things.
@@ -393,9 +477,11 @@ final class AppState {
     /// live FUDP transport is torn down (different main → different
     /// keypair → different AsyTwoWay session anyway).
     func returnToChooseMain() {
+        txApprovals.cancelAll()
         tearDownLiveFapi()
         activeSession = nil
         liveFid = nil
+        clearLiveFidInfo()
         route = .chooseMain
     }
 
@@ -502,6 +588,9 @@ final class AppState {
             // anything lives would spend its first passes fetching from
             // nowhere.
             startFetchScheduler(for: session)
+            // First moment the bar can actually get real numbers: the
+            // cached row went up at unlock, this replaces it.
+            Task { await refreshLiveFidInfo() }
             SystemLog.shared.info(
                 SystemSource.fapi, "Connected to \(host):\(port)"
             )
@@ -572,8 +661,80 @@ final class AppState {
         do {
             try session.switchLive(fid: fid)
             liveFid = session.liveFid
+            // Sitting on Mail and switching to a watch-only identity
+            // would otherwise leave the selection on a pane the sidebar
+            // has just greyed out — a detail view with no way back to
+            // it, since the row that owns the selection is no longer
+            // clickable. Overview is always open, to every kind.
+            if selectedPane.needsKey && !session.canSign {
+                selectedPane = .overview
+            }
+            // The new identity's numbers are a different set entirely,
+            // so show its cached row at once and go get a fresh one.
+            loadCachedLiveFidInfo()
+            Task { await refreshLiveFidInfo() }
         } catch {
             lastError = String(describing: error)
+        }
+    }
+
+    /// Re-read `liveFid` from the session after something *else*
+    /// changed it — removing the sub-identity you were living as, which
+    /// drops the session back to the main from inside ``ActiveSession``.
+    /// Without this the toolbar and every `.id(liveFid)` keep the FID
+    /// the Setting no longer holds.
+    func syncLiveFid() {
+        guard let session = activeSession else { return }
+        guard liveFid != session.liveFid else { return }
+        liveFid = session.liveFid
+        if selectedPane.needsKey && !session.canSign {
+            selectedPane = .overview
+        }
+        loadCachedLiveFidInfo()
+        Task { await refreshLiveFidInfo() }
+    }
+
+    // MARK: - live FID on-chain stats
+
+    /// Render the stored row for the live FID immediately, without
+    /// touching the network.
+    private func loadCachedLiveFidInfo() {
+        guard let session = activeSession else { return }
+        liveFidInfoError = nil
+        liveFidInfo = session.cachedLiveFidInfo()
+    }
+
+    /// Tell every view rendering the live `KeyInfo` to re-read it.
+    func bumpIdentityRevision() { identityRevision += 1 }
+
+    private func clearLiveFidInfo() {
+        liveFidInfo = nil
+        liveFidInfoLoading = false
+        liveFidInfoError = nil
+    }
+
+    /// Re-fetch the live FID's on-chain record. Safe to call from
+    /// anywhere that just changed the identity's money — a send, a
+    /// carve, the bar's refresh button.
+    ///
+    /// Overlapping calls are dropped rather than queued: the second
+    /// answer would overwrite the first with the same chain state.
+    func refreshLiveFidInfo() async {
+        guard let session = activeSession, !liveFidInfoLoading else { return }
+        let fidAtStart = session.liveFid
+        liveFidInfoLoading = true
+        liveFidInfoError = nil
+        defer { liveFidInfoLoading = false }
+        do {
+            let info = try await session.refreshLiveFidInfo()
+            // The user can switch identity while the call is in flight;
+            // dropping a late answer for the previous FID keeps the bar
+            // from briefly showing the wrong identity's balance.
+            guard session.liveFid == fidAtStart else { return }
+            liveFidInfo = info
+        } catch {
+            guard session.liveFid == fidAtStart else { return }
+            liveFidInfoError = String(describing: error)
         }
     }
 }

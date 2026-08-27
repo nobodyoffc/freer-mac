@@ -235,4 +235,48 @@ public enum CoinSelector {
             + Int64(sizeFor(nIn: max(selected.count, 1), nOut: payOutputs) + opReturnLen) * feePerByte
         throw Failure.insufficientFunds(needed: neededAtMin, have: sum)
     }
+
+    // MARK: - fixed inputs (the Cash pane's "spend exactly these")
+
+    /// Price a payment whose inputs are already decided — the Cash
+    /// pane's Send, where the user ticked the cashes themselves.
+    ///
+    /// Every cash in `cashes` is spent, in the order given: nothing is
+    /// selected and nothing is dropped, because the input set *is* the
+    /// user's instruction. All that's left to compute is the fee and
+    /// whether the remainder is worth a change output. A remainder at
+    /// or below the dust threshold burns as extra fee, exactly as in
+    /// ``select(cashes:amount:feePerByte:)`` — the recipient still
+    /// receives `amount` either way.
+    public static func fixed(
+        cashes: [Cash],
+        amount: Int64,
+        feePerByte: Int64 = 1
+    ) throws -> Plan {
+        guard amount > 0 else { throw Failure.nonPositiveAmount(amount) }
+        guard feePerByte > 0 else { throw Failure.nonPositiveFeeRate(feePerByte) }
+
+        let sum = cashes.reduce(Int64(0)) { $0 + $1.value }
+        let nIn = cashes.count
+
+        let twoOutSize = sizeFor(nIn: nIn, nOut: 2)
+        let twoOutFee = Int64(twoOutSize) * feePerByte
+        let change = sum - amount - twoOutFee
+        if change >= dustThresholdSats {
+            return Plan(
+                selected: cashes, change: change,
+                fee: twoOutFee, estimatedSize: twoOutSize
+            )
+        }
+
+        let oneOutSize = sizeFor(nIn: nIn, nOut: 1)
+        let oneOutFee = Int64(oneOutSize) * feePerByte
+        if sum >= amount + oneOutFee {
+            return Plan(
+                selected: cashes, change: 0,
+                fee: sum - amount, estimatedSize: oneOutSize
+            )
+        }
+        throw Failure.insufficientFunds(needed: amount + oneOutFee, have: sum)
+    }
 }

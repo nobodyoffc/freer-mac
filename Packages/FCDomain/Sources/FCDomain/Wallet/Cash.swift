@@ -29,6 +29,15 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
 
     public static let satoshisPerBch: Int64 = 100_000_000
 
+    /// How deep a chain of *unconfirmed* spends the network will carry.
+    /// A cash minted by a transaction still in the mempool can be spent
+    /// again straight away — that is what makes a wallet usable at the
+    /// speed people expect — but only until the chain of such spends
+    /// reaches this length, after which the node rejects the next one
+    /// as `too-long-mempool-chain` and the whole line has to wait for a
+    /// block. Matches the Android client's limit.
+    public static let maxUnconfirmedChain: Int = 20
+
     /// `sha256d(reverse(birthTxId) || birthIndex)` — server-computed,
     /// stable identifier across snapshots.
     public var id: String?
@@ -92,6 +101,18 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
     /// the one place that creates `.unknown` rows.
     public var localState: LocalState
 
+    /// How many unconfirmed transactions stand between this cash and
+    /// the last confirmed block — 0 for anything the chain has
+    /// accepted, 1 for an output of our own just-broadcast tx, `n+1`
+    /// for a cash minted by spending one at depth `n`. Local-only, and
+    /// reset to 0 the moment a sync sees the cash on chain.
+    ///
+    /// Depth is what enforces ``maxUnconfirmedChain``: without it the
+    /// wallet would happily build a 21st-generation spend that the
+    /// node silently drops, and the user would watch a transaction
+    /// that never arrives with nothing to explain why.
+    public var unconfirmedDepth: Int
+
     /// `true` iff this cash was used as an input in a locally-broadcast
     /// transaction whose confirmation we haven't observed yet. The
     /// row stays in the cache (so manual recovery can restore it) but
@@ -127,7 +148,8 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
         spendTime: Int64? = nil,
         spendIndex: Int? = nil,
         localState: LocalState = .onchain,
-        pendingSpend: Bool = false
+        pendingSpend: Bool = false,
+        unconfirmedDepth: Int = 0
     ) {
         self.id = id
         self.owner = owner
@@ -154,6 +176,7 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
         self.spendIndex = spendIndex
         self.localState = localState
         self.pendingSpend = pendingSpend
+        self.unconfirmedDepth = unconfirmedDepth
     }
 
     // MARK: - Codable
@@ -163,7 +186,7 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
         case redeemScript, lockTime, birthBlockId, birthHeight, birthTime, birthTxIndex
         case cd, cdd, valid, issuer, lastTime, lastHeight
         case spendTxId, spendHeight, spendTime, spendIndex
-        case localState, pendingSpend
+        case localState, pendingSpend, unconfirmedDepth
     }
 
     /// Decoder is hand-rolled so that older on-disk blobs (which
@@ -197,6 +220,15 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
         self.spendIndex   = try c.decodeIfPresent(Int.self,     forKey: .spendIndex)
         self.localState   = try c.decodeIfPresent(LocalState.self, forKey: .localState) ?? .onchain
         self.pendingSpend = try c.decodeIfPresent(Bool.self,    forKey: .pendingSpend) ?? false
+        self.unconfirmedDepth = try c.decodeIfPresent(Int.self,  forKey: .unconfirmedDepth) ?? 0
+    }
+
+    /// Can this cash still fund a transaction the mempool will accept?
+    /// False once its unconfirmed ancestry reaches
+    /// ``maxUnconfirmedChain`` — the next spend would be one link too
+    /// far.
+    public var withinUnconfirmedChainLimit: Bool {
+        unconfirmedDepth < Cash.maxUnconfirmedChain
     }
 
     /// Compute the canonical cash id from `(birthTxId, birthIndex)` —

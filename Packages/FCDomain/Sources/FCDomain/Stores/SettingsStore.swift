@@ -33,6 +33,12 @@ public struct Preferences: Codable, Equatable, Sendable {
     /// was larger than what we would otherwise pay (Android's
     /// `PAY_BACK_NOTICE_FEE`, on by default). Nil means on.
     public var payBackNoticeFee: Bool?
+    /// Show the transaction — inputs, outputs, fee, and any carved
+    /// payload — for approval before anything is signed. Nil means on,
+    /// which matches the Android client's `userConfirmTx` default and
+    /// is the only safe default: a wallet that signs without showing
+    /// its work asks the user to trust code they cannot see.
+    public var confirmBeforeSigning: Bool?
     public var theme: Theme?
     public var autoLockSeconds: Int?
 
@@ -49,6 +55,7 @@ public struct Preferences: Codable, Equatable, Sendable {
         preferredDiskServiceSid: String? = nil,
         maxPayingNoticeFeeSats: Int64? = nil,
         payBackNoticeFee: Bool? = nil,
+        confirmBeforeSigning: Bool? = nil,
         theme: Theme? = nil,
         autoLockSeconds: Int? = nil
     ) {
@@ -58,6 +65,7 @@ public struct Preferences: Codable, Equatable, Sendable {
         self.preferredDiskServiceSid = preferredDiskServiceSid
         self.maxPayingNoticeFeeSats = maxPayingNoticeFeeSats
         self.payBackNoticeFee = payBackNoticeFee
+        self.confirmBeforeSigning = confirmBeforeSigning
         self.theme = theme
         self.autoLockSeconds = autoLockSeconds
     }

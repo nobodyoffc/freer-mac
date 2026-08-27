@@ -29,11 +29,16 @@ struct ContactsView: View {
 
     enum EditorMode: Identifiable {
         case create
+        /// A new contact for a FID the user arrived with — the News
+        /// feed's "add doer to contacts". Same save path as ``create``;
+        /// only the FID starts filled in.
+        case createFor(String)
         case edit(Contact)
 
         var id: String {
             switch self {
             case .create: return "create"
+            case .createFor(let fid): return "createFor:\(fid)"
             case .edit(let c): return "edit:\(c.id)"
             }
         }

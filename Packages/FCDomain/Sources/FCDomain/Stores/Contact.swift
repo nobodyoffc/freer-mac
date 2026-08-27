@@ -1,4 +1,5 @@
 import Foundation
+import FCCore
 
 /// One entry in the live FID's address book. Mirrors the Java
 /// `com.fc.fc_ajdk.data.feipData.Contact` so an Android-saved contact
@@ -152,6 +153,10 @@ public struct ContactMeta: Codable, Equatable, Hashable, Sendable {
 /// contact's FID resolves to a P2SH multisig address rather than a
 /// P2PKH one. Mirrors the Java `Contact.Multisig` shape.
 public struct Multisig: Codable, Equatable, Hashable, Sendable {
+    /// The 3… address the group is known by — the base multisig
+    /// address, even when the coins sit at a time-locked variant of it.
+    /// Java's `Multisig extends FcObject` gets this from `FcObject.id`.
+    public var id: String?
     public var redeemScript: String?
     public var m: Int?
     public var n: Int?
@@ -164,4 +169,60 @@ public struct Multisig: Codable, Equatable, Hashable, Sendable {
     public var label: String?
 
     public init() {}
+
+    /// Build a group from its members' pubkeys. `n` defaults to the
+    /// number of keys given, because a group whose stated size differs
+    /// from its membership is a redeem script nobody can satisfy.
+    ///
+    /// Mirrors Java's `Multisig(P2SH)` plus `makeMultisignFid`, and
+    /// like it stores the **plain** multisig redeem script even for a
+    /// time-locked group: the lock belongs to individual outputs, which
+    /// each carry their own prefixed script, while the group's identity
+    /// is the bare body.
+    public init(pubkeys: [String], m: Int, n: Int? = nil) throws {
+        let count = n ?? pubkeys.count
+        let p2sh = try P2sh(pubkeys: pubkeys, m: m, n: count, lockTime: nil)
+        self.init()
+        self.id = p2sh.fid
+        self.redeemScript = p2sh.redeemScriptHex
+        self.m = m
+        self.n = count
+        self.pubkeys = pubkeys
+        self.fids = try pubkeys.map { hex in
+            guard let data = Hex.decodeOrNil(hex) else {
+                throw P2sh.Failure.notHex(hex)
+            }
+            return try FchAddress(publicKey: data).fid
+        }
+    }
+
+    /// Recover a group from a redeem script — Java's
+    /// `parseMultisigRedeemScript`. Accepts the time-locked form too,
+    /// and normalises it to the base group the way the Java
+    /// `Multisig(P2SH)` constructor does.
+    public init(redeemScriptHex: String) throws {
+        let p2sh = try P2sh(redeemScriptHex: redeemScriptHex)
+        guard p2sh.kind == .multisig || p2sh.kind == .multisigCltv,
+              let keys = p2sh.pubkeys, let m = p2sh.m, let n = p2sh.n
+        else {
+            throw P2sh.Failure.missingCheckMultisig
+        }
+        try self.init(pubkeys: keys, m: m, n: n)
+    }
+
+    /// The address coins are actually paid to for a given lock — the
+    /// base address when `lockTime` is nil, a different 3… address
+    /// otherwise. See ``P2sh`` on why those are not the same thing.
+    public func address(lockTime: Int64? = nil) throws -> String {
+        guard let pubkeys, let m, let n else { throw P2sh.Failure.badThreshold(m: m, n: n) }
+        return try P2sh(pubkeys: pubkeys, m: m, n: n, lockTime: lockTime).address
+    }
+
+    /// The redeem script an output with this lock is spent by.
+    public func redeemScript(lockTime: Int64?) throws -> String {
+        guard let pubkeys, let m, let n else { throw P2sh.Failure.badThreshold(m: m, n: n) }
+        return try P2sh(pubkeys: pubkeys, m: m, n: n, lockTime: lockTime).redeemScriptHex
+    }
+
+    public func contains(_ fid: String) -> Bool { (fids ?? []).contains(fid) }
 }

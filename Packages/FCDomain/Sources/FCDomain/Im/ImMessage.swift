@@ -197,6 +197,30 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         id = Self.hexId(fudpId: fudpId)
     }
 
+    /// A fresh 64-bit id — the same thing FUDP's `generateMessageId`
+    /// does: a random 64-bit number both ends refer to the message by.
+    public static func newFudpId() -> Int64 {
+        Int64.random(in: 1...Int64.max)
+    }
+
+    /// A copy named for the wire, if it has no name yet.
+    ///
+    /// The factories deliberately leave the id unset, but nothing can
+    /// reach ``MessageQueue`` without one: the outbox is keyed by the id
+    /// and throws without it. ``ChatService/send(_:in:as:keys:now:)``
+    /// names everything that passes through it — this is for the
+    /// protocol messages that are built and handed straight back to a
+    /// caller to enqueue, which pass through it and get named nowhere.
+    ///
+    /// A message that already has an id keeps it. Renaming one would
+    /// break the receipt that is coming back under the old name.
+    public func named() -> ImMessage {
+        if let id, !id.isEmpty { return self }
+        var copy = self
+        copy.setId(fudpId: Self.newFudpId())
+        return copy
+    }
+
     /// Whether a FUDP-shaped id has been assigned. A 64-char hash would
     /// answer `false` here, which is exactly the accident this guards.
     public var hasFudpId: Bool { id?.count == 16 }

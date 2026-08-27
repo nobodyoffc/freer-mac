@@ -32,8 +32,12 @@ struct NewChatSheet: View {
     /// Which flavour is being made. Authoritative — the sheet never
     /// crosses from one to another.
     var mode: ImType = .p2p
-    /// Called with the conversation id to select.
-    let onOpened: (String) -> Void
+    /// Called with the conversation id to select, and anything the user
+    /// still needs told. The sheet closes on this, so a note it left on
+    /// its own screen would never be read — creating a room is the case
+    /// that has something to say (members with no DOCK were not written
+    /// to), and it has to survive the sheet.
+    let onOpened: (String, String?) -> Void
     let onCancel: () -> Void
 
     /// The one question a team and a square still leave open.
@@ -47,12 +51,20 @@ struct NewChatSheet: View {
 
     // Chat
     @State private var contactFid = ""
-    @State private var contacts: [Contact] = []
+    @State private var chatParty: PickedFid?
 
     // Room
     @State private var roomName = ""
     @State private var roomDesc = ""
-    @State private var roomMembers = ""
+    /// The room's DOCK, as a service id or a direct address. Android's
+    /// `room_dock_input`.
+    @State private var roomDock = ""
+    @State private var roomInvitees: [PickedFid] = []
+    @State private var pickingDock = false
+
+    /// Which pick the open picker is for. One sheet, two jobs — the
+    /// request says which.
+    @State private var pick: FidPickerRequest?
 
     // Join a team or a square
     @State private var joinId = ""
@@ -61,6 +73,11 @@ struct NewChatSheet: View {
     @State private var groupName = ""
     @State private var groupDesc = ""
     @State private var consensusId = ""
+    /// The group's DOCK. Android asks for one on both create screens,
+    /// and it is not optional in practice: a team or a square with no
+    /// DOCK is one whose members have nowhere to leave a message, so it
+    /// can be carved and then never spoken in.
+    @State private var groupDock = ""
 
     @State private var working = false
     @State private var error: String?
@@ -108,7 +125,46 @@ struct NewChatSheet: View {
         }
         .padding(20)
         .frame(width: 480)
-        .onAppear { contacts = (try? session.contacts.all()) ?? [] }
+        .sheet(item: $pick) { request in
+            FidPickerSheet(session: session, request: request) { picked in
+                receive(picked)
+                pick = nil
+            } onCancel: {
+                pick = nil
+            }
+        }
+        .sheet(isPresented: $pickingDock) {
+            ServicePickerSheet(
+                session: session,
+                component: ServiceName.dock,
+                title: "Choose this \(style.noun)'s DOCK",
+                subtitle: "The \(style.noun)'s messages rest here until each member collects them. Everyone reads from the same one, so it is set once for the whole \(style.noun).",
+                initialQuery: mode == .room ? roomDock : groupDock
+            ) { service in
+                // The service id, not the address: the server can move,
+                // and every member re-resolves the id through the chain.
+                if mode == .room { roomDock = service.sid } else { groupDock = service.sid }
+                pickingDock = false
+            } onCancel: {
+                pickingDock = false
+            }
+        }
+    }
+
+    /// Route a pick back to whichever form asked for it. The mode is
+    /// fixed by the caller, so there is no third possibility.
+    private func receive(_ picked: [PickedFid]) {
+        switch mode {
+        case .p2p:
+            guard let one = picked.first else { return }
+            chatParty = one
+            contactFid = one.fid
+        case .room:
+            let known = Set(roomInvitees.map(\.fid))
+            roomInvitees.append(contentsOf: picked.filter { !known.contains($0.fid) })
+        case .team, .square:
+            break
+        }
     }
 
     private var title: String {
@@ -134,31 +190,39 @@ struct NewChatSheet: View {
 
     private var chatForm: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField("FID", text: $contactFid, prompt: Text("F…"))
-                .font(.system(.body, design: .monospaced))
-
-            if !contacts.isEmpty {
-                Text("Contacts").font(.caption).foregroundStyle(.secondary)
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 0) {
-                        ForEach(contacts, id: \.id) { contact in
-                            Button {
-                                contactFid = contact.id
-                            } label: {
-                                HStack(spacing: 8) {
-                                    FidAvatarView(fid: contact.id, size: 22)
-                                    Text(contact.name)
-                                        .lineLimit(1)
-                                    Spacer()
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.borderless)
-                            .padding(.vertical, 4)
+            LabeledField("FID") {
+                HStack(spacing: 8) {
+                    TextField("", text: $contactFid, prompt: Text("F…"))
+                        .font(.system(.body, design: .monospaced))
+                        .fieldInputStyle()
+                        .onChange(of: contactFid) { _, new in
+                            // Typing over a pick drops what came with it.
+                            if chatParty?.fid != new { chatParty = nil }
                         }
+                    Button {
+                        pick = .one(
+                            title: "Who is this chat with?",
+                            subtitle: "Search your contacts, or look up a FID or CID on chain."
+                        )
+                    } label: {
+                        Label("Find…", systemImage: "person.text.rectangle")
                     }
+                    .help("Search contacts and the chain for the person to chat with.")
                 }
-                .frame(maxHeight: 160)
+            }
+
+            if let party = chatParty {
+                HStack(spacing: 8) {
+                    FidAvatarView(fid: party.fid, size: 24)
+                    Text(party.name).font(.callout).lineLimit(1)
+                    if party.pubkey == nil {
+                        Label("no published key", systemImage: "lock.open")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .help("They haven't published a public key, so messages to them can't be encrypted until they do.")
+                    }
+                    Spacer()
+                }
             }
 
             Text("Opens a thread on this device. Messages to them are encrypted so that both of you can reopen them.")
@@ -169,12 +233,90 @@ struct NewChatSheet: View {
     }
 
     private var roomForm: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField("Name", text: $roomName, prompt: Text("The Usual Place"))
-            TextField("Description", text: $roomDesc, prompt: Text("optional"))
-            TextField("Invite (one FID per line)", text: $roomMembers, axis: .vertical)
-                .lineLimit(2...5)
-                .font(.system(.body, design: .monospaced))
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledField("Room name") {
+                TextField("", text: $roomName, prompt: Text("The Usual Place"))
+                    .fieldInputStyle()
+            }
+            LabeledField("Description") {
+                TextField("", text: $roomDesc, prompt: Text("optional"))
+                    .fieldInputStyle()
+            }
+
+            LabeledField(
+                "DOCK",
+                hint: "Where this room's messages rest until each member collects them. Without one there is nowhere for them to wait, so the room can be created but nothing can be said in it until you set one."
+            ) {
+                HStack(spacing: 8) {
+                    TextField("", text: $roomDock, prompt: Text("service id, or host:port"))
+                        .font(.system(.body, design: .monospaced))
+                        .fieldInputStyle()
+                    Button {
+                        pickingDock = true
+                    } label: {
+                        Label("Find…", systemImage: "server.rack")
+                    }
+                    .help("Search the chain for a server that offers DOCK.")
+                }
+            }
+
+            HStack(spacing: 8) {
+                Text("Invite")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .textCase(.uppercase)
+                    .tracking(0.5)
+                    .foregroundStyle(.secondary)
+                Button {
+                    pick = .many(
+                        title: "Invite to this room",
+                        subtitle: "Everyone picked gets the room's key sealed to their public key, when we know it.",
+                        confirmTitle: "Invite",
+                        preselected: roomInvitees,
+                        excluded: [session.liveFid]
+                    )
+                } label: {
+                    Label("Add people…", systemImage: "person.crop.circle.badge.plus")
+                }
+                Spacer()
+                if !roomInvitees.isEmpty {
+                    Button("Clear") { roomInvitees = [] }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                }
+            }
+
+            if !roomInvitees.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(roomInvitees) { invitee in
+                            HStack(spacing: 5) {
+                                FidAvatarView(fid: invitee.fid, size: 18)
+                                Text(invitee.cid ?? invitee.fid.elidingMiddle(head: 6, tail: 6))
+                                    .font(.caption)
+                                if invitee.pubkey == nil {
+                                    Image(systemName: "lock.open")
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
+                                        .help("No published key — they'll be invited without the room key and have to ask for it.")
+                                }
+                                Button {
+                                    roomInvitees.removeAll { $0.fid == invitee.fid }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Color.accentColor.opacity(0.14)))
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
 
             Text("Costs nothing and asks nobody: a room exists only on the devices that hold it. Each invitation carries the room's key sealed to that person — anyone whose public key we can't find is invited without one and has to ask.")
                 .font(.caption)
@@ -185,8 +327,11 @@ struct NewChatSheet: View {
 
     private var joinForm: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TextField(mode == .team ? "Team id" : "Square id", text: $joinId)
-                .font(.system(.body, design: .monospaced))
+            LabeledField(mode == .team ? "Team id" : "Square id") {
+                TextField("", text: $joinId, prompt: Text("the create carve's txid"))
+                    .font(.system(.body, design: .monospaced))
+                    .fieldInputStyle()
+            }
 
             Text(mode == .team
                  ? "Joining a team is a transaction: carved on chain, costs a miner fee, and is public. The carve quotes the team's consensus document, so joining is a signed statement that you agree to it."
@@ -198,17 +343,45 @@ struct NewChatSheet: View {
     }
 
     private var createGroupForm: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            TextField("Name", text: $groupName, prompt: Text(mode == .team ? "The Standard Name" : "The Square"))
-            TextField("Description", text: $groupDesc, prompt: Text("optional"))
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledField(mode == .team ? "Team name" : "Square name") {
+                TextField(
+                    "", text: $groupName,
+                    prompt: Text(mode == .team ? "The Standard Name" : "The Square")
+                )
+                .fieldInputStyle()
+            }
+            LabeledField("Description") {
+                TextField("", text: $groupDesc, prompt: Text("optional"))
+                    .fieldInputStyle()
+            }
 
             if mode == .team {
-                TextField("Consensus document id", text: $consensusId, prompt: Text("optional, but see below"))
-                    .font(.system(.body, design: .monospaced))
-                Text("The consensus document is what members agree to when they join — their carve quotes it, which is what makes agreement a public, signed act rather than a checkbox. A team created without one has nothing for its members to agree to.")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                LabeledField(
+                    "Consensus document id",
+                    hint: "The consensus document is what members agree to when they join — their carve quotes it, which is what makes agreement a public, signed act rather than a checkbox. A team created without one has nothing for its members to agree to."
+                ) {
+                    TextField("", text: $consensusId, prompt: Text("optional, but see below"))
+                        .font(.system(.body, design: .monospaced))
+                        .fieldInputStyle()
+                }
+            }
+
+            LabeledField(
+                "DOCK",
+                hint: "Where this \(style.noun)'s messages rest until each member collects them. It is carved with the \(style.noun), and a \(style.noun) created without one cannot be spoken in until a later update sets it — which is another transaction."
+            ) {
+                HStack(spacing: 8) {
+                    TextField("", text: $groupDock, prompt: Text("service id, or host:port"))
+                        .font(.system(.body, design: .monospaced))
+                        .fieldInputStyle()
+                    Button {
+                        pickingDock = true
+                    } label: {
+                        Label("Find…", systemImage: "server.rack")
+                    }
+                    .help("Search the chain for a server that offers DOCK.")
+                }
             }
 
             Text("Creating is a transaction: it costs a miner fee and is public. **The id is the carve's own txid**, so nothing appears here until it confirms and you refresh — you are its first member either way.")
@@ -264,7 +437,8 @@ struct NewChatSheet: View {
             if try session.conversations.get(id: id) == nil {
                 var conversation = Conversation(id: id, targetId: fid, type: .p2p)
                 conversation.unreadCount = 0
-                conversation.displayName = try session.contacts.get(fid: fid)?.cid
+                conversation.displayName = try chatParty.flatMap { $0.fid == fid ? $0.cid : nil }
+                    ?? session.contacts.get(fid: fid)?.cid
                 try session.conversations.upsert(conversation)
             }
             // Opening a thread with somebody is consent to hear from
@@ -272,7 +446,7 @@ struct NewChatSheet: View {
             // stranger gate and be held as a request, which would be an
             // absurd thing to do to a conversation the user just started.
             try session.contactPolicy.mutate(liveFid: session.liveFid) { $0.allow(fid) }
-            onOpened(id)
+            onOpened(id, nil)
         } catch {
             self.error = String(describing: error)
         }
@@ -280,29 +454,48 @@ struct NewChatSheet: View {
 
     private func createRoom() {
         do {
-            let members = roomMembers
-                .split(whereSeparator: \.isNewline)
-                .map { $0.trimmingCharacters(in: .whitespaces) }
-                .filter { !$0.isEmpty }
+            let members = roomInvitees.map(\.fid)
+            // The picker looks each pick up as it is chosen, so the key
+            // an invitation is sealed to is the one the chain published
+            // moments ago — fresher than whatever the local contact row
+            // happens to hold. Contacts remain the fallback for a pick
+            // the directory couldn't answer for.
+            let pickedPubkeys = Dictionary(
+                roomInvitees.compactMap { p in p.pubkey.map { (p.fid, $0) } },
+                uniquingKeysWith: { first, _ in first }
+            )
 
+            // Same argument for the home map: the picker's on-chain
+            // record is fresher than the contact row, and a member whose
+            // record we have never fetched reads as "no DOCK" — which is
+            // the honest answer and the one that keeps an undeliverable
+            // invitation out of the outbox.
+            let pickedHomes = Dictionary(
+                roomInvitees.compactMap { p in p.freer?.home.map { (p.fid, $0) } },
+                uniquingKeysWith: { first, _ in first }
+            )
+
+            let dock = roomDock.trimmingCharacters(in: .whitespaces)
             let service = try session.roomService
-            let (room, invitations) = try service.create(
+            let created = try service.create(
                 name: roomName.trimmingCharacters(in: .whitespaces),
                 desc: roomDesc.isEmpty ? nil : roomDesc,
                 owner: session.liveFid,
                 invite: members,
-                pubkeys: { fid in try session.contacts.get(fid: fid)?.pubkey }
+                home: dock.isEmpty ? nil : [ServiceName.dock: dock],
+                pubkeys: { fid in
+                    try pickedPubkeys[fid] ?? session.contacts.get(fid: fid)?.pubkey
+                },
+                homes: { fid in
+                    try pickedHomes[fid] ?? session.knownHome(of: fid)
+                }
             )
+            let room = created.room
+            let invitations = created.invitations
             guard let roomId = room.id else { return }
 
             let conversationId = Conversation.id(type: .room, targetId: roomId)
-            var conversation = Conversation(id: conversationId, targetId: roomId, type: .room)
-            conversation.displayName = room.name
-            conversation.memberNum = Int64(room.memberCount)
-            conversation.unreadCount = 0
-            conversation.hasSymkey = true
-            conversation.symkeyVersion = room.symkeyVersion
-            try session.conversations.upsert(conversation)
+            try session.roomConversations.sync(roomId)
 
             // The invitations are P2P control messages, so they queue
             // like anything else and go out on the next send.
@@ -312,8 +505,17 @@ struct NewChatSheet: View {
                     invitation, in: Conversation.id(type: .p2p, targetId: to)
                 )
             }
-            note = invitations.isEmpty ? nil : "\(invitations.count) invitation(s) queued."
-            onOpened(conversationId)
+            var lines: [String] = []
+            if !invitations.isEmpty { lines.append("\(invitations.count) invitation(s) queued.") }
+            if !created.unreachable.isEmpty {
+                lines.append(
+                    "\(created.unreachable.count) invited member(s) publish no DOCK, so there is nowhere to leave an invitation for them — they are in the room, and you can share its details again once they have a server."
+                )
+            }
+            if dock.isEmpty {
+                lines.append("No DOCK set: nothing can be said here until you set one.")
+            }
+            onOpened(conversationId, lines.isEmpty ? nil : lines.joined(separator: " "))
         } catch {
             self.error = String(describing: error)
         }
@@ -354,6 +556,11 @@ struct NewChatSheet: View {
         await MainActor.run { working = true }
         let name = groupName.trimmingCharacters(in: .whitespaces)
         let desc = groupDesc.trimmingCharacters(in: .whitespaces)
+        let dock = groupDock.trimmingCharacters(in: .whitespaces)
+        // The service id goes on the chain, not the address it currently
+        // resolves to — the same reasoning as a room's DOCK, except that
+        // here it is public and everyone reads it from the same record.
+        let home = dock.isEmpty ? nil : [ServiceName.dock: dock]
         do {
             let txid: String
             if mode == .team {
@@ -361,16 +568,21 @@ struct NewChatSheet: View {
                 txid = try await session.carveTeamCreateOnChain(
                     stdName: name,
                     desc: desc.isEmpty ? nil : desc,
-                    consensusId: consensus.isEmpty ? nil : consensus
+                    consensusId: consensus.isEmpty ? nil : consensus,
+                    home: home
                 )
             } else {
                 txid = try await session.carveSquareCreateOnChain(
-                    name: name, desc: desc.isEmpty ? nil : desc
+                    name: name, desc: desc.isEmpty ? nil : desc, home: home
                 )
             }
             await MainActor.run {
                 working = false
-                note = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). That txid is the \(style.noun)'s id. It appears here once the carve confirms and you refresh."
+                var lines = ["Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). That txid is the \(style.noun)'s id. It appears here once the carve confirms and you refresh."]
+                if dock.isEmpty {
+                    lines.append("No DOCK was carved, so nothing can be said here until you set one — which is another transaction.")
+                }
+                note = lines.joined(separator: " ")
             }
         } catch {
             await MainActor.run {

@@ -21,7 +21,8 @@ let package = Package(
             name: "FCDomainTests",
             dependencies: ["FCDomain"],
             resources: [
-                .process("Resources/domainVectors.json")
+                .process("Resources/domainVectors.json"),
+                .process("Resources/txFeeVectors.json")
             ]
         )
     ]

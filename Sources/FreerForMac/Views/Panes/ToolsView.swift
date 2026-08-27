@@ -59,38 +59,9 @@ struct ToolsView: View {
 }
 
 // MARK: - Shared bits
-
-/// Multiline monospaced editor with a subtle border — for ciphers,
-/// signature JSON, and long messages.
-private struct ToolTextEditor: View {
-    let placeholder: String
-    @Binding var text: String
-    var minHeight: CGFloat = 64
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $text)
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(4)
-            if text.isEmpty {
-                Text(placeholder)
-                    .foregroundStyle(.tertiary)
-                    .font(.system(.body, design: .monospaced))
-                    .padding(.top, 8)
-                    .padding(.leading, 9)
-                    .allowsHitTesting(false)
-            }
-        }
-        .frame(minHeight: minHeight)
-        .background(Color(NSColor.textBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(Color(NSColor.separatorColor))
-        )
-    }
-}
+//
+// `ToolTextEditor`, `ToolResultTable` and `errorText` live in
+// ToolFormControls.swift, shared with ConvertView.
 
 /// Result block: monospaced, click-to-copy, hidden until non-empty.
 private struct ToolResult: View {
@@ -111,12 +82,6 @@ private struct ToolResult: View {
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
     }
-}
-
-private func errorText(_ error: Error) -> String {
-    // Our Failure enums are CustomStringConvertible; String(describing:)
-    // surfaces their message. Foreign NSErrors read acceptably too.
-    String(describing: error)
 }
 
 // MARK: - Encrypt

@@ -79,6 +79,15 @@ public struct CashSnapshot: Codable, Equatable, Sendable {
         return cashes.count < before
     }
 
+    /// The row this snapshot already holds for `cash`, if any —
+    /// matched the same way ``upsert(_:)`` matches. Callers merging a
+    /// server response need it to carry local annotations across: the
+    /// server's copy of a cash knows nothing about a spend we
+    /// broadcast a second ago.
+    public func row(matching cash: Cash) -> Cash? {
+        indexOf(cash).map { cashes[$0] }
+    }
+
     /// Locate the index of an existing row that should be replaced
     /// when upserting `cash`. Matches by id first, then by
     /// `(birthTxId, birthIndex)` as a fallback.

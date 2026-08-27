@@ -68,6 +68,31 @@ public struct KeyInfo: Codable, Equatable, Hashable, Sendable {
     public var master: String?
     public var savedAt: Date
 
+    /// The registered on-chain name, when this FID has bought one.
+    ///
+    /// The one piece of chain state that belongs here rather than in
+    /// ``LiveFidInfo``. Balances tick; a CID is a name someone paid to
+    /// register and it changes approximately never — and the identity
+    /// chooser needs it *before* any ``Setting`` is decrypted, so the
+    /// Configure body is the only place it can live. Android reaches the
+    /// same conclusion from the other direction: its `KeyInfo extends
+    /// Freer`, which is why the map holding these is called
+    /// `mainCidInfoMap`.
+    ///
+    /// Written by ``ActiveSession/refreshLiveFidInfo(timeoutMs:)``, and
+    /// only when it actually changed.
+    public var cid: String?
+
+    /// The group behind a ``KeyKind/multisig`` entry: its members,
+    /// their order, and m-of-n. Nil for every other kind.
+    ///
+    /// This is what makes a multisig entry usable rather than just a
+    /// 3… address in a list — the redeem script here is what a spend
+    /// from the group is signed against, and the member order is the
+    /// order `OP_CHECKMULTISIG` reads signatures in. Java keeps it in
+    /// the same place, as `KeyInfo.multisign`.
+    public var multisig: Multisig?
+
     public init(
         fid: String,
         pubkey: Data? = nil,
@@ -75,7 +100,9 @@ public struct KeyInfo: Codable, Equatable, Hashable, Sendable {
         label: String = "",
         kind: KeyKind = .main,
         master: String? = nil,
-        savedAt: Date = Date()
+        savedAt: Date = Date(),
+        cid: String? = nil,
+        multisig: Multisig? = nil
     ) {
         self.fid = fid
         self.pubkey = pubkey
@@ -84,6 +111,17 @@ public struct KeyInfo: Codable, Equatable, Hashable, Sendable {
         self.kind = kind
         self.master = master
         self.savedAt = savedAt
+        self.cid = cid
+        self.multisig = multisig
+    }
+
+    /// The CID, if this identity has a usable one. Blank and
+    /// whitespace-only values read as "no CID" so a stray space from the
+    /// index cannot produce an invisible name.
+    public var activeCid: String? {
+        guard let cid else { return nil }
+        let trimmed = cid.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 
     /// Whether this key has a privkey we can decrypt. Watch-only keys

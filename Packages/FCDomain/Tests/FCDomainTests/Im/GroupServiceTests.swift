@@ -131,6 +131,94 @@ final class GroupServiceTests: XCTestCase {
         )
     }
 
+    /// An update speaks only about the fields it carries: a `nil` is
+    /// absent, and an absent field is one the op says nothing about.
+    /// Carving an unchanged `home` would announce a DOCK move to
+    /// everyone for no reason.
+    func testTeamUpdateCarvesOnlyTheFieldsGiven() async throws {
+        let broadcast = Captured()
+        stageFundedWallet(onBroadcast: { broadcast.value = $0 })
+
+        _ = try await session.carveTeamUpdateOnChain(
+            teamId: teamId, stdName: "The Renamed Team", consensusId: "did:consensus"
+        )
+
+        let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
+        XCTAssertNotNil(raw.range(of: Data(#""sn":"18","ver":"1","name":"Team""#.utf8)))
+        XCTAssertNotNil(raw.range(of: Data(#""op":"update","tid":"\#(teamId)""#.utf8)))
+        XCTAssertNotNil(raw.range(of: Data(#""stdName":"The Renamed Team""#.utf8)))
+        XCTAssertNil(raw.range(of: Data("\"desc\"".utf8)))
+        XCTAssertNil(raw.range(of: Data("\"home\"".utf8)))
+    }
+
+    /// **A square's coin-day price is its whole governance.** Nobody
+    /// owns one, so the only thing between a square and a renaming war
+    /// is `cddToUpdate` — and the carve has to *beat* it, not match it,
+    /// exactly as Android refuses on `totalCd <= cddToUpdate`.
+    ///
+    /// The price is read from the square's own record, so a caller
+    /// cannot forget to pay it.
+    func testSquareUpdateMustOutbidTheSquaresCoinDayPrice() async throws {
+        try session.squares.upsert(
+            Square(name: "The Square", members: [me], cddToUpdate: 7, id: squareId)
+        )
+        stageFundedWallet(cd: 7, onBroadcast: { _ in })
+
+        do {
+            _ = try await session.carveSquareUpdateOnChain(squareId: squareId, name: "Renamed")
+            XCTFail("expected the carve to refuse: 7 CD only matches the price")
+        } catch let failure as CoinSelector.Failure {
+            guard case let .insufficientCoinDays(required, have) = failure else {
+                return XCTFail("expected insufficientCoinDays, got \(failure)")
+            }
+            XCTAssertEqual(required, 8)
+            XCTAssertEqual(have, 7)
+        }
+    }
+
+    /// **Beating the price is the whole permission.** The square here
+    /// was last named by somebody else and we have never named it, which
+    /// under a role-based reading would forbid this carve — there is no
+    /// such reading. Nobody owns a square; the coin-days decide.
+    func testSquareUpdateCarvesOnceTheCoinDaysBeatThePrice() async throws {
+        try session.squares.upsert(
+            Square(
+                name: "The Square", namers: [alice], members: [alice, me],
+                cddToUpdate: 7, id: squareId
+            )
+        )
+        let broadcast = Captured()
+        stageFundedWallet(cd: 8, onBroadcast: { broadcast.value = $0 })
+
+        _ = try await session.carveSquareUpdateOnChain(
+            squareId: squareId, name: "Renamed", home: [ServiceName.dock: "sid-dock"]
+        )
+
+        let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
+        XCTAssertNotNil(raw.range(of: Data(#""sn":"19","ver":"4","name":"Square""#.utf8)))
+        XCTAssertNotNil(raw.range(of: Data(#""op":"update","squareId":"\#(squareId)""#.utf8)))
+        XCTAssertNotNil(raw.range(of: Data(#""name":"Renamed""#.utf8)))
+        XCTAssertNotNil(raw.range(of: Data(#""home":{"\#(ServiceName.dock)":"sid-dock"}"#.utf8)))
+    }
+
+    /// A square that states no price still costs what every FEIP carve
+    /// costs, so the floor never drops below the rule everything else
+    /// already obeys.
+    func testSquareWithNoStatedPriceStillCostsOneCoinDay() async throws {
+        try session.squares.upsert(Square(name: "The Square", members: [me], id: squareId))
+        stageFundedWallet(cd: 0, onBroadcast: { _ in })
+
+        do {
+            _ = try await session.carveSquareUpdateOnChain(squareId: squareId, name: "Renamed")
+            XCTFail("expected the carve to refuse: no coin-days at all")
+        } catch let failure as CoinSelector.Failure {
+            guard case let .insufficientCoinDays(required, _) = failure else {
+                return XCTFail("expected insufficientCoinDays, got \(failure)")
+            }
+            XCTAssertEqual(required, 1)
+        }
+    }
+
     func testSquareLeaveCarvesTheWholeList() async throws {
         let broadcast = Captured()
         stageFundedWallet(onBroadcast: { broadcast.value = $0 })
@@ -231,6 +319,9 @@ final class GroupServiceTests: XCTestCase {
         XCTAssertEqual(conv.displayName, "The Team")
         XCTAssertEqual(conv.memberNum, 2)
         XCTAssertEqual(conv.leftGroup, false)
+        // The owner, for the avatar to badge. The avatar itself is drawn
+        // from `targetId`, which no transfer can move.
+        XCTAssertEqual(conv.avatarDid, alice)
         // Nothing has been said yet, so the thread must not sort above
         // this morning's chat on the strength of a decade-old birth time.
         XCTAssertNil(conv.lastActiveAt)
@@ -319,10 +410,42 @@ final class GroupServiceTests: XCTestCase {
         XCTAssertEqual(try session.squares.joined(by: me).map(\.id), [squareId])
     }
 
-    func testSquareNamersAreItsWholeGovernance() throws {
+    /// Nobody owns a square, so the avatar badges the **last** namer —
+    /// the only member the chain singles out. It is the least stable
+    /// thing on the row, which is exactly why it is a badge and not the
+    /// avatar: the tile itself is drawn from the square id and a
+    /// renaming cannot touch it.
+    func testASquareBadgesItsLastNamer() async throws {
+        stageSearch(rows: [squareRow(members: [alice, me], namers: [alice, bob])])
+        _ = try await service.syncSquares(
+            fid: me, into: session.squares, conversations: session.conversations
+        )
+        let conv = try XCTUnwrap(try session.conversations.get(type: .square, targetId: squareId))
+        XCTAssertEqual(conv.avatarDid, bob)
+
+        // Someone renames it: the badge moves, the id the tile is drawn
+        // from does not.
+        stageSearch(rows: [
+            squareRow(members: [alice, me], namers: [alice, bob, me], lastHeight: 4_100_010)
+        ])
+        _ = try await service.syncSquares(
+            fid: me, into: session.squares, conversations: session.conversations
+        )
+        let renamed = try XCTUnwrap(try session.conversations.get(type: .square, targetId: squareId))
+        XCTAssertEqual(renamed.avatarDid, me)
+        XCTAssertEqual(renamed.targetId, squareId)
+    }
+
+    /// `namers` records who *has* renamed a square, and answers nothing
+    /// about who *may*. A square is governed by its coin-day price, not
+    /// by a role — see
+    /// ``ActiveSession/carveSquareUpdateOnChain(squareId:name:desc:home:cddToUpdate:feePerByte:timeoutMs:)``
+    /// — so a member who has never named it is in exactly the same
+    /// position as one who has.
+    func testNamersRecordWhoHasNamedNotWhoMay() throws {
         let square = Square(name: "n", namers: [alice], members: [alice, me], id: squareId)
-        XCTAssertTrue(square.isNamer(alice))
-        XCTAssertFalse(square.isNamer(me))
+        XCTAssertTrue(square.hasNamed(alice))
+        XCTAssertFalse(square.hasNamed(me))
         XCTAssertTrue(square.isMember(me))
     }
 
@@ -373,12 +496,13 @@ final class GroupServiceTests: XCTestCase {
     }
 
     private func squareRow(
-        members: [String], memberNum: Int64? = nil, lastHeight: Int64 = 4_100_000
+        members: [String], namers: [String]? = nil,
+        memberNum: Int64? = nil, lastHeight: Int64 = 4_100_000
     ) -> [String: Any] {
         [
             "id": squareId,
             "name": "The Square",
-            "namers": [alice],
+            "namers": namers ?? [alice],
             "members": members,
             "memberNum": memberNum ?? Int64(members.count),
             "birthTime": 1_700_000_000,
@@ -402,6 +526,7 @@ final class GroupServiceTests: XCTestCase {
     /// end without a network.
     private func stageFundedWallet(
         funds: Int64 = 10_000_000,
+        cd: Int64? = nil,
         onBroadcast: @escaping @Sendable (String) -> Void
     ) {
         let owner = session.mainFid
@@ -410,16 +535,21 @@ final class GroupServiceTests: XCTestCase {
             case "base.cashValid":
                 let h160 = try FchAddress(fid: owner).hash160
                 let txid = String(repeating: "ab", count: 32)
+                var row: [String: Any] = [
+                    "id": try Cash.makeId(birthTxId: txid, birthIndex: 0),
+                    "owner": owner,
+                    "value": funds,
+                    "type": "P2PKH",
+                    "birthTxId": txid,
+                    "birthIndex": 0,
+                    "lockScript": Cash.canonicalP2PKHLockScript(hash160: h160),
+                ]
+                // The coin-days this cash would destroy. Only a square's
+                // `update` cares: its price is stated in CD and no
+                // amount of value substitutes for age.
+                if let cd { row["cd"] = cd }
                 return try makeResponse(
-                    data: [[
-                        "id": try Cash.makeId(birthTxId: txid, birthIndex: 0),
-                        "owner": owner,
-                        "value": funds,
-                        "type": "P2PKH",
-                        "birthTxId": txid,
-                        "birthIndex": 0,
-                        "lockScript": Cash.canonicalP2PKHLockScript(hash160: h160),
-                    ]],
+                    data: [row],
                     // Below CDD_CHECK_HEIGHT → no CoinDays requirement.
                     bestHeight: 3_500_000
                 )

@@ -46,6 +46,7 @@ struct SettingsView: View {
     @State private var feeCarveTxid: String?
     @State private var maxPayingNoticeFee: String = ""
     @State private var payBackNoticeFee: Bool = true
+    @State private var confirmBeforeSigning: Bool = true
 
     enum TestResult: Equatable {
         case ok(String)
@@ -245,7 +246,9 @@ struct SettingsView: View {
                     .font(.caption)
             }
 
-            Section("Security") {
+            Section {
+                Toggle("Show every transaction before signing it", isOn: $confirmBeforeSigning)
+
                 LabeledField(
                     "Auto-lock after (minutes)",
                     hint: "Blank = never auto-lock."
@@ -254,6 +257,11 @@ struct SettingsView: View {
                         .fieldInputStyle()
                         .frame(maxWidth: 240)
                 }
+            } header: {
+                Text("Security")
+            } footer: {
+                Text("With confirmation on, **nothing is signed until you approve it** — payments, cash merges, and the on-chain writes that panes make on your behalf (a contact, a mail, a chat key). The dialog shows the built transaction: which cashes it spends, who each output pays, the fee, and the exact bytes of any data being written. Turn it off and those all go straight to the chain.")
+                    .font(.caption)
             }
 
             Section {
@@ -417,6 +425,7 @@ struct SettingsView: View {
                 maxPayingNoticeFee = NoticeFee.coinString(satoshis: cap)
             }
             payBackNoticeFee = s.payBackNoticeFee ?? true
+            confirmBeforeSigning = s.confirmBeforeSigning ?? true
         } catch {
             saveError = String(describing: error)
         }
@@ -441,7 +450,11 @@ struct SettingsView: View {
                 }
                 s.maxPayingNoticeFeeSats = maxPayingSats
                 s.payBackNoticeFee = payBackNoticeFee
+                s.confirmBeforeSigning = confirmBeforeSigning
             }
+            // The session caches one of these (the signing gate), so
+            // tell it the row moved under its feet.
+            session.reloadPreferences()
             // Persist succeeded — now (re)build the live FAPI client
             // so other panes pick it up immediately.
             await appState.applyFapiSettings(for: session)

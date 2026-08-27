@@ -1,5 +1,6 @@
 import SwiftUI
 import FCCore
+import FCUI
 
 /// Mint a new main FID inside the unlocked Configure. Four sources:
 ///   - **Random** — `SecRandomCopyBytes(32)`. The most defensible
@@ -11,6 +12,11 @@ import FCCore
 ///   - **Passphrase** — derive via Argon2id (recommended) or legacy
 ///     SHA-256 (Android-import only). Same `PhraseKey` we use for
 ///     vanity wallets.
+///
+/// The hex and WIF boxes also take a QR code (``QrScanSheet``, camera
+/// or image files) — the shape an Android privkey backup arrives in.
+/// A scan sniffs its payload and switches **Source** to whichever of
+/// the two it actually is.
 ///
 /// Validation happens before we touch the vault; the encrypt-and-
 /// persist work runs on a background priority task.
@@ -33,6 +39,7 @@ struct AddMainView: View {
     @State private var phraseScheme: PhraseKey.Scheme = .argon2id
     @State private var working: Bool = false
     @State private var localError: String?
+    @State private var showScan: Bool = false
 
     var body: some View {
         Form {
@@ -59,11 +66,17 @@ struct AddMainView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 case .hex:
-                    TextField("64 hex characters", text: $hexInput)
-                        .font(.system(.body, design: .monospaced))
+                    HStack(spacing: 8) {
+                        TextField("64 hex characters", text: $hexInput)
+                            .font(.system(.body, design: .monospaced))
+                        scanButton
+                    }
                 case .wif:
-                    TextField("Wallet Import Format (L… / K… / 5…)", text: $wifInput)
-                        .font(.system(.body, design: .monospaced))
+                    HStack(spacing: 8) {
+                        TextField("Wallet Import Format (L… / K… / 5…)", text: $wifInput)
+                            .font(.system(.body, design: .monospaced))
+                        scanButton
+                    }
                 case .passphrase:
                     SecureField("Passphrase", text: $phrase)
                     Picker("KDF", selection: $phraseScheme) {
@@ -117,6 +130,47 @@ struct AddMainView: View {
         .formStyle(.grouped)
         .frame(minWidth: 540, maxWidth: 620)
         .padding()
+        .sheet(isPresented: $showScan) {
+            QrScanSheet(title: "Scan privkey QR") { scanned in
+                showScan = false
+                adoptScanned(scanned)
+            } onCancel: {
+                showScan = false
+            }
+        }
+    }
+
+    private var scanButton: some View {
+        Button {
+            showScan = true
+        } label: {
+            Image(systemName: "qrcode.viewfinder")
+        }
+        .disabled(working)
+        .help("Scan a privkey QR code — hex or WIF, from the camera or an image file.")
+    }
+
+    /// Route a scanned payload to the field that fits. A privkey QR
+    /// doesn't say which format it holds (Android backs up both hex and
+    /// WIF), so sniff it and move the Source picker rather than pasting
+    /// a WIF into the hex box.
+    private func adoptScanned(_ raw: String) {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let hex = trimmed.hasPrefix("0x") || trimmed.hasPrefix("0X")
+            ? String(trimmed.dropFirst(2))
+            : trimmed
+
+        if (try? parseHex(hex)) != nil {
+            source = .hex
+            hexInput = hex
+            localError = nil
+        } else if (try? WifPrivkey.decode(trimmed)) != nil {
+            source = .wif
+            wifInput = trimmed
+            localError = nil
+        } else {
+            localError = "That QR code isn't a privkey — expected 64 hex characters or a WIF (L… / K… / 5…)."
+        }
     }
 
     private var inputLooksValid: Bool {

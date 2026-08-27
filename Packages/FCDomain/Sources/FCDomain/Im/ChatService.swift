@@ -402,7 +402,7 @@ public struct ChatService {
     /// can name a message today and 9.2.4b can hand the job to the node
     /// without anything downstream noticing.
     public static func newMessageId() -> Int64 {
-        Int64.random(in: 1...Int64.max)
+        ImMessage.newFudpId()
     }
 
     static func millis(_ date: Date) -> Int64 {

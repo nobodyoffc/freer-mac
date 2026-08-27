@@ -184,6 +184,7 @@ public struct GroupService {
                 id: Conversation.id(type: .team, targetId: id),
                 type: .team, targetId: id,
                 displayName: team.displayName,
+                avatarDid: team.owner,
                 memberNum: team.memberNum ?? Int64(team.members?.count ?? 0),
                 createdAt: team.birthTime,
                 belongs: belongs,
@@ -223,6 +224,11 @@ public struct GroupService {
                 id: Conversation.id(type: .square, targetId: id),
                 type: .square, targetId: id,
                 displayName: square.displayName,
+                // A square has no owner to badge, so it badges whoever
+                // named it last — not a role, just the member who most
+                // recently outbid the standing coin-day price, and the
+                // only one the chain singles out at all.
+                avatarDid: square.namers?.last,
                 memberNum: square.memberNum ?? Int64(square.members?.count ?? 0),
                 createdAt: square.birthTime,
                 belongs: square.isMember(fid),
@@ -251,6 +257,10 @@ public struct GroupService {
         type: ImType,
         targetId: String,
         displayName: String?,
+        /// The FID the avatar badges — a team's owner, a square's last
+        /// namer. Not the avatar itself: the tile is drawn from
+        /// `targetId`, so this changing repaints a badge and nothing more.
+        avatarDid: String?,
         memberNum: Int64,
         createdAt: Int64?,
         belongs: Bool,
@@ -261,6 +271,7 @@ public struct GroupService {
         if var existing = try conversations.get(id: id) {
             let wasIn = existing.leftGroup != true
             existing.displayName = displayName
+            existing.avatarDid = avatarDid
             existing.memberNum = memberNum
             existing.tCdd = tCdd
             existing.tRate = tRate
@@ -274,6 +285,7 @@ public struct GroupService {
 
         var fresh = Conversation(id: id, targetId: targetId, type: type)
         fresh.displayName = displayName
+        fresh.avatarDid = avatarDid
         fresh.memberNum = memberNum
         fresh.tCdd = tCdd
         fresh.tRate = tRate

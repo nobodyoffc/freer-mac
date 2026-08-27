@@ -10,8 +10,29 @@ import FCUI
 /// **Show QR** (long documents chunk across multiple codes, which
 /// the Android side merges back on scan).
 struct UnsignedTxSheet: View {
-    let result: WalletService.UnsignedSendResult
+    let info: RawTxInfo
+    /// One line describing what the document does — inputs, fee, size.
+    /// Passed in rather than derived because a reorg and a send are
+    /// priced by different planners and neither summary reads well in
+    /// the other's vocabulary.
+    let summaryText: String
     let onDone: () -> Void
+
+    init(info: RawTxInfo, summary: String, onDone: @escaping () -> Void) {
+        self.info = info
+        self.summaryText = summary
+        self.onDone = onDone
+    }
+
+    init(result: WalletService.UnsignedSendResult, onDone: @escaping () -> Void) {
+        let p = result.plan
+        self.init(
+            info: result.info,
+            summary: "\(p.selected.count) input(s) · \(p.totalIn) sat in · fee \(p.fee) sat · \(p.estimatedSize) B"
+                + (p.hasChange ? " · change \(p.change) sat" : " · no change"),
+            onDone: onDone
+        )
+    }
 
     @State private var json: String = ""
     @State private var encodeError: String?
@@ -97,10 +118,7 @@ struct UnsignedTxSheet: View {
     }
 
     private var summary: some View {
-        let p = result.plan
-        let text = "\(p.selected.count) input(s) · \(p.totalIn) sat in · fee \(p.fee) sat · \(p.estimatedSize) B" +
-            (p.hasChange ? " · change \(p.change) sat" : " · no change")
-        return CopyableText(text, font: .caption.monospaced())
+        CopyableText(summaryText, font: .caption.monospaced())
             .foregroundStyle(.secondary)
     }
 
@@ -125,7 +143,7 @@ struct UnsignedTxSheet: View {
 
     private func encode() {
         do {
-            json = try result.info.exportJson()
+            json = try info.exportJson()
         } catch {
             encodeError = String(describing: error)
         }

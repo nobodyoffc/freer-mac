@@ -5,14 +5,18 @@ import FCUI
 
 /// Add or edit a single contact. Locally-editable fields live in the
 /// form; on-chain identity facts (cid / pubkey / balance / cross-chain
-/// addresses / etc.) come from the **Look up** button. A valid FID
-/// does an exact `base.freerByIds` fetch; anything else runs a partial
-/// CID/FID search (`base.search`, `part` on `id`/`usedCids` — the
-/// Android `CreateContactActivity.performFidSearch` flow) and shows
-/// clickable results that fill the FID field on selection, with
-/// cursor-based Load-more pagination. The looked-up `Freer` is held in
-/// state and merged into the contact at save time. The CID is set
-/// on-chain by the Freer themself and is never editable here.
+/// addresses / etc.) come from the chain.
+///
+/// Two buttons, because there are two questions. **Look up** confirms
+/// one FID you already have — an exact `base.freerByIds` fetch whose
+/// answer fills the status panel. **Find…** is for when you don't have
+/// it yet, and hands off to ``FidPickerSheet``, the app's one
+/// search-and-choose surface. This sheet used to carry its own copy of
+/// that search; it doesn't any more.
+///
+/// The resulting `Freer` is held in state and merged into the contact
+/// at save time. The CID is set on-chain by the Freer themself and is
+/// never editable here.
 struct ContactEditorSheet: View {
     let session: ActiveSession
     let mode: ContactsView.EditorMode
@@ -37,15 +41,9 @@ struct ContactEditorSheet: View {
     @State private var lookupError: String?
     @State private var lookupKnownOffChain: Bool = false
 
-    // Partial CID/FID search state (non-FID input in the FID field).
-    @State private var searchResults: [Freer] = []
-    @State private var searchTerm: String?
-    @State private var searchAfter: [String]?
-    @State private var searchTotal: Int64?
-    @State private var searchNoMatches: Bool = false
-    @State private var loadingMore: Bool = false
-
-    private static let searchPageSize = 10
+    /// Open request for the shared FID picker — this sheet no longer
+    /// carries its own copy of "search Freers by CID".
+    @State private var pick: FidPickerRequest?
 
     private var isEdit: Bool {
         if case .edit = mode { return true }
@@ -61,7 +59,7 @@ struct ContactEditorSheet: View {
     }
 
     private var canLookup: Bool {
-        !lookingUp && !fid.trimmingCharacters(in: .whitespaces).isEmpty
+        !lookingUp && fidLooksValid
     }
 
     var body: some View {
@@ -73,7 +71,7 @@ struct ContactEditorSheet: View {
                     LabeledField(
                         "FID",
                         hint: (!fid.isEmpty && !fidLooksValid)
-                            ? "Not a FID — Look up searches CIDs instead."
+                            ? "Not a FID — use Find… to search CIDs."
                             : nil,
                         hintIsError: false
                     ) {
@@ -85,16 +83,27 @@ struct ContactEditorSheet: View {
                                 .onSubmit { Task { await runLookup() } }
                                 .onChange(of: fid) { _, newValue in
                                     // Stale results once the user
-                                    // retypes — but not when a search
-                                    // result was just selected (that
-                                    // sets fid and lookedUpFreer
-                                    // together).
+                                    // retypes — but not when a pick was
+                                    // just adopted (that sets fid and
+                                    // lookedUpFreer together).
                                     guard lookedUpFreer?.id != newValue else { return }
                                     lookedUpFreer = nil
                                     lookupKnownOffChain = false
                                     lookupError = nil
-                                    searchNoMatches = false
                                 }
+
+                            if !isEdit {
+                                Button {
+                                    pick = .one(
+                                        title: "Find a contact",
+                                        subtitle: "Search your contacts, or look up a FID or CID on chain.",
+                                        initialQuery: fid.trimmingCharacters(in: .whitespaces)
+                                    )
+                                } label: {
+                                    Label("Find…", systemImage: "person.text.rectangle")
+                                }
+                                .help("Search contacts and the chain by FID or CID.")
+                            }
 
                             Button {
                                 Task { await runLookup() }
@@ -109,7 +118,7 @@ struct ContactEditorSheet: View {
                                 }
                             }
                             .disabled(!canLookup)
-                            .help("A valid FID fetches its on-chain record (cid, pubkey, balance); any other text searches Freers by CID.")
+                            .help("Fetch this FID's on-chain record (cid, pubkey, balance).")
                         }
                     }
 
@@ -131,17 +140,6 @@ struct ContactEditorSheet: View {
                         .font(.caption)
                     } else if let f = lookedUpFreer {
                         onChainStatus(f)
-                    }
-
-                    if searchNoMatches {
-                        HStack(spacing: 6) {
-                            Image(systemName: "questionmark.circle")
-                            Text("No matching CIDs found.")
-                        }
-                        .foregroundStyle(.orange)
-                        .font(.caption)
-                    } else if !searchResults.isEmpty {
-                        searchResultsList
                     }
                 } header: {
                     Text(isEdit ? "Identity" : "New contact")
@@ -195,6 +193,31 @@ struct ContactEditorSheet: View {
         }
         .frame(minWidth: 540, minHeight: 580)
         .onAppear { loadFromMode() }
+        .sheet(item: $pick) { request in
+            FidPickerSheet(session: session, request: request) { picked in
+                pick = nil
+                if let one = picked.first { adopt(one) }
+            } onCancel: {
+                pick = nil
+            }
+        }
+    }
+
+    /// A pick from the shared picker becomes this contact's identity.
+    /// The picker already has the on-chain record when there is one, so
+    /// the status panel fills in without a second round-trip; when it
+    /// doesn't, we ask, rather than leaving the panel silent about a
+    /// FID we've never checked.
+    private func adopt(_ picked: PickedFid) {
+        fid = picked.fid
+        lookupError = nil
+        if let freer = picked.freer {
+            lookedUpFreer = freer
+            lookupKnownOffChain = false
+        } else {
+            lookedUpFreer = nil
+            Task { await runLookup() }
+        }
     }
 
     private var header: some View {
@@ -278,88 +301,6 @@ struct ContactEditorSheet: View {
         .help("Save locally only — nothing is written to the chain.")
     }
 
-    /// Results of a partial CID search — clickable rows that fill the
-    /// FID field on selection, plus a cursor-paginated Load-more row.
-    /// The Mac take on Android's `KeyCardContainer` result cards.
-    private var searchResultsList: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("\(searchResults.count) match\(searchResults.count == 1 ? "" : "es") — click one to select")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.bottom, 4)
-
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(searchResults.enumerated()), id: \.offset) { idx, f in
-                    if idx > 0 { Divider() }
-                    searchResultRow(f)
-                }
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color.secondary.opacity(0.06))
-            )
-
-            if hasMoreResults {
-                HStack(spacing: 8) {
-                    Button {
-                        Task { await loadMoreResults() }
-                    } label: {
-                        if loadingMore {
-                            HStack(spacing: 4) {
-                                ProgressView().controlSize(.small)
-                                Text("Loading…")
-                            }
-                        } else {
-                            Label("More", systemImage: "chevron.down")
-                        }
-                    }
-                    .disabled(loadingMore)
-
-                    if let total = searchTotal, total > Int64(searchResults.count) {
-                        Text("\(total - Int64(searchResults.count)) left")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                .padding(.top, 6)
-            }
-        }
-    }
-
-    private func searchResultRow(_ f: Freer) -> some View {
-        Button {
-            select(f)
-        } label: {
-            HStack(spacing: 8) {
-                if let id = f.id {
-                    FidAvatarView(fid: id, size: 28)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    if let cid = f.cid, !cid.isEmpty {
-                        Text(cid)
-                            .font(.callout.weight(.semibold))
-                            .lineLimit(1)
-                    }
-                    Text((f.id ?? "?").elidingMiddle(head: 12, tail: 12))
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                if let bal = f.balance {
-                    Text(formatBch(bal))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(f.id == nil)
-    }
-
     @ViewBuilder
     private func onChainStatus(_ f: Freer) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -422,6 +363,9 @@ struct ContactEditorSheet: View {
     // MARK: - load / lookup / save
 
     private func loadFromMode() {
+        if case .createFor(let prefill) = mode {
+            fid = prefill
+        }
         if case .edit(let c) = mode {
             fid = c.id
             titlesInput = (c.titles ?? []).joined(separator: ", ")
@@ -447,102 +391,30 @@ struct ContactEditorSheet: View {
         }
     }
 
-    /// Android `performFidSearch`: a valid FID means an exact
-    /// `freerByIds` fetch; anything else runs a partial CID search.
+    /// Confirm one exact FID against the chain. Anything that isn't a
+    /// FID goes to ``FidPickerSheet`` instead — searching by CID is the
+    /// picker's job now, in one place for the whole app.
     @MainActor
     private func runLookup() async {
         let term = fid.trimmingCharacters(in: .whitespaces)
-        guard !term.isEmpty, !lookingUp else { return }
+        guard fidLooksValid, !term.isEmpty, !lookingUp else { return }
         lookingUp = true
         lookupError = nil
         lookupKnownOffChain = false
-        searchNoMatches = false
         defer { lookingUp = false }
 
-        if fidLooksValid {
-            clearSearchResults()
-            do {
-                let freer = try await session.directory.freer(byId: term)
-                if let freer {
-                    lookedUpFreer = freer
-                } else {
-                    lookedUpFreer = nil
-                    lookupKnownOffChain = true
-                }
-            } catch {
-                lookedUpFreer = nil
-                lookupError = String(describing: error)
-            }
-        } else {
-            lookedUpFreer = nil
-            do {
-                let page = try await session.directory.searchFreers(
-                    matching: term, size: Self.searchPageSize
-                )
-                searchResults = page.freers
-                searchTerm = term
-                searchAfter = page.last
-                searchTotal = page.total
-                searchNoMatches = page.freers.isEmpty
-            } catch {
-                clearSearchResults()
-                lookupError = String(describing: error)
-            }
-        }
-    }
-
-    /// True when the last page came back full and the server handed us
-    /// a cursor — same heuristic as Android's `updateMoreButtonVisibility`.
-    private var hasMoreResults: Bool {
-        guard let after = searchAfter, !after.isEmpty else { return false }
-        if let total = searchTotal { return Int64(searchResults.count) < total }
-        return searchResults.count % Self.searchPageSize == 0
-    }
-
-    @MainActor
-    private func loadMoreResults() async {
-        guard let term = searchTerm,
-              let after = searchAfter, !after.isEmpty,
-              !loadingMore else { return }
-        loadingMore = true
-        defer { loadingMore = false }
         do {
-            let page = try await session.directory.searchFreers(
-                matching: term, after: after, size: Self.searchPageSize
-            )
-            // Append, dropping anything already shown (cursor overlap).
-            let seen = Set(searchResults.compactMap(\.id))
-            searchResults.append(contentsOf: page.freers.filter {
-                guard let id = $0.id else { return false }
-                return !seen.contains(id)
-            })
-            searchAfter = page.last
-            if let t = page.total { searchTotal = t }
+            let freer = try await session.directory.freer(byId: term)
+            if let freer {
+                lookedUpFreer = freer
+            } else {
+                lookedUpFreer = nil
+                lookupKnownOffChain = true
+            }
         } catch {
+            lookedUpFreer = nil
             lookupError = String(describing: error)
         }
-    }
-
-    /// A search-result row was clicked: adopt its FID and on-chain
-    /// record, collapse the result list. Android's `onFidSelected`.
-    @MainActor
-    private func select(_ f: Freer) {
-        guard let id = f.id else { return }
-        // Set lookedUpFreer alongside fid — the fid onChange guard
-        // sees a matching id and leaves the fresh record in place.
-        fid = id
-        lookedUpFreer = f
-        lookupError = nil
-        lookupKnownOffChain = false
-        clearSearchResults()
-    }
-
-    private func clearSearchResults() {
-        searchResults = []
-        searchTerm = nil
-        searchAfter = nil
-        searchTotal = nil
-        searchNoMatches = false
     }
 
     /// The contact as currently described by the form: mode's base
@@ -557,7 +429,7 @@ struct ContactEditorSheet: View {
         let memoField: String? = memo.isEmpty ? nil : memo
 
         switch mode {
-        case .create:
+        case .create, .createFor:
             var c = Contact(
                 id: fid,
                 titles: titlesField,

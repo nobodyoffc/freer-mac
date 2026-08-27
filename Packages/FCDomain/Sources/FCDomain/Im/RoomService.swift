@@ -39,7 +39,27 @@ public struct RoomService {
     /// type has no opinion about where identities come from.
     public typealias PubkeyProvider = (String) throws -> Data?
 
+    /// Looks up a member's `home` map, so we can tell whether there is
+    /// anywhere to leave a message for them. Same shape, same reason.
+    public typealias HomeProvider = (String) throws -> [String: String]?
+
     // MARK: - creating
+
+    /// What creating a room produced.
+    public struct Created: Sendable {
+        public let room: Room
+        /// One `ROOM_INFO` per member we can actually reach.
+        public let invitations: [ImMessage]
+        /// Members recorded but **not** written to, because they publish
+        /// no DOCK. See ``RoomService/create(name:desc:owner:invite:home:pubkeys:homes:now:)``.
+        public let unreachable: [String]
+
+        public init(room: Room, invitations: [ImMessage], unreachable: [String] = []) {
+            self.room = room
+            self.invitations = invitations
+            self.unreachable = unreachable
+        }
+    }
 
     /// Create a room, generate its first key, and produce one invitation
     /// per member.
@@ -54,6 +74,17 @@ public struct RoomService {
     /// invitation carries no key; they will have to ask for it. Failing
     /// the whole creation because one contact is unresolved would be a
     /// worse trade.
+    ///
+    /// **A member who publishes no DOCK is recorded and not written
+    /// to.** An invitation is P2P and store-and-forward: it goes to the
+    /// recipient's own DOCK and waits there. Someone with no DOCK has
+    /// nowhere for it to wait, so queueing one would put a message in
+    /// the outbox that can never be delivered and will be retried
+    /// forever. They stay members and stay pending, and the owner can
+    /// share the room's details again once they have a server —
+    /// ``shareInfo(_:as:pubkeys:homes:now:)``. Pass `homes` to get this
+    /// check; without it every member is written to, which is what a
+    /// caller with no home lookup (a test, mostly) wants.
     public func create(
         name: String?,
         desc: String? = nil,
@@ -61,8 +92,9 @@ public struct RoomService {
         invite members: [String] = [],
         home: [String: String]? = nil,
         pubkeys: PubkeyProvider,
+        homes: HomeProvider? = nil,
         now: Date = Date()
-    ) throws -> (room: Room, invitations: [ImMessage]) {
+    ) throws -> Created {
         var room = Room.create(owner: owner, name: name, desc: desc, now: now)
         room.home = home
         guard let roomId = room.id else { throw Failure.roomHasNoId }
@@ -75,14 +107,46 @@ public struct RoomService {
         room.symkeyVersion = key.version
         try rooms.upsert(room)
 
-        let invitations = try room.others(than: owner).map { fid in
+        let (reachable, unreachable) = try split(room.others(than: owner), by: homes)
+        let invitations = try reachable.map { fid in
             try invitation(for: room, to: fid, from: owner, pubkeys: pubkeys, now: now)
         }
-        return (room, invitations)
+        return Created(room: room, invitations: invitations, unreachable: unreachable)
+    }
+
+    /// Partition members into those with somewhere to receive and those
+    /// without. With no `homes` lookup everyone counts as reachable —
+    /// the check is only as good as the caller's directory, and refusing
+    /// to write to everybody because we cannot look anybody up would be
+    /// the wrong failure.
+    private func split(
+        _ fids: [String], by homes: HomeProvider?
+    ) throws -> (reachable: [String], unreachable: [String]) {
+        guard let homes else { return (fids, []) }
+        var reachable: [String] = []
+        var unreachable: [String] = []
+        for fid in fids {
+            if ChatGate.declaresDock(home: try homes(fid)) {
+                reachable.append(fid)
+            } else {
+                unreachable.append(fid)
+            }
+        }
+        return (reachable, unreachable)
     }
 
     /// A `ROOM_INFO` describing `room`, with the current key sealed to
     /// `fid` when we can seal it.
+    ///
+    /// **Building one is not the same as being allowed to send one
+    /// unasked.** This is the envelope, and it is used by three
+    /// different callers with three different rights: the owner
+    /// broadcasting (``shareInfo(_:as:pubkeys:homes:now:)``, which
+    /// checks ownership), the owner inviting, and *any* member
+    /// answering a `ROOM_INFO` request. The last is why the ownership
+    /// check does not live here — a member answering a question is
+    /// allowed, and the receiving side already strips `members` and
+    /// `owner` from a non-owner's copy.
     public func invitation(
         for room: Room,
         to fid: String,
@@ -100,20 +164,100 @@ public struct RoomService {
         // P2P: an invitation has to reach someone who is not in the room
         // yet, so it cannot travel on the room's own channel.
         return ImMessage.roomNotice(.roomInfo, from: senderFid, to: fid, content: info.wireJson(), now: now)
-            .asP2P()
+            .asOutboundP2P()
     }
 
     // MARK: - membership changes (owner side)
 
+    /// Re-send the room's details — membership, name, and the current
+    /// key — to every member. **Owner only.**
+    ///
+    /// The check is the point of the method. A `ROOM_INFO` nobody asked
+    /// for is an announcement about a room, and only the owner has
+    /// anything to announce: a non-owner's unsolicited copy carries a
+    /// membership they merely believe, and the version of the key they
+    /// happen to hold. A member who wants to help someone who is stuck
+    /// answers a request instead (``SignalRouter``), which is a
+    /// different act and is allowed.
+    ///
+    /// Members with no DOCK are skipped for the reason
+    /// ``create(name:desc:owner:invite:home:pubkeys:homes:now:)`` gives.
+    @discardableResult
+    public func shareInfo(
+        _ roomId: String,
+        as liveFid: String,
+        pubkeys: PubkeyProvider,
+        homes: HomeProvider? = nil,
+        now: Date = Date()
+    ) throws -> (outbound: [ImMessage], unreachable: [String]) {
+        let room = try requireOwned(roomId, by: liveFid)
+        let (reachable, unreachable) = try split(room.others(than: liveFid), by: homes)
+        let outbound = try reachable.map { fid in
+            try invitation(for: room, to: fid, from: liveFid, pubkeys: pubkeys, now: now)
+        }
+        return (outbound, unreachable)
+    }
+
+    /// Change a room we own — its name, its description, its DOCK —
+    /// and tell every member. Android's `updateRoom`.
+    ///
+    /// **The re-share is the operation, not a courtesy.** A room's
+    /// record lives only on the devices that hold it, so a change the
+    /// owner makes and does not send is a change nobody else has: the
+    /// members would keep collecting from the old DOCK, which is to say
+    /// they would stop hearing anything. Every field goes out in the
+    /// same `ROOM_INFO` an invitation uses, with the current key, since
+    /// a member receiving one needs the whole record.
+    ///
+    /// `nil` means "leave it alone" for all three, so a caller changing
+    /// the DOCK does not have to restate the name. To *clear* the home,
+    /// pass an empty map.
+    @discardableResult
+    public func update(
+        _ roomId: String,
+        name: String? = nil,
+        desc: String? = nil,
+        home: [String: String]? = nil,
+        as liveFid: String,
+        pubkeys: PubkeyProvider,
+        homes: HomeProvider? = nil,
+        now: Date = Date()
+    ) throws -> (room: Room, outbound: [ImMessage], unreachable: [String]) {
+        var room = try requireOwned(roomId, by: liveFid)
+
+        if let name, !name.isEmpty { room.name = name }
+        if let desc { room.desc = desc }
+        if let home { room.home = home.isEmpty ? nil : home }
+        room.lastUpdated = Int64(now.timeIntervalSince1970 * 1000)
+        try rooms.upsert(room)
+
+        let (reachable, unreachable) = try split(room.others(than: liveFid), by: homes)
+        let outbound = try reachable.map { fid in
+            try invitation(for: room, to: fid, from: liveFid, pubkeys: pubkeys, now: now)
+        }
+        return (room, outbound, unreachable)
+    }
+
     /// Add members to a room we own, and invite them.
+    ///
+    /// Members with no DOCK are skipped for the reason
+    /// ``create(name:desc:owner:invite:home:pubkeys:homes:now:)`` gives —
+    /// and the newcomer is the one this matters for. Someone who has
+    /// never published a server has nowhere for an invitation to wait, so
+    /// queueing one puts a message in the outbox that can never be
+    /// delivered and is retried forever, which on the owner's screen
+    /// looks exactly like an invitation that was sent. They are in the
+    /// room either way, and ``shareInfo(_:as:pubkeys:homes:now:)`` sends
+    /// again once they have a server.
     @discardableResult
     public func addMembers(
         _ fids: [String],
         to roomId: String,
         as liveFid: String,
         pubkeys: PubkeyProvider,
+        homes: HomeProvider? = nil,
         now: Date = Date()
-    ) throws -> (added: [String], outbound: [ImMessage]) {
+    ) throws -> (added: [String], outbound: [ImMessage], unreachable: [String]) {
         var room = try requireOwned(roomId, by: liveFid)
 
         var added: [String] = []
@@ -123,15 +267,16 @@ public struct RoomService {
                 added.append(fid)
             }
         }
-        guard !added.isEmpty else { return ([], []) }
+        guard !added.isEmpty else { return ([], [], []) }
         try rooms.upsert(room)
 
         // Everyone gets the new membership; the newcomers' copies carry
         // the key.
-        let outbound = try room.others(than: liveFid).map { fid in
+        let (reachable, unreachable) = try split(room.others(than: liveFid), by: homes)
+        let outbound = try reachable.map { fid in
             try invitation(for: room, to: fid, from: liveFid, pubkeys: pubkeys, now: now)
         }
-        return (added, outbound)
+        return (added, outbound, unreachable)
     }
 
     /// Remove a member from a room we own.
@@ -161,7 +306,7 @@ public struct RoomService {
         try rooms.upsert(room)
 
         var outbound: [ImMessage] = [
-            ImMessage.roomNotice(.roomRemoved, from: liveFid, to: fid, content: roomId, now: now).asP2P(),
+            ImMessage.roomNotice(.roomRemoved, from: liveFid, to: fid, content: roomId, now: now).asOutboundP2P(),
         ]
         outbound += try room.others(than: liveFid).map { member in
             try invitation(for: room, to: member, from: liveFid, pubkeys: pubkeys, now: now)
@@ -220,7 +365,7 @@ public struct RoomService {
         try rooms.upsert(room)
 
         return room.others(than: liveFid).map { fid in
-            ImMessage.roomNotice(.roomDisband, from: liveFid, to: fid, content: roomId, now: now).asP2P()
+            ImMessage.roomNotice(.roomDisband, from: liveFid, to: fid, content: roomId, now: now).asOutboundP2P()
         }
     }
 
@@ -244,7 +389,7 @@ public struct RoomService {
         try rooms.upsert(room)
 
         guard let owner = room.owner else { return nil }
-        return ImMessage.roomNotice(.roomLeave, from: liveFid, to: owner, content: roomId, now: now).asP2P()
+        return ImMessage.roomNotice(.roomLeave, from: liveFid, to: owner, content: roomId, now: now).asOutboundP2P()
     }
 
     /// Accept an invitation: create the room, store the key it carries,
@@ -296,7 +441,7 @@ public struct RoomService {
         guard let owner = info.owner, owner != liveFid else { return (room, nil) }
         let accept = ImMessage
             .roomNotice(.roomAccept, from: liveFid, to: owner, content: roomId, now: now)
-            .asP2P()
+            .asOutboundP2P()
         return (room, accept)
     }
 
@@ -307,7 +452,29 @@ public struct RoomService {
     ) throws -> ImMessage? {
         let info = try RoomInfo.fromJson(roomInfoJson)
         guard let roomId = info.id, let owner = info.owner, owner != liveFid else { return nil }
-        return ImMessage.roomNotice(.roomLeave, from: liveFid, to: owner, content: roomId, now: now).asP2P()
+        return ImMessage.roomNotice(.roomLeave, from: liveFid, to: owner, content: roomId, now: now).asOutboundP2P()
+    }
+
+    // MARK: - forgetting
+
+    /// Drop a room from this device: the record and every key we hold
+    /// for it.
+    ///
+    /// **Nothing is told to anybody.** This is not leaving and not
+    /// disbanding — it is the local half of both, for a room whose
+    /// transcript the user has decided not to keep. The other members'
+    /// copies are untouched, and if this is a room we own, its
+    /// membership existed only here and is now gone. Leave first
+    /// (``leave(_:as:now:)``) if the others should be told.
+    ///
+    /// The keys go with the room, which is what makes this irreversible:
+    /// anything still sealed under them stops being readable. The caller
+    /// is deleting the transcript in the same breath, so there is
+    /// nothing left for them to open.
+    @discardableResult
+    public func forget(_ roomId: String) throws -> Bool {
+        try symkeys.removeAll(for: roomId)
+        return try rooms.remove(id: roomId)
     }
 
     // MARK: - inbound
@@ -537,14 +704,22 @@ public struct RoomService {
 }
 
 private extension ImMessage {
-    /// Room control traffic travels **P2P**, not on the room's own
-    /// channel: an invitation has to reach someone who is not in the
-    /// room yet, and a removal has to reach someone who no longer is.
-    /// ``ImMessage/roomNotice(_:from:to:content:now:)`` builds them as
-    /// `.room` because that is what they are *about*; this says how they
-    /// travel.
-    func asP2P() -> ImMessage {
-        var copy = self
+    /// A room notice ready to be handed to a caller for sending: routed
+    /// P2P, and named.
+    ///
+    /// **P2P**, not the room's own channel: an invitation has to reach
+    /// someone who is not in the room yet, and a removal someone who no
+    /// longer is. ``ImMessage/roomNotice(_:from:to:content:now:)``
+    /// builds them as `.room` because that is what they are *about*;
+    /// this says how they travel.
+    ///
+    /// **Named**, because nothing else on this path will name them.
+    /// Room control traffic does not pass through ``ChatService``, and
+    /// ``MessageQueue/enqueue(_:in:now:)`` refuses a message with no id
+    /// — so an unnamed invitation meant a room that was created while
+    /// none of its members were ever told.
+    func asOutboundP2P() -> ImMessage {
+        var copy = named()
         copy.type = .p2p
         return copy
     }

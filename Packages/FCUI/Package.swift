@@ -18,6 +18,6 @@ let package = Package(
                 .copy("Resources/avatar-elements")
             ]
         ),
-        .testTarget(name: "FCUITests", dependencies: ["FCUI"])
+        .testTarget(name: "FCUITests", dependencies: ["FCUI", "FCCore"])
     ]
 )

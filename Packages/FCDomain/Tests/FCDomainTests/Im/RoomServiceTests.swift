@@ -139,10 +139,11 @@ final class RoomServiceTests: XCTestCase {
     // MARK: - creating and inviting
 
     func testCreateGeneratesAKeyAndOneInvitationPerMember() throws {
-        let (room, invitations) = try service.create(
+        let created = try service.create(
             name: "The Usual Place", owner: alice, invite: [bob, carol],
             pubkeys: pubkeys, now: t0
         )
+        let (room, invitations) = (created.room, created.invitations)
         let roomId = try XCTUnwrap(room.id)
 
         XCTAssertEqual(room.members, [alice, bob, carol])
@@ -169,23 +170,128 @@ final class RoomServiceTests: XCTestCase {
     /// without a key, which they can ask for. Failing the whole creation
     /// over one unresolved contact would be the worse trade.
     func testAMemberWithNoPubkeyIsStillInvited() throws {
-        let (_, invitations) = try service.create(
+        let invitations = try service.create(
             name: "r", owner: alice, invite: ["F-unknown"], pubkeys: pubkeys, now: t0
-        )
+        ).invitations
         let info = try RoomInfo.fromJson(try XCTUnwrap(invitations.first?.content))
         XCTAssertNil(info.symkey)
         XCTAssertEqual(info.members, [alice, "F-unknown"])
+    }
+
+    /// An invitation is store-and-forward: it goes to the recipient's
+    /// own DOCK and waits. Someone with no DOCK has nowhere for it to
+    /// wait, so queueing one would put a message in the outbox that can
+    /// never be delivered. They are still members — the owner can share
+    /// again once they have a server.
+    func testAMemberWithNoDockIsRecordedButNotWrittenTo() throws {
+        let bobFid = bob
+        let homes: (String) -> [String: String]? = { fid in
+            fid == bobFid ? [ServiceName.dock: "https://dock.example"] : nil
+        }
+        let created = try service.create(
+            name: "r", owner: alice, invite: [bob, carol],
+            pubkeys: pubkeys, homes: homes, now: t0
+        )
+        XCTAssertEqual(created.room.members, [alice, bob, carol], "both are in the room")
+        XCTAssertEqual(created.room.pendingMembers, [bob, carol])
+        XCTAssertEqual(created.invitations.compactMap(\.targetId), [bob])
+        XCTAssertEqual(created.unreachable, [carol])
+    }
+
+    /// With no home lookup at all, everybody is written to. The check is
+    /// only as good as the caller's directory, and refusing to write to
+    /// anyone because we can look nobody up would be the wrong failure.
+    func testWithNoHomeLookupEveryoneIsInvited() throws {
+        let created = try service.create(
+            name: "r", owner: alice, invite: [bob, carol], pubkeys: pubkeys, now: t0
+        )
+        XCTAssertEqual(Set(created.invitations.compactMap(\.targetId)), [bob, carol])
+        XCTAssertTrue(created.unreachable.isEmpty)
+    }
+
+    // MARK: - who may announce
+
+    /// An unasked-for `ROOM_INFO` is an announcement about the room, and
+    /// only the owner has anything to announce: a member's copy of the
+    /// membership is merely what they were last told. Answering a
+    /// *request* is a different act, and ``SignalRouter`` allows it.
+    func testOnlyTheOwnerMayShareRoomInfoUnasked() throws {
+        let roomId = try XCTUnwrap(try aliceRoom(with: [bob, carol]).id)
+
+        let (outbound, unreachable) = try service.shareInfo(
+            roomId, as: alice, pubkeys: pubkeys, now: at(60)
+        )
+        XCTAssertEqual(Set(outbound.compactMap(\.targetId)), [bob, carol])
+        XCTAssertTrue(unreachable.isEmpty)
+        for message in outbound {
+            XCTAssertEqual(message.contentType, .roomInfo)
+            XCTAssertEqual(message.type, .p2p)
+        }
+
+        XCTAssertThrowsError(try service.shareInfo(roomId, as: bob, pubkeys: pubkeys)) {
+            XCTAssertEqual($0 as? RoomService.Failure, .notTheOwner(roomId: roomId))
+        }
+    }
+
+    func testSharingRoomInfoSkipsMembersWithNoDock() throws {
+        let roomId = try XCTUnwrap(try aliceRoom(with: [bob, carol]).id)
+        let bobFid = bob
+        let homes: (String) -> [String: String]? = { fid in
+            fid == bobFid ? [ServiceName.dock: "https://dock.example"] : [:]
+        }
+        let (outbound, unreachable) = try service.shareInfo(
+            roomId, as: alice, pubkeys: pubkeys, homes: homes, now: at(60)
+        )
+        XCTAssertEqual(outbound.compactMap(\.targetId), [bob])
+        XCTAssertEqual(unreachable, [carol])
+    }
+
+    // MARK: - forgetting
+
+    /// Deleting a room takes its keys with it, which is what makes it
+    /// irreversible — and nobody is told, because deleting is neither
+    /// leaving nor disbanding.
+    func testForgettingARoomTakesItsKeysWithIt() throws {
+        let roomId = try XCTUnwrap(try aliceRoom(with: [bob]).id)
+        _ = try service.resetSymkey(roomId, as: alice, pubkeys: pubkeys, now: at(60))
+        XCTAssertEqual(try symkeys.versions(for: roomId), [1, 2])
+
+        XCTAssertTrue(try service.forget(roomId))
+        XCTAssertNil(try rooms.get(id: roomId))
+        XCTAssertTrue(try symkeys.versions(for: roomId).isEmpty)
+        XCTAssertFalse(try service.forget(roomId), "already gone")
     }
 
     func testAddMembersInvitesEveryoneWithTheNewMembership() throws {
         let room = try aliceRoom(with: [bob])
         let roomId = try XCTUnwrap(room.id)
 
-        let (added, outbound) = try service.addMembers(
+        let (added, outbound, unreachable) = try service.addMembers(
             [carol], to: roomId, as: alice, pubkeys: pubkeys, now: at(60)
         )
         XCTAssertEqual(added, [carol])
         XCTAssertEqual(Set(outbound.compactMap(\.targetId)), [bob, carol])
+        XCTAssertTrue(unreachable.isEmpty, "no home lookup means everyone counts as reachable")
+        XCTAssertEqual(try rooms.get(id: roomId)?.members, [alice, bob, carol])
+    }
+
+    /// **The newcomer is the one this matters for.** Someone who
+    /// publishes no DOCK has nowhere for an invitation to wait, so
+    /// queueing one would put a message in the outbox that can never be
+    /// delivered and is retried forever — which on the owner's screen
+    /// reads as an invitation that was sent. They are in the room
+    /// regardless, and the owner can share the details again later.
+    func testAMemberWithNoDockIsAddedAndNotWrittenTo() throws {
+        let roomId = try XCTUnwrap(try aliceRoom(with: [bob]).id)
+
+        let (added, outbound, unreachable) = try service.addMembers(
+            [carol], to: roomId, as: alice, pubkeys: pubkeys,
+            homes: { fid in fid == self.carol ? [:] : [ServiceName.dock: "dock.example"] },
+            now: at(60)
+        )
+        XCTAssertEqual(added, [carol])
+        XCTAssertEqual(unreachable, [carol])
+        XCTAssertEqual(outbound.compactMap(\.targetId), [bob])
         XCTAssertEqual(try rooms.get(id: roomId)?.members, [alice, bob, carol])
     }
 
@@ -497,9 +603,10 @@ final class RoomServiceTests: XCTestCase {
 
     func testAcceptingAnInvitationStoresTheKeyAndConfirmsToTheOwner() throws {
         // Alice creates and invites Bob; Bob's device accepts.
-        let (room, invitations) = try service.create(
+        let created = try service.create(
             name: "The Usual Place", owner: alice, invite: [bob], pubkeys: pubkeys, now: t0
         )
+        let (room, invitations) = (created.room, created.invitations)
         let roomId = try XCTUnwrap(room.id)
         let key = try XCTUnwrap(try symkeys.currentKey(for: roomId))
         let json = try XCTUnwrap(invitations.first?.content)

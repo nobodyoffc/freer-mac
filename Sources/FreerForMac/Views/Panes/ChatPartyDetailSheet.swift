@@ -51,6 +51,9 @@ struct ChatPartyDetailSheet: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     identitySection
+                    if conversation.type == .square {
+                        namingSection
+                    }
                     routingSection
                     if conversation.type == .p2p {
                         peerSection
@@ -199,6 +202,55 @@ struct ChatPartyDetailSheet: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Square only: the auction that stands in place of an owner.
+    ///
+    /// **This is the section a square's details were missing.** Every
+    /// other flavour answers "who is in charge here" with a FID — a
+    /// room's owner, a team's owner — and a square answers it with a
+    /// number: whoever destroys more coin-days than the last change did
+    /// may rename it. Showing the members and the routing while leaving
+    /// that number off the page left the one fact that actually governs
+    /// a square invisible, and `namers` unexplained wherever it did
+    /// appear.
+    private var namingSection: some View {
+        section("Naming") {
+            row("Anyone may rename") {
+                Text("This square has no owner")
+                    .foregroundStyle(.secondary)
+            }
+            row("Price of the next") {
+                if let cdd = party?.cddToUpdate, cdd > 0 {
+                    Text("More than \(cdd) CD").monospacedDigit()
+                } else {
+                    Text("1 CD — never renamed").foregroundStyle(.secondary)
+                }
+            }
+            if let last = party?.namers.last, !last.isEmpty {
+                row("Named last by") {
+                    HStack(spacing: 6) {
+                        CopyableText.elidingMiddle(last, head: 8, tail: 8)
+                        if last == session.liveFid {
+                            Text("you")
+                                .font(.caption2)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+                        }
+                    }
+                }
+            }
+            if let namers = party?.namers, namers.count > 1 {
+                row("Renamed") {
+                    Text("\(namers.count) times").monospacedDigit()
+                }
+            }
+            caption(
+                party?.cddToUpdate ?? 0 > 0
+                ? "Coin-days are value that has sat still, and destroying them is what a rename costs. Each one raises the price of the next, so a name gets harder to take the more it has been fought over."
+                : "Coin-days are value that has sat still, and destroying them is what a rename costs. Nobody has renamed this square yet, so the first change is as cheap as any carve — and sets the price of the one after it."
+            )
         }
     }
 
@@ -355,6 +407,13 @@ struct Party {
     var members: [String] = []
     var weAreMember = false
 
+    // Square only
+    /// Who has named this square, oldest first. A history, not a role.
+    var namers: [String] = []
+    /// What the last change to this square destroyed, in coin-days —
+    /// and therefore what the next one has to beat.
+    var cddToUpdate: Int64?
+
     var lastHeight: Int64?
     var lastTxId: String?
     var messageCount = 0
@@ -405,6 +464,12 @@ struct Party {
                 party.members = square?.members ?? []
                 party.lastHeight = square?.lastHeight
                 party.lastTxId = square?.lastTxId
+                // No owner to read: a square has none. What stands in
+                // its place is the coin-day price of the next change and
+                // the list of who has paid it before, and those are the
+                // two facts a square's details were missing.
+                party.namers = square?.namers ?? []
+                party.cddToUpdate = square?.cddToUpdate
 
             case .room:
                 let room = try session.rooms.get(id: id)

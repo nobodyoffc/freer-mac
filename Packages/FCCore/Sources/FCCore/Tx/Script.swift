@@ -153,6 +153,19 @@ public enum ScriptBuilder {
         return out
     }
 
+    /// Push a number the way bitcoinj's `ScriptBuilder.number(long)`
+    /// does: `OP_1NEGATE` for -1, `OP_0`…`OP_16` for 0…16, and a
+    /// minimally-encoded signed little-endian push above that.
+    ///
+    /// The distinction matters for CLTV: a redeem script built with a
+    /// non-minimal push hashes to a different address than the one the
+    /// other client would compute for the same lock height.
+    public static func number(_ value: Int64) -> Data {
+        if value == -1 { return Data([0x4F]) }  // OP_1NEGATE
+        if (0...16).contains(value) { return Data([smallNumberOp(Int(value))]) }
+        return pushData(ScriptAsm.scriptNumber(Int(value)))
+    }
+
     /// `OP_0 = 0x00`, `OP_1 = 0x51`, `OP_2 = 0x52`, … `OP_16 = 0x60`.
     static func smallNumberOp(_ n: Int) -> UInt8 {
         if n == 0 { return 0x00 }
