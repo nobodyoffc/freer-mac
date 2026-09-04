@@ -149,6 +149,27 @@ public final class ActiveSession {
         }
     }
 
+    // MARK: - ssh
+
+    /// The SSH identity for this vault: an ed25519 key derived one-way
+    /// from ``mainPrikey()``.
+    ///
+    /// **Bound to the main FID, not the live one.** Switching to a
+    /// watch-only sub-identity does not change which key opens your
+    /// servers, so the Terminal pane stays open for every identity in
+    /// the vault — see the note on ``SshEd25519Key`` for what that
+    /// binding costs when the main FID changes.
+    ///
+    /// **A method, not a `lazy var`.** Caching it would keep the key
+    /// alive for as long as anything held this session, which is
+    /// exactly what vault lock is supposed to end. Deriving is one
+    /// HKDF read, so there is nothing to save by caching.
+    public func sshIdentity() throws -> SshEd25519Key {
+        var priv = try mainPrikey()
+        defer { priv.resetBytes(in: 0 ..< priv.count) }
+        return try SshEd25519Key(mainPrikey: priv, mainFid: mainFid)
+    }
+
     // MARK: - sub-identities
 
     /// Add a watch-only sub-identity (just an FID we want to track,
@@ -320,6 +341,9 @@ public final class ActiveSession {
     // MARK: - lazy domain services
 
     public lazy var preferences: PreferencesStore = PreferencesStore(kv: storage)
+    /// Saved SSH destinations. See ``SshServersStore`` for why the
+    /// rows being encrypted matters more here than elsewhere.
+    public lazy var sshServers: SshServersStore = SshServersStore(kv: storage)
     public lazy var contacts: ContactsStore = ContactsStore(kv: storage)
     public lazy var secrets: SecretsStore  = SecretsStore(kv: storage)
     public lazy var proofs: ProofsStore    = ProofsStore(kv: storage)

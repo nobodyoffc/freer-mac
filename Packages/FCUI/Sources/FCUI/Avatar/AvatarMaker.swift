@@ -88,10 +88,11 @@ public enum AvatarMaker {
     /// if someone broke the resource bundle).
     public static func elementURL(layer: Int, element: Int) -> URL? {
         // SwiftPM bundles resources under
-        //   Bundle.module / Resources / avatar-elements / <layer> / <element>.png
-        // We use Bundle.module's url(forResource:withExtension:subdirectory:).
+        //   <resource bundle> / avatar-elements / <layer> / <element>.png
+        // `fcuiResources` is `Bundle.module` under `swift run`, and the copy
+        // inside `Contents/Resources` in a packaged `.app`.
         let subdir = "avatar-elements/\(layer)"
-        return Bundle.module.url(
+        return Bundle.fcuiResources.url(
             forResource: "\(element)", withExtension: "png", subdirectory: subdir
         )
     }

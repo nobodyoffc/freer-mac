@@ -48,3 +48,4 @@ fastlane/test_output
 # Editor / scratch
 *~
 .tmp/
+dist/

@@ -57,6 +57,15 @@ struct ChatView: View {
     @State private var drafts: [String: String] = [:]
 
     @State private var page: MessagesStore.Page = .init(messages: [], olderCursor: nil)
+
+    /// Messages typed here that the store has not taken yet, per
+    /// conversation. Pressing Send has to fetch the recipient's key
+    /// before anything can be sealed and filed, and a round trip is a
+    /// long time to stare at a text box that has already emptied itself
+    /// — so the bubble goes up now, as Queued, and the stored row
+    /// replaces it under the same id the moment there is one.
+    @State private var inFlight: [String: [ImMessage]] = [:]
+
     @State private var search = ""
 
     /// Senders this identity has not agreed to hear from, and how many
@@ -785,7 +794,7 @@ struct ChatView: View {
             return
         }
         do {
-            page = try session.chat.page(id)
+            page = withInFlight(try session.chat.page(id), of: id)
             let nowRead = try session.chat.markRead(id)
             reload()
             acknowledgeRead(nowRead)
@@ -830,23 +839,74 @@ struct ChatView: View {
         }
     }
 
+    /// The transcript as the store has it, plus anything still on its
+    /// way into the store. An id the store already knows wins: that copy
+    /// is the real row, with a real status on it.
+    private func withInFlight(_ stored: MessagesStore.Page, of conversationId: String) -> MessagesStore.Page {
+        guard let pending = inFlight[conversationId], !pending.isEmpty else { return stored }
+        let known = Set(stored.messages.compactMap(\.id))
+        let extra = pending.filter { $0.id.map { !known.contains($0) } ?? true }
+        guard !extra.isEmpty else { return stored }
+        return .init(messages: stored.messages + extra, olderCursor: stored.olderCursor)
+    }
+
+    private func drop(_ message: ImMessage, from conversationId: String) {
+        inFlight[conversationId]?.removeAll { $0.id == message.id }
+        if inFlight[conversationId]?.isEmpty == true { inFlight[conversationId] = nil }
+    }
+
+    /// Send what is in the box.
+    ///
+    /// **The bubble is put up before the send is attempted.** Naming the
+    /// message here rather than letting ``ChatService/sendText`` name it
+    /// is what makes that safe: the row the store writes carries the
+    /// same id, so `openSelected` replaces the optimistic copy instead
+    /// of drawing the message twice. Until then it shows as Queued,
+    /// which is what it is — and what the stored row will say too, until
+    /// the drain turns it into Sent.
+    ///
+    /// A send that never reaches the store takes its bubble back down
+    /// and returns the text to the box, so a failed key fetch costs the
+    /// user a click and not what they wrote.
     private func send(in conversation: Conversation) {
         let text = draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard verdict.canSend, !text.isEmpty else { return }
         sendError = nil
+
+        var optimistic = ImMessage.text(
+            type: conversation.type,
+            from: session.liveFid,
+            to: conversation.targetId,
+            text
+        )
+        optimistic.setId(fudpId: ImMessage.newFudpId())
+        let shown = optimistic
+
+        drafts[conversation.id] = ""
+        inFlight[conversation.id, default: []].append(shown)
+        page = withInFlight(page, of: conversation.id)
+
         Task {
             do {
                 let keys = try await sendKeys(for: conversation)
-                _ = try session.chat.sendText(
-                    text, in: conversation.id, as: session.liveFid, keys: keys
+                _ = try session.chat.send(
+                    shown, in: conversation, as: session.liveFid, keys: keys
                 )
-                await MainActor.run { drafts[conversation.id] = "" }
+                await MainActor.run {
+                    drop(shown, from: conversation.id)
+                    openSelected()
+                }
                 // Try to move it straight away; if that fails it stays
                 // queued and the next send-and-receive picks it up.
                 _ = try? await session.courier.drainOutbox(as: session.liveFid)
                 await MainActor.run { openSelected() }
             } catch {
-                await MainActor.run { sendError = String(describing: error) }
+                await MainActor.run {
+                    drop(shown, from: conversation.id)
+                    if drafts[conversation.id]?.isEmpty ?? true { drafts[conversation.id] = text }
+                    sendError = String(describing: error)
+                    openSelected()
+                }
             }
         }
     }

@@ -235,6 +235,8 @@ struct HomeView: View {
             ToolsView(session: session)
         case .convert:
             ConvertView(session: session)
+        case .terminal:
+            TerminalPaneView(session: session)
         case .logs:
             SystemMessagesView(session: session)
         case .settings:

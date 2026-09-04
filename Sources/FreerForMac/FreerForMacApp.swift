@@ -19,6 +19,18 @@ struct FreerForMacApp: App {
             AppRouter()
                 .environment(appState)
                 .frame(minWidth: 720, minHeight: 480)
+                .onAppear {
+                    // ⌘Q does not run `deinit`, so without this the
+                    // ssh-agent's socket and runtime directory would be
+                    // left behind once per launch. `$TMPDIR` is reaped
+                    // eventually and a listener-less socket is inert,
+                    // but leaving litter named after a dead pid is the
+                    // kind of thing that later looks like a bug.
+                    appDelegate.onTerminate = { [weak appState] in
+                        appState?.tearDownTerminalSessions()
+                        appState?.tearDownSshAgent()
+                    }
+                }
         }
         .windowResizability(.contentSize)
         .commands {
@@ -34,12 +46,23 @@ struct FreerForMacApp: App {
                 }
                 .keyboardShortcut("l", modifiers: [.command])
                 .disabled(appState.configureSession == nil)
+                .help("Closes the vault, and with it any open terminal sessions and the SSH agent holding your key.")
             }
         }
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+
+    /// Set by the scene once ``AppState`` exists. Used to release
+    /// process-lifetime resources that outlive SwiftUI teardown — at
+    /// present the ssh-agent's socket and runtime directory.
+    var onTerminate: (() -> Void)?
+
+    func applicationWillTerminate(_ notification: Notification) {
+        onTerminate?()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)

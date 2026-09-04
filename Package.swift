@@ -12,7 +12,16 @@ let package = Package(
         .package(path: "Packages/FCTransport"),
         .package(path: "Packages/FCStorage"),
         .package(path: "Packages/FCDomain"),
-        .package(path: "Packages/FCUI")
+        .package(path: "Packages/FCUI"),
+        // The terminal emulator behind the Terminal pane. Pinned to a
+        // minor range on purpose: SwiftTerm's `main` has already moved
+        // to swift-tools 6.2 with `swiftLanguageModes: [.v6]` and picked
+        // up a swift-png dependency, so an open-ended `from:` could drag
+        // a language-mode change into a package that is still 5.10.
+        // Only the executable target links it — keeping it out of FCUI,
+        // whose one dependency is FCCore, means the UI package and its
+        // tests do not build a terminal emulator.
+        .package(url: "https://github.com/migueldeicaza/SwiftTerm", .upToNextMinor(from: "1.20.0"))
     ],
     targets: [
         .executableTarget(
@@ -22,7 +31,8 @@ let package = Package(
                 "FCTransport",
                 "FCStorage",
                 "FCDomain",
-                "FCUI"
+                "FCUI",
+                .product(name: "SwiftTerm", package: "SwiftTerm")
             ],
             // Linked into the binary, not copied as a resource — see the
             // linker settings below.

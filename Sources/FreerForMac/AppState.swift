@@ -133,6 +133,9 @@ final class AppState {
     /// change independently: the OS tells us about one, the chat pane
     /// about the other.
     @ObservationIgnored private var appIsActive = true
+    /// The ssh-agent behind the Terminal pane. Nil until a session
+    /// asks for it, and dropped on lock — see ``sshAgent(for:)``.
+    @ObservationIgnored private var sshAgentServer: SshAgentServer?
     @ObservationIgnored private var chatIsOpen = false
 
     /// Raises the "approve this transaction?" modal for every signing
@@ -382,6 +385,8 @@ final class AppState {
         // nobody can answer must not turn into a signature.
         txApprovals.cancelAll()
         tearDownLiveFapi()
+        tearDownTerminalSessions()
+        tearDownSshAgent()
         activeSession = nil
         liveFid = nil
         clearLiveFidInfo()
@@ -479,10 +484,112 @@ final class AppState {
     func returnToChooseMain() {
         txApprovals.cancelAll()
         tearDownLiveFapi()
+        // A different main FID derives a different SSH key, so the
+        // running agent is not merely stale — it holds the wrong one.
+        tearDownTerminalSessions()
+        tearDownSshAgent()
         activeSession = nil
         liveFid = nil
         clearLiveFidInfo()
         route = .chooseMain
+    }
+
+    // MARK: - ssh agent
+
+    /// The running ssh-agent, starting it if this is the first session.
+    ///
+    /// **Lives on `AppState` rather than in the pane** because it
+    /// outlives any one terminal view — several sessions share one
+    /// agent — and because the two moments that must kill it,
+    /// ``lockAll()`` and ``returnToChooseMain()``, are here. A key that
+    /// survives the vault lock in a process the user believes is locked
+    /// is the bug this whole design exists to avoid.
+    ///
+    /// The key is derived here and handed over; nothing caches it.
+    func sshAgent(for session: ActiveSession) throws -> SshAgentServer {
+        if let existing = sshAgentServer, existing.isRunning { return existing }
+
+        let identity = try session.sshIdentity()
+        let agent = try SshAgentServer(key: identity, comment: "freer:\(session.mainFid)")
+        try agent.start()
+        sshAgentServer = agent
+        return agent
+    }
+
+    /// Stop the agent, unlink its socket, and drop the object holding
+    /// the key. Idempotent.
+    ///
+    /// Dropping the object is the part that matters: ``SshAgentServer``
+    /// cannot wipe CryptoKit's internal copy of the private key, so
+    /// "the key is gone" means "nothing references it any more".
+    func tearDownSshAgent() {
+        sshAgentServer?.stop()
+        sshAgentServer = nil
+    }
+
+    /// Whether an agent is currently up — the pane shows this, because
+    /// "a process on this Mac can sign as you right now" should not be
+    /// invisible.
+    var sshAgentIsRunning: Bool {
+        sshAgentServer?.isRunning ?? false
+    }
+
+    // MARK: - terminal sessions
+
+    /// Live SSH sessions, keyed by ``SshServer/id``.
+    ///
+    /// **Here rather than in the pane's `@State`** because the detail
+    /// column is rebuilt when the sidebar selection changes: a session
+    /// owned by the view would be torn down the moment the user
+    /// glanced at their wallet, which is not what a terminal is for.
+    private(set) var terminalSessions: [String: TerminalSessionModel] = [:]
+
+    /// The live session for this server, or a fresh one.
+    ///
+    /// A *finished* session is replaced rather than restarted: its
+    /// `LocalProcessTerminalView` still holds the last session's
+    /// scrollback and a spent pty, and reusing it would splice two
+    /// logins into one transcript.
+    func terminalSession(for server: SshServer) -> TerminalSessionModel {
+        if let existing = terminalSessions[server.id], existing.isRunning { return existing }
+        let session = TerminalSessionModel(server: server)
+        session.onEnded = { [weak self] in self?.stopSshAgentIfIdle() }
+        terminalSessions[server.id] = session
+        return session
+    }
+
+    /// End one session but keep its transcript on screen.
+    func stopTerminalSession(id: String) {
+        terminalSessions[id]?.stop()
+        stopSshAgentIfIdle()
+    }
+
+    /// End one session and forget it — for when the server itself is
+    /// being removed and there is nothing left to show.
+    func closeTerminalSession(id: String) {
+        terminalSessions[id]?.stop()
+        terminalSessions.removeValue(forKey: id)
+        stopSshAgentIfIdle()
+    }
+
+    /// Put the agent away once nothing is using it.
+    ///
+    /// The agent's entire risk is the window it is up for, so that
+    /// window is "at least one live session" and not "the app is
+    /// running". Note the test is `isRunning`, not "the dictionary is
+    /// empty": a finished session stays in the dictionary so its
+    /// scrollback survives, and it must not keep the key alive.
+    private func stopSshAgentIfIdle() {
+        guard !terminalSessions.values.contains(where: { $0.isRunning }) else { return }
+        tearDownSshAgent()
+    }
+
+    /// Kill every session. Called on lock: a channel authenticated
+    /// before the lock would otherwise stay open on a vault the user
+    /// believes is closed.
+    func tearDownTerminalSessions() {
+        for session in terminalSessions.values { session.stop() }
+        terminalSessions.removeAll()
     }
 
     // MARK: - live FAPI
