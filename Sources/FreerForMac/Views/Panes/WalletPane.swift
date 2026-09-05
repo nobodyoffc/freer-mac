@@ -29,6 +29,10 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
     case chat
     case mail
     case news
+    /// The public first-FCH board. Under Society because it is people
+    /// asking people for something, not a wallet screen — the payment it
+    /// ends in is the answer, not the subject.
+    case firstFch
 
     // Finance
     case proofs
@@ -103,7 +107,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         switch self {
         case .overview, .send, .compose, .cash, .transactions:
             return .wallet
-        case .contacts, .chat, .mail, .news:
+        case .contacts, .chat, .mail, .news, .firstFch:
             return .society
         case .proofs, .tokens:
             return .finance
@@ -136,6 +140,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .chat:         return "Chat"
         case .mail:         return "Mail"
         case .news:         return "News"
+        case .firstFch:     return "First FCH"
         case .proofs:       return "Proofs"
         case .tokens:       return "Tokens"
         case .files:        return "Files"
@@ -212,7 +217,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .chat, .mail, .secrets:
             return true
         case .overview, .send, .compose, .cash, .transactions,
-             .contacts, .news, .proofs, .tokens, .files,
+             .contacts, .news, .firstFch, .proofs, .tokens, .files,
              .publishText, .publishStatement, .publishImage, .publishSound, .publishVideo,
              .protocols, .services, .codes, .apps,
              .crypto, .convert, .terminal, .logs, .settings:
@@ -244,6 +249,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .chat:         return "bubble.left.and.bubble.right"
         case .mail:         return "envelope"
         case .news:         return "newspaper"
+        case .firstFch:     return "hand.raised"
         case .proofs:       return "checkmark.seal"
         case .tokens:       return "circle.grid.2x2"
         case .files:        return "folder"

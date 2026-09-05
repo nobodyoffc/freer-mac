@@ -209,6 +209,8 @@ struct HomeView: View {
             MailView(session: session)
         case .news:
             NewsView(session: session)
+        case .firstFch:
+            FirstFchBoardView(session: session)
         case .files:
             FilesView(session: session)
         case .secrets:

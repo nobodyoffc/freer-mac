@@ -57,6 +57,7 @@ struct OverviewView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     attentionCard
+                    if appState.liveFidIsBroke { firstFchCard }
                     if !pendingCashes.isEmpty {
                         pendingCard
                     }
@@ -82,6 +83,37 @@ struct OverviewView: View {
         .onChange(of: appState.inboxRevision) { _, _ in
             reloadUnread()
         }
+    }
+
+    private var firstFchCard: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "hand.raised")
+                .font(.title3)
+                .foregroundStyle(.teal)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("This FID holds no coins").font(.headline)
+                Text("""
+                    Every carve, name and message costs a fee, so an empty FID cannot do much. \
+                    Ask on the public First FCH board, or have somebody send coins straight to \
+                    your address.
+                    """)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 10) {
+                    Button("Open the First FCH board") {
+                        appState.selectedPane = .firstFch
+                    }
+                    CopyableText.elidingMiddle(session.liveFid, font: .callout.monospaced())
+                }
+                .padding(.top, 2)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.teal.opacity(0.10))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private var pendingCard: some View {
@@ -222,6 +254,16 @@ struct OverviewView: View {
                 id: "mail", title: "Mail", count: unreadMail,
                 systemImage: "envelope.fill", tint: .accentColor,
                 open: { appState.selectedPane = .mail }
+            ))
+        }
+        // Somebody is asking for their first FCH, and this identity
+        // asked to be told. Off by default, so this tile only appears
+        // for a helper who opted in — see ``FirstFchBoardView``.
+        if appState.newcomersWaiting > 0 {
+            tiles.append(AttentionTile(
+                id: "firstFch", title: "First FCH", count: appState.newcomersWaiting,
+                systemImage: "hand.raised.fill", tint: .teal,
+                open: { appState.selectedPane = .firstFch }
             ))
         }
         // Chat flavours keep the colour, word and icon they have

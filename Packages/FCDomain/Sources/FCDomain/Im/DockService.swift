@@ -218,6 +218,66 @@ public struct DockService {
         }
     }
 
+    /// Read the newest items at an inbox, without a cursor.
+    ///
+    /// The sibling ``fetch(recipientIds:after:size:dataType:timeoutMs:)``
+    /// walks *our* mailbox forwards and deletes what it takes, so it is
+    /// ordered oldest-first around an opaque server cursor. This reads a
+    /// **public board** — an inbox nobody empties, which only grows — so
+    /// the useful end is the newest one, and the position is a
+    /// `createTime` watermark the caller keeps rather than a cursor the
+    /// server hands back.
+    ///
+    /// `newerThanCreateTime` is a server-side range on `createTime`, so a
+    /// board with ten thousand answered posts still costs one page. It is
+    /// deliberately the **server's** timestamp: the sender's is written by
+    /// whoever posted and would let one item step over every reader's
+    /// watermark.
+    ///
+    /// Nothing is deleted here — the items are not ours to delete.
+    public func fetchNewest(
+        recipientIds: [String],
+        newerThanCreateTime: Int64? = nil,
+        size: Int = 100,
+        dataType: String? = imDataType,
+        timeoutMs: Int = 15_000
+    ) async throws -> [DockItem] {
+        guard !recipientIds.isEmpty else { return [] }
+
+        var params: [String: Any] = ["recipientIds": recipientIds]
+        if let dataType, !dataType.isEmpty { params["dataType"] = dataType }
+
+        var query: [String: Any] = [
+            "size": String(size),
+            "sort": [["field": "createTime", "order": "desc"]],
+        ]
+        if let newerThanCreateTime, newerThanCreateTime > 0 {
+            query["query"] = [
+                "range": ["fields": ["createTime"], "gt": String(newerThanCreateTime)]
+            ]
+        }
+
+        let reply = try await fapi.call(
+            api: "dock.fetch",
+            params: try JSONSerialization.data(withJSONObject: params, options: [.sortedKeys]),
+            fcdsl: try JSONSerialization.data(withJSONObject: query, options: [.sortedKeys]),
+            binary: nil,
+            sid: sid, via: nil, maxCost: nil,
+            timeoutMs: timeoutMs
+        )
+        let resp = reply.response
+        if let code = resp.code, code != 0 {
+            if code == 404 { return [] }
+            throw Failure.fapiNonZeroCode(api: "dock.fetch", code: code, message: resp.message)
+        }
+        guard let data = resp.data else { return [] }
+        do {
+            return try JSONDecoder().decode([DockItem].self, from: data)
+        } catch {
+            throw Failure.underlying(error)
+        }
+    }
+
     /// Drop an item we have taken delivery of.
     ///
     /// Deleting is the *receiver's* half of the bargain: the sender paid

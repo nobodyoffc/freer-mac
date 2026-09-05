@@ -151,6 +151,55 @@ final class AppState {
     /// non-UI task into SwiftUI.
     private(set) var inboxRevision = 0
 
+    /// How many newcomers are waiting on the first-FCH board, for the
+    /// identity that opted into looking. Zero when nobody is waiting,
+    /// when the setting is off, or when the board could not be read —
+    /// a login is the wrong moment to report a server problem the user
+    /// did not ask about.
+    private(set) var newcomersWaiting = 0
+
+    /// FIDs already checked this app run, so returning to Overview does
+    /// not re-ask the board on every appearance.
+    @ObservationIgnored private var boardCheckedFids: Set<String> = []
+
+    /// Look at the board once, for an identity that asked to.
+    ///
+    /// **Read-only, and it does not move the cursor.** The count is a
+    /// nudge towards the pane; advancing the watermark here would hide
+    /// from the board the very requests this just counted.
+    func checkFirstFchBoardIfOptedIn() {
+        guard let session = activeSession else { return }
+        let fid = session.liveFid
+        guard session.firstFchBoardState.get(fid: fid).checkAtLogin else { return }
+        guard boardCheckedFids.insert(fid).inserted else { return }
+        let board = session.firstFchBoard
+        let cursor = session.firstFchBoardState.get(fid: fid).cursor
+        Task { @MainActor in
+            let result = await board.fetch(newerThan: cursor)
+            guard result.error == nil, session.liveFid == fid else { return }
+            newcomersWaiting = result.requests.count
+        }
+    }
+
+    func clearNewcomersWaiting() { newcomersWaiting = 0 }
+
+    /// The live FID holds nothing, and we actually know that.
+    ///
+    /// Three states collapse to "no coins" and only one of them is worth
+    /// acting on: a balance of zero, a FID with no on-chain record at all
+    /// (``ActiveSession/refreshLiveFidInfo()`` leaves `balance` nil for
+    /// one the index has never seen — which is precisely the newcomer
+    /// this is for), and *not knowing yet*. The first two are broke; the
+    /// third must not be, or every helper with a full wallet sees the
+    /// newcomer banner flash on a slow connection. An index we could not
+    /// reach says nothing either way.
+    var liveFidIsBroke: Bool {
+        guard activeSession != nil, !liveFidInfoLoading, liveFidInfoError == nil else {
+            return false
+        }
+        return (liveFidInfo?.balance ?? 0) == 0
+    }
+
     /// Closure that produces the *initial* (pre-settings-applied)
     /// FAPI client for a freshly-unlocked main. Default = stub. The
     /// real client gets swapped in by ``applyFapiSettings(_:)`` once
@@ -707,6 +756,9 @@ final class AppState {
             // First moment the bar can actually get real numbers: the
             // cached row went up at unlock, this replaces it.
             Task { await refreshLiveFidInfo() }
+            // …and the first moment the board is reachable, for an
+            // identity that asked to be told when somebody is waiting.
+            checkFirstFchBoardIfOptedIn()
             SystemLog.shared.info(
                 SystemSource.fapi, "Connected to \(host):\(port)"
             )
@@ -789,6 +841,10 @@ final class AppState {
             // so show its cached row at once and go get a fresh one.
             loadCachedLiveFidInfo()
             Task { await refreshLiveFidInfo() }
+            // A different identity opted in, or did not, and has its own
+            // cursor — so the previous one's count means nothing here.
+            newcomersWaiting = 0
+            checkFirstFchBoardIfOptedIn()
         } catch {
             lastError = String(describing: error)
         }

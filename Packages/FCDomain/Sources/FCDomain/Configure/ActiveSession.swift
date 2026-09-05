@@ -626,6 +626,24 @@ public final class ActiveSession {
         )
     }
 
+    /// The public first-FCH request board — the one place a FID with no
+    /// coins can still be heard, and the list of people waiting for one.
+    ///
+    /// Built on ``dockRegistry`` like every other foreign server: the
+    /// board lives on somebody else's DOCK, and opening a second client
+    /// cache beside the registry would mean two sockets to a host we may
+    /// already be talking to.
+    public var firstFchBoard: FirstFchBoard {
+        FirstFchBoard(
+            directory: directory, resolver: homeServices, registry: dockRegistry,
+            state: firstFchBoardState, liveFid: liveFid
+        )
+    }
+
+    /// What each identity has done with the board: how far it has read,
+    /// whether it has asked, and whether it looks at login.
+    public lazy var firstFchBoardState: FirstFchBoardStore = FirstFchBoardStore(kv: storage)
+
     /// Everything ``ChatGate`` needs to answer whether this identity may
     /// send into this conversation.
     ///
