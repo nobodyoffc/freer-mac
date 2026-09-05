@@ -113,6 +113,13 @@ struct ChatView: View {
     /// other party's pubkey and it never changes.
     @State private var pubkeys: [String: Data] = [:]
 
+    /// Who the FIDs on screen are — the CID the chain publishes for
+    /// each, so a transcript names people instead of reciting digits.
+    /// One book for the whole pane rather than one per flavour: the
+    /// same person turns up in a room, a team and a chat, and they are
+    /// the same person in all three.
+    @State private var names = ChatNameBook()
+
     // MARK: - derived
 
     private var style: ChatModeStyle { .of(mode) }
@@ -230,6 +237,7 @@ struct ChatView: View {
                     ConversationListView(
                         style: style,
                         conversations: filtered,
+                        names: names,
                         selectedId: selectedId,
                         onDelete: { confirmDelete = $0 }
                     )
@@ -376,6 +384,7 @@ struct ChatView: View {
         .sheet(isPresented: $showRequests) {
             MessageRequestsSheet(
                 session: session,
+                names: names,
                 onClose: { showRequests = false },
                 onChanged: {
                     reload()
@@ -626,6 +635,7 @@ struct ChatView: View {
                     conversation: conversation,
                     page: page,
                     player: player,
+                    names: names,
                     onLoadOlder: loadOlder,
                     onDownload: download
                 )
@@ -658,10 +668,33 @@ struct ChatView: View {
     /// The header wears the flavour's colour as a band, so which kind of
     /// conversation is open is answerable without reading anything.
     private func transcriptHeader(_ conversation: Conversation) -> some View {
-        HStack(spacing: 8) {
+        let name = headerName(conversation)
+        return HStack(spacing: 8) {
             Rectangle().fill(style.tint).frame(width: 3, height: 22)
 
-            Text(ChatFormat.title(of: conversation)).font(.title3.bold()).lineLimit(1)
+            // A P2P thread's face, beside its name. A group already has
+            // one on every row of the list it was picked from; the
+            // person you are talking to had one nowhere at all.
+            if conversation.type == .p2p {
+                FidAvatarView(
+                    fid: conversation.targetId,
+                    size: 24,
+                    isNobody: names.isNobody(conversation.targetId)
+                )
+            }
+            if let name {
+                Text(name)
+                    .font(.title3.bold())
+                    .foregroundStyle(style.mode == .p2p ? AnyShapeStyle(.primary) : AnyShapeStyle(style.tint))
+                    .lineLimit(1)
+            } else {
+                // Nothing has published a name for this thread, so the
+                // id stands in the title's place rather than being
+                // printed twice — once as a heading and once as a
+                // badge, elided two different ways, which reads as two
+                // different identities.
+                identityTag(conversation, size: .large)
+            }
             if conversation.leftGroup == true {
                 ChatChip("left", color: .secondary)
             }
@@ -672,12 +705,14 @@ struct ChatView: View {
                 Text("\(members) members").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            CopyableText(
-                display: conversation.targetId.elidingMiddle(head: 8, tail: 8),
-                copy: conversation.targetId,
-                font: .caption
-            )
-            .foregroundStyle(.tertiary)
+            // The id, badged rather than greyed. It is the one string in
+            // this pane that has to be copied exactly — to add a
+            // contact, to invite somebody, to check you are in the
+            // thread you think you are — and it was drawn as the
+            // faintest thing on the row.
+            if name != nil {
+                identityTag(conversation, size: .small)
+            }
 
             Button {
                 showDetails = true
@@ -689,6 +724,40 @@ struct ChatView: View {
 
             conversationMenu(conversation)
         }
+    }
+
+    /// This thread's id, badged. Never carries the CID: when there is
+    /// one it is the heading beside this, and repeating it would cost
+    /// the badge the one fact it is here to carry.
+    private func identityTag(
+        _ conversation: Conversation, size: ChatIdentityTag.Size
+    ) -> ChatIdentityTag {
+        ChatIdentityTag(
+            fid: conversation.targetId,
+            tint: style.tint,
+            size: size,
+            noun: conversation.type == .p2p ? "FID" : "group id"
+        )
+    }
+
+    /// The thread's name in its header — **nil when it has none**.
+    ///
+    /// A group's name is its own. A person's is their CID, which is the
+    /// chain's answer and not anything stored when the thread was
+    /// opened: a chat started by somebody else messaging us was never
+    /// given one. Nil rather than falling back to the FID, because the
+    /// id already has a place on this row — printing it twice, elided
+    /// two different ways, reads as two different identities.
+    private func headerName(_ conversation: Conversation) -> String? {
+        if conversation.type == .p2p {
+            return names.cid(of: conversation.targetId) ?? conversation.displayName
+        }
+        // A group with no name of its own falls back to its id, and
+        // that is the id the tag is already showing.
+        guard let name = conversation.displayName, name != conversation.targetId else {
+            return nil
+        }
+        return name
     }
 
     /// What you can *do* to this conversation — and the four flavours
@@ -782,6 +851,14 @@ struct ChatView: View {
             threads = rebuilt
             requests = try session.messageRequests.pending()
             invites = try session.roomInvites.all()
+            // Every P2P thread's other party, so the list can name its
+            // rows. Group targets are deliberately not asked about: a
+            // room id is not a FID, and a group already carries its own
+            // name.
+            names.resolve(
+                (rebuilt[.p2p] ?? []).map(\.targetId) + requests.map(\.fid),
+                session: session
+            )
             loadError = nil
         } catch {
             loadError = String(describing: error)
@@ -795,6 +872,11 @@ struct ChatView: View {
         }
         do {
             page = withInFlight(try session.chat.page(id), of: id)
+            // Everyone who has spoken in this thread. A transcript is a
+            // handful of people saying many things, so the set is small
+            // however long the page is — and the book drops the ones it
+            // has already asked about before it asks anything.
+            names.resolve(page.messages.compactMap(\.senderId), session: session)
             let nowRead = try session.chat.markRead(id)
             reload()
             acknowledgeRead(nowRead)
@@ -830,6 +912,7 @@ struct ChatView: View {
         guard let id = selection[mode], let cursor = page.olderCursor else { return }
         do {
             let older = try session.chat.page(id, before: cursor)
+            names.resolve(older.messages.compactMap(\.senderId), session: session)
             page = .init(
                 messages: older.messages + page.messages,
                 olderCursor: older.olderCursor

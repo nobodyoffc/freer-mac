@@ -14,6 +14,11 @@ struct ConversationListView: View {
 
     let style: ChatModeStyle
     let conversations: [Conversation]
+    /// Who the P2P rows are. A chat opened by an incoming message has
+    /// no `displayName` — nothing on the wire carries one — so without
+    /// this the list would name half its rows and show the other half
+    /// as digits.
+    let names: ChatNameBook
     @Binding var selectedId: String?
     /// Asked for by the row's context menu. The list does not delete
     /// anything itself — it has no stores and no way to warn — so it
@@ -55,6 +60,26 @@ struct ConversationListView: View {
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
+    /// A group is named by the flavour it belongs to; a person is not.
+    /// Colouring a CID would say something about the person rather than
+    /// about the kind of thread, and the tab already says which list
+    /// this is.
+    private var nameColor: Color {
+        style.mode == .p2p ? .primary : style.tint
+    }
+
+    /// What to call this thread.
+    ///
+    /// A group carries its own name. A P2P thread's name is the other
+    /// person's CID, and the chain is the only place that knows one —
+    /// so the book is asked before falling back to whatever was stored
+    /// when the thread was opened, and to the elided FID after that.
+    private func title(of conversation: Conversation) -> String {
+        guard conversation.type == .p2p else { return ChatFormat.title(of: conversation) }
+        if let cid = names.cid(of: conversation.targetId) { return cid }
+        return ChatFormat.title(of: conversation)
+    }
+
     private func row(_ conversation: Conversation) -> some View {
         HStack(alignment: .top, spacing: 8) {
             // A P2P thread's target *is* a FID, so it gets the person's
@@ -63,7 +88,11 @@ struct ConversationListView: View {
             // it would either fail or composite a face out of a
             // transaction id. Groups get the square tile instead.
             if conversation.type == .p2p {
-                FidAvatarView(fid: conversation.targetId, size: 32)
+                FidAvatarView(
+                    fid: conversation.targetId,
+                    size: 32,
+                    isNobody: names.isNobody(conversation.targetId)
+                )
             } else {
                 GroupAvatarView(
                     groupId: conversation.targetId,
@@ -74,8 +103,17 @@ struct ConversationListView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
-                    Text(ChatFormat.title(of: conversation))
-                        .font(.callout.bold())
+                    // **The name is the loudest thing in the row.** A
+                    // thread list is scanned, not read: the eye is
+                    // looking for one name among twenty, and it was
+                    // competing with a preview line of the same weight
+                    // one size down. So the name goes up a size, gains
+                    // the flavour's colour where the flavour has one to
+                    // give, and the preview drops back to being the
+                    // quiet second line it always meant to be.
+                    Text(title(of: conversation))
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(nameColor)
                         .lineLimit(1)
                     if conversation.leftGroup == true {
                         ChatChip("left", color: .secondary)

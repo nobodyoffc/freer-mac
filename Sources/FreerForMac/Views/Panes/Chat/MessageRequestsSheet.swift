@@ -19,6 +19,10 @@ import FCUI
 struct MessageRequestsSheet: View {
 
     let session: ActiveSession
+    /// Who these strangers are. The sheet needs it more than anywhere
+    /// else in the pane does: a name is most of the answer to "should I
+    /// let this person in", and a bare FID is none of it.
+    let names: ChatNameBook
     let onClose: () -> Void
     /// Called after anything that changes the thread list.
     let onChanged: () -> Void
@@ -70,20 +74,28 @@ struct MessageRequestsSheet: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(requests) { request in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 4) {
-                            Text(request.fid.elidingMiddle(head: 6, tail: 6))
-                                .font(.callout.bold())
-                            Text("\(request.count)")
-                                .font(.caption2.bold())
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 1)
-                                .background(Capsule().fill(Color.secondary.opacity(0.25)))
+                    HStack(alignment: .top, spacing: 8) {
+                        FidAvatarView(
+                            fid: request.fid,
+                            size: 28,
+                            isNobody: names.isNobody(request.fid)
+                        )
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 4) {
+                                Text(names.label(for: request.fid))
+                                    .font(.body.weight(.bold))
+                                    .lineLimit(1)
+                                Text("\(request.count)")
+                                    .font(.caption2.bold())
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(Capsule().fill(Color.secondary.opacity(0.25)))
+                            }
+                            Text(request.lastPreview ?? "")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
                         }
-                        Text(request.lastPreview ?? "")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
                     }
                     .padding(.vertical, 7)
                     .padding(.horizontal, 9)
@@ -105,11 +117,23 @@ struct MessageRequestsSheet: View {
     private var detail: some View {
         if let selected {
             VStack(alignment: .leading, spacing: 10) {
-                CopyableText(
-                    display: selected.elidingMiddle(head: 10, tail: 10),
-                    copy: selected,
-                    font: .callout
-                )
+                HStack(spacing: 8) {
+                    FidAvatarView(
+                        fid: selected,
+                        size: 32,
+                        isNobody: names.isNobody(selected)
+                    )
+                    // The full identity, badged: this is the string the
+                    // user checks against whatever made them expect the
+                    // message, and it decides the answer.
+                    ChatIdentityTag(
+                        fid: selected,
+                        cid: names.cid(of: selected),
+                        tint: .accentColor,
+                        size: .large
+                    )
+                    Spacer()
+                }
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {

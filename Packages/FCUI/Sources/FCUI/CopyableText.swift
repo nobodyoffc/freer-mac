@@ -28,6 +28,12 @@ public struct CopyableText: View {
     private let copyValue: String
     private let font: Font?
     private let color: Color
+    /// What the hover tip says while nothing has been copied yet. Nil
+    /// gets the generic wording, which is right whenever the display
+    /// string *is* the copied string. Set it when the two differ — a
+    /// row showing a CID and copying the FID behind it has to say so,
+    /// or the click looks like it copied the name.
+    private let help: String?
 
     @State private var copied = false
 
@@ -39,11 +45,14 @@ public struct CopyableText: View {
     ///   - color: resting text colour. Set explicitly rather than with
     ///     an outer `.foregroundStyle` — this view sets its own so the
     ///     copied-flash can turn green, and the inner modifier wins.
-    public init(_ text: String, font: Font? = nil, color: Color = .primary) {
+    public init(
+        _ text: String, font: Font? = nil, color: Color = .primary, help: String? = nil
+    ) {
         self.display = text
         self.copyValue = text
         self.font = font
         self.color = color
+        self.help = help
     }
 
     /// - parameters:
@@ -51,12 +60,17 @@ public struct CopyableText: View {
     ///   - copy: what gets put on the clipboard (the full value).
     ///   - font: optional explicit font; nil inherits.
     public init(
-        display: String, copy: String, font: Font? = nil, color: Color = .primary
+        display: String,
+        copy: String,
+        font: Font? = nil,
+        color: Color = .primary,
+        help: String? = nil
     ) {
         self.display = display
         self.copyValue = copy
         self.font = font
         self.color = color
+        self.help = help
     }
 
     /// Display `value` with its middle elided (`head + "…" + tail`)
@@ -67,13 +81,15 @@ public struct CopyableText: View {
         head: Int = 8,
         tail: Int = 8,
         font: Font? = nil,
-        color: Color = .primary
+        color: Color = .primary,
+        help: String? = nil
     ) -> CopyableText {
         CopyableText(
             display: value.elidingMiddle(head: head, tail: tail),
             copy: value,
             font: font,
-            color: color
+            color: color,
+            help: help
         )
     }
 
@@ -90,7 +106,7 @@ public struct CopyableText: View {
                     NSCursor.pop()
                 }
             }
-            .help(copied ? "Copied!" : "Click to copy")
+            .help(copied ? "Copied!" : (help ?? "Click to copy"))
             .overlay(alignment: .trailing) {
                 if copied {
                     Image(systemName: "checkmark.circle.fill")

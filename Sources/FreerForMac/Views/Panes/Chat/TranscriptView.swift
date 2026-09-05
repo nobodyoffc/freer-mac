@@ -19,6 +19,9 @@ struct TranscriptView: View {
     let conversation: Conversation
     let page: MessagesStore.Page
     let player: VoicePlayer
+    /// Who the FIDs in this transcript are. Read-only here — the pane
+    /// owns it and fills it as threads are opened.
+    let names: ChatNameBook
 
     let onLoadOlder: () -> Void
     let onDownload: (ImMessage) -> Void
@@ -33,6 +36,11 @@ struct TranscriptView: View {
     /// down to it in front of the user.
     @State private var settled = false
 
+    /// The speaker's circle, and the gutter every bubble in their run
+    /// is indented by. One constant so the two cannot drift apart and
+    /// leave a run stepping sideways at its second message.
+    private static let avatarSize: CGFloat = 30
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -42,8 +50,8 @@ struct TranscriptView: View {
                             .buttonStyle(.borderless)
                             .font(.caption)
                     }
-                    ForEach(page.messages) { message in
-                        bubble(message)
+                    ForEach(Array(page.messages.enumerated()), id: \.element.id) { index, message in
+                        bubble(message, after: index > 0 ? page.messages[index - 1] : nil)
                     }
                     if page.messages.isEmpty {
                         Text("Nothing said here yet.")
@@ -97,15 +105,82 @@ struct TranscriptView: View {
 
     // MARK: - bubbles
 
-    private func bubble(_ message: ImMessage) -> some View {
+    /// The FID behind an incoming message.
+    ///
+    /// A P2P message that arrived without a `senderId` can only have
+    /// come from the one party the thread is with, so the thread's own
+    /// target stands in. A group message cannot be repaired that way:
+    /// the target of a room, a team or a square is a room id or a txid,
+    /// and handing one of those to ``AvatarMaker`` would composite a
+    /// face out of a transaction. Nil, and the row draws the neutral
+    /// stand-in instead.
+    private func senderFid(of message: ImMessage) -> String? {
+        if let sender = message.senderId, !sender.isEmpty { return sender }
+        return conversation.type == .p2p ? conversation.targetId : nil
+    }
+
+    /// How long a silence ends a run. Past this, the next message is a
+    /// fresh remark rather than the same breath, and it gets its own
+    /// face and name.
+    ///
+    /// **Not only a tidiness rule.** Without it a run has no upper
+    /// bound: five messages sent across two days from one person are
+    /// one run, so the four after the first are anonymous, and a
+    /// transcript scrolled back to them shows nobody at all. Fifteen
+    /// minutes is the usual chat-app figure and it does the job here —
+    /// consecutive typing stays grouped, and coming back later does not.
+    private static let runGap: Int64 = 15 * 60 * 1000
+
+    /// Whether this message starts a new speaker's run, and so earns a
+    /// face and a name of its own.
+    private func opens(
+        _ message: ImMessage, mine: Bool, sender: String?, after previous: ImMessage?
+    ) -> Bool {
+        guard let previous else { return true }
+        if previous.isOutgoing(from: session.liveFid) != mine { return true }
+        if senderFid(of: previous) != sender { return true }
+        // An unstamped message cannot be shown to be *close* to the one
+        // before it, so it is not assumed to be: it opens a run. The
+        // cost of being wrong is a repeated avatar; the cost the other
+        // way is a bubble with no attribution at all.
+        guard let then = previous.timestamp, let now = message.timestamp else { return true }
+        return now - then > Self.runGap
+    }
+
+    private func bubble(_ message: ImMessage, after previous: ImMessage?) -> some View {
         let mine = message.isOutgoing(from: session.liveFid)
-        return HStack {
-            if mine { Spacer(minLength: 40) }
+        let sender = senderFid(of: message)
+        // One person saying three things in a row is one person. Only
+        // the first of a run is badged and given a face; the rest are
+        // indented to the same place, so a P2P transcript does not turn
+        // into a column of the same avatar repeated forty times while a
+        // room still names every change of speaker.
+        let opensRun = opens(message, mine: mine, sender: sender, after: previous)
+        return HStack(alignment: .top, spacing: 8) {
+            if mine {
+                Spacer(minLength: 40)
+            } else if opensRun {
+                // Every flavour, including P2P. The thread header names
+                // the one person a P2P chat is with, but a transcript
+                // read from the middle — scrolled back, or glanced at
+                // after switching threads — has no header in view, and
+                // the face is the fastest answer to "whose words are
+                // these" that a screen can give.
+                FidAvatarView(
+                    fid: sender ?? "",
+                    size: Self.avatarSize,
+                    isNobody: sender.map(names.isNobody) ?? false
+                )
+            } else {
+                Color.clear.frame(width: Self.avatarSize, height: 1)
+            }
             VStack(alignment: mine ? .trailing : .leading, spacing: 3) {
-                if !mine, conversation.type != .p2p {
-                    Text((message.senderName ?? message.senderId ?? "").elidingMiddle(head: 6, tail: 6))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                if !mine, opensRun, let sender {
+                    ChatIdentityTag(
+                        fid: sender,
+                        cid: names.cid(of: sender) ?? message.senderName,
+                        tint: style.tint
+                    )
                 }
                 body(of: message)
                     .padding(.horizontal, 10)
