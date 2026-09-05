@@ -170,7 +170,11 @@ struct AddMultisigSheet: View {
             }
         } else if found.isEmpty {
             centered {
-                Image(systemName: "person.3.slash").font(.title).foregroundStyle(.secondary)
+                // `person.3.slash` does not exist, and a name that does
+                // not resolve renders as nothing — so this empty state
+                // was headed by a blank gap rather than by an icon.
+                // `person.2.slash` is the nearest symbol that ships.
+                Image(systemName: "person.2.slash").font(.title).foregroundStyle(.secondary)
                 Text("No groups found.").font(.headline)
                 Text("The chain only knows a group once coins have moved through it. A group created just now will not appear here — paste its redeem script instead.")
                     .font(.caption)
