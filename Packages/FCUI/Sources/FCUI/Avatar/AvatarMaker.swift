@@ -57,13 +57,45 @@ public enum AvatarMaker {
     /// Produce the avatar `NSImage` for `fid`, cached by FID.
     /// Returned at native 150×150; SwiftUI scales as needed.
     public static func avatar(for fid: String) throws -> NSImage {
-        if let cached = cache.object(forKey: fid as NSString) {
+        try avatar(for: fid, pixels: Int(nativeSize))
+    }
+
+    /// The avatar rendered at `pixels` on a side, for the cases that
+    /// want more than the 150 px the element art is drawn at — an
+    /// avatar someone is going to save as a file, or copy into a
+    /// message, rather than glance at in a list.
+    ///
+    /// The elements are raster, so anything above ``nativeSize`` is
+    /// interpolation, not detail. It is still worth doing here rather
+    /// than leaving it to whatever opens the file: compositing the ten
+    /// layers straight into the larger context keeps the scaling in one
+    /// high-quality step, and callers who care about the distinction
+    /// can say so — see ``FidAvatarSheet``, which does.
+    public static func avatar(for fid: String, pixels: Int) throws -> NSImage {
+        let side = max(1, pixels)
+        let key = "\(fid)@\(side)" as NSString
+        if let cached = cache.object(forKey: key) {
             return cached
         }
         let keys = try layerKeys(for: fid)
-        let image = try render(layerKeys: keys)
-        cache.setObject(image, forKey: fid as NSString)
+        let image = try render(layerKeys: keys, size: CGFloat(side))
+        cache.setObject(image, forKey: key)
         return image
+    }
+
+    /// PNG bytes for `fid`'s avatar at `pixels` on a side. The art is
+    /// a circle on transparency, and this preserves the alpha — what
+    /// lands on disk is what the app draws.
+    public static func pngData(for fid: String, pixels: Int) throws -> Data {
+        let image = try avatar(for: fid, pixels: pixels)
+        guard
+            let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+            let data = NSBitmapImageRep(cgImage: cg)
+                .representation(using: .png, properties: [:])
+        else {
+            throw Failure.rendererFailed
+        }
+        return data
     }
 
     /// Compute the 10 element indices that drive the layer composite,
@@ -97,11 +129,12 @@ public enum AvatarMaker {
         )
     }
 
-    /// Composite the 10 layers (base + 9 features) into a 150×150
-    /// premultiplied-RGBA `NSImage`. Returns the result wrapped as
-    /// an NSImage with one CGImage representation.
-    private static func render(layerKeys: [Int]) throws -> NSImage {
-        let size = nativeSize
+    /// Composite the 10 layers (base + 9 features) into a square
+    /// premultiplied-RGBA `NSImage` of `size` points a side (150 by
+    /// default, which is the resolution the element art is drawn at).
+    /// Returns the result wrapped as an NSImage with one CGImage
+    /// representation.
+    private static func render(layerKeys: [Int], size: CGFloat = nativeSize) throws -> NSImage {
         let width = Int(size)
         let height = Int(size)
 

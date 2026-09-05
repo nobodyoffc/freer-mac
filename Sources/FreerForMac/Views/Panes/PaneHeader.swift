@@ -25,6 +25,8 @@ struct PaneHeader: View {
     let session: ActiveSession
 
     @State private var showQr = false
+    @State private var showDetails = false
+    @State private var showAvatar = false
     @State private var editingLabel = false
     @State private var labelDraft = ""
     @State private var labelError: String?
@@ -41,11 +43,19 @@ struct PaneHeader: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
-            FidAvatarView(
-                fid: session.liveFid,
-                size: 56,
-                isNobody: info?.isNobody == true
-            )
+            // The avatar is the only picture this app has of an
+            // identity, and at 56 points it is a thumbnail. Clicking it
+            // opens the real thing, big enough to look at and to copy
+            // or save as a file.
+            Button { showAvatar = true } label: {
+                FidAvatarView(
+                    fid: session.liveFid,
+                    size: 56,
+                    isNobody: info?.isNobody == true
+                )
+            }
+            .buttonStyle(.plain)
+            .help("Show this avatar full size — copy or save the image")
 
             VStack(alignment: .leading, spacing: 3) {
                 nameLine
@@ -62,6 +72,23 @@ struct PaneHeader: View {
                 content: session.liveFid
             ) { showQr = false }
         }
+        .sheet(isPresented: $showDetails) {
+            FidDetailSheet(session: session) { showDetails = false }
+        }
+        .sheet(isPresented: $showAvatar) {
+            FidAvatarSheet(
+                fid: session.liveFid,
+                title: info?.hasCid == true ? info?.displayName : nonEmptyLabel,
+                isNobody: info?.isNobody == true
+            ) { showAvatar = false }
+        }
+    }
+
+    /// The local label, or nil when it is unset — the avatar sheet
+    /// wants a name to print or none at all, not an empty line.
+    private var nonEmptyLabel: String? {
+        let label = liveLabel
+        return label.isEmpty ? nil : label
     }
 
     // MARK: - identity column
@@ -93,6 +120,16 @@ struct PaneHeader: View {
             }
             .buttonStyle(.borderless)
             .help("Show this FID as a QR code for someone to scan")
+
+            // The bar shows what fits above every pane; this opens what
+            // does not — the whole FID, the pubkey, and the rest of the
+            // on-chain record. Its own button because a click on the FID
+            // itself already means "copy".
+            Button { showDetails = true } label: {
+                Image(systemName: "info.circle")
+            }
+            .buttonStyle(.borderless)
+            .help("Show everything known about this identity")
 
             Image(systemName: identity.symbol)
                 .foregroundStyle(identity.tint)

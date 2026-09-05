@@ -97,8 +97,21 @@ public struct PreferencesStore {
     }
 
     /// Load current settings, or return ``Preferences/defaults`` on first read.
+    ///
+    /// A row written before ``Preferences/defaultFapiService`` existed
+    /// carries a nil service, and a nil service means the app quietly
+    /// talks to nobody — every pane loads empty with no error to explain
+    /// it. Backfill the default here so an identity created by an older
+    /// build lands on the project server exactly like a fresh one does.
+    /// The two fields move together: pairing the project pubkey with a
+    /// host the user chose would aim a real server at the wrong key.
     public func load() throws -> Preferences {
-        try inner.get(Self.key) ?? .defaults
+        guard var settings = try inner.get(Self.key) else { return .defaults }
+        if settings.preferredFapiService == nil {
+            settings.preferredFapiService = Preferences.defaultFapiService
+            settings.preferredFapiServicePubkeyHex = Preferences.defaultFapiServicePubkeyHex
+        }
+        return settings
     }
 
     public func save(_ settings: Preferences) throws {

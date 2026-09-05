@@ -616,7 +616,11 @@ final class AppState {
             return
         }
 
-        // No FAPI configured → stub.
+        // No usable FAPI config → stub. `PreferencesStore.load()`
+        // backfills the project server when the row has no service at
+        // all, so landing here means the stored values are malformed —
+        // say so, because the alternative is every pane loading empty
+        // with nothing on screen to explain why.
         guard
             let serviceStr = prefs.preferredFapiService,
             let pubkeyHex = prefs.preferredFapiServicePubkeyHex,
@@ -624,6 +628,11 @@ final class AppState {
             let pubkey = decodeHex(pubkeyHex), pubkey.count == 33
         else {
             tearDownLiveFapi()
+            lastError = """
+                No FAPI server configured — nothing will load. \
+                Open Settings and set the host, port and server pubkey \
+                (Discover fills the pubkey in), then Save.
+                """
             return
         }
 

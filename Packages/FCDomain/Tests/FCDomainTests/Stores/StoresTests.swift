@@ -60,6 +60,39 @@ final class StoresTests: XCTestCase {
         XCTAssertEqual(loaded.autoLockSeconds, 600)
     }
 
+    /// An identity created before the project server had a default
+    /// carries a row with no FAPI service at all. Left alone it talks to
+    /// nobody and every pane loads empty, so `load()` fills it in.
+    func testPreferencesBackfillsFapiDefaultOnRowWithoutService() throws {
+        let (a, _) = try makeTwoSessions()
+        let store = a.preferences
+
+        // A row that predates the default: everything but FAPI is set.
+        try store.save(Preferences(theme: .dark, autoLockSeconds: 600))
+
+        let loaded = try store.load()
+        XCTAssertEqual(loaded.preferredFapiService, Preferences.defaultFapiService)
+        XCTAssertEqual(
+            loaded.preferredFapiServicePubkeyHex,
+            Preferences.defaultFapiServicePubkeyHex
+        )
+        // The rest of the row is untouched.
+        XCTAssertEqual(loaded.theme, .dark)
+        XCTAssertEqual(loaded.autoLockSeconds, 600)
+    }
+
+    /// A host the user chose keeps its own pubkey — backfilling the
+    /// project key here would aim a real server at the wrong identity.
+    func testPreferencesDoesNotBackfillPubkeyForCustomHost() throws {
+        let (a, _) = try makeTwoSessions()
+        let store = a.preferences
+        try store.save(Preferences(preferredFapiService: "fapi.example:8500"))
+
+        let loaded = try store.load()
+        XCTAssertEqual(loaded.preferredFapiService, "fapi.example:8500")
+        XCTAssertNil(loaded.preferredFapiServicePubkeyHex)
+    }
+
     func testPreferencesUpdateClosure() throws {
         let (a, _) = try makeTwoSessions()
         let store = a.preferences
