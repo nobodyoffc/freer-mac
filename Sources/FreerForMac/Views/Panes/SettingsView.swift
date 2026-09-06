@@ -455,6 +455,8 @@ struct SettingsView: View {
             // The session caches one of these (the signing gate), so
             // tell it the row moved under its feet.
             session.reloadPreferences()
+            // Repainting is the only way to see this one worked.
+            appState.applyTheme(theme)
             // Persist succeeded — now (re)build the live FAPI client
             // so other panes pick it up immediately.
             await appState.applyFapiSettings(for: session)

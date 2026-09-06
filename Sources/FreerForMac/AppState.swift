@@ -442,6 +442,8 @@ final class AppState {
         configureSession?.lock()
         configureSession = nil
         configures = (try? manager.listConfigures()) ?? configures
+        // The theme belonged to the identity we just put away.
+        applyTheme(.system)
         route = .password
     }
 
@@ -513,6 +515,9 @@ final class AppState {
             self.activeSession = session
             self.liveFid = session.liveFid
             self.route = .home
+            // Before the first frame of `.home`: the theme is a
+            // per-identity preference, so it can only be known now.
+            applyStoredTheme(for: session)
             // Show whatever the last session cached before the network
             // is even up — the bar should never start blank.
             self.loadCachedLiveFidInfo()
@@ -540,7 +545,60 @@ final class AppState {
         activeSession = nil
         liveFid = nil
         clearLiveFidInfo()
+        applyTheme(.system)
         route = .chooseMain
+    }
+
+    // MARK: - appearance
+
+    /// Force the app's appearance to match the identity's stored
+    /// theme. `.system` releases it back to the system setting.
+    ///
+    /// Applied process-wide via `NSApp.appearance` rather than as a
+    /// `preferredColorScheme` on the root view: the transaction
+    /// approval panel and the terminal's AppKit view are not inside
+    /// that hierarchy, and would keep the system appearance while the
+    /// rest of the window changed.
+    ///
+    /// **Main thread only, and not merely by convention.** Setting
+    /// `NSApp.appearance` takes AppKit's lock on the application's
+    /// appearance and then walks every window's view tree, which ends
+    /// in `NSHostingView` reaching for SwiftUI's view-graph lock. The
+    /// main thread takes those two in the opposite order whenever it
+    /// lays out — it holds the view graph and asks AppKit for the
+    /// effective appearance. Called off-main (``unlockMain(fid:)`` is
+    /// not main-actor isolated, so it runs on a cooperative thread)
+    /// the two orders meet and the app hangs with no CPU burned and
+    /// nothing on screen. Hence the hop.
+    func applyTheme(_ theme: Preferences.Theme) {
+        let appearance: NSAppearance?
+        switch theme {
+        case .system: appearance = nil
+        case .light:  appearance = NSAppearance(named: .aqua)
+        case .dark:   appearance = NSAppearance(named: .darkAqua)
+        }
+        // SwiftTerm samples the effective appearance once, when the
+        // view is built, so a terminal that is already open keeps the
+        // old palette unless it is told to look again.
+        let terminals = terminalSessions.values.map(\.view)
+        let apply = {
+            NSApp.appearance = appearance
+            for view in terminals { view.configureNativeColors() }
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
+
+    /// Apply the theme stored in a just-unlocked identity's
+    /// preferences. Silent on failure: a preferences row we cannot
+    /// read is already reported by ``applyFapiSettings(for:)``, and a
+    /// second copy of that error buys nothing.
+    private func applyStoredTheme(for session: ActiveSession) {
+        guard let prefs = try? session.preferences.load() else { return }
+        applyTheme(prefs.theme ?? .system)
     }
 
     // MARK: - ssh agent
