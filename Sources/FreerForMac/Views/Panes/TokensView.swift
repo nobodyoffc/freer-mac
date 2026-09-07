@@ -29,6 +29,7 @@ import FCUI
 /// holdings refresh follows up with a by-ids batch over the tokens it
 /// mentions.
 struct TokensView: View {
+    @Environment(\.inspectFid) private var inspectFid
     let session: ActiveSession
 
     private static let pageSize = 25
@@ -572,7 +573,11 @@ struct TokensView: View {
     private func tokenRow(_ token: Token) -> some View {
         let busy = busyId == token.id
         HStack(alignment: .top, spacing: 12) {
-            FidAvatarView(fid: token.deployer ?? "", size: 36)
+            Button { inspectFid(token.deployer ?? "") } label: {
+                FidAvatarView(fid: token.deployer ?? "", size: 36)
+            }
+            .buttonStyle(.plain)
+            .help("Show this FID's details, standing and ratings")
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {

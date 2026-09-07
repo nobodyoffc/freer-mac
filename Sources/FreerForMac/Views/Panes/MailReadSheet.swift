@@ -12,6 +12,7 @@ import FCUI
 /// write back should be able to see exactly what the chain already
 /// says.
 struct MailReadSheet: View {
+    @Environment(\.inspectFid) private var inspectFid
     let session: ActiveSession
     let mail: Mail
     let onClose: () -> Void
@@ -39,22 +40,38 @@ struct MailReadSheet: View {
             footer
         }
         .frame(width: 620, height: 560)
+        // This sheet draws a FID of its own, and a sheet cannot present
+        // another sheet through the window's host — so it installs one.
+        .fidDetailsHost(session: session)
     }
 
     // MARK: - sections
 
     private var header: some View {
         HStack(alignment: .center, spacing: 12) {
-            FidAvatarView(fid: mail.counterparty(for: me) ?? me, size: 44)
+            let counterparty = mail.counterparty(for: me) ?? me
+            Button { inspectFid(counterparty) } label: {
+                FidAvatarView(fid: counterparty, size: 44)
+            }
+            .buttonStyle(.plain)
+            .help("Show this FID's details, standing and ratings")
             VStack(alignment: .leading, spacing: 2) {
                 Text(incoming ? "From" : "To")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                CopyableText(
-                    display: displayName,
-                    copy: mail.counterparty(for: me) ?? "",
-                    font: .headline
-                )
+                HStack(spacing: 6) {
+                    CopyableText(
+                        display: displayName,
+                        copy: mail.counterparty(for: me) ?? "",
+                        font: .headline
+                    )
+                    Button { inspectFid(counterparty) } label: {
+                        Image(systemName: "info.circle").font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tertiary)
+                    .help("Show this FID's details, standing and ratings")
+                }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 4) {

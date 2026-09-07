@@ -612,6 +612,9 @@ struct AppDetailSheet: View {
     let name: (String) -> String?
     let onClose: () -> Void
 
+    /// Set while the rating composer is up.
+    @State private var rating = false
+
     /// record id → name, resolved so the code, protocol and service
     /// lists read as words rather than sixty-four hex characters each.
     @State private var linkedNames: [String: String] = [:]
@@ -746,14 +749,20 @@ struct AppDetailSheet: View {
 
                     HStack(spacing: 24) {
                         field("Rating") {
-                            Text(app.tRate.map { String(format: "%.2f", $0) } ?? "—")
-                                .font(.caption)
-                        }
-                        field("CDD burned for it") {
-                            Text(app.tCdd.map { "\($0)" } ?? "—")
-                                .font(.caption.monospacedDigit())
+                            RatingSummaryView(tRate: app.tRate, tCdd: app.tCdd)
                         }
                     }
+
+                    // The mean above is the whole of what the record
+                    // knows about its own standing; who said it, how
+                    // much they staked and why lives only in the
+                    // history index.
+                    RatingHistoryView(
+                        session: session,
+                        kind: .app,
+                        subjectId: app.id,
+                        name: name
+                    )
 
                     field("App ID") {
                         CopyableText.elidingMiddle(
@@ -797,6 +806,13 @@ struct AppDetailSheet: View {
             }
 
             HStack {
+                Button {
+                    rating = true
+                } label: {
+                    Label("Rate", systemImage: "star")
+                }
+                .disabled(!canRate)
+                .help(rateHelp)
                 Spacer()
                 Button("Done", action: onClose)
                     .keyboardShortcut(.defaultAction)
@@ -804,6 +820,23 @@ struct AppDetailSheet: View {
         }
         .padding(20)
         .frame(width: 560)
+        // This sheet draws FIDs of its own, and a sheet cannot present
+        // another sheet through the window's host — so it installs one.
+        // See ``View/fidDetailsHost(session:)``.
+        .fidDetailsHost(session: session)
+        .sheet(isPresented: $rating) {
+            RateRecordSheet(
+                session: session,
+                kind: .app,
+                subjectId: app.id,
+                title: app.displayName,
+                owner: app.owner,
+                currentRate: app.tRate,
+                currentCdd: app.tCdd,
+                onDone: { _ in rating = false },
+                onCancel: { rating = false }
+            )
+        }
         .frame(minHeight: 380, maxHeight: 700)
         .task { await resolveLinked() }
     }
@@ -860,20 +893,10 @@ struct AppDetailSheet: View {
         }
     }
 
-    @ViewBuilder
+    /// Thin wrapper over the shared ``FidValue`` so the sheet keeps
+    /// supplying its own resolved-name map.
     private func fidValue(_ fid: String?) -> some View {
-        if let fid, !fid.isEmpty {
-            HStack(spacing: 6) {
-                FidAvatarView(fid: fid, size: 22)
-                CopyableText(
-                    display: name(fid) ?? fid.elidingMiddle(head: 10, tail: 10),
-                    copy: fid,
-                    font: .system(.caption, design: .monospaced)
-                )
-            }
-        } else {
-            Text("—").font(.caption).foregroundStyle(.tertiary)
-        }
+        FidValue(fid, name: fid.flatMap(name))
     }
 
     @ViewBuilder
@@ -882,6 +905,23 @@ struct AppDetailSheet: View {
             Text(label).font(.caption).foregroundStyle(.secondary)
             value()
         }
+    }
+
+    /// The app's own owner may not rate it — every one of the ten
+    /// parsers discards such a carve after the fee is spent — and an
+    /// unconfirmed record has no id to name.
+    private var canRate: Bool {
+        !app.id.isEmpty && app.owner != session.liveFid
+    }
+
+    private var rateHelp: String {
+        if app.id.isEmpty {
+            return "This app has no on-chain id yet."
+        }
+        if app.owner == session.liveFid {
+            return "You own this app, and the protocol ignores a rating from its own owner."
+        }
+        return "Rate this app 0–5, weighted by the coin-days you spend."
     }
 
     private func chip(_ text: String, color: Color) -> some View {

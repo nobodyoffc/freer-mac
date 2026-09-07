@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import FCCore
 import FCDomain
@@ -10,6 +11,7 @@ import FCUI
 /// Cross-pane "Send to this contact" jump is deferred — would require
 /// `AppState`-mediated tab switching, which is a separate refactor.
 struct ContactsView: View {
+    @Environment(\.inspectFid) private var inspectFid
     let session: ActiveSession
 
     @State private var rows: [Contact] = []
@@ -220,7 +222,14 @@ struct ContactsView: View {
     @ViewBuilder
     private func row(_ c: Contact) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            FidAvatarView(fid: c.id, size: 40)
+            // The avatar is the row's largest target and the one thing
+            // on it that is purely about *who this is*, so it opens the
+            // page about who this is.
+            Button { inspectFid(c.id) } label: {
+                FidAvatarView(fid: c.id, size: 40)
+            }
+            .buttonStyle(.plain)
+            .help("Show this FID's details, standing and ratings")
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -270,6 +279,14 @@ struct ContactsView: View {
 
             HStack(spacing: 4) {
                 Button {
+                    inspectFid(c.id)
+                } label: {
+                    Image(systemName: "info.circle")
+                }
+                .buttonStyle(.borderless)
+                .help("Details — the chain's record for this FID, and its ratings")
+
+                Button {
                     togglePin(c)
                 } label: {
                     Image(systemName: c.pinnedAt == nil ? "pin" : "pin.slash")
@@ -309,6 +326,16 @@ struct ContactsView: View {
             .foregroundStyle(.secondary)
         }
         .contentShape(Rectangle())
+        .contextMenu {
+            Button("Show FID details") { inspectFid(c.id) }
+            Button("Copy FID") { copyToPasteboard(c.id) }
+            Button("Edit") { editorMode = .edit(c) }
+        }
+    }
+
+    private func copyToPasteboard(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
     }
 
     private func chip(_ text: String, color: Color) -> some View {

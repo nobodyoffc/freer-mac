@@ -49,6 +49,7 @@ public enum MediaFeip {
         case emptyTitle
         case missingImageId
         case noImageIds
+        case rateOutOfRange(Int)
         case tooLarge(bytes: Int)
 
         public var description: String {
@@ -61,6 +62,8 @@ public enum MediaFeip {
                 return "MediaFeip: this op names the text it acts on, and no id was given"
             case .noImageIds:
                 return "MediaFeip: no texts given"
+            case .rateOutOfRange(let r):
+                return "MediaFeip: a rating is 0 to 5, not \(r)"
             case .tooLarge(let bytes):
                 return "MediaFeip: the carve is \(bytes) bytes, over the \(maxOpReturnSize)-byte OP_RETURN limit. Shorten the summary or the author list — the file itself is not in the carve."
             }
@@ -143,9 +146,39 @@ public enum MediaFeip {
     /// else's work.
     ///
     /// **Built, not yet wired** — see ``TextFeip/rateOp(textId:rate:)``.
-    public static func rateOp(kind: MediaKind, imageId: String, rate: Int) throws -> String {
+    /// `{"op":"rate","imageId":…,"rate":n,"cause":"…"}` — score a published work 0–5.
+    ///
+    /// The score's *weight* is not in this payload: the chain counts the
+    /// coin-days the rating transaction destroys, so an action that
+    /// offers no control over the coins spent offers no control over how
+    /// much the vote counts. ``ActiveSession/carveMediaRateOnChain(kind:mediaId:rate:cause:weightCd:feePerByte:timeoutMs:)``
+    /// takes the weight as a CoinDay floor and hands it to coin
+    /// selection.
+    ///
+    /// `cause` is the optional reason. It is trimmed, and an empty one
+    /// is omitted rather than carved as `""` — the same rule
+    /// ``ReputationFeip/carve(ratee:rate:cause:)`` follows.
+    ///
+    /// **The range is checked here as well as on chain.** The publish
+    /// parsers used to require only a non-null `rate`, so a 99 was
+    /// indexed and folded into `tRate` permanently; they now bound it
+    /// to `0...MAX_RATE` like the Construct four always did. Refusing
+    /// it here too is not redundancy — a client that leaves the range
+    /// to the chain reports the failure as a lost fee rather than as a
+    /// bad number in a field.
+    ///
+    /// The publisher may not rate their own record; that is the
+    /// parser's check, not this builder's, since this builder does not
+    /// know who is signing.
+    public static func rateOp(kind: MediaKind, imageId: String, rate: Int, cause: String? = nil) throws -> String {
         guard !imageId.isEmpty else { throw Failure.missingImageId }
-        return try jsonString(["op": Op.rate.rawValue, kind.subjectKey: imageId, "rate": rate])
+        guard (0...5).contains(rate) else { throw Failure.rateOutOfRange(rate) }
+        var data: [String: Any] = ["op": Op.rate.rawValue, kind.subjectKey: imageId, "rate": rate]
+        if let trimmed = cause?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !trimmed.isEmpty {
+            data["cause"] = trimmed
+        }
+        return try jsonString(data)
     }
 
     // MARK: - complete carves
@@ -226,6 +259,29 @@ public enum MediaFeip {
         let json = opJson.map { envelope(kind: kind, opJson: $0) } ?? ""
         let used = Data(json.utf8).count - (summary.isEmpty ? 1 : 0)
         return maxOpReturnSize - used
+    }
+
+    /// The full OP_RETURN payload for a `rate`, size-checked before a
+    /// caller can spend anything on it.
+    ///
+    /// The size guard is why `cause` belongs here and not only on the op
+    /// builder: a reason long enough to overflow the carve should fail
+    /// while it is still text in a field, not after the coins are
+    /// selected.
+    public static func rateCarve(kind: MediaKind, mediaId: String, rate: Int, cause: String? = nil) throws -> String {
+        try sized(envelope(kind: kind, opJson: rateOp(kind: kind, imageId: mediaId, rate: rate, cause: cause)))
+    }
+
+    /// How many more UTF-8 bytes of `cause` a rating carve can take
+    /// before it exceeds the OP_RETURN limit. Negative once over.
+    ///
+    /// Measured on the encoded envelope, so it counts what JSON actually
+    /// costs: an escaped character, or any character outside ASCII,
+    /// spends more than one byte. ``rateCarve(kind:mediaId:rate:cause:)`` is the
+    /// authority; this is what to draw a counter against.
+    public static func remainingCauseBytes(kind: MediaKind, mediaId: String, rate: Int, cause: String) -> Int {
+        guard let full = try? envelope(kind: kind, opJson: rateOp(kind: kind, imageId: mediaId, rate: rate, cause: cause)).utf8.count else { return 0 }
+        return maxOpReturnSize - full
     }
 
     // MARK: - envelope

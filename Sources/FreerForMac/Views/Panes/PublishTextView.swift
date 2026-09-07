@@ -19,6 +19,7 @@ import FCUI
 /// publisher clause and shows the whole chain, which is what a
 /// published work is *for*. Drafts never touch the chain.
 struct PublishTextView: View {
+    @Environment(\.inspectFid) private var inspectFid
     let session: ActiveSession
 
     private static let pageSize = 25
@@ -387,7 +388,11 @@ struct PublishTextView: View {
                 .help("Only the publisher can delete or recover a record")
             }
 
-            FidAvatarView(fid: record.publisher ?? "", size: 40)
+            Button { inspectFid(record.publisher ?? "") } label: {
+                FidAvatarView(fid: record.publisher ?? "", size: 40)
+            }
+            .buttonStyle(.plain)
+            .help("Show this FID's details, standing and ratings")
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -539,19 +544,12 @@ struct PublishTextView: View {
         return out
     }
 
-    @ViewBuilder
+    /// Thin wrapper over the shared ``FidLine`` so the pane keeps
+    /// supplying its own resolved-name map. The line itself — the
+    /// copy-on-click, the hover affordance, the way into the FID's
+    /// details page — lives in one place now.
     private func fidLine(_ label: String, _ fid: String?) -> some View {
-        if let fid, !fid.isEmpty {
-            HStack(spacing: 3) {
-                Text(label).font(.caption2).foregroundStyle(.tertiary)
-                CopyableText(
-                    display: names[fid] ?? fid.elidingMiddle(head: 6, tail: 6),
-                    copy: fid,
-                    font: .system(.caption2, design: .monospaced)
-                )
-                .foregroundStyle(.secondary)
-            }
-        }
+        FidLine(label, fid, name: fid.flatMap { names[$0] })
     }
 
     // MARK: - loading

@@ -30,6 +30,9 @@ struct ChatPartyDetailSheet: View {
     @State private var loadError: String?
     @State private var loading = true
 
+    /// Set while the rating composer is up.
+    @State private var rating = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -60,6 +63,9 @@ struct ChatPartyDetailSheet: View {
                     } else {
                         membersSection
                     }
+                    if conversation.type == .team {
+                        teamRatingSection
+                    }
                     chainSection
                 }
                 .padding(20)
@@ -67,13 +73,79 @@ struct ChatPartyDetailSheet: View {
 
             Divider()
             HStack {
+                if conversation.type == .team {
+                    Button {
+                        rating = true
+                    } label: {
+                        Label("Rate", systemImage: "star")
+                    }
+                    .disabled(!canRateTeam)
+                    .help(rateTeamHelp)
+                }
                 Spacer()
                 Button("Done", action: onClose).keyboardShortcut(.defaultAction)
             }
             .padding(12)
         }
         .frame(width: 560, height: 620)
+        // A person's page, a group's owner, every member — all FIDs,
+        // and a sheet cannot present another sheet through the window's
+        // host, so this one installs its own.
+        .fidDetailsHost(session: session)
+        .sheet(isPresented: $rating) {
+            RateRecordSheet(
+                session: session,
+                kind: .team,
+                subjectId: conversation.targetId,
+                title: party?.name ?? conversation.displayName ?? "Team",
+                owner: party?.owner,
+                currentRate: party?.tRate.map(Float.init),
+                currentCdd: party?.tCdd,
+                onDone: { _ in
+                    rating = false
+                    // The mean moves only when the chain re-indexes,
+                    // so re-read rather than guess at it.
+                    Task { await load() }
+                },
+                onCancel: { rating = false }
+            )
+        }
         .task { await load() }
+    }
+
+    // MARK: - rating
+
+    /// A team's standing, and the ratings behind it.
+    ///
+    /// Only teams: FEIP18 defines a `rate` op, FEIP19 Square does not —
+    /// a square is unmanaged and has no owner to be rated against.
+    private var teamRatingSection: some View {
+        section("Rating") {
+            RatingSummaryView(tRate: party?.tRate.map(Float.init), tCdd: party?.tCdd)
+            RatingHistoryView(
+                session: session,
+                kind: .team,
+                subjectId: conversation.targetId
+            )
+        }
+    }
+
+    /// A team's own owner may not rate it — `OrganizationParser`
+    /// discards such a carve after the fee is spent.
+    private var canRateTeam: Bool {
+        !conversation.targetId.isEmpty
+            && party?.owner != session.liveFid
+            && session.canSign
+    }
+
+    private var rateTeamHelp: String {
+        if party?.owner == session.liveFid {
+            return "You own this team, and the protocol ignores a rating from its own owner."
+        }
+        if !session.canSign {
+            return "This identity has no private key on this Mac, so it cannot sign a rating."
+        }
+        return "Rate this team 0–5, weighted by the coin-days you spend."
     }
 
     // MARK: - chrome
@@ -108,7 +180,15 @@ struct ChatPartyDetailSheet: View {
     private var identitySection: some View {
         section("Identity") {
             row(conversation.type == .p2p ? "FID" : "Group id") {
-                CopyableText.elidingMiddle(conversation.targetId, head: 10, tail: 10, font: .body)
+                if conversation.type == .p2p {
+                    // Only a person has a `Freer` behind them. A team,
+                    // square or room id looks like a FID and is not
+                    // one — offering its details page would open a
+                    // page about a record that cannot exist.
+                    FidBadge(conversation.targetId, font: .body, head: 10, tail: 10)
+                } else {
+                    CopyableText.elidingMiddle(conversation.targetId, head: 10, tail: 10, font: .body)
+                }
             }
             if let desc = party?.desc, !desc.isEmpty {
                 row("Description") {
@@ -117,7 +197,7 @@ struct ChatPartyDetailSheet: View {
             }
             if let owner = party?.owner, !owner.isEmpty {
                 row("Owner") {
-                    CopyableText.elidingMiddle(owner, head: 8, tail: 8)
+                    FidBadge(owner, font: .body)
                 }
             }
             if let pubkey = party?.pubkey, !pubkey.isEmpty {
@@ -231,7 +311,7 @@ struct ChatPartyDetailSheet: View {
             if let last = party?.namers.last, !last.isEmpty {
                 row("Named last by") {
                     HStack(spacing: 6) {
-                        CopyableText.elidingMiddle(last, head: 8, tail: 8)
+                        FidBadge(last, font: .body)
                         if last == session.liveFid {
                             Text("you")
                                 .font(.caption2)
@@ -277,7 +357,7 @@ struct ChatPartyDetailSheet: View {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(members, id: \.self) { fid in
                         HStack(spacing: 6) {
-                            CopyableText.elidingMiddle(fid, head: 10, tail: 8, font: .caption.monospaced())
+                            FidBadge(fid, font: .caption.monospaced(), head: 10, tail: 8)
                             if fid == session.liveFid {
                                 Text("you")
                                     .font(.caption2)
@@ -407,6 +487,13 @@ struct Party {
     var members: [String] = []
     var weAreMember = false
 
+    // Team only
+    /// The team's CDD-weighted mean rating, and the coin-days behind
+    /// it. FEIP18 defines the same `rate` op the Construct four do;
+    /// a square does not, which is why these are team-only.
+    var tRate: Double?
+    var tCdd: Int64?
+
     // Square only
     /// Who has named this square, oldest first. A history, not a role.
     var namers: [String] = []
@@ -453,6 +540,8 @@ struct Party {
                 party.owner = team?.owner
                 party.home = team?.home
                 party.members = team?.members ?? []
+                party.tRate = team?.tRate
+                party.tCdd = team?.tCdd
                 party.lastHeight = team?.lastHeight
                 party.lastTxId = team?.lastTxId
 

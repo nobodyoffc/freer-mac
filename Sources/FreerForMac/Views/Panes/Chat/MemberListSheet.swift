@@ -21,6 +21,8 @@ import FCUI
 /// so rather than implying the first did the second.
 struct MemberListSheet: View {
 
+    @Environment(\.inspectFid) private var inspectFid
+
     let session: ActiveSession
     let style: ChatModeStyle
     let conversation: Conversation
@@ -70,6 +72,9 @@ struct MemberListSheet: View {
         }
         .padding(20)
         .frame(width: 520, height: 460)
+        // Every row is a FID, and a sheet cannot present another sheet
+        // through the window's host — so this one installs its own.
+        .fidDetailsHost(session: session)
         .onAppear(perform: load)
     }
 
@@ -92,12 +97,12 @@ struct MemberListSheet: View {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(members, id: \.self) { fid in
                     HStack(spacing: 8) {
-                        FidAvatarView(fid: fid, size: 24)
-                        CopyableText(
-                            display: fid.elidingMiddle(head: 8, tail: 8),
-                            copy: fid,
-                            font: .callout
-                        )
+                        Button { inspectFid(fid) } label: {
+                            FidAvatarView(fid: fid, size: 24)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Show this FID's details, standing and ratings")
+                        FidBadge(fid, font: .callout)
                         if fid == owner { ChatChip("owner", color: style.tint) }
                         if managers.contains(fid) { ChatChip("manager", color: .secondary) }
                         if namers.contains(fid) { ChatChip("named it", color: .secondary) }

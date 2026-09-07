@@ -23,6 +23,7 @@ import FCUI
 /// statistics code, all of which is this pane with one query flag
 /// flipped.
 struct ProofsView: View {
+    @Environment(\.inspectFid) private var inspectFid
     let session: ActiveSession
 
     private static let pageSize = 25
@@ -429,7 +430,11 @@ struct ProofsView: View {
                       : "Only the current owner can destroy a proof")
             }
 
-            FidAvatarView(fid: proof.issuer ?? "", size: 40)
+            Button { inspectFid(proof.issuer ?? "") } label: {
+                FidAvatarView(fid: proof.issuer ?? "", size: 40)
+            }
+            .buttonStyle(.plain)
+            .help("Show this FID's details, standing and ratings")
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -574,19 +579,12 @@ struct ProofsView: View {
         return out
     }
 
-    @ViewBuilder
+    /// Thin wrapper over the shared ``FidLine`` so the pane keeps
+    /// supplying its own resolved-name map. The line itself — the
+    /// copy-on-click, the hover affordance, the way into the FID's
+    /// details page — lives in one place now.
     private func fidLine(_ label: String, _ fid: String?) -> some View {
-        if let fid, !fid.isEmpty {
-            HStack(spacing: 3) {
-                Text(label).font(.caption2).foregroundStyle(.tertiary)
-                CopyableText(
-                    display: names[fid] ?? fid.elidingMiddle(head: 6, tail: 6),
-                    copy: fid,
-                    font: .system(.caption2, design: .monospaced)
-                )
-                .foregroundStyle(.secondary)
-            }
-        }
+        FidLine(label, fid, name: fid.flatMap { names[$0] })
     }
 
     // MARK: - loading

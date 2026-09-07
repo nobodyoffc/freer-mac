@@ -545,6 +545,9 @@ struct MediaViewerSheet: View {
     @State private var loading = true
     @State private var loadError: String?
 
+    /// Set while the rating composer is up.
+    @State private var rating = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             header
@@ -553,6 +556,16 @@ struct MediaViewerSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     presentation
+                    Divider()
+                    // The ★ in the header is the CDD-weighted mean and
+                    // nothing else; who rated it, how much they staked
+                    // and why lives only in the history index.
+                    RatingHistoryView(
+                        session: session,
+                        kind: RatableKind(mediaKind: kind),
+                        subjectId: record.id,
+                        name: name
+                    )
                     Divider()
                     RemarkThreadView(session: session, targetId: record.id, name: name)
                 }
@@ -566,6 +579,13 @@ struct MediaViewerSheet: View {
                         if let url = localURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                     }
                 }
+                Button {
+                    rating = true
+                } label: {
+                    Label("Rate", systemImage: "star")
+                }
+                .disabled(!canRate)
+                .help(rateHelp)
                 Spacer()
                 Button("Close") { onClose() }
                     .keyboardShortcut(.cancelAction)
@@ -573,7 +593,40 @@ struct MediaViewerSheet: View {
         }
         .padding(20)
         .frame(width: 720, height: 760)
+        // This sheet draws FIDs of its own, and a sheet cannot present
+        // another sheet through the window's host — so it installs one.
+        .fidDetailsHost(session: session)
+        .sheet(isPresented: $rating) {
+            RateRecordSheet(
+                session: session,
+                kind: RatableKind(mediaKind: kind),
+                subjectId: record.id,
+                title: record.title?.isEmpty == false ? record.title! : "Untitled",
+                owner: record.publisher,
+                currentRate: record.tRate,
+                currentCdd: record.tCdd,
+                onDone: { _ in rating = false },
+                onCancel: { rating = false }
+            )
+        }
         .onAppear { load() }
+    }
+
+    /// A work's own publisher may not rate it — the parser discards
+    /// such a carve after the fee is spent — and an unconfirmed record
+    /// has no id to name.
+    private var canRate: Bool {
+        !record.id.isEmpty && record.publisher != session.liveFid
+    }
+
+    private var rateHelp: String {
+        if record.id.isEmpty {
+            return "This \(kind.noun) has no on-chain id yet."
+        }
+        if record.publisher == session.liveFid {
+            return "You published this \(kind.noun), and the protocol ignores a rating from its own publisher."
+        }
+        return "Rate this \(kind.noun) 0–5, weighted by the coin-days you spend."
     }
 
     // MARK: - header
@@ -600,12 +653,7 @@ struct MediaViewerSheet: View {
             }
 
             HStack(spacing: 10) {
-                FidAvatarView(fid: record.publisher ?? "", size: 22)
-                CopyableText(
-                    display: record.publisher.map { name($0) ?? $0.elidingMiddle(head: 8, tail: 8) } ?? "—",
-                    copy: record.publisher ?? "",
-                    font: .caption
-                )
+                FidValue(record.publisher, name: record.publisher.flatMap(name))
                 if let ver = record.ver {
                     Text("edition \(ver)").font(.caption).foregroundStyle(.secondary)
                 } else {

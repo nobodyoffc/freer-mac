@@ -875,6 +875,21 @@ public final class ActiveSession {
         NewsService(fapi: fapi)
     }
 
+    /// On-chain rating history (`base.search` over entity
+    /// `reputation_history`). Needs no key — who rated whom, and by how
+    /// much, is public by construction. See ``ReputationService``.
+    public var reputationService: ReputationService {
+        ReputationService(fapi: fapi)
+    }
+
+    /// On-chain rating history for the ten ratable records
+    /// (`base.search` over `protocol_history`, `text_history` and the
+    /// rest). Needs no key, for the same reason ``reputationService``
+    /// does not. See ``RatingService``.
+    public var ratingService: RatingService {
+        RatingService(fapi: fapi)
+    }
+
     /// On-chain proof reads (`base.search` over entity `proof`).
     /// Needs no key either — a proof is public by construction.
     public var proofService: ProofService {
@@ -1537,6 +1552,291 @@ public final class ActiveSession {
                 return "the mail could not be prepared for sending"
             }
         }
+    }
+
+    // MARK: - reputation (FEIP16)
+
+    public enum RateFailure: Error, CustomStringConvertible {
+        case rateSelf(fid: String)
+        case rateeHasNoRecord(fid: String)
+        case weightBelowMinimum(cd: Int64)
+
+        public var description: String {
+            switch self {
+            case .rateSelf(let fid):
+                return "\(fid) is the identity you are living as — a FID cannot rate itself."
+            case .rateeHasNoRecord(let fid):
+                return "\(fid) has no on-chain record yet, and FEIP16 only applies a rating to a FID that has one. The rating would cost the fee and change nothing."
+            case .weightBelowMinimum(let cd):
+                return "A rating has to destroy at least 1 CoinDay to be counted; \(cd) is below that."
+            }
+        }
+    }
+
+    /// What a rating is about to do, checked before anything is signed.
+    public struct RateQuote: Sendable {
+        public let ratee: String
+        /// The ratee's record as the chain has it — nil means there is
+        /// nothing to rate and ``canRate`` is false.
+        public let freer: Freer?
+        /// Ratings this identity has already carved against `ratee`.
+        /// The protocol has no update op, so a second rating is a
+        /// second row rather than a correction: worth saying so before
+        /// somebody rates twice by accident.
+        public let alreadyRated: [RepuHist]
+
+        public var canRate: Bool { freer != nil }
+    }
+
+    /// Look up what is known about `ratee` before rating it, in one
+    /// place: does it have a `Freer` at all (without which FEIP16
+    /// discards the rating), and have we rated it before.
+    public func quoteRating(
+        of ratee: String,
+        timeoutMs: Int = 10_000
+    ) async throws -> RateQuote {
+        guard ratee != liveFid else { throw Failure.underlying(RateFailure.rateSelf(fid: ratee)) }
+        let freer = try? await directory.freer(byId: ratee, timeoutMs: timeoutMs)
+        let mine = (try? await reputationService.ratings(
+            by: liveFid, of: ratee, timeoutMs: timeoutMs
+        ).ratings) ?? []
+        return RateQuote(ratee: ratee, freer: freer, alreadyRated: mine)
+    }
+
+    /// Rate another FID good or bad, weighted by the CoinDays this
+    /// transaction destroys.
+    ///
+    /// **Pays nobody.** The ratee is named in the carve's `data.fid`
+    /// (see ``ReputationFeip``), so a rating is a statement about
+    /// someone rather than a transfer to them — the same shape as a
+    /// notice-fee carve, not a mail. Its costs are the miner fee and
+    /// the CoinDays.
+    ///
+    /// `weightCd` is the CoinDays the rating should carry: the delta
+    /// applied to the ratee's ``Freer/reputation`` is `±cdd`, so this
+    /// is the whole force of the opinion. Coin selection treats it as a
+    /// floor and may exceed it — whichever cashes it takes, the
+    /// approval sheet shows the CoinDays that will actually be
+    /// destroyed before anything is signed, and that number is the one
+    /// that counts.
+    ///
+    /// Refuses three ways before spending anything: rating yourself,
+    /// rating a FID with no chain record (the parser would drop it),
+    /// and a weight below the protocol's 1-CoinDay floor. A ratee that
+    /// is not an FCH address at all is refused by the builder.
+    @discardableResult
+    public func rateOnChain(
+        ratee: String,
+        rate: Rate,
+        cause: String? = nil,
+        weightCd: Int64 = ContactFeip.cdRequired,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        guard ratee != liveFid else {
+            throw Failure.underlying(RateFailure.rateSelf(fid: ratee))
+        }
+        guard weightCd >= ContactFeip.cdRequired else {
+            throw Failure.underlying(RateFailure.weightBelowMinimum(cd: weightCd))
+        }
+        // Built before the lookup so a malformed FID fails on the spot
+        // rather than after a round trip.
+        let opReturn = try ReputationFeip.carve(ratee: ratee, rate: rate, cause: cause)
+
+        // A Freer must exist for the ratee or the operation is dropped
+        // with no state change. Checked here rather than left to the
+        // chain, because the chain's way of telling you is to take the
+        // fee and say nothing.
+        let record = try? await directory.freer(byId: ratee, timeoutMs: timeoutMs)
+        guard record != nil else {
+            throw Failure.underlying(RateFailure.rateeHasNoRecord(fid: ratee))
+        }
+
+        let priv = try livePrikey()
+        let result = try await wallet.carve(
+            fromAddress: liveFid, privkey: priv,
+            opReturn: opReturn,
+            feePerByte: feePerByte,
+            minimumCd: weightCd,
+            timeoutMs: timeoutMs
+        )
+        return result.remoteTxid
+    }
+
+
+    // MARK: - record ratings (FEIP 1, 2, 5, 15, 18, 21, 22, 23, 24, 25)
+
+    public enum RecordRateFailure: Error, CustomStringConvertible {
+        case noSubject(kind: RatableKind)
+        case rateOwnRecord(kind: RatableKind)
+        case weightBelowMinimum(cd: Int64)
+
+        public var description: String {
+            switch self {
+            case .noSubject(let kind):
+                return "No \(kind.label.lowercased()) was given to rate. A rating names its subject in the payload, and a carve naming an empty one confirms and changes nothing."
+            case .rateOwnRecord(let kind):
+                return "You are the \(kind.ownerNoun) of this \(kind.label.lowercased()), and the protocol ignores a rating from its own \(kind.ownerNoun). The carve would cost the fee and the CoinDays and change nothing."
+            case .weightBelowMinimum(let cd):
+                return "A rating has to destroy at least 1 CoinDay to be counted; \(cd) is below that."
+            }
+        }
+    }
+
+    /// What a record rating is about to do, checked before anything is
+    /// signed.
+    public struct RecordRateQuote: Sendable {
+        public let kind: RatableKind
+        public let subjectId: String
+        /// True when the live FID is the record's owner or publisher,
+        /// whose rating every one of the ten parsers discards.
+        public let isOwnRecord: Bool
+        /// Ratings this identity has already carved against this
+        /// record. None of the ten protocols has an un-rate op, so a
+        /// second rating is a second row that moves the mean again
+        /// rather than a correction — worth saying before somebody
+        /// rates twice by accident.
+        public let alreadyRated: [RatingHist]
+
+        public var canRate: Bool { !isOwnRecord }
+    }
+
+    /// Look up what is known before rating a record: whether this
+    /// identity owns it, and whether it has rated it before.
+    ///
+    /// `owner` is passed in rather than fetched because every caller
+    /// already has the record on screen — the sheets open from a detail
+    /// view that just read it.
+    public func quoteRecordRating(
+        of kind: RatableKind,
+        subjectId: String,
+        owner: String?,
+        timeoutMs: Int = 10_000
+    ) async throws -> RecordRateQuote {
+        let mine = (try? await ratingService.ratings(
+            by: liveFid, of: kind, subjectId: subjectId, timeoutMs: timeoutMs
+        ).ratings) ?? []
+        return RecordRateQuote(
+            kind: kind,
+            subjectId: subjectId,
+            isOwnRecord: owner.map { $0 == liveFid } ?? false,
+            alreadyRated: mine
+        )
+    }
+
+    /// Rate one of the ten ratable records 0–5, weighted by the
+    /// CoinDays this transaction destroys.
+    ///
+    /// **Pays nobody.** The subject is named in the carve's payload, so
+    /// a rating is a statement about a record rather than a transfer to
+    /// whoever published it — the same shape as ``rateOnChain(ratee:rate:cause:weightCd:feePerByte:timeoutMs:)``.
+    /// Its costs are the miner fee and the CoinDays.
+    ///
+    /// `weightCd` is what the rating is worth. The ten protocols fold a
+    /// rating into the record's `tRate` as a **CDD-weighted mean** —
+    /// `tRate ← (tRate·tCdd + rate·cdd) / (tCdd + cdd)` — so this number
+    /// is not a formality, it is how far the average moves. Coin
+    /// selection treats it as a floor and may exceed it; the approval
+    /// sheet shows the CoinDays that will actually be destroyed before
+    /// anything is signed, and that is the number that counts.
+    ///
+    /// `owner` is the record's owner or publisher when the caller knows
+    /// it, and rating your own record is refused here rather than left
+    /// to the chain — every one of the ten parsers drops it silently,
+    /// which is to say it takes the fee and says nothing.
+    @discardableResult
+    public func carveRecordRateOnChain(
+        kind: RatableKind,
+        subjectId: String,
+        rate: RateScore,
+        cause: String? = nil,
+        owner: String? = nil,
+        weightCd: Int64 = ContactFeip.cdRequired,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        if let owner, owner == liveFid {
+            throw Failure.underlying(RecordRateFailure.rateOwnRecord(kind: kind))
+        }
+        guard weightCd >= ContactFeip.cdRequired else {
+            throw Failure.underlying(RecordRateFailure.weightBelowMinimum(cd: weightCd))
+        }
+
+        // Built before anything is spent, so a bad subject id or an
+        // over-long cause fails on the spot.
+        let opReturn = try Self.rateCarve(
+            kind: kind, subjectId: subjectId, rate: rate.rawValue, cause: cause
+        )
+
+        let priv = try livePrikey()
+        let result = try await wallet.carve(
+            fromAddress: liveFid, privkey: priv,
+            opReturn: opReturn,
+            feePerByte: feePerByte,
+            minimumCd: weightCd,
+            timeoutMs: timeoutMs
+        )
+        return result.remoteTxid
+    }
+
+    /// The carve for one rating, dispatched to the builder that owns
+    /// the protocol's spelling.
+    ///
+    /// The ten builders are not merged behind one signature because the
+    /// subject key is the one thing that genuinely differs, and each
+    /// builder already enforces its own id guard and size limit. This
+    /// switch is where the ``RatableKind`` becomes those calls, and it
+    /// is exhaustive so a new ratable protocol cannot be added without
+    /// being carved correctly.
+    public static func rateCarve(
+        kind: RatableKind, subjectId: String, rate: Int, cause: String?
+    ) throws -> String {
+        // Nine of the ten builders refuse an empty subject themselves;
+        // TeamFeip does not, and a `rate` carve naming an empty `tid`
+        // confirms, costs the fee and the coin-days, and rates nothing.
+        // Guarded here so all ten are covered at one point.
+        guard !subjectId.isEmpty else {
+            throw Failure.underlying(RecordRateFailure.noSubject(kind: kind))
+        }
+        switch kind {
+        case .protocolSpec:
+            return try ProtocolFeip.rateCarve(pid: subjectId, rate: rate, cause: cause)
+        case .code:
+            return try CodeFeip.rateCarve(codeId: subjectId, rate: rate, cause: cause)
+        case .service:
+            return try ServiceFeip.rateCarve(sid: subjectId, rate: rate, cause: cause)
+        case .app:
+            return try AppFeip.rateCarve(aid: subjectId, rate: rate, cause: cause)
+        case .team:
+            return try TeamFeip.envelope(
+                opJson: TeamFeip.rateOp(tid: subjectId, rate: rate, cause: cause)
+            )
+        case .text:
+            return try TextFeip.rateCarve(textId: subjectId, rate: rate, cause: cause)
+        case .remark:
+            return try RemarkFeip.rateCarve(remarkId: subjectId, rate: rate, cause: cause)
+        case .image:
+            return try MediaFeip.rateCarve(kind: .image, mediaId: subjectId, rate: rate, cause: cause)
+        case .sound:
+            return try MediaFeip.rateCarve(kind: .sound, mediaId: subjectId, rate: rate, cause: cause)
+        case .video:
+            return try MediaFeip.rateCarve(kind: .video, mediaId: subjectId, rate: rate, cause: cause)
+        }
+    }
+
+    /// How many more UTF-8 bytes of `cause` this rating can carry
+    /// before the carve exceeds the OP_RETURN limit. Negative once
+    /// over.
+    ///
+    /// For a live counter under the reason field; ``carveRecordRateOnChain(kind:subjectId:rate:cause:owner:weightCd:feePerByte:timeoutMs:)``
+    /// is the authority on whether it fits.
+    public static func remainingCauseBytes(
+        kind: RatableKind, subjectId: String, rate: RateScore, cause: String
+    ) -> Int {
+        guard let full = try? rateCarve(
+            kind: kind, subjectId: subjectId, rate: rate.rawValue, cause: cause
+        ).utf8.count else { return 0 }
+        return MailFeip.maxOpReturnSize - full
     }
 
     // MARK: - group carves

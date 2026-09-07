@@ -20,6 +20,7 @@ import FCUI
 /// encrypted. The pane says so out loud rather than letting the padlocks
 /// imply more privacy than there is.
 struct MailView: View {
+    @Environment(\.inspectFid) private var inspectFid
     let session: ActiveSession
 
     private enum Tab: String, CaseIterable, Identifiable {
@@ -338,7 +339,11 @@ struct MailView: View {
 
         HStack(alignment: .top, spacing: 12) {
             ZStack(alignment: .topLeading) {
-                FidAvatarView(fid: other, size: 40)
+                Button { inspectFid(other) } label: {
+                    FidAvatarView(fid: other, size: 40)
+                }
+                .buttonStyle(.plain)
+                .help("Show this FID's details, standing and ratings")
                 if mail.unread == true {
                     Circle()
                         .fill(Color.accentColor)
@@ -404,6 +409,12 @@ struct MailView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { open(mail) }
+        .contextMenu {
+            Button("Open") { open(mail) }
+            Button("Show \(mail.isIncoming(for: me) ? "sender" : "recipient")'s FID details") {
+                inspectFid(other)
+            }
+        }
     }
 
     @ViewBuilder

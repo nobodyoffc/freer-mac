@@ -14,6 +14,8 @@ import FCUI
 /// its own chrome and never to branch on.
 struct TranscriptView: View {
 
+    @Environment(\.inspectFid) private var inspectFid
+
     let session: ActiveSession
     let style: ChatModeStyle
     let conversation: Conversation
@@ -166,11 +168,20 @@ struct TranscriptView: View {
                 // after switching threads — has no header in view, and
                 // the face is the fastest answer to "whose words are
                 // these" that a screen can give.
-                FidAvatarView(
-                    fid: sender ?? "",
-                    size: Self.avatarSize,
-                    isNobody: sender.map(names.isNobody) ?? false
-                )
+                // The face is also the way in: a transcript is where
+                // you most often want to know who a stranger *is*, and
+                // clicking the one thing already identifying them is
+                // the gesture that needs no explaining.
+                Button { inspectFid(sender ?? "") } label: {
+                    FidAvatarView(
+                        fid: sender ?? "",
+                        size: Self.avatarSize,
+                        isNobody: sender.map(names.isNobody) ?? false
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(sender == nil)
+                .help("Show this FID's details, standing and ratings")
             } else {
                 Color.clear.frame(width: Self.avatarSize, height: 1)
             }
@@ -181,6 +192,9 @@ struct TranscriptView: View {
                         cid: names.cid(of: sender) ?? message.senderName,
                         tint: style.tint
                     )
+                    .contextMenu {
+                        Button("Show FID details") { inspectFid(sender) }
+                    }
                 }
                 body(of: message)
                     .padding(.horizontal, 10)

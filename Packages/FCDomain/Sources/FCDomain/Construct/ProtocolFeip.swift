@@ -64,7 +64,7 @@ public enum ProtocolFeip {
             case .noProtocolIds:
                 return "ProtocolFeip: no protocols given"
             case .rateOutOfRange(let r):
-                return "ProtocolFeip: a rating is 1 to 5, not \(r)"
+                return "ProtocolFeip: a rating is 0 to 5, not \(r)"
             case .tooLarge(let bytes):
                 return "ProtocolFeip: the carve is \(bytes) bytes, over the \(maxOpReturnSize)-byte OP_RETURN limit. A registration is not compressed or encrypted — shorten the description, or publish the long form under `home` and carve its DID."
             }
@@ -160,18 +160,32 @@ public enum ProtocolFeip {
         return try jsonString(dict)
     }
 
-    /// `{"op":"rate","pid":…,"rate":n}` — score a protocol 1–5.
+    /// `{"op":"rate","pid":…,"rate":n,"cause":"…"}` — score a protocol 0–5.
     ///
     /// The score's *weight* is not in this payload: the chain counts the
     /// coin-days the rating transaction destroys, so what a rating is
-    /// worth is decided by which coins pay for it. Building that input
-    /// selection is its own piece of work and is not wired yet — the
-    /// builder is here because the payload is part of the protocol, not
-    /// because a caller exists.
-    public static func rateOp(pid: String, rate: Int) throws -> String {
+    /// worth is decided by which coins pay for it — see
+    /// ``ActiveSession/carveProtocolRateOnChain(pid:rate:cause:weightCd:feePerByte:timeoutMs:)``, which takes the weight as a
+    /// CoinDay floor and hands it to coin selection.
+    ///
+    /// `cause` is the optional reason. It is trimmed, and an empty one
+    /// is omitted rather than carved as `""` — the same rule
+    /// ``ReputationFeip/carve(ratee:rate:cause:)`` follows, because a
+    /// blank string is a shape no other client writes.
+    ///
+    /// **0 is a real verdict, not a missing one.** The reference parser
+    /// accepts `0...5` and Android has always offered a 0 button; this
+    /// builder used to refuse 0, which made the worst rating the app
+    /// could express a 1.
+    public static func rateOp(pid: String, rate: Int, cause: String? = nil) throws -> String {
         guard !pid.isEmpty else { throw Failure.noProtocolId }
-        guard (1...5).contains(rate) else { throw Failure.rateOutOfRange(rate) }
-        return try jsonString(["op": Op.rate.rawValue, "pid": pid, "rate": rate])
+        guard (0...5).contains(rate) else { throw Failure.rateOutOfRange(rate) }
+        var data: [String: Any] = ["op": Op.rate.rawValue, "pid": pid, "rate": rate]
+        if let trimmed = cause?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !trimmed.isEmpty {
+            data["cause"] = trimmed
+        }
+        return try jsonString(data)
     }
 
     // MARK: - complete carves
@@ -279,6 +293,29 @@ public enum ProtocolFeip {
         let json = op.map { envelope(opJson: $0) } ?? ""
         let used = Data(json.utf8).count - (desc.isEmpty ? 1 : 0)
         return maxOpReturnSize - used
+    }
+
+    /// The full OP_RETURN payload for a `rate`, size-checked before a
+    /// caller can spend anything on it.
+    ///
+    /// The size guard is why `cause` belongs here rather than only in
+    /// the op builder: a reason long enough to overflow the carve should
+    /// fail while it is still text in a field, not after the coins are
+    /// selected.
+    public static func rateCarve(pid: String, rate: Int, cause: String? = nil) throws -> String {
+        try sized(envelope(opJson: rateOp(pid: pid, rate: rate, cause: cause)))
+    }
+
+    /// How many more UTF-8 bytes of `cause` a rating carve can take
+    /// before it exceeds the OP_RETURN limit. Negative once over.
+    ///
+    /// Measured on the encoded envelope, so it counts what JSON actually
+    /// costs: an escaped character, or any character outside ASCII,
+    /// spends more than one byte. ``rateCarve(pid:rate:cause:)`` is
+    /// the authority; this is what to draw a counter against.
+    public static func remainingCauseBytes(pid: String, rate: Int, cause: String) -> Int {
+        guard let full = try? envelope(opJson: rateOp(pid: pid, rate: rate, cause: cause)).utf8.count else { return 0 }
+        return maxOpReturnSize - full
     }
 
     // MARK: - envelope

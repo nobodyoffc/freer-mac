@@ -41,6 +41,17 @@ public enum TeamFeip {
     /// The sentence a member signs to accept a new consensus document.
     public static let agreeConsensusConfirm = "I agree with the new consensus."
 
+    public enum Failure: Error, CustomStringConvertible {
+        case rateOutOfRange(Int)
+
+        public var description: String {
+            switch self {
+            case .rateOutOfRange(let r):
+                return "TeamFeip: a rating is 0 to 5, not \(r)"
+            }
+        }
+    }
+
     // MARK: - op payloads
 
     public static func createOp(
@@ -152,11 +163,23 @@ public enum TeamFeip {
         try listOp("cancel appointment", tid: tid, fids: fids)
     }
 
-    public static func rateOp(tid: String, rate: Int) throws -> String {
-        try FeipJson.object([
+    /// `{"op":"rate","tid":…,"rate":n,"cause":"…"}` — score a team 0–5.
+    ///
+    /// The score's *weight* is the coin-days the rating transaction
+    /// destroys, not anything in this payload. `cause` is the optional
+    /// reason, trimmed, and omitted rather than carved as `""` — the
+    /// same rule ``ReputationFeip/carve(ratee:rate:cause:)`` follows.
+    ///
+    /// The owner may not rate their own team; that is the parser's
+    /// check, since this builder does not know who is signing.
+    public static func rateOp(tid: String, rate: Int, cause: String? = nil) throws -> String {
+        guard (0...5).contains(rate) else { throw Failure.rateOutOfRange(rate) }
+        let trimmed = cause?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try FeipJson.object([
             ("op", .string("rate")),
             ("tid", .string(tid)),
             ("rate", .int(Int64(rate))),
+            ("cause", .optionalString((trimmed?.isEmpty ?? true) ? nil : trimmed)),
         ])
     }
 

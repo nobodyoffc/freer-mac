@@ -390,6 +390,10 @@ struct ProofDetailSheet: View {
         }
         .padding(20)
         .frame(width: 520)
+        // This sheet draws FIDs of its own, and a sheet cannot present
+        // another sheet through the window's host — so it installs one.
+        // See ``View/fidDetailsHost(session:)``.
+        .fidDetailsHost(session: session)
         .frame(minHeight: 340, maxHeight: 620)
     }
 
@@ -406,20 +410,10 @@ struct ProofDetailSheet: View {
         }
     }
 
-    @ViewBuilder
+    /// Thin wrapper over the shared ``FidValue`` so the sheet keeps
+    /// supplying its own resolved-name map.
     private func fidValue(_ fid: String?) -> some View {
-        if let fid, !fid.isEmpty {
-            HStack(spacing: 6) {
-                FidAvatarView(fid: fid, size: 22)
-                CopyableText(
-                    display: name(fid) ?? fid.elidingMiddle(head: 10, tail: 10),
-                    copy: fid,
-                    font: .system(.caption, design: .monospaced)
-                )
-            }
-        } else {
-            Text("—").font(.caption).foregroundStyle(.tertiary)
-        }
+        FidValue(fid, name: fid.flatMap(name))
     }
 
     @ViewBuilder

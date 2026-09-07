@@ -260,10 +260,40 @@ final class CodeTests: XCTestCase {
         XCTAssertThrowsError(try CodeFeip.updateOp(codeId: "", name: "C"))
     }
 
-    func testRatingIsOneToFive() {
-        XCTAssertThrowsError(try CodeFeip.rateOp(codeId: "c1", rate: 0))
-        XCTAssertThrowsError(try CodeFeip.rateOp(codeId: "c1", rate: 6))
+    /// **Zero is a rating, not a missing one.** The reference parser
+    /// accepts `0...MAX_RATE` and Android has always drawn a 0 button;
+    /// this builder used to refuse 0, which quietly made 1 the worst
+    /// verdict the app could express.
+    func testARatingIsZeroToFive() {
+        XCTAssertNoThrow(try CodeFeip.rateOp(codeId: "c1", rate: 0))
         XCTAssertNoThrow(try CodeFeip.rateOp(codeId: "c1", rate: 5))
+        XCTAssertThrowsError(try CodeFeip.rateOp(codeId: "c1", rate: -1))
+        XCTAssertThrowsError(try CodeFeip.rateOp(codeId: "c1", rate: 6))
+    }
+
+    /// A blank cause is omitted rather than carved as `""` — Android's
+    /// `makeRate` passes null for an empty box and Gson drops null
+    /// fields, so an empty string would be a shape no other client
+    /// writes.
+    func testCauseIsCarvedOnlyWhenItHasContent() throws {
+        let bare = try CodeFeip.rateOp(codeId: "c1", rate: 4)
+        XCTAssertFalse(bare.contains("cause"))
+
+        XCTAssertFalse(try CodeFeip.rateOp(codeId: "c1", rate: 4, cause: "   ").contains("cause"))
+        XCTAssertFalse(try CodeFeip.rateOp(codeId: "c1", rate: 4, cause: "").contains("cause"))
+
+        let given = try CodeFeip.rateOp(codeId: "c1", rate: 4, cause: "  solid work  ")
+        XCTAssertTrue(given.contains("\"cause\":\"solid work\""), given)
+    }
+
+    /// The rate carve is a complete envelope, and the size guard runs
+    /// on it — a cause long enough to overflow the OP_RETURN has to
+    /// fail while it is still text in a field.
+    func testAnOverlongCauseIsRefusedByTheRateCarve() {
+        XCTAssertNoThrow(try CodeFeip.rateCarve(codeId: "c1", rate: 4, cause: "fine"))
+        XCTAssertThrowsError(
+            try CodeFeip.rateCarve(codeId: "c1", rate: 4, cause: String(repeating: "x", count: 5_000))
+        )
     }
 
     /// The size guard is what stands between a long description and a

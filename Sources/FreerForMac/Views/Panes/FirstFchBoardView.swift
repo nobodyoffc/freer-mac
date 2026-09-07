@@ -28,6 +28,7 @@ import FCUI
 /// to the FID it names, from their own identity, through the same
 /// approval path as any other payment. See ``NobodyBoard``.
 struct FirstFchBoardView: View {
+    @Environment(\.inspectFid) private var inspectFid
     @Environment(AppState.self) private var appState
     let session: ActiveSession
 
@@ -371,10 +372,7 @@ struct FirstFchBoardView: View {
     ) -> some View {
         HStack(alignment: .center, spacing: 8) {
             FidAvatarView(fid: request.requesterFid, size: 20)
-            CopyableText.elidingMiddle(
-                request.requesterFid, head: 6, tail: 6,
-                font: .caption.monospaced(), color: .secondary
-            )
+            FidBadge(request.requesterFid, font: .caption.monospaced(), head: 6, tail: 6)
             Text(dismissal.reason == .funded ? "funded" : "skipped")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -414,12 +412,18 @@ struct FirstFchBoardView: View {
             // the payment, on the contact, and in a chat later. It is
             // *not* marked as a nobody; the board is one, the people
             // asking on it are not.
-            FidAvatarView(fid: request.requesterFid, size: Self.avatarSize)
+            Button { inspectFid(request.requesterFid) } label: {
+                FidAvatarView(fid: request.requesterFid, size: Self.avatarSize)
+            }
+            .buttonStyle(.plain)
+            .help("Show this FID's details, standing and ratings")
 
             VStack(alignment: .leading, spacing: 2) {
-                CopyableText.elidingMiddle(
-                    request.requesterFid, font: .callout.monospaced()
-                )
+                // Deciding whether to fund a stranger is the moment
+                // their chain record matters most: how old the FID is,
+                // whether it has ever been funded before, what others
+                // have carved about it.
+                FidBadge(request.requesterFid, font: .callout.monospaced())
                 if !request.note.isEmpty {
                     // Written by a stranger, rendered as plain text and
                     // nothing else — no links, no markup, no actions.

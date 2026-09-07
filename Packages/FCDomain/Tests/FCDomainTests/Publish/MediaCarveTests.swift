@@ -226,6 +226,42 @@ final class MediaCarveTests: XCTestCase {
         }
     }
 
+    /// **The subject key is the whole hazard**, and a rating is the op
+    /// most likely to be built with the wrong one: unlike publish it
+    /// names a record, and unlike update it is carved against somebody
+    /// else's work, so nothing downstream would notice it vanish.
+    ///
+    /// Asserts both halves per kind — the envelope's `sn` and the op's
+    /// subject key — because a sound rating carved into a video
+    /// envelope is accepted by the client, dropped by the parser, and
+    /// paid for either way.
+    func testRateNamesItsOwnSubjectKeyAndEnvelope() throws {
+        for kind in MediaKind.allCases {
+            let carve = try MediaFeip.rateCarve(
+                kind: kind, mediaId: "M1", rate: 4, cause: "good print"
+            )
+            XCTAssertTrue(carve.contains(#""sn":"\#(kind.sn)""#), "\(kind): wrong envelope")
+            XCTAssertTrue(carve.contains(#""\#(kind.subjectKey)":"M1""#), "\(kind): wrong subject key")
+            XCTAssertTrue(carve.contains(#""rate":4"#))
+            XCTAssertTrue(carve.contains(#""cause":"good print""#))
+            for other in others(kind) {
+                XCTAssertFalse(carve.contains(other.subjectKey),
+                               "\(kind) must not name \(other)'s subject")
+            }
+        }
+    }
+
+    func testRateRangeAndBlankCause() throws {
+        for kind in MediaKind.allCases {
+            XCTAssertNoThrow(try MediaFeip.rateOp(kind: kind, imageId: "M1", rate: 0))
+            XCTAssertThrowsError(try MediaFeip.rateOp(kind: kind, imageId: "M1", rate: 6))
+            XCTAssertThrowsError(try MediaFeip.rateOp(kind: kind, imageId: "M1", rate: -1))
+            XCTAssertFalse(
+                try MediaFeip.rateOp(kind: kind, imageId: "M1", rate: 3, cause: "  ").contains("cause")
+            )
+        }
+    }
+
     func testDeleteAndRecoverUseThePluralSubjectKey() async throws {
         for kind in MediaKind.allCases {
             let mock = MockFapiClient()

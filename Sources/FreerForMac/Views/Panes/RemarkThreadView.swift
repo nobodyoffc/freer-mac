@@ -17,6 +17,7 @@ import FCUI
 /// second copy of this is where the two would start disagreeing about
 /// what `onDid` means.
 struct RemarkThreadView: View {
+    @Environment(\.inspectFid) private var inspectFid
     let session: ActiveSession
     /// The record being remarked on — its publish txid.
     let targetId: String
@@ -76,6 +77,24 @@ struct RemarkThreadView: View {
         .onAppear {
             guard remarks.isEmpty, !loadingRemarks else { return }
             Task { await loadRemarks() }
+        }
+        .sheet(item: $ratingTarget) { remark in
+            RateRecordSheet(
+                session: session,
+                kind: .remark,
+                subjectId: remark.id,
+                title: remark.title ?? "Untitled remark",
+                owner: remark.publisher,
+                currentRate: remark.tRate,
+                currentCdd: remark.tCdd,
+                onDone: { _ in
+                    ratingTarget = nil
+                    // The mean the row shows moves only when the chain
+                    // re-indexes, so re-read rather than guess at it.
+                    Task { await loadRemarks() }
+                },
+                onCancel: { ratingTarget = nil }
+            )
         }
     }
 
@@ -152,10 +171,19 @@ struct RemarkThreadView: View {
         )
     }
 
+    /// The remark whose rating composer is up, if any. Identified by
+    /// the remark rather than a Bool because the sheet belongs to one
+    /// row of a thread, not to the thread.
+    @State private var ratingTarget: Remark?
+
     @ViewBuilder
     private func remarkRow(_ remark: Remark) -> some View {
         HStack(alignment: .top, spacing: 10) {
-            FidAvatarView(fid: remark.publisher ?? "", size: 26)
+            Button { inspectFid(remark.publisher ?? "") } label: {
+                FidAvatarView(fid: remark.publisher ?? "", size: 26)
+            }
+            .buttonStyle(.plain)
+            .help("Show this FID's details, standing and ratings")
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
                     Text(remark.title ?? "Untitled remark").font(.callout.bold())
@@ -202,10 +230,34 @@ struct RemarkThreadView: View {
                         .font(.caption2)
                         .buttonStyle(.link)
                     }
+                    // A remark carries its own tRate like any other
+                    // published record — FEIP22 defines the same rate
+                    // op as Text does, and the publisher is barred from
+                    // using it on their own.
+                    if canRate(remark) {
+                        Button("Rate") { ratingTarget = remark }
+                            .font(.caption2)
+                            .buttonStyle(.link)
+                    }
+                    if let rate = remark.tRate {
+                        Text(String(format: "★ %.1f", rate))
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.orange)
+                            .help("CDD-weighted over \(remark.tCdd ?? 0) coin-days")
+                    }
                 }
             }
         }
         .padding(.vertical, 4)
+    }
+
+    /// A remark's own publisher may not rate it, an unconfirmed one
+    /// has no id to name, and an identity with no key cannot sign.
+    private func canRate(_ remark: Remark) -> Bool {
+        !remark.id.isEmpty
+            && remark.onChain != nil
+            && remark.publisher != session.liveFid
+            && session.canSign
     }
 
     private func loadRemarks() async {

@@ -241,13 +241,9 @@ struct StatementReaderSheet: View {
                 }
 
                 HStack(spacing: 10) {
-                    FidAvatarView(fid: statement.publisher ?? "", size: 22)
-                    CopyableText(
-                        display: statement.publisher.map {
-                            name($0) ?? $0.elidingMiddle(head: 8, tail: 8)
-                        } ?? "—",
-                        copy: statement.publisher ?? "",
-                        font: .caption
+                    FidValue(
+                        statement.publisher,
+                        name: statement.publisher.flatMap(name)
                     )
                     if let t = statement.birthTime {
                         Text(Date(timeIntervalSince1970: TimeInterval(t))
@@ -305,5 +301,8 @@ struct StatementReaderSheet: View {
         }
         .padding(20)
         .frame(width: 640, height: 560)
+        // This sheet draws FIDs of its own, and a sheet cannot present
+        // another sheet through the window's host — so it installs one.
+        .fidDetailsHost(session: session)
     }
 }

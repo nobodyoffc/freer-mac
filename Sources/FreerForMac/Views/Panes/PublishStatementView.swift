@@ -17,6 +17,7 @@ import FCUI
 /// The composer is where this record's weight is carried, not here:
 /// see ``ComposeStatementSheet`` and FEIP8's `confirm` phrase.
 struct PublishStatementView: View {
+    @Environment(\.inspectFid) private var inspectFid
     let session: ActiveSession
 
     private static let pageSize = 25
@@ -306,7 +307,11 @@ struct PublishStatementView: View {
     @ViewBuilder
     private func row(_ statement: Statement) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            FidAvatarView(fid: statement.publisher ?? "", size: 40)
+            Button { inspectFid(statement.publisher ?? "") } label: {
+                FidAvatarView(fid: statement.publisher ?? "", size: 40)
+            }
+            .buttonStyle(.plain)
+            .help("Show this FID's details, standing and ratings")
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -373,19 +378,12 @@ struct PublishStatementView: View {
         }
     }
 
-    @ViewBuilder
+    /// Thin wrapper over the shared ``FidLine`` so the pane keeps
+    /// supplying its own resolved-name map. The line itself — the
+    /// copy-on-click, the hover affordance, the way into the FID's
+    /// details page — lives in one place now.
     private func fidLine(_ label: String, _ fid: String?) -> some View {
-        if let fid, !fid.isEmpty {
-            HStack(spacing: 3) {
-                Text(label).font(.caption2).foregroundStyle(.tertiary)
-                CopyableText(
-                    display: names[fid] ?? fid.elidingMiddle(head: 6, tail: 6),
-                    copy: fid,
-                    font: .system(.caption2, design: .monospaced)
-                )
-                .foregroundStyle(.secondary)
-            }
-        }
+        FidLine(label, fid, name: fid.flatMap { names[$0] })
     }
 
     // MARK: - loading

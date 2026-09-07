@@ -2,44 +2,82 @@ import SwiftUI
 import FCDomain
 import FCUI
 
-/// Everything known about the identity you are living as — the page the
-/// FID bar links to when a glance is not enough.
+/// Everything known about a FID — the page every id in this app links
+/// to when a glance is not enough.
 ///
-/// **Why this exists.** ``PaneHeader`` has to fit above twenty-odd panes,
-/// so it shows an elided FID, three metrics as icons, and balances
-/// rounded to a rail width. That is the right trade for a bar you see
-/// constantly and the wrong one for the moments where the exact value is
-/// the whole point: reading a pubkey out to someone, checking whether a
-/// master is named, confirming a balance to the satoshi, or finding out
-/// why a FID that "exists" has no on-chain record.
+/// **Why this exists.** ``PaneHeader`` has to fit above twenty-odd
+/// panes, so it shows an elided FID, three metrics as icons, and
+/// balances rounded to a rail width. That is the right trade for a bar
+/// you see constantly and the wrong one for the moments where the exact
+/// value is the whole point: reading a pubkey out to someone, checking
+/// whether a master is named, confirming a balance to the satoshi, or
+/// finding out why a FID that "exists" has no on-chain record.
 ///
-/// **Two sources, kept apart on purpose.** The *This vault* section comes
-/// from the local ``KeyInfo`` — the label, the key situation, when the
-/// identity was added — and is true offline. Everything below it comes
-/// from one `base.freerByIds` call and is the chain's answer, which may
-/// be absent entirely: a FID that has never transacted has no ``Freer``,
-/// and saying so plainly beats a page of dashes.
+/// **It is not only about you.** The sheet started as the live
+/// identity's page, and every fact it shows about your own FID — the
+/// CID, the standing, the home map, whether the chain has ever heard of
+/// it — is the same fact somebody wants about a service's owner, a
+/// mail's sender, a code's publisher, a stranger in a square. So the
+/// FID is a parameter. Pass none and it is your own; pass any other and
+/// the local sections quietly change shape rather than lying: *This
+/// vault* only appears for an identity this Mac actually holds keys
+/// for, *In your contacts* only for one you have saved.
 ///
-/// The bar's cache is deliberately not reused. ``LiveFidInfo`` keeps the
-/// eight fields the bar draws and drops the rest of the record — master,
-/// guide, notice fee, income, expend, the home map, the cross-chain
-/// addresses — which are exactly the fields somebody opening a details
-/// page came to read. So this fetches the whole `Freer` itself.
+/// **Two sources, kept apart on purpose.** The local sections come from
+/// ``KeyInfo`` and ``Contact`` and are true offline. Everything below
+/// them comes from one `base.freerByIds` call and is the chain's
+/// answer, which may be absent entirely: a FID that has never
+/// transacted has no ``Freer``, and saying so plainly beats a page of
+/// dashes.
 ///
-/// Read-only throughout. The label is editable in the bar, the notice
-/// fee in Settings; both are acts, and this is a place to look.
+/// The bar's cache is deliberately not reused. ``LiveFidInfo`` keeps
+/// the eight fields the bar draws and drops the rest of the record —
+/// master, guide, notice fee, income, expend, the home map, the
+/// cross-chain addresses — which are exactly the fields somebody
+/// opening a details page came to read. So this fetches the whole
+/// `Freer` itself.
+///
+/// Read-only apart from one act: the rating button. A rating is not a
+/// note about somebody, it is an on-chain statement weighted by the
+/// coin-days it destroys, so it goes through its own sheet and its own
+/// approval — see ``RateFreerSheet``.
 struct FidDetailSheet: View {
 
     let session: ActiveSession
+    /// Whose page this is. Defaults to the live identity, which is what
+    /// the FID bar wants.
+    let fid: String
     let onClose: () -> Void
 
+    init(session: ActiveSession, fid: String? = nil, onClose: @escaping () -> Void) {
+        self.session = session
+        self.fid = fid ?? session.liveFid
+        self.onClose = onClose
+    }
+
     @State private var freer: Freer?
+    @State private var contact: Contact?
     @State private var loading = true
     @State private var loadError: String?
     @State private var fetchedAt: Date?
 
-    private var fid: String { session.liveFid }
-    private var keyInfo: KeyInfo { session.liveKeyInfo }
+    @State private var ratings: [RepuHist] = []
+    @State private var ratingsTotal: Int64?
+    @State private var ratingsCursor: [String]?
+    @State private var ratingsLoading = false
+    @State private var ratingsError: String?
+
+    @State private var rating = false
+    @State private var rateNote: String?
+
+    /// The vault's own entry for this FID, when it has one. Nil for a
+    /// stranger — which is the common case on this page now.
+    private var keyInfo: KeyInfo? { session.setting.keyInfoMap[fid] }
+
+    /// Whether this is the identity the user is currently living as.
+    /// The one FID that may not be rated, and the one whose vault
+    /// section can speak in the present tense.
+    private var isLive: Bool { fid == session.liveFid }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -54,8 +92,12 @@ struct FidDetailSheet: View {
                             .foregroundStyle(.red)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    if let rateNote {
+                        noteBanner(rateNote)
+                    }
                     identitySection
-                    vaultSection
+                    if keyInfo != nil { vaultSection }
+                    if contact != nil { contactSection }
                     if freer != nil {
                         balanceSection
                         standingSection
@@ -65,6 +107,7 @@ struct FidDetailSheet: View {
                     } else if !loading {
                         noRecordSection
                     }
+                    ratingsSection
                     groupSection
                 }
                 .padding(20)
@@ -73,8 +116,18 @@ struct FidDetailSheet: View {
             Divider()
             footer
         }
-        .frame(width: 580, height: 660)
+        .frame(width: 580, height: 680)
         .task { await load() }
+        .sheet(isPresented: $rating) {
+            RateFreerSheet(session: session, ratee: fid, freer: freer) { txid in
+                rating = false
+                rateNote = "Rating broadcast — \(txid.elidingMiddle(head: 8, tail: 8)). "
+                    + "It moves this FID's score when the block confirms."
+                Task { await load() }
+            } onCancel: {
+                rating = false
+            }
+        }
     }
 
     // MARK: - chrome
@@ -87,7 +140,7 @@ struct FidDetailSheet: View {
                 isNobody: freer?.isNobody == true
             )
             VStack(alignment: .leading, spacing: 3) {
-                Text(freer?.cid ?? keyInfo.activeCid ?? "This identity")
+                Text(displayName)
                     .font(.title3.bold())
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -99,9 +152,51 @@ struct FidDetailSheet: View {
             if loading {
                 ProgressView().controlSize(.small)
             }
+            rateButton
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
+    }
+
+    /// The best name we have, in the order a reader would want it: the
+    /// chain's CID, then whatever the vault or the contact book calls
+    /// it, then nothing — never the FID, which is already on the page
+    /// in full one line down.
+    private var displayName: String {
+        if let cid = freer?.cid ?? keyInfo?.activeCid ?? contact?.cid, !cid.isEmpty {
+            return cid
+        }
+        if let label = keyInfo?.label, !label.isEmpty { return label }
+        return fid.elidingMiddle(head: 10, tail: 10)
+    }
+
+    /// **The one act on a read-only page.** Disabled rather than hidden
+    /// when it cannot be used, with the reason in the tooltip — the
+    /// same refusal style as the rest of this app. A FID cannot rate
+    /// itself, and a watch-only identity cannot sign anything.
+    @ViewBuilder
+    private var rateButton: some View {
+        let blocked = rateBlockedReason
+        Button {
+            rating = true
+        } label: {
+            Label("Rate", systemImage: "hand.thumbsup")
+        }
+        .disabled(blocked != nil)
+        .help(blocked ?? "Rate this FID good or bad — an on-chain statement weighted by the coin-days it destroys")
+    }
+
+    private var rateBlockedReason: String? {
+        if isLive {
+            return "You are living as this FID — a FID cannot rate itself."
+        }
+        if !session.canSign {
+            return "This identity has no private key on this Mac, so it cannot sign a rating."
+        }
+        if freer == nil && !loading {
+            return "This FID has no on-chain record, and a rating only applies to a FID that has one."
+        }
+        return nil
     }
 
     private var footer: some View {
@@ -126,16 +221,25 @@ struct FidDetailSheet: View {
         return "Chain record read \(fetchedAt.formatted(.relative(presentation: .named)))"
     }
 
-    /// Which identity this is, in the same words the person menu uses.
+    /// What this FID is *to the person reading*. For an identity in the
+    /// vault that is its role; for anyone else it is the relationship,
+    /// which is the honest answer — "Servant FID" would be a lie about
+    /// a stranger who merely happens to have one.
     private var role: String {
-        if fid == session.mainFid { return "Main FID" }
-        if let master = session.mainKeyInfo.master, master == fid { return "Master" }
-        switch keyInfo.kind {
-        case .main:     return "Main FID"
-        case .watched:  return "Watched FID"
-        case .multisig: return "Multisig group"
-        case .servant:  return "Servant FID"
+        if let keyInfo {
+            if fid == session.mainFid { return isLive ? "Main FID — live" : "Main FID" }
+            if let master = session.mainKeyInfo.master, master == fid { return "Master" }
+            let name: String
+            switch keyInfo.kind {
+            case .main:     name = "Main FID"
+            case .watched:  name = "Watched FID"
+            case .multisig: name = "Multisig group"
+            case .servant:  name = "Servant FID"
+            }
+            return isLive ? "\(name) — live" : name
         }
+        if contact != nil { return "In your contacts" }
+        return "Another FID"
     }
 
     // MARK: - local sections
@@ -149,7 +253,7 @@ struct FidDetailSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             row("CID") {
-                if let cid = freer?.cid ?? keyInfo.activeCid, !cid.isEmpty {
+                if let cid = freer?.cid ?? keyInfo?.activeCid ?? contact?.cid, !cid.isEmpty {
                     CopyableText(cid, font: .body)
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
@@ -179,7 +283,7 @@ struct FidDetailSheet: View {
                     }
                 }
             }
-            if fid != session.mainFid {
+            if keyInfo != nil, fid != session.mainFid {
                 row("Main FID") {
                     CopyableText.elidingMiddle(
                         session.mainFid, head: 10, tail: 10,
@@ -190,34 +294,76 @@ struct FidDetailSheet: View {
         }
     }
 
-    /// What this Mac holds, as opposed to what the chain says.
+    /// What this Mac holds, as opposed to what the chain says. Only
+    /// drawn for an identity the vault actually knows — for a stranger
+    /// there is nothing here but three dashes.
+    @ViewBuilder
     private var vaultSection: some View {
-        section("This vault") {
-            row("Label") {
-                if keyInfo.label.isEmpty {
-                    Text("None — set one in the FID bar").foregroundStyle(.secondary)
-                } else {
-                    Text(keyInfo.label)
+        if let keyInfo {
+            section("This vault") {
+                row("Label") {
+                    if keyInfo.label.isEmpty {
+                        Text(isLive ? "None — set one in the FID bar" : "None")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(keyInfo.label)
+                    }
                 }
-            }
-            row("Keys") {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(keyState.headline)
-                    caption(keyState.detail)
+                row("Keys") {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(keyState(keyInfo).headline)
+                        caption(keyState(keyInfo).detail)
+                    }
                 }
-            }
-            row("Added") {
-                Text(Self.stamp.string(from: keyInfo.savedAt)).foregroundStyle(.secondary)
+                row("Added") {
+                    Text(Self.stamp.string(from: keyInfo.savedAt)).foregroundStyle(.secondary)
+                }
             }
         }
     }
 
-    private var keyState: (headline: String, detail: String) {
-        if session.canSign {
-            return ("Private key held",
-                    "This vault can sign transactions and decrypt messages for this FID.")
+    /// The contact book's own words about this FID — the titles and
+    /// memo somebody wrote to remember who this is. Absent for the
+    /// vault's own identities and for anyone never saved.
+    @ViewBuilder
+    private var contactSection: some View {
+        if let contact {
+            section("In your contacts") {
+                if let titles = contact.titles, !titles.isEmpty {
+                    row("Titles") { Text(titles.joined(separator: " · ")) }
+                }
+                if let memo = contact.memo, !memo.isEmpty {
+                    row("Memo") {
+                        Text(memo).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                row("Saved") {
+                    Text(Self.stamp.string(from: contact.addedAt)).foregroundStyle(.secondary)
+                }
+                if contact.onChain == true {
+                    row("Carved") {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Yes")
+                            caption("Your note about this FID is on chain, encrypted so only you can read it.")
+                        }
+                    }
+                }
+            }
         }
-        switch keyInfo.kind {
+    }
+
+    /// The key situation, phrased for whichever identity this is —
+    /// `session.canSign` answers only for the live one, so a
+    /// non-live entry reads its own ``KeyInfo`` instead.
+    private func keyState(_ info: KeyInfo) -> (headline: String, detail: String) {
+        let signable = info.hasPrivkey && info.kind.canSign
+        if signable {
+            return ("Private key held",
+                    isLive
+                        ? "This vault can sign transactions and decrypt messages for this FID."
+                        : "This vault holds the key. Switch to this identity to sign as it.")
+        }
+        switch info.kind {
         case .multisig:
             return ("Group address",
                     "Spending needs signatures from the other members too — collect them in the co-sign sheet.")
@@ -267,11 +413,13 @@ struct FidDetailSheet: View {
             row("CDD", freer?.cdd.map(Self.grouped), note:
                 "Coin-days destroyed — how much of that fuel this FID has spent over its life.")
             row("Weight", freer?.weight.map(Self.grouped), note:
-                "This FID's share of the chain's total coin-days.")
+                "This FID's share of the chain's total coin-days — \(WeightMethod.cdPercent)% CD, "
+                    + "\(WeightMethod.cddPercent)% CDD, \(WeightMethod.reputationPercent)% reputation.")
             row("Reputation", freer?.reputation.map(Self.grouped), note:
-                "The CDD-weighted score others have carved about this FID.")
+                "The CDD-weighted score others have carved about this FID. Good ratings add their "
+                    + "coin-days, bad ones subtract them, so this can be negative.")
             row("Hot", freer?.hot.map(Self.grouped), note:
-                "How much recent activity surrounds this FID.")
+                "Coin-days spent rating this FID at all, whichever way. Attention, not approval.")
         }
     }
 
@@ -280,7 +428,7 @@ struct FidDetailSheet: View {
             row("Born at height", freer?.birthHeight.map(Self.grouped))
             row("Last active at height", freer?.lastHeight.map(Self.grouped))
             row("Named", freer?.nameTime.map(Self.chainTime))
-            if let master = freer?.master ?? keyInfo.master, !master.isEmpty {
+            if let master = freer?.master ?? keyInfo?.master, !master.isEmpty {
                 row("Master") {
                     VStack(alignment: .leading, spacing: 2) {
                         CopyableText.elidingMiddle(
@@ -300,7 +448,9 @@ struct FidDetailSheet: View {
                 row("Notice fee") {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(fee) F").monospacedDigit()
-                        caption("What this FID charges to accept mail. Change it in Settings.")
+                        caption(isLive
+                                ? "What this FID charges to accept mail. Change it in Settings."
+                                : "What this FID charges to accept mail — a mail to them pays it.")
                     }
                 }
             }
@@ -323,8 +473,11 @@ struct FidDetailSheet: View {
             } else {
                 Text("None published").foregroundStyle(.secondary)
                 caption(
-                    "This FID carries no home map on chain, so nobody can look up where to reach it. "
-                        + "Publish one from the Services pane if you want mail or chat to find you."
+                    isLive
+                        ? "This FID carries no home map on chain, so nobody can look up where to reach it. "
+                            + "Publish one from the Services pane if you want mail or chat to find you."
+                        : "This FID carries no home map on chain, so there is nowhere to look up for "
+                            + "chat delivery. Mail still reaches it — mail rests on the chain itself."
                 )
             }
         }
@@ -357,9 +510,120 @@ struct FidDetailSheet: View {
         }
     }
 
+    // MARK: - ratings
+
+    /// Who has said what about this FID, and how loudly.
+    ///
+    /// **Why the list and not just the score.** ``Freer/reputation`` is
+    /// a running total, and a total cannot distinguish one whale's
+    /// opinion from a hundred small agreeing ones. Each row here shows
+    /// the coin-days behind it, which is the only honest measure of how
+    /// much a given rating counted for.
+    @ViewBuilder
+    private var ratingsSection: some View {
+        section("Ratings\(ratingsTotal.map { " (\($0))" } ?? "")") {
+            if ratingsLoading && ratings.isEmpty {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Reading the history…").foregroundStyle(.secondary)
+                }
+            } else if let ratingsError {
+                Text(ratingsError)
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else if ratings.isEmpty {
+                Text("Nobody has rated this FID").foregroundStyle(.secondary)
+                caption(
+                    "A rating is an on-chain act weighted by the coin-days it destroys, so it costs "
+                        + "the rater something to make. Most FIDs have none."
+                )
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(ratings) { item in
+                        ratingRow(item)
+                        if item.id != ratings.last?.id { Divider() }
+                    }
+                }
+                if ratingsCursor != nil {
+                    Button {
+                        Task { await loadRatings(more: true) }
+                    } label: {
+                        if ratingsLoading {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("Load older")
+                        }
+                    }
+                    .buttonStyle(.link)
+                    .disabled(ratingsLoading)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func ratingRow(_ item: RepuHist) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: item.kind == .good ? "hand.thumbsup.fill"
+                            : item.kind == .bad ? "hand.thumbsdown.fill"
+                            : "questionmark.circle")
+                .foregroundStyle(item.kind == .good ? Color.green
+                                 : item.kind == .bad ? Color.red : Color.secondary)
+                .font(.caption)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    if let rater = item.rater, !rater.isEmpty {
+                        CopyableText.elidingMiddle(
+                            rater, head: 8, tail: 8,
+                            font: .system(.caption, design: .monospaced)
+                        )
+                        if rater == session.liveFid {
+                            Text("you")
+                                .font(.caption2)
+                                .padding(.horizontal, 5).padding(.vertical, 1)
+                                .background(Capsule().fill(Color.accentColor.opacity(0.18)))
+                        }
+                    }
+                    Spacer(minLength: 6)
+                    if let time = item.time {
+                        Text(Self.chainTime(time))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                // The weight is the rating. Shown signed, because that
+                // is exactly what it did to the score above.
+                if let hot = item.hot {
+                    Text(signedWeight(item, hot: hot))
+                        .font(.caption2.monospacedDigit())
+                        .foregroundStyle(item.kind == .bad ? Color.red : Color.secondary)
+                }
+                if let cause = item.cause, !cause.isEmpty {
+                    Text(cause)
+                        .font(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+    }
+
+    private func signedWeight(_ item: RepuHist, hot: Int64) -> String {
+        guard let kind = item.kind else {
+            // A rate string outside the protocol's two: it burned the
+            // coin-days but moved no score, and pretending otherwise
+            // would misread the row.
+            return "\(Self.grouped(hot)) CDD — no score change"
+        }
+        let signed = kind == .good ? "+\(Self.grouped(hot))" : "−\(Self.grouped(hot))"
+        return "\(signed) reputation · \(Self.grouped(hot)) CDD"
+    }
+
     @ViewBuilder
     private var groupSection: some View {
-        if let ms = keyInfo.multisig ?? freer?.multisig {
+        if let ms = keyInfo?.multisig ?? freer?.multisig {
             section("Group") {
                 row("Signatures needed") {
                     if let m = ms.m, let n = ms.n {
@@ -404,6 +668,22 @@ struct FidDetailSheet: View {
     }
 
     // MARK: - building blocks
+
+    private func noteBanner(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+            CopyableText(text, font: .callout)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            Button { rateNote = nil } label: {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+        }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.green.opacity(0.10)))
+    }
 
     private func section<Content: View>(
         _ title: String, @ViewBuilder content: () -> Content
@@ -468,7 +748,7 @@ struct FidDetailSheet: View {
     // MARK: - format
 
     private var pubkeyHex: String? {
-        if let data = keyInfo.pubkey {
+        if let data = keyInfo?.pubkey ?? contact?.pubkey {
             return data.map { String(format: "%02x", $0) }.joined()
         }
         // A watch-only entry may hold no pubkey locally; the chain
@@ -504,6 +784,10 @@ struct FidDetailSheet: View {
         return stamp.string(from: Date(timeIntervalSince1970: seconds))
     }
 
+    /// How many rating rows a page holds. Also the test for whether
+    /// there are more — see ``loadRatings(more:)``.
+    private static let ratingsPageSize = 25
+
     private static let stamp: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
@@ -516,12 +800,46 @@ struct FidDetailSheet: View {
     private func load() async {
         loading = true
         loadError = nil
+        contact = (try? session.contacts.get(fid: fid)) ?? nil
         defer { loading = false }
         do {
             freer = try await session.directory.freer(byId: fid)
             fetchedAt = Date()
         } catch {
             loadError = "Couldn't read the chain record — \(error)"
+        }
+        await loadRatings(more: false)
+    }
+
+    /// The rating history, paged. Its own failure line rather than the
+    /// page's: an FAPI that answers `freerByIds` but not `base.search`
+    /// should cost this section, not the whole sheet.
+    private func loadRatings(more: Bool) async {
+        if ratingsLoading { return }
+        ratingsLoading = true
+        ratingsError = nil
+        defer { ratingsLoading = false }
+        do {
+            let page = try await session.reputationService.received(
+                by: fid,
+                after: more ? ratingsCursor : nil,
+                size: Self.ratingsPageSize
+            )
+            if more {
+                ratings += page.ratings
+            } else {
+                ratings = page.ratings
+            }
+            ratingsTotal = page.total
+            // A short page is the end of the walk, whatever cursor the
+            // server hands back — offering "Load older" there would
+            // fetch the same nothing again. Otherwise prefer the
+            // server's own cursor: it matches the sort it actually used.
+            ratingsCursor = page.ratings.count < Self.ratingsPageSize
+                ? nil
+                : (page.last ?? page.ratings.last?.cursor)
+        } catch {
+            ratingsError = "Couldn't read the rating history — \(error)"
         }
     }
 }

@@ -22,10 +22,10 @@ import FCUI
 /// rather than a row of dashes.
 struct PaneHeader: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.inspectFid) private var inspectFid
     let session: ActiveSession
 
     @State private var showQr = false
-    @State private var showDetails = false
     @State private var showAvatar = false
     @State private var editingLabel = false
     @State private var labelDraft = ""
@@ -71,9 +71,6 @@ struct PaneHeader: View {
                 title: info?.hasCid == true ? (info?.displayName ?? "My FID") : "My FID",
                 content: session.liveFid
             ) { showQr = false }
-        }
-        .sheet(isPresented: $showDetails) {
-            FidDetailSheet(session: session) { showDetails = false }
         }
         .sheet(isPresented: $showAvatar) {
             FidAvatarSheet(
@@ -125,7 +122,10 @@ struct PaneHeader: View {
             // does not — the whole FID, the pubkey, and the rest of the
             // on-chain record. Its own button because a click on the FID
             // itself already means "copy".
-            Button { showDetails = true } label: {
+            // The same details page every other FID in the app opens,
+            // pointed at the live one. Presented by ``HomeView`` rather
+            // than here so a FID *inside* it can open its own page.
+            Button { inspectFid(session.liveFid) } label: {
                 Image(systemName: "info.circle")
             }
             .buttonStyle(.borderless)

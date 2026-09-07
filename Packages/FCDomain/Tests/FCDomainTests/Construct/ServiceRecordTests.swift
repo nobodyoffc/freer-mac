@@ -342,10 +342,40 @@ final class ServiceRecordTests: XCTestCase {
         XCTAssertThrowsError(try ServiceFeip.updateCarve(sid: "s", stdName: ""))
     }
 
-    func testARatingIsOneToFive() {
-        XCTAssertThrowsError(try ServiceFeip.rateOp(sid: "s", rate: 0))
+    /// **Zero is a rating, not a missing one.** The reference parser
+    /// accepts `0...MAX_RATE` and Android has always drawn a 0 button;
+    /// this builder used to refuse 0, which quietly made 1 the worst
+    /// verdict the app could express.
+    func testARatingIsZeroToFive() {
+        XCTAssertNoThrow(try ServiceFeip.rateOp(sid: "s", rate: 0))
+        XCTAssertNoThrow(try ServiceFeip.rateOp(sid: "s", rate: 5))
+        XCTAssertThrowsError(try ServiceFeip.rateOp(sid: "s", rate: -1))
         XCTAssertThrowsError(try ServiceFeip.rateOp(sid: "s", rate: 6))
-        XCTAssertNoThrow(try ServiceFeip.rateOp(sid: "s", rate: 3))
+    }
+
+    /// A blank cause is omitted rather than carved as `""` — Android's
+    /// `makeRate` passes null for an empty box and Gson drops null
+    /// fields, so an empty string would be a shape no other client
+    /// writes.
+    func testCauseIsCarvedOnlyWhenItHasContent() throws {
+        let bare = try ServiceFeip.rateOp(sid: "s", rate: 4)
+        XCTAssertFalse(bare.contains("cause"))
+
+        XCTAssertFalse(try ServiceFeip.rateOp(sid: "s", rate: 4, cause: "   ").contains("cause"))
+        XCTAssertFalse(try ServiceFeip.rateOp(sid: "s", rate: 4, cause: "").contains("cause"))
+
+        let given = try ServiceFeip.rateOp(sid: "s", rate: 4, cause: "  solid work  ")
+        XCTAssertTrue(given.contains("\"cause\":\"solid work\""), given)
+    }
+
+    /// The rate carve is a complete envelope, and the size guard runs
+    /// on it — a cause long enough to overflow the OP_RETURN has to
+    /// fail while it is still text in a field.
+    func testAnOverlongCauseIsRefusedByTheRateCarve() {
+        XCTAssertNoThrow(try ServiceFeip.rateCarve(sid: "s", rate: 4, cause: "fine"))
+        XCTAssertThrowsError(
+            try ServiceFeip.rateCarve(sid: "s", rate: 4, cause: String(repeating: "x", count: 5_000))
+        )
     }
 
     // MARK: - the byte budget

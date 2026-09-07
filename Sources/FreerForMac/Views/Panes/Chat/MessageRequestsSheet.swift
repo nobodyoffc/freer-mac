@@ -18,6 +18,9 @@ import FCUI
 /// permanent one, and it says so.
 struct MessageRequestsSheet: View {
 
+    @Environment(\.inspectFid) private var inspectFid
+
+
     let session: ActiveSession
     /// Who these strangers are. The sheet needs it more than anywhere
     /// else in the pane does: a name is most of the answer to "should I
@@ -65,6 +68,9 @@ struct MessageRequestsSheet: View {
         }
         .padding(20)
         .frame(width: 640, height: 440)
+        // Every request is from a FID, and deciding what to do about a
+        // stranger is exactly when their record is worth reading.
+        .fidDetailsHost(session: session)
         .onAppear(perform: load)
     }
 
@@ -118,11 +124,15 @@ struct MessageRequestsSheet: View {
         if let selected {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
-                    FidAvatarView(
-                        fid: selected,
-                        size: 32,
-                        isNobody: names.isNobody(selected)
-                    )
+                    Button { inspectFid(selected) } label: {
+                        FidAvatarView(
+                            fid: selected,
+                            size: 32,
+                            isNobody: names.isNobody(selected)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .help("Show this FID's details, standing and ratings")
                     // The full identity, badged: this is the string the
                     // user checks against whatever made them expect the
                     // message, and it decides the answer.
@@ -132,6 +142,16 @@ struct MessageRequestsSheet: View {
                         tint: .accentColor,
                         size: .large
                     )
+                    // Deciding about a stranger is the moment their
+                    // chain record matters most — how old the FID is,
+                    // what it is worth, what others have said about it.
+                    Button {
+                        inspectFid(selected)
+                    } label: {
+                        Label("Details", systemImage: "info.circle")
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
                     Spacer()
                 }
 

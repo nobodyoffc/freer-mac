@@ -794,11 +794,29 @@ struct TokenDetailSheet: View {
         .padding(20)
         .frame(width: 560)
         .onChange(of: tab) { _, new in Task { await load(new) } }
+        // This sheet draws FIDs of its own, and a sheet cannot present
+        // another sheet through the window's host — so it installs one.
+        .fidDetailsHost(session: session)
+    }
+
+    /// A FID field, as opposed to the plain ``row(_:_:mono:)`` — the
+    /// deployer is a party, not a value, and it has a page.
+    @ViewBuilder
+    private func fidRow(_ label: String, _ fid: String?) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(label)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 140, alignment: .leading)
+            FidValue(fid)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 3)
     }
 
     private var rulesView: some View {
         VStack(alignment: .leading, spacing: 0) {
-            row("Deployer", token.deployer, mono: true)
+            fidRow("Deployer", token.deployer)
             row("Consensus FID", token.consensusId, mono: true)
             row("Capacity", token.capacity?.isEmpty == false ? token.capacity : "no cap")
             row("Decimal places", "\(token.decimalPlaces)")

@@ -218,10 +218,40 @@ final class ProtocolTests: XCTestCase {
         XCTAssertThrowsError(try ProtocolFeip.updateOp(pid: "", name: "P"))
     }
 
-    func testRatingIsOneToFive() {
-        XCTAssertThrowsError(try ProtocolFeip.rateOp(pid: "p1", rate: 0))
-        XCTAssertThrowsError(try ProtocolFeip.rateOp(pid: "p1", rate: 6))
+    /// **Zero is a rating, not a missing one.** The reference parser
+    /// accepts `0...MAX_RATE` and Android has always drawn a 0 button;
+    /// this builder used to refuse 0, which quietly made 1 the worst
+    /// verdict the app could express.
+    func testARatingIsZeroToFive() {
+        XCTAssertNoThrow(try ProtocolFeip.rateOp(pid: "p1", rate: 0))
         XCTAssertNoThrow(try ProtocolFeip.rateOp(pid: "p1", rate: 5))
+        XCTAssertThrowsError(try ProtocolFeip.rateOp(pid: "p1", rate: -1))
+        XCTAssertThrowsError(try ProtocolFeip.rateOp(pid: "p1", rate: 6))
+    }
+
+    /// A blank cause is omitted rather than carved as `""` — Android's
+    /// `makeRate` passes null for an empty box and Gson drops null
+    /// fields, so an empty string would be a shape no other client
+    /// writes.
+    func testCauseIsCarvedOnlyWhenItHasContent() throws {
+        let bare = try ProtocolFeip.rateOp(pid: "p1", rate: 4)
+        XCTAssertFalse(bare.contains("cause"))
+
+        XCTAssertFalse(try ProtocolFeip.rateOp(pid: "p1", rate: 4, cause: "   ").contains("cause"))
+        XCTAssertFalse(try ProtocolFeip.rateOp(pid: "p1", rate: 4, cause: "").contains("cause"))
+
+        let given = try ProtocolFeip.rateOp(pid: "p1", rate: 4, cause: "  solid work  ")
+        XCTAssertTrue(given.contains("\"cause\":\"solid work\""), given)
+    }
+
+    /// The rate carve is a complete envelope, and the size guard runs
+    /// on it — a cause long enough to overflow the OP_RETURN has to
+    /// fail while it is still text in a field.
+    func testAnOverlongCauseIsRefusedByTheRateCarve() {
+        XCTAssertNoThrow(try ProtocolFeip.rateCarve(pid: "p1", rate: 4, cause: "fine"))
+        XCTAssertThrowsError(
+            try ProtocolFeip.rateCarve(pid: "p1", rate: 4, cause: String(repeating: "x", count: 5_000))
+        )
     }
 
     /// The size guard is what stands between a long description and a

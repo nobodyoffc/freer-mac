@@ -121,6 +121,11 @@ struct HomeView: View {
                 showAddServants = false
             }
         }
+        // One details page for every FID a pane draws. The panes and
+        // the FID bar reach it through `@Environment(\.inspectFid)`;
+        // sheets that show FIDs of their own install their own host,
+        // because a sheet cannot present a second sheet from here.
+        .fidDetailsHost(session: session)
         .safeAreaInset(edge: .bottom) {
             if let identityNote {
                 HStack(spacing: 8) {

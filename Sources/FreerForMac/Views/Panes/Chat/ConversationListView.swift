@@ -11,6 +11,7 @@ import FCUI
 /// — a square and a P2P thread can no longer be adjacent rows differing
 /// by a chip, so there is no row here that could be the other kind.
 struct ConversationListView: View {
+    @Environment(\.inspectFid) private var inspectFid
 
     let style: ChatModeStyle
     let conversations: [Conversation]
@@ -48,6 +49,14 @@ struct ConversationListView: View {
                         .contentShape(Rectangle())
                         .onTapGesture { selectedId = conversation.id }
                         .contextMenu {
+                            // Only a person has a `Freer` behind them —
+                            // a team, square or room id looks like a FID
+                            // and is not one.
+                            if conversation.type == .p2p {
+                                Button("Show FID details") {
+                                    inspectFid(conversation.targetId)
+                                }
+                            }
                             if let onDelete {
                                 Button("Delete", role: .destructive) { onDelete(conversation) }
                             }

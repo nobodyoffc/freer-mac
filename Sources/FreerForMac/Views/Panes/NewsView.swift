@@ -27,6 +27,7 @@ import FCUI
 /// ``NewsStore/maxCachedNews``). That also removes the scroll-position
 /// arithmetic that half of `NewsCardContainer` is.
 struct NewsView: View {
+    @Environment(\.inspectFid) private var inspectFid
     let session: ActiveSession
 
     /// One page. Android asks for 10 at a time on a phone; a Mac window
@@ -109,6 +110,7 @@ struct NewsView: View {
         }
         .sheet(item: $detail) { item in
             NewsDetailSheet(
+                session: session,
                 news: item,
                 doerName: item.doer.flatMap { names[$0] },
                 onAddContact: { fid in
@@ -299,12 +301,10 @@ struct NewsView: View {
                 // monospaced id line, the title stays the bold one.
                 HStack(spacing: 6) {
                     if let doer = item.doer, !doer.isEmpty {
-                        CopyableText(
-                            display: names[doer] ?? doer.elidingMiddle(head: 8, tail: 8),
-                            copy: doer,
-                            font: .system(.caption, design: .monospaced)
-                        )
-                        .foregroundStyle(.secondary)
+                        // The doer is the row's subject, so it carries
+                        // the way into that FID's page — same badge,
+                        // same rules, as every other id in the app.
+                        FidBadge(doer, name: names[doer])
                     }
                     if let act = item.act, !act.isEmpty {
                         chip(act, color: .orange)
@@ -340,6 +340,7 @@ struct NewsView: View {
         .contextMenu {
             Button("Show details") { detail = item }
             if let doer = item.doer, !doer.isEmpty {
+                Button("Show doer's FID details") { inspectFid(doer) }
                 Button("Add doer to contacts") { addingContact = Contact(id: doer) }
                 Button("Copy doer FID") { copyToPasteboard(doer) }
             }
@@ -573,10 +574,13 @@ struct NewsView: View {
 /// One news record, every field, with the ids copyable — the Mac
 /// answer to Android's tap-through to `DetailActivity`.
 private struct NewsDetailSheet: View {
+    let session: ActiveSession
     let news: News
     let doerName: String?
     let onAddContact: (String) -> Void
     let onClose: () -> Void
+
+    @Environment(\.inspectFid) private var inspectFid
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -593,16 +597,17 @@ private struct NewsDetailSheet: View {
                 VStack(alignment: .leading, spacing: 14) {
                     if let doer = news.doer, !doer.isEmpty {
                         HStack(alignment: .center, spacing: 12) {
-                            FidAvatarView(fid: doer, size: 44)
+                            Button { inspectFid(doer) } label: {
+                                FidAvatarView(fid: doer, size: 44)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Show this FID's details, standing and ratings")
                             VStack(alignment: .leading, spacing: 3) {
                                 if let doerName { Text(doerName).font(.body.bold()) }
-                                CopyableText.elidingMiddle(
-                                    doer, head: 10, tail: 10,
-                                    font: .system(.caption, design: .monospaced)
-                                )
-                                .foregroundStyle(.secondary)
+                                FidBadge(doer, head: 10, tail: 10)
                             }
                             Spacer()
+                            Button("Details") { inspectFid(doer) }
                             Button("Add to contacts") { onAddContact(doer) }
                         }
                     }
@@ -624,6 +629,9 @@ private struct NewsDetailSheet: View {
             }
         }
         .frame(width: 480, height: 470)
+        // This sheet draws a FID of its own, and a sheet cannot present
+        // another sheet through the window's host — so it installs one.
+        .fidDetailsHost(session: session)
     }
 
     @ViewBuilder

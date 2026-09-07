@@ -30,6 +30,7 @@ import FCUI
 /// and *then* refreshes. A landing pane that blocks on the network is a
 /// landing pane that feels broken every time the server is slow.
 struct OverviewView: View {
+    @Environment(\.inspectFid) private var inspectFid
     @Environment(AppState.self) private var appState
     let session: ActiveSession
 
@@ -384,7 +385,12 @@ struct OverviewView: View {
 
     private func newsRow(_ item: News) -> some View {
         HStack(spacing: 10) {
-            FidAvatarView(fid: item.doer ?? "", size: 24)
+            Button { inspectFid(item.doer ?? "") } label: {
+                FidAvatarView(fid: item.doer ?? "", size: 24)
+            }
+            .buttonStyle(.plain)
+            .disabled((item.doer ?? "").isEmpty)
+            .help("Show this FID's details, standing and ratings")
 
             if let act = item.act, !act.isEmpty {
                 Text(act)

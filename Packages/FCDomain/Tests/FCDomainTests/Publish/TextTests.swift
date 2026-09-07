@@ -150,13 +150,45 @@ final class TextTests: XCTestCase {
         XCTAssertTrue(try RemarkFeip.deleteOp(remarkIds: ["r"]).contains(#""remarkIds":["r"]"#))
     }
 
-    /// Built but not wired — the op has to be correct now so that
-    /// 8.7.5 wires a builder it does not have to re-derive.
     func testRateCarriesAnIntegerRateAndTheSubjectId() throws {
         let op = try TextFeip.rateOp(textId: "T1", rate: 5)
         XCTAssertTrue(op.contains(#""rate":5"#))
         XCTAssertTrue(op.contains(#""textId":"T1""#))
         XCTAssertThrowsError(try TextFeip.rateOp(textId: "", rate: 5))
+    }
+
+    /// The Publish parsers bound `rate` to 0–5, as the Construct four
+    /// always did. Refused here too, so an out-of-range score fails in
+    /// a field rather than as a lost fee.
+    func testARatingIsZeroToFive() {
+        XCTAssertNoThrow(try TextFeip.rateOp(textId: "T1", rate: 0))
+        XCTAssertNoThrow(try TextFeip.rateOp(textId: "T1", rate: 5))
+        XCTAssertThrowsError(try TextFeip.rateOp(textId: "T1", rate: -1))
+        XCTAssertThrowsError(try TextFeip.rateOp(textId: "T1", rate: 6))
+    }
+
+    func testCauseIsCarvedOnlyWhenItHasContent() throws {
+        XCTAssertFalse(try TextFeip.rateOp(textId: "T1", rate: 4).contains("cause"))
+        XCTAssertFalse(try TextFeip.rateOp(textId: "T1", rate: 4, cause: "  ").contains("cause"))
+        let given = try TextFeip.rateOp(textId: "T1", rate: 4, cause: "  worth reading  ")
+        XCTAssertTrue(given.contains(#""cause":"worth reading""#), given)
+    }
+
+    func testRemarkRateCarriesItsOwnSubjectKeyAndCause() throws {
+        let op = try RemarkFeip.rateOp(remarkId: "R1", rate: 2, cause: "off topic")
+        XCTAssertTrue(op.contains(#""remarkId":"R1""#))
+        XCTAssertTrue(op.contains(#""rate":2"#))
+        XCTAssertTrue(op.contains(#""cause":"off topic""#))
+        XCTAssertThrowsError(try RemarkFeip.rateOp(remarkId: "R1", rate: 6))
+    }
+
+    /// The size guard runs on the whole envelope, so a cause too long
+    /// to relay fails while it is still text in a field.
+    func testAnOverlongCauseIsRefusedByTheRateCarve() {
+        XCTAssertNoThrow(try TextFeip.rateCarve(textId: "T1", rate: 4, cause: "fine"))
+        XCTAssertThrowsError(
+            try TextFeip.rateCarve(textId: "T1", rate: 4, cause: String(repeating: "x", count: 5_000))
+        )
     }
 
     // MARK: - the models
