@@ -25,6 +25,19 @@ struct TerminalPaneView: View {
     @State private var loadError: String?
     @State private var connectError: String?
 
+    /// Which session each server is showing, by ``SshServer/id`` →
+    /// ``TerminalSessionModel/id``. **Per server, not one global
+    /// selection**, for the same reason the chat pane keeps a draft per
+    /// flavour: coming back to a box should show the shell you left,
+    /// not whichever tab you touched last on some other machine.
+    @State private var activeSessionIds: [String: String] = [:]
+
+    /// The tab being renamed, by ``TerminalSessionModel/id``, and the
+    /// text in the field. Held here rather than on the model so an
+    /// abandoned rename leaves nothing behind.
+    @State private var renamingSessionId: String?
+    @State private var renameText: String = ""
+
     @State private var editor: SshServerEditorSheet.Mode?
     @State private var showingPublicKey = false
     @State private var confirmingDelete: SshServer?
@@ -112,6 +125,19 @@ struct TerminalPaneView: View {
         } message: {
             Text("This only forgets the entry here. Nothing changes on the server.")
         }
+        .alert(
+            "Name this session",
+            isPresented: Binding(
+                get: { renamingSessionId != nil },
+                set: { if !$0 { renamingSessionId = nil } }
+            )
+        ) {
+            TextField("Name", text: $renameText)
+            Button("Save") { commitRename() }
+            Button("Cancel", role: .cancel) { renamingSessionId = nil }
+        } message: {
+            Text("Every shell on one server sets the same title, so the tabs read alike. A name of your own — \"build\", \"logs\" — is the one that will still mean something in an hour. Leave it empty to go back to the shell's own title.")
+        }
     }
 
     // MARK: - Chrome
@@ -194,11 +220,23 @@ struct TerminalPaneView: View {
                     .lineLimit(1)
             }
             Spacer()
+            // Only from the second: "1" next to every row is noise, and
+            // the dot already says whether anything is open.
+            let count = appState.terminalSessions(for: server.id).count
+            if count > 1 {
+                Text("\(count)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .help("\(count) sessions open")
+            }
             if server.pinnedAt != nil {
                 Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary)
             }
         }
         .contextMenu {
+            Button("New session") { selectedId = server.id; connect(server) }
+                .disabled(!canConnect(server))
+            Divider()
             Button("Edit…") { editor = .edit(server) }
             Button(server.pinnedAt == nil ? "Pin" : "Unpin") { togglePin(server) }
             Divider()
@@ -211,8 +249,10 @@ struct TerminalPaneView: View {
     @ViewBuilder
     private var detail: some View {
         if let server = selected {
+            let sessions = appState.terminalSessions(for: server.id)
+            let active = active(for: server)
             VStack(alignment: .leading, spacing: 10) {
-                sessionHeader(server)
+                sessionHeader(server, active: active)
 
                 if let connectError {
                     Label(connectError, systemImage: "exclamationmark.triangle")
@@ -220,27 +260,35 @@ struct TerminalPaneView: View {
                         .foregroundStyle(.orange)
                 }
 
-                if let model = appState.terminalSessions[server.id] {
-                    SshTerminalNSView(model: model)
+                // The bar arrives with the second session, which is also
+                // the first moment it has anything to switch between —
+                // with one shell open the header already names it, and a
+                // row of tabs holding a single tab is chrome for its own
+                // sake.
+                if sessions.count > 1 {
+                    sessionTabs(server, sessions: sessions, active: active)
+                }
+
+                if let active {
+                    SshTerminalNSView(model: active)
                         // **Required, and its absence is invisible.**
-                        // Reconnecting builds a new model with a new
-                        // `LocalProcessTerminalView`, but a
-                        // representable of the same type in the same
-                        // position keeps its existing NSView and only
-                        // gets `updateNSView` — `makeNSView` is never
-                        // called again. Without this the second
-                        // session's terminal is never put on screen:
-                        // ssh runs, prints its prompt or its error into
-                        // a view in no window, and the pane still shows
-                        // the *previous* session's dead transcript. It
-                        // looks exactly like the Connect button doing
-                        // nothing. Tying identity to the model makes
-                        // SwiftUI tear the old view down and build the
-                        // new one.
-                        .id(ObjectIdentifier(model))
+                        // Reconnecting or switching tabs puts a
+                        // different model on screen, but a representable
+                        // of the same type in the same position keeps
+                        // its existing NSView and only gets
+                        // `updateNSView` — `makeNSView` is never called
+                        // again. Without this the other session's
+                        // terminal is never put on screen: ssh runs,
+                        // prints its prompt or its error into a view in
+                        // no window, and the pane still shows the
+                        // *previous* session's transcript. It looks
+                        // exactly like the Connect button doing nothing.
+                        // Tying identity to the model makes SwiftUI tear
+                        // the old view down and build the new one.
+                        .id(ObjectIdentifier(active))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
-                    if let ended = model.endedMessage {
+                    if let ended = active.endedMessage {
                         Text(ended).font(.caption).foregroundStyle(.secondary)
                     }
                 } else {
@@ -256,27 +304,155 @@ struct TerminalPaneView: View {
         }
     }
 
-    private func sessionHeader(_ server: SshServer) -> some View {
+    private func sessionHeader(_ server: SshServer, active: TerminalSessionModel?) -> some View {
         HStack(spacing: 10) {
+            // **The server, and only the server.** This heading used
+            // to follow the active session's title, so renaming a tab
+            // renamed the pane and switching tabs moved the heading —
+            // which reads as the machine having changed. It is fixed
+            // now: what varies belongs in the bar, where the thing it
+            // varies with is on screen next to it.
             VStack(alignment: .leading, spacing: 1) {
-                Text(appState.terminalSessions[server.id]?.remoteTitle ?? server.name)
+                Text(server.name)
                     .font(.headline)
                     .lineLimit(1)
-                Text(server.target).font(.caption).foregroundStyle(.secondary)
+                // `name` is already the target when the entry has no
+                // label, so printing the target under it would be the
+                // same string twice. Same line the sidebar row shows.
+                Text(server.label.isEmpty
+                     ? server.credentialKind.summary
+                     : "\(server.target) · \(server.credentialKind.summary)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             Spacer()
-            if isRunning(server) {
+            if let active, active.isRunning {
                 Button("Disconnect", role: .destructive) {
                     // Stops the shell but keeps the transcript, so you
                     // can still read whatever it printed on the way out.
-                    appState.stopTerminalSession(id: server.id)
+                    appState.stopTerminalSession(id: active.id)
                 }
+            } else if let active {
+                // Reconnect closes the finished tab and opens a new
+                // one rather than restarting this one: its terminal
+                // view holds a spent pty and the last login's
+                // scrollback. The new tab lands at the end of the bar,
+                // not in the old one's slot — moving a session under
+                // the cursor is worse than moving the tab.
+                Button("Reconnect") {
+                    appState.closeTerminalSession(id: active.id)
+                    connect(server)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canConnect(server))
             } else {
                 Button("Connect") { connect(server) }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canConnect(server))
             }
+            if active != nil {
+                Button {
+                    connect(server)
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .keyboardShortcut("t", modifiers: .command)
+                .disabled(!canConnect(server))
+                .help("Open another session on this server (⌘T) — one to watch a log in, one to type in.")
+            }
         }
+    }
+
+    /// One chip per open session, in the order they were opened.
+    ///
+    /// Horizontally scrolling rather than compressing: a tab whose
+    /// label has been squeezed to nothing is a tab you have to click to
+    /// identify, and the titles are how you tell two shells on the same
+    /// box apart.
+    private func sessionTabs(
+        _ server: SshServer,
+        sessions: [TerminalSessionModel],
+        active: TerminalSessionModel?
+    ) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(sessions, id: \.id) { model in
+                    sessionTab(server, model: model, isActive: model.id == active?.id)
+                }
+            }
+            .padding(.bottom, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func sessionTab(
+        _ server: SshServer,
+        model: TerminalSessionModel,
+        isActive: Bool
+    ) -> some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(model.isRunning ? Color.green : Color.secondary.opacity(0.35))
+                .frame(width: 6, height: 6)
+            // Always drawn, and drawn first: the number is the only
+            // part of a tab guaranteed to differ from its neighbours.
+            Text("\(model.ordinal)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+            // Only what the heading above does not already say — the
+            // directory the shell is in, a name the user typed, or
+            // failing both the time it opened. Elided in the middle so
+            // the tail, which is where a path differs, survives.
+            Text(model.tabTitle)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 170, alignment: .leading)
+            Button {
+                close(model, of: server)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.caption2)
+            }
+            .buttonStyle(.plain)
+            .help("Close this session")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 7)
+                .fill(isActive ? Color.accentColor.opacity(0.18) : Color(NSColor.controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7)
+                .stroke(isActive ? Color.accentColor : .clear, lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 7))
+        .help(tabTooltip(model))
+        // Declared before the single tap so the double is not eaten by
+        // it. Renaming is on the double-click because that is where
+        // every other tab strip on this machine puts it.
+        .onTapGesture(count: 2) { beginRename(model) }
+        .onTapGesture { activeSessionIds[server.id] = model.id }
+        .contextMenu {
+            Button("Rename…") { beginRename(model) }
+            if model.displayName != nil {
+                Button("Clear name") { model.displayName = nil }
+            }
+            Divider()
+            Button("Close", role: .destructive) { close(model, of: server) }
+        }
+    }
+
+    /// The part of a session's identity there is no room for in the
+    /// chip: when it was opened, and the exact command that opened it.
+    private func tabTooltip(_ model: TerminalSessionModel) -> String {
+        var lines = [
+            "Session \(model.ordinal) · opened \(model.openedAt.formatted(date: .omitted, time: .shortened))"
+        ]
+        if !model.commandLine.isEmpty { lines.append(model.commandLine) }
+        lines.append("Double-click to rename.")
+        return lines.joined(separator: "\n")
     }
 
     private func idleDetail(_ server: SshServer) -> some View {
@@ -300,25 +476,75 @@ struct TerminalPaneView: View {
 
     // MARK: - Actions
 
+    /// The dot in the sidebar: **any** live shell on this box, not a
+    /// particular one.
     private func isRunning(_ server: SshServer) -> Bool {
-        appState.terminalSessions[server.id]?.isRunning ?? false
+        appState.terminalSessions(for: server.id).contains { $0.isRunning }
     }
 
+    /// The session on screen for a server: the tab the user last
+    /// picked, or failing that the newest — which is the one they just
+    /// opened.
+    private func active(for server: SshServer) -> TerminalSessionModel? {
+        let sessions = appState.terminalSessions(for: server.id)
+        if let id = activeSessionIds[server.id],
+           let chosen = sessions.first(where: { $0.id == id }) {
+            return chosen
+        }
+        return sessions.last
+    }
+
+    /// Open one more shell on this server and show it.
     private func connect(_ server: SshServer) {
         connectError = nil
         do {
             let credential = try resolveCredential(for: server)
-            let model = appState.terminalSession(for: server)
+            let model = appState.openTerminalSession(for: server)
             if let error = model.start(credential: credential) {
                 connectError = error
-                appState.closeTerminalSession(id: server.id)
+                appState.closeTerminalSession(id: model.id)
                 return
             }
+            activeSessionIds[server.id] = model.id
             try? session.sshServers.touchLastUsed(id: server.id)
             reload()
         } catch {
             connectError = "\(error)"
         }
+    }
+
+    private func beginRename(_ model: TerminalSessionModel) {
+        renameText = model.displayName ?? ""
+        renamingSessionId = model.id
+    }
+
+    /// An empty field clears the name rather than setting an empty one,
+    /// so the tab falls back to the shell's title instead of going
+    /// blank.
+    private func commitRename() {
+        defer { renamingSessionId = nil }
+        guard let id = renamingSessionId,
+              let model = appState.terminalSessions.first(where: { $0.id == id })
+        else { return }
+        let name = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        model.displayName = name.isEmpty ? nil : name
+    }
+
+    /// Close one tab, handing the pane to its neighbour on the way out
+    /// — the tab to the left, or the one to the right when there is no
+    /// left. Falling back to "the newest" instead would jump the user
+    /// across the bar every time they closed the tab they were in.
+    private func close(_ model: TerminalSessionModel, of server: SshServer) {
+        if activeSessionIds[server.id] == model.id || active(for: server)?.id == model.id {
+            let sessions = appState.terminalSessions(for: server.id)
+            if let i = sessions.firstIndex(where: { $0.id == model.id }) {
+                let neighbour = i > 0
+                    ? sessions[i - 1]
+                    : (i + 1 < sessions.count ? sessions[i + 1] : nil)
+                activeSessionIds[server.id] = neighbour?.id
+            }
+        }
+        appState.closeTerminalSession(id: model.id)
     }
 
     /// Turn the server's stored choice into something ``SshLaunch`` can
@@ -361,7 +587,8 @@ struct TerminalPaneView: View {
     }
 
     private func remove(_ server: SshServer) {
-        appState.closeTerminalSession(id: server.id)
+        appState.closeTerminalSessions(forServer: server.id)
+        activeSessionIds[server.id] = nil
         _ = try? session.sshServers.remove(id: server.id)
         if selectedId == server.id { selectedId = nil }
         reload()

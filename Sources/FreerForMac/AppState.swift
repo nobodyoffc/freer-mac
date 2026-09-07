@@ -580,7 +580,7 @@ final class AppState {
         // SwiftTerm samples the effective appearance once, when the
         // view is built, so a terminal that is already open keeps the
         // old palette unless it is told to look again.
-        let terminals = terminalSessions.values.map(\.view)
+        let terminals = terminalSessions.map(\.view)
         let apply = {
             NSApp.appearance = appearance
             for view in terminals { view.configureNativeColors() }
@@ -643,39 +643,77 @@ final class AppState {
 
     // MARK: - terminal sessions
 
-    /// Live SSH sessions, keyed by ``SshServer/id``.
+    /// Live SSH sessions, in the order they were opened.
+    ///
+    /// **A list, not a dictionary keyed by server**, because one server
+    /// is worth several shells: a build tailing its log in one tab and
+    /// a prompt to type into in the next is the ordinary way to work on
+    /// a box. Keyed by ``SshServer/id`` the second Connect silently
+    /// handed back the first session, so the feature was not missing so
+    /// much as impossible to ask for. Each model carries its own
+    /// ``TerminalSessionModel/id``, and every call below takes that —
+    /// never a server's.
     ///
     /// **Here rather than in the pane's `@State`** because the detail
     /// column is rebuilt when the sidebar selection changes: a session
     /// owned by the view would be torn down the moment the user
     /// glanced at their wallet, which is not what a terminal is for.
-    private(set) var terminalSessions: [String: TerminalSessionModel] = [:]
+    private(set) var terminalSessions: [TerminalSessionModel] = []
 
-    /// The live session for this server, or a fresh one.
+    /// One server's sessions, oldest first — which is the tab order.
+    func terminalSessions(for serverId: String) -> [TerminalSessionModel] {
+        terminalSessions.filter { $0.server.id == serverId }
+    }
+
+    /// Open another session on this server. Always a new one.
     ///
-    /// A *finished* session is replaced rather than restarted: its
-    /// `LocalProcessTerminalView` still holds the last session's
-    /// scrollback and a spent pty, and reusing it would splice two
-    /// logins into one transcript.
-    func terminalSession(for server: SshServer) -> TerminalSessionModel {
-        if let existing = terminalSessions[server.id], existing.isRunning { return existing }
-        let session = TerminalSessionModel(server: server)
+    /// Nothing is ever reused: a finished session's
+    /// `LocalProcessTerminalView` still holds the last login's
+    /// scrollback and a spent pty, and a live one is a shell somebody
+    /// is in the middle of using. Either way, reconnecting *into* it
+    /// would splice two logins into one transcript.
+    @discardableResult
+    func openTerminalSession(for server: SshServer) -> TerminalSessionModel {
+        let session = TerminalSessionModel(
+            server: server,
+            ordinal: nextTerminalOrdinal(forServer: server.id)
+        )
         session.onEnded = { [weak self] in self?.stopSshAgentIfIdle() }
-        terminalSessions[server.id] = session
+        terminalSessions.append(session)
         return session
+    }
+
+    /// One past the highest number this server's open tabs are already
+    /// using.
+    ///
+    /// Neither a counter that only climbs nor a count of what is open:
+    /// closing the middle of three tabs must not renumber the third,
+    /// and a server whose tabs have all been closed should start again
+    /// at 1 rather than at 12. A number is only ever reused once
+    /// nothing on screen still carries it.
+    private func nextTerminalOrdinal(forServer serverId: String) -> Int {
+        (terminalSessions(for: serverId).map(\.ordinal).max() ?? 0) + 1
     }
 
     /// End one session but keep its transcript on screen.
     func stopTerminalSession(id: String) {
-        terminalSessions[id]?.stop()
+        terminalSessions.first { $0.id == id }?.stop()
         stopSshAgentIfIdle()
     }
 
-    /// End one session and forget it — for when the server itself is
-    /// being removed and there is nothing left to show.
+    /// End one session and forget it — the tab is closing, and there is
+    /// nothing left to show.
     func closeTerminalSession(id: String) {
-        terminalSessions[id]?.stop()
-        terminalSessions.removeValue(forKey: id)
+        terminalSessions.first { $0.id == id }?.stop()
+        terminalSessions.removeAll { $0.id == id }
+        stopSshAgentIfIdle()
+    }
+
+    /// Close every session on one server, for when the server entry
+    /// itself is being removed.
+    func closeTerminalSessions(forServer serverId: String) {
+        for session in terminalSessions(for: serverId) { session.stop() }
+        terminalSessions.removeAll { $0.server.id == serverId }
         stopSshAgentIfIdle()
     }
 
@@ -683,11 +721,11 @@ final class AppState {
     ///
     /// The agent's entire risk is the window it is up for, so that
     /// window is "at least one live session" and not "the app is
-    /// running". Note the test is `isRunning`, not "the dictionary is
-    /// empty": a finished session stays in the dictionary so its
-    /// scrollback survives, and it must not keep the key alive.
+    /// running". Note the test is `isRunning`, not "the list is empty":
+    /// a finished session stays in the list so its scrollback survives,
+    /// and it must not keep the key alive.
     private func stopSshAgentIfIdle() {
-        guard !terminalSessions.values.contains(where: { $0.isRunning }) else { return }
+        guard !terminalSessions.contains(where: { $0.isRunning }) else { return }
         tearDownSshAgent()
     }
 
@@ -695,7 +733,7 @@ final class AppState {
     /// before the lock would otherwise stay open on a vault the user
     /// believes is closed.
     func tearDownTerminalSessions() {
-        for session in terminalSessions.values { session.stop() }
+        for session in terminalSessions { session.stop() }
         terminalSessions.removeAll()
     }
 

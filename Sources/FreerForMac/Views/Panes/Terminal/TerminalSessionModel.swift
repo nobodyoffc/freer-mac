@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import Foundation
 import SwiftTerm
 import FCDomain
 
@@ -14,7 +15,94 @@ import FCDomain
 @Observable
 final class TerminalSessionModel {
 
+    /// This session, not this server. A server may have several open at
+    /// once and they are told apart by nothing else — same host, same
+    /// user, same name in the tab until the remote shell sets a title.
+    let id: String = UUID().uuidString
+
     let server: SshServer
+
+    /// Which session this is on its server — 1, 2, 3 — fixed when it
+    /// opens and never touched again.
+    ///
+    /// **The tab's identity, because its label is not.** Most login
+    /// shells set a title and on one box every one of them sets the
+    /// *same* title, so three tabs all read `liu@build: ~` and say
+    /// nothing about which is which. Numbering by position in the bar
+    /// instead would renumber every tab to the right of one that
+    /// closed, renaming a session while the user was looking at it.
+    /// ``AppState`` hands the number out.
+    let ordinal: Int
+
+    /// When this session was opened. In the tab's tooltip, because with
+    /// two shells on one box "the one I started before lunch" is often
+    /// the only thing anybody remembers about which is which.
+    let openedAt = Date()
+
+    /// A name the user typed for this tab, which beats anything we
+    /// could infer. Nil until they type one.
+    var displayName: String?
+
+    /// What the tab shows, in order of how much it actually says: the
+    /// name the user gave it, then whatever part of the shell's title
+    /// is not already in the header, then the time it opened.
+    ///
+    /// **Never the server's name or target**, however little else there
+    /// is to say. That text is the pane's heading, fixed above every
+    /// tab in the bar; a chip repeating it spends its whole width on
+    /// the one thing all of them have in common. When the shell's title
+    /// adds nothing the clock does: two sessions on one box always
+    /// started at different times.
+    ///
+    /// None of this is enough on its own to tell two sessions apart —
+    /// that is ``ordinal``'s job, and it is why the number is drawn
+    /// beside this rather than instead of it.
+    var tabTitle: String {
+        if let displayName, !displayName.isEmpty { return displayName }
+        if let distinct = distinctRemoteTitle { return distinct }
+        return openedAt.formatted(date: .omitted, time: .shortened)
+    }
+
+    /// The shell's title with the part the header already shows taken
+    /// off the front.
+    ///
+    /// A login shell sets `user@host: dir` and the heading above the
+    /// bar is already `user@host`, so the prefix is pure repetition —
+    /// and worse than idle, because it pushes the directory, the one
+    /// part that differs between tabs, out to where the truncation
+    /// eats it. Nil when nothing is left, which is the honest answer
+    /// for a title that was only ever the header again.
+    private var distinctRemoteTitle: String? {
+        guard var title = remoteTitle?.trimmingCharacters(in: .whitespaces),
+              !title.isEmpty
+        else { return nil }
+
+        // The port is in `target` and never in a shell's title, hence
+        // the bare `user@host` beside it; the host alone is for the
+        // shells that set `host: dir`.
+        let known = [server.target, "\(server.user)@\(server.host)", server.host]
+        let lower = title.lowercased()
+        let stripped = known.first { candidate in
+            guard !candidate.isEmpty, lower.hasPrefix(candidate.lowercased()) else { return false }
+            // A prefix must end where a word ends, or `build` eats the
+            // front of `buildbot` and leaves a tab reading `bot: ~`.
+            let next = lower.dropFirst(candidate.count).first
+            return next == nil || next == ":" || next == " "
+        }
+        if let stripped {
+            title = String(title.dropFirst(stripped.count))
+        } else if let colon = title.firstIndex(of: ":"), title[..<colon].contains("@") {
+            // The shell names the host its own way — a short name where
+            // the entry holds an FQDN, or an alias from `~/.ssh/config`
+            // resolved to something else — so none of the prefixes
+            // above match. Anything before the first colon carrying an
+            // `@` is that same redundancy under another spelling.
+            title = String(title[title.index(after: colon)...])
+        }
+
+        title = title.trimmingCharacters(in: CharacterSet(charactersIn: ": \t-·"))
+        return title.isEmpty ? nil : title
+    }
 
     /// The title the remote shell set, if it set one. Most login shells
     /// do, and it is more informative than the row label once you are
@@ -41,8 +129,9 @@ final class TerminalSessionModel {
     let view: LocalProcessTerminalView
     private var bridge: ProcessBridge?
 
-    init(server: SshServer) {
+    init(server: SshServer, ordinal: Int) {
         self.server = server
+        self.ordinal = ordinal
         self.view = LocalProcessTerminalView(
             frame: CGRect(x: 0, y: 0, width: 800, height: 480),
             font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
