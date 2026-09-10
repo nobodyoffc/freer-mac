@@ -52,6 +52,10 @@ struct AskMembersSheet: View {
     @State private var owner: String?
     @State private var chosen: Set<String> = []
     @State private var error: String?
+    /// Whether we already hold a key for this entity. Only a caption —
+    /// asking again is legitimate (a rotation we missed, a room whose
+    /// membership drifted), so it informs rather than disables.
+    @State private var alreadyHeld = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -67,7 +71,7 @@ struct AskMembersSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if members.isEmpty {
-                Text("This \(style.noun) lists no other member on this device, so there is nobody to ask. Refresh it first.")
+                Text("This \(style.noun) lists nobody to ask on this device — not even you. Refresh it first.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -122,14 +126,24 @@ struct AskMembersSheet: View {
                     Button {
                         if chosen.contains(fid) { chosen.remove(fid) } else { chosen.insert(fid) }
                     } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: chosen.contains(fid) ? "checkmark.square.fill" : "square")
-                                .foregroundStyle(chosen.contains(fid) ? style.tint : .secondary)
-                            FidAvatarView(fid: fid, size: 22)
-                            Text(fid.elidingMiddle(head: 8, tail: 8))
-                                .font(.callout)
-                            if fid == owner { ChatChip("owner", color: style.tint) }
-                            Spacer(minLength: 0)
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 8) {
+                                Image(systemName: chosen.contains(fid) ? "checkmark.square.fill" : "square")
+                                    .foregroundStyle(chosen.contains(fid) ? style.tint : .secondary)
+                                FidAvatarView(fid: fid, size: 22)
+                                Text(fid.elidingMiddle(head: 8, tail: 8))
+                                    .font(.callout)
+                                if fid == owner { ChatChip("owner", color: style.tint) }
+                                if fid == session.liveFid { ChatChip("your other devices", color: style.tint) }
+                                Spacer(minLength: 0)
+                            }
+                            if fid == session.liveFid {
+                                Text(ownRowHint)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .padding(.leading, 26)
+                            }
                         }
                         .contentShape(Rectangle())
                     }
@@ -141,30 +155,77 @@ struct AskMembersSheet: View {
         }
     }
 
+    /// What ticking our own FID actually does — the one row whose
+    /// meaning is not obvious, because on the face of it it reads as
+    /// asking yourself a question you already know you cannot answer.
+    ///
+    /// It is not. The request goes out on the ordinary P2P route
+    /// addressed to this identity, and **every device signed in as this
+    /// identity collects it** — so the one that still holds the key
+    /// answers, and this one does not (a device with no key has nothing
+    /// to reply with, so its own copy is a silent no-op). It is the only
+    /// thing to tick for a re-installed **owner**, whose other device is
+    /// the only copy of the key that exists.
+    private var ownRowHint: String {
+        alreadyHeld
+            ? "Your other devices signed in as this identity. This device already holds a key — an answer can still bring a newer version."
+            : "Your other devices signed in as this identity. Whichever one still holds the key answers; this one stays quiet."
+    }
+
     // MARK: - actions
 
     private func load() {
         do {
+            let me = session.liveFid
             switch style.mode {
             case .room:
                 let room = try session.rooms.get(id: conversation.targetId)
                 owner = room?.owner
-                members = (room?.members ?? []).filter { $0 != session.liveFid }
+                members = roster(all: room?.members, owner: room?.owner, me: me)
             case .team:
                 let team = try session.teams.get(id: conversation.targetId)
                 owner = team?.owner
-                members = (team?.members ?? []).filter { $0 != session.liveFid }
+                members = roster(all: team?.members, owner: team?.owner, me: me)
             case .square, .p2p:
                 // Neither has a key, so neither reaches this sheet.
                 members = []
             }
+            alreadyHeld = (try? session.symkeys.has(entityId: conversation.targetId)) ?? false
             // The owner is the answer that counts most in both cases, so
-            // it starts ticked; everything else is the user's call.
+            // it starts ticked; everything else is the user's call —
+            // except when the owner *is* us, where the only useful tick
+            // is our own row, and pre-ticking it is what makes the
+            // re-installed owner's one path out of this the default.
             if let owner, members.contains(owner) { chosen = [owner] }
+            else if members.contains(me) { chosen = [me] }
             error = nil
         } catch {
             self.error = String(describing: error)
         }
+    }
+
+    /// Who to offer, our own FID **first**.
+    ///
+    /// It used to be filtered out, on the reading that asking yourself
+    /// is a no-op. It is not: an identity is not a device, and a second
+    /// Mac signed in as this FID has the identity and none of the keys.
+    /// The request travels the ordinary P2P route to this FID, and the
+    /// device that still holds the key answers it like any member's —
+    /// see ``KeyExchange/requests(entityId:kind:from:to:now:)``. Leaving
+    /// it out left a re-installed owner, whose other device is the only
+    /// holder in existence, with nobody to ask.
+    ///
+    /// It leads because it is the one row the user cannot reconstruct
+    /// for themselves, and the owner keeps its chip wherever it lands.
+    private func roster(all: [String]?, owner: String?, me: String) -> [String] {
+        let listed = all ?? []
+        let others = listed.filter { $0 != me }
+        // Only if we are actually in the entity — the sheet is reachable
+        // for a room whose membership has drifted past us, and offering
+        // to ask ourselves about one we are not in would be a request
+        // every responder is right to ignore.
+        guard listed.contains(me) || owner == me else { return others }
+        return [me] + others
     }
 
     private func send() {

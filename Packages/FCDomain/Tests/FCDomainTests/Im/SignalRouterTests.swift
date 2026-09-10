@@ -66,6 +66,9 @@ final class SignalRouterTests: XCTestCase {
                 switch fid {
                 case self.bob: return try self.pubkey(self.bobPriv)
                 case self.carol: return try self.pubkey(self.carolPriv)
+                // Our own FID resolves too, as it does in the app: a
+                // request from our other device is a request from us.
+                case self.me: return try self.pubkey(self.alicePriv)
                 default: return nil
                 }
             }
@@ -263,17 +266,113 @@ final class SignalRouterTests: XCTestCase {
         XCTAssertTrue(outcome.outbound.isEmpty)
     }
 
+    // MARK: - asking our own other devices
+
+    /// A request from our own FID is a request from **our other device**
+    /// — one signed in as this identity without the key — and it is
+    /// answered exactly like a member's: both parties are members, we
+    /// hold the key, so a share goes back, sealed to our own pubkey.
+    ///
+    /// This is the re-installed owner's only way back in, so the room
+    /// here is one **we** own: nobody else holds its key.
+    func testARequestFromOurOwnFidIsAnswered() throws {
+        try session.rooms.upsert(
+            Room(owner: me, name: "Mine", members: [me, carol], id: roomId)
+        )
+        let key = Data(repeating: 0x6B, count: 32)
+        _ = try session.symkeys.store(key, for: roomId, version: 2, allowOverwrite: true)
+
+        let outcome = try router().route(request(for: roomId, from: me), as: me, now: at(10))
+        let reply = try XCTUnwrap(outcome.outbound.first)
+        XCTAssertEqual(reply.contentType, .symkey)
+        XCTAssertEqual(reply.senderId, me)
+        XCTAssertEqual(reply.targetId, me, "back to our own FID, where the other device collects")
+        XCTAssertEqual(reply.type, .p2p)
+        XCTAssertEqual(reply.symkeyVersion, 2)
+
+        let (entityId, cipher) = try XCTUnwrap(SymkeyShare.parse(try XCTUnwrap(reply.content)))
+        XCTAssertEqual(entityId, roomId)
+        XCTAssertEqual(try AsyCipher.decrypt(cipherString: cipher, privkey: alicePriv), key)
+    }
+
+    /// The same for room details: our other device asking about a room
+    /// we are in gets the `ROOM_INFO`, key included.
+    func testARoomInfoRequestFromOurOwnFidIsAnswered() throws {
+        try bobsRoom()
+        _ = try session.symkeys.store(
+            Data(repeating: 0x3C, count: 32), for: roomId, version: 4, allowOverwrite: true
+        )
+        let outcome = try router().route(roomInfoRequest(for: roomId, from: me), as: me, now: at(10))
+        let reply = try XCTUnwrap(outcome.outbound.first)
+        XCTAssertEqual(reply.contentType, .roomInfo)
+        XCTAssertEqual(reply.targetId, me)
+        let info = try RoomInfo.fromJson(try XCTUnwrap(reply.content))
+        XCTAssertEqual(info.symkeyVersion, 4)
+        XCTAssertNotNil(info.symkey)
+    }
+
+    /// The device that *sent* the request collects its own copy too, and
+    /// holds no key — that is why it asked. It must stay silent rather
+    /// than answer itself with nothing, or loop.
+    func testOurOwnRequestReadBackWithoutTheKeyAnswersNothing() throws {
+        try session.rooms.upsert(
+            Room(owner: me, name: "Mine", members: [me, carol], id: roomId)
+        )
+        let outcome = try router().route(request(for: roomId, from: me), as: me, now: at(10))
+        XCTAssertTrue(outcome.outbound.isEmpty)
+    }
+
+    /// **Not a trust rule.** A share whose sender FID is ours is not
+    /// thereby from the owner: a FID in a message is written by whoever
+    /// sent it. In a room Bob owns, "from us" must not replace a version
+    /// we already hold — the acceptance side is exactly as strict as it
+    /// was before self-requests existed.
+    func testAShareClaimingToBeFromUsCannotOverwriteInSomeoneElsesRoom() throws {
+        try bobsRoom()
+        let original = Data(repeating: 0x11, count: 32)
+        _ = try session.symkeys.store(original, for: roomId, version: 1, allowOverwrite: true)
+
+        _ = try router().route(
+            try share(Data(repeating: 0xEE, count: 32), version: 1, for: roomId, from: me),
+            as: me, now: at(10)
+        )
+        XCTAssertEqual(try session.symkeys.key(for: roomId, version: 1), original)
+    }
+
     // MARK: - asking several people at once
 
-    /// Asking is addressed to the people chosen, never to ourselves —
-    /// a self-addressed request would be answered by this same router
-    /// with the key we already hold.
-    func testRequestsAreBuiltForEveryoneChosenExceptUs() {
+    /// Asking is addressed to exactly the people chosen — **our own FID
+    /// included**. It used to be dropped, on the theory that asking
+    /// ourselves is a no-op; it is how a second device signed in as this
+    /// identity reaches the first one, which holds the key.
+    func testRequestsAreBuiltForEveryoneChosenIncludingUs() {
         let asks = KeyExchange.requests(
             entityId: roomId, kind: .symkey, from: me, to: [bob, carol, me], now: t0
         )
-        XCTAssertEqual(asks.compactMap(\.targetId), [bob, carol])
+        XCTAssertEqual(asks.compactMap(\.targetId), [bob, carol, me])
         XCTAssertTrue(asks.allSatisfy { $0.requestType == .symkey && $0.type == .p2p })
+        XCTAssertTrue(asks.allSatisfy { $0.senderId == me })
+        XCTAssertTrue(asks.allSatisfy { $0.id != nil }, "queueable")
+    }
+
+    /// A request to ourselves alone — the re-installed owner's case — is
+    /// emitted, for both kinds.
+    func testARequestToOnlyOurselvesIsEmitted() {
+        for kind in [RequestType.symkey, .roomInfo] {
+            let asks = KeyExchange.requests(entityId: roomId, kind: kind, from: me, to: [me], now: t0)
+            XCTAssertEqual(asks.count, 1, "\(kind)")
+            XCTAssertEqual(asks.first?.targetId, me)
+            XCTAssertEqual(asks.first?.requestType, kind)
+            XCTAssertEqual(asks.first?.content, roomId)
+        }
+    }
+
+    /// The same FID twice is one question, not two paid-for puts.
+    func testRequestsDropDuplicates() {
+        let asks = KeyExchange.requests(
+            entityId: roomId, kind: .symkey, from: me, to: [me, bob, me, bob], now: t0
+        )
+        XCTAssertEqual(asks.compactMap(\.targetId), [me, bob])
     }
 
     func testRoomInfoRequestsCarryTheirOwnRequestType() {

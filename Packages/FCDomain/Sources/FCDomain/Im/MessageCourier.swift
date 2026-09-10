@@ -638,7 +638,7 @@ public struct MessageCourier {
                     other += 1
                 case .receipt, .ignored: other += 1
                 }
-                if let dockId = item.id, isOursAlone(item, liveFid: liveFid) {
+                if let dockId = item.id, isOursAlone(item, named, liveFid: liveFid) {
                     _ = try? await dock.delete(id: dockId, timeoutMs: timeoutMs)
                 }
             }
@@ -654,7 +654,8 @@ public struct MessageCourier {
         return ReceiveReport(fetched: fetched, filed: filed, sealed: sealed, held: held, routed: routed, other: other)
     }
 
-    /// Whether an item is addressed to us and nobody else.
+    /// Whether an item is addressed to us and nobody else, **and was
+    /// not sent by us**.
     ///
     /// **Only those may be deleted.** Deleting is the receiver's half of
     /// the bargain for a P2P message — the sender paid for storage, and
@@ -663,8 +664,20 @@ public struct MessageCourier {
     /// it after we have read it takes it from everyone who has not. For
     /// those, the per-DOCK cursor is what stops us re-reading it, and
     /// the item is left for its TTL to clear.
-    private func isOursAlone(_ item: DockItem, liveFid: String) -> Bool {
+    ///
+    /// **A message we sent to our own FID is the same shape as a
+    /// group's**, and for the same reason: an identity can be signed in
+    /// on several devices, every one of them polls that FID, and each
+    /// has its own cursor. A symkey request to ourselves is *for* the
+    /// other device — so reaping it the moment the sending device reads
+    /// its own copy back would delete the question before the only
+    /// machine that can answer it ever sees it, which is a race the
+    /// sender wins nearly every time (it is already awake, and it
+    /// polls immediately after the put). The cursor keeps us from
+    /// re-reading it; the TTL clears it.
+    private func isOursAlone(_ item: DockItem, _ message: ImMessage, liveFid: String) -> Bool {
         guard let recipients = item.recipients, !recipients.isEmpty else { return false }
+        guard message.senderId != liveFid else { return false }
         return recipients.allSatisfy { $0 == liveFid }
     }
 }

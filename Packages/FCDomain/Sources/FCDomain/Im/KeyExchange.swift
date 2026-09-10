@@ -102,6 +102,22 @@ public enum KeyExchange {
     /// rest are harmless: ``SymkeyStore`` refuses to overwrite a version
     /// it already holds unless the sender owns the entity, so a second
     /// answer is an ordinary no-op rather than a race.
+    ///
+    /// **Our own FID is a legitimate target**, and used to be dropped
+    /// here. An identity is not a device: signing in on a second Mac
+    /// gives it the FID but none of the group keys, and the only holder
+    /// is the *first* device — which is reached by addressing a request
+    /// to the FID we share. It travels the ordinary P2P route (sealed
+    /// one-way to our own pubkey, put on our own DOCK, fetched by every
+    /// device polling that FID), and the responder side already answers
+    /// it: ``SignalRouter`` asks only whether both parties are members,
+    /// which a request from ourselves trivially is. Skipping it here was
+    /// the whole of the bug, and it is fatal precisely for the case that
+    /// has nobody else to ask — a re-installed **owner**, whose other
+    /// device is the only copy of the key in existence.
+    ///
+    /// Duplicates are still dropped: a list naming the same FID twice
+    /// would otherwise pay for the same question twice.
     public static func requests(
         entityId: String,
         kind: RequestType,
@@ -109,8 +125,9 @@ public enum KeyExchange {
         to fids: [String],
         now: Date = Date()
     ) -> [ImMessage] {
-        fids.compactMap { fid in
-            guard fid != senderFid else { return nil }
+        var seen = Set<String>()
+        return fids.compactMap { fid in
+            guard !fid.isEmpty, seen.insert(fid).inserted else { return nil }
             switch kind {
             case .symkey:
                 return request(entityId: entityId, from: senderFid, to: fid, now: now)

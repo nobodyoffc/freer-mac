@@ -218,6 +218,107 @@ final class MessageCourierTests: XCTestCase {
         XCTAssertEqual(stored.first?.symkeyVersion, 1, "and it says which key it needs")
     }
 
+    // MARK: - one identity, two devices
+
+    /// **A→A, end to end.** Two Macs signed in as the same FID: the first
+    /// owns a room and holds its key, the second was set up later and
+    /// holds nothing. The second asks its own FID, and the key comes back.
+    ///
+    /// Every hop is the real one — the request built by ``KeyExchange``,
+    /// the put onto our own DOCK, both devices collecting that FID, the
+    /// session's own router answering with our own derived pubkey (there
+    /// is no contact row for ourselves), and the share landing.
+    ///
+    /// Runs on the wall clock, not the fixture times: the outbox stamps
+    /// what it queues — including the reply the courier queues for the
+    /// router — with `Date()`, so a drain at a fixture time finds
+    /// nothing due.
+    ///
+    /// The asking device collects **first**, which is the race it wins
+    /// in practice: it is awake and polls right after the put. Its copy
+    /// of its own question must be left on the DOCK, or the device that
+    /// can answer never sees it.
+    func testASecondDeviceGetsTheKeyByAskingItsOwnFid() async throws {
+        let mac1 = try makeSession(privkey: alicePriv, label: "mac1")
+        let mac2 = try makeSession(privkey: alicePriv, label: "mac2")
+        let me = mac1.liveFid
+        XCTAssertEqual(mac2.liveFid, me, "one identity")
+        server.homeByFid[me] = [ServiceName.dock: "https://dock.alice"]
+
+        let roomId = "room_b4c9a1f2e8d73065b4c9"
+        let room = Room(owner: me, name: "Mine", members: [me, "F-carol"], active: true, id: roomId)
+        try mac1.rooms.upsert(room)
+        try mac2.rooms.upsert(room)
+        let key = Data(repeating: 0x7E, count: 32)
+        _ = try mac1.symkeys.store(key, for: roomId, version: 1, allowOverwrite: true)
+        XCTAssertFalse(try mac2.symkeys.has(entityId: roomId))
+
+        // mac2 asks its own FID.
+        let asks = KeyExchange.requests(entityId: roomId, kind: .symkey, from: me, to: [me])
+        XCTAssertEqual(asks.count, 1)
+        for ask in asks {
+            try mac2.outbox.enqueue(ask, in: Conversation.id(type: .p2p, targetId: me))
+        }
+        let sent = try await mac2.courier.drainOutbox(as: me, ownDockUrl: "https://dock.alice")
+        XCTAssertEqual(sent.sent, 1)
+        XCTAssertEqual(server.items.count, 1)
+
+        // mac2 reads its own question back first. It has no key, so it
+        // answers nothing — and it must not reap the item.
+        let echo = try await mac2.courier.collect(
+            as: me, recipientIds: [me], privkey: alicePriv
+        )
+        XCTAssertEqual(echo.fetched, 1)
+        XCTAssertEqual(try mac2.outbox.count(), 0, "no answer from the device without the key")
+        XCTAssertEqual(server.items.count, 1, "our own question is left for our other device")
+
+        // mac1 collects the same item and answers it.
+        let asked = try await mac1.courier.collect(
+            as: me, recipientIds: [me], privkey: alicePriv
+        )
+        XCTAssertEqual(asked.routed, 1)
+        XCTAssertEqual(try mac1.outbox.count(), 1, "the share is queued")
+        _ = try await mac1.courier.drainOutbox(as: me, ownDockUrl: "https://dock.alice")
+
+        // mac1 collecting its own answer back leaves it in place too —
+        // the share is for mac2. (This cursor-less collect also re-reads
+        // the request and answers it again; in the app the per-DOCK
+        // cursor stops the re-read, and a second share of a held version
+        // is a no-op for the receiver either way.)
+        _ = try await mac1.courier.collect(as: me, recipientIds: [me], privkey: alicePriv)
+        XCTAssertTrue(
+            server.items.contains { item in
+                (try? ImMessage.fromWireBytes(item.payload))?.contentType == .symkey
+            },
+            "our own share is left for our other device"
+        )
+
+        // mac2 collects, and now holds the key.
+        _ = try await mac2.courier.collect(as: me, recipientIds: [me], privkey: alicePriv)
+        XCTAssertEqual(try mac2.symkeys.key(for: roomId, version: 1), key)
+    }
+
+    /// The delete rule still applies to everything that is not our own
+    /// traffic: a P2P message someone else sent us is reaped once read.
+    /// (``testCollectingDeletesWhatItFiled`` pins the filed case; this
+    /// pins that the self-sender carve-out did not widen.)
+    func testASignalFromSomeoneElseIsStillDeletedOnceRead() async throws {
+        let alice = try makeSession(privkey: alicePriv, label: "alice")
+        let bob = try makeSession(privkey: bobPriv, label: "bob")
+        server.homeByFid[alice.liveFid] = [ServiceName.dock: "https://dock.alice"]
+        let roomId = "room_b4c9a1f2e8d73065b4c9"
+
+        let ask = KeyExchange.request(entityId: roomId, from: bob.liveFid, to: alice.liveFid)
+        try bob.outbox.enqueue(ask, in: Conversation.id(type: .p2p, targetId: alice.liveFid))
+        _ = try await bob.courier.drainOutbox(as: bob.liveFid, ownDockUrl: "https://dock.bob")
+        XCTAssertEqual(server.items.count, 1)
+
+        _ = try await alice.courier.collect(
+            as: alice.liveFid, recipientIds: [alice.liveFid], privkey: alicePriv
+        )
+        XCTAssertTrue(server.items.isEmpty)
+    }
+
     // MARK: - failure handling
 
     /// No address and no DOCK of our own is **permanent**: nothing about

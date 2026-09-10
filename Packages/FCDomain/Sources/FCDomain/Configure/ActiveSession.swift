@@ -565,6 +565,10 @@ public final class ActiveSession {
     /// being there.
     private var signalRoute: (@Sendable (ImMessage, String, Date) throws -> SignalRouter.Outcome)? {
         guard let privkey = try? livePrikey(), let service = try? roomService else { return nil }
+        // The FID `privkey` belongs to, captured with it. The router is
+        // handed a live FID per message, and the two must agree before
+        // a derived pubkey may stand in for an address-book lookup.
+        let ownFid = self.liveFid
         let rooms = self.rooms
         let teams = self.teams
         let symkeys = self.symkeys
@@ -580,7 +584,21 @@ public final class ActiveSession {
                 roomService: service,
                 roomConversations: roomConversations,
                 privkey: privkey,
-                pubkeys: { fid in try contacts.get(fid: fid)?.pubkey }
+                pubkeys: { fid in
+                    // **Our own FID first, from our own key.** The
+                    // address book is for other people: it is filled
+                    // from contact carves, and nobody carves a contact
+                    // for themselves — so a lookup of our own FID
+                    // answers nil, and a key request from our *other
+                    // device* (which arrives as a request from us, to
+                    // us) would be dropped for having no pubkey to seal
+                    // to. Deriving it costs one curve multiplication and
+                    // cannot be stale, which a cached row could be.
+                    if fid == liveFid, fid == ownFid {
+                        return try? Secp256k1.publicKey(fromPrivateKey: privkey)
+                    }
+                    return try contacts.get(fid: fid)?.pubkey
+                }
             )
             return try router.route(message, as: liveFid, now: now)
         }
