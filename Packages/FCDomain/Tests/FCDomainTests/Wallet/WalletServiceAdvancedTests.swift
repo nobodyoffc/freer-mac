@@ -344,7 +344,7 @@ final class WalletServiceAdvancedTests: XCTestCase {
         broadcastOnly(mock)
 
         let seen = SeenPreview()
-        alice.txApprover = { preview in await seen.record(preview); return true }
+        alice.txApprover = { preview in await seen.record(preview); return .approve }
 
         let inputs = [try cash(owner: alice.liveFid, txidByte: 0xAA, index: 0, value: 1_000_000)]
         let message = "你好 — paid in full ✓"
@@ -376,7 +376,7 @@ final class WalletServiceAdvancedTests: XCTestCase {
         broadcastOnly(mock)
 
         let seen = SeenPreview()
-        alice.txApprover = { preview in await seen.record(preview); return true }
+        alice.txApprover = { preview in await seen.record(preview); return .approve }
 
         let inputs = [try cash(owner: alice.liveFid, txidByte: 0xBB, index: 0, value: 1_000_000)]
         let locked = try RawTxInfo.Slot.lockedOutput(
@@ -406,7 +406,7 @@ final class WalletServiceAdvancedTests: XCTestCase {
         broadcastOnly(mock)
 
         let seen = SeenPreview()
-        alice.txApprover = { preview in await seen.record(preview); return true }
+        alice.txApprover = { preview in await seen.record(preview); return .approve }
 
         let inputs = [try cash(owner: alice.liveFid, txidByte: 0xCC, index: 0, value: 1_000_000)]
         _ = try await alice.sendAdvancedFromLive(

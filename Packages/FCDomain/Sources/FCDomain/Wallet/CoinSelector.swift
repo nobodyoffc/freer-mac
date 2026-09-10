@@ -1,15 +1,14 @@
 import Foundation
 
-/// Greedy largest-first coin selection. Picks UTXOs in descending
-/// value order until the running sum covers `amount + estimatedFee`.
-/// Re-estimates the fee each iteration because adding an input grows
-/// the tx by ~148 B.
+/// Coin selection that destroys as few CoinDays as it can.
 ///
-/// Why largest-first (not smallest-first):
-/// - Minimizes the number of inputs, which keeps fees down and the
-///   signed tx small.
-/// - Costs UTXO-set "consolidation" — small UTXOs accumulate. We can
-///   add a periodic compaction sweep later if the set grows pathological.
+/// Why not largest-first, which this used to be: it kept the input
+/// count down, but the largest cash is usually also an old one, so a
+/// small payment — or a carve that only has to destroy one CoinDay —
+/// burned the whole age of the biggest bill. An extra input costs
+/// 141 B; CoinDays can't be bought back. The rule is in
+/// ``pick(_:payValue:requiredCd:feeFor:)`` and matches Android's
+/// `CashSelector`, so both apps spend the same cashes.
 ///
 /// Fee model: 1 sat/byte default, with the standard size formula
 /// `10 + 148*nIn + 34*nOut` (P2PKH-only). Replace this with a live
@@ -81,50 +80,15 @@ public enum CoinSelector {
         guard amount > 0 else { throw Failure.nonPositiveAmount(amount) }
         guard feePerByte > 0 else { throw Failure.nonPositiveFeeRate(feePerByte) }
 
-        let candidates = cashes.sorted { $0.value > $1.value }
-        var selected: [Cash] = []
-        var sum: Int64 = 0
-
-        // Iterate: each added input bumps the fee, which may force
-        // another input. The sum-feedback loop terminates because the
-        // input-fee-cost (148 sat at 1 sat/byte) is well below any
-        // reasonable per-cash value.
-        for cash in candidates {
-            selected.append(cash)
-            sum += cash.value
-            // Try to close the plan with TWO outputs (recipient + change).
-            let twoOutSize = sizeFor(nIn: selected.count, nOut: 2)
-            let twoOutFee = Int64(twoOutSize) * feePerByte
-            let twoOutChange = sum - amount - twoOutFee
-            if twoOutChange >= dustThresholdSats {
-                return Plan(
-                    selected: selected,
-                    change: twoOutChange,
-                    fee: twoOutFee,
-                    estimatedSize: twoOutSize
-                )
-            }
-            // Try to close with ONE output (no change; dust folded into fee).
-            let oneOutSize = sizeFor(nIn: selected.count, nOut: 1)
-            let oneOutFee = Int64(oneOutSize) * feePerByte
-            if sum >= amount + oneOutFee {
-                // Whatever is left over (sum - amount - feeWithoutChange)
-                // becomes additional fee; the receiver still gets `amount`.
-                let actualFee = sum - amount
-                return Plan(
-                    selected: selected,
-                    change: 0,
-                    fee: actualFee,
-                    estimatedSize: oneOutSize
-                )
-            }
-            // Still short — keep adding.
+        let feeFor: (Int) -> Int64 = { nIn in Int64(sizeFor(nIn: nIn, nOut: 1)) * feePerByte }
+        let picked = pick(cashes, payValue: amount, requiredCd: 0, feeFor: feeFor)
+        let pickedValue = picked.reduce(Int64(0)) { $0 + $1.value }
+        if picked.isEmpty || pickedValue < amount + feeFor(picked.count) {
+            let have = cashes.reduce(Int64(0)) { $0 + max($1.value, 0) }
+            throw Failure.insufficientFunds(needed: amount + feeFor(max(picked.count, 1)), have: have)
         }
-
-        // Walked through every candidate; if we got here we couldn't
-        // even afford the no-change branch.
-        let neededAtMin = amount + Int64(sizeFor(nIn: selected.count, nOut: 1)) * feePerByte
-        throw Failure.insufficientFunds(needed: neededAtMin, have: sum)
+        // Priced exactly as if the user had ticked these cashes.
+        return try fixed(cashes: picked, amount: amount, feePerByte: feePerByte)
     }
 
     /// Estimated tx size in bytes for `nIn` P2PKH inputs and `nOut`
@@ -191,49 +155,23 @@ public enum CoinSelector {
         // the with-change and no-change shapes — it is the payment, not
         // the remainder.
         let payOutputs = payAmount > 0 ? 1 : 0
-        let candidates = cashes.sorted { $0.value > $1.value }
-        var selected: [Cash] = []
-        var sum: Int64 = 0
-        var cdSum: Int64 = 0
-
-        for cash in candidates {
-            selected.append(cash)
-            sum += cash.value
-            cdSum += cash.cd ?? 0
-            guard cdSum >= requiredCd else { continue }
-
-            // With change: overhead + inputs + pay? + change(34) + opReturn.
-            let withChangeSize = sizeFor(nIn: selected.count, nOut: payOutputs + 1) + opReturnLen
-            let withChangeFee = Int64(withChangeSize) * feePerByte
-            let change = sum - payAmount - withChangeFee
-            if change > dustThresholdSats {
-                return Plan(
-                    selected: selected,
-                    change: change,
-                    fee: withChangeFee,
-                    estimatedSize: withChangeSize
-                )
-            }
-            // Without change: the dust-or-less remainder burns as fee.
-            // The recipient still receives exactly `payAmount`.
-            let noChangeSize = sizeFor(nIn: selected.count, nOut: payOutputs) + opReturnLen
-            let noChangeFee = Int64(noChangeSize) * feePerByte
-            if sum >= payAmount + noChangeFee {
-                return Plan(
-                    selected: selected,
-                    change: 0,
-                    fee: sum - payAmount,
-                    estimatedSize: noChangeSize
-                )
-            }
+        let feeFor: (Int) -> Int64 = { nIn in
+            Int64(sizeFor(nIn: nIn, nOut: payOutputs) + opReturnLen) * feePerByte
         }
-
-        if cdSum < requiredCd {
-            throw Failure.insufficientCoinDays(required: requiredCd, have: cdSum)
+        let picked = pick(cashes, payValue: payAmount, requiredCd: requiredCd, feeFor: feeFor)
+        if picked.reduce(Int64(0), { $0 + ($1.cd ?? 0) }) < requiredCd {
+            let have = cashes.reduce(Int64(0)) { $0 + ($1.cd ?? 0) }
+            throw Failure.insufficientCoinDays(required: requiredCd, have: have)
         }
-        let neededAtMin = payAmount
-            + Int64(sizeFor(nIn: max(selected.count, 1), nOut: payOutputs) + opReturnLen) * feePerByte
-        throw Failure.insufficientFunds(needed: neededAtMin, have: sum)
+        let pickedValue = picked.reduce(Int64(0)) { $0 + $1.value }
+        if picked.isEmpty || pickedValue < payAmount + feeFor(picked.count) {
+            let have = cashes.reduce(Int64(0)) { $0 + max($1.value, 0) }
+            throw Failure.insufficientFunds(needed: payAmount + feeFor(max(picked.count, 1)), have: have)
+        }
+        return try fixedForCarve(
+            cashes: picked, opReturnByteCount: opReturnByteCount, feePerByte: feePerByte,
+            requiredCd: requiredCd, payAmount: payAmount
+        )
     }
 
     // MARK: - fixed inputs (the Cash pane's "spend exactly these")
@@ -278,5 +216,130 @@ public enum CoinSelector {
             )
         }
         throw Failure.insufficientFunds(needed: amount + oneOutFee, have: sum)
+    }
+
+    /// The carve counterpart of ``fixed(cashes:amount:feePerByte:)``:
+    /// price a data carve — optionally paying `payAmount` to one
+    /// recipient — whose inputs are already decided, as when the user
+    /// swaps them in the approval dialog. Every cash is spent, in the
+    /// order given. The inputs must still destroy `requiredCd`: a carve
+    /// short of its CoinDays is rejected by the parser no matter who
+    /// picked the cash.
+    public static func fixedForCarve(
+        cashes: [Cash],
+        opReturnByteCount: Int,
+        feePerByte: Int64 = 1,
+        requiredCd: Int64 = 0,
+        payAmount: Int64 = 0
+    ) throws -> Plan {
+        guard feePerByte > 0 else { throw Failure.nonPositiveFeeRate(feePerByte) }
+        guard payAmount >= 0 else { throw Failure.nonPositiveAmount(payAmount) }
+
+        let cdSum = cashes.reduce(Int64(0)) { $0 + ($1.cd ?? 0) }
+        if cdSum < requiredCd {
+            throw Failure.insufficientCoinDays(required: requiredCd, have: cdSum)
+        }
+
+        let opReturnLen = opReturnOutputBytes(opReturnByteCount)
+        let payOutputs = payAmount > 0 ? 1 : 0
+        let sum = cashes.reduce(Int64(0)) { $0 + $1.value }
+        let nIn = cashes.count
+
+        // With change: overhead + inputs + pay? + change(34) + opReturn.
+        let withChangeSize = sizeFor(nIn: nIn, nOut: payOutputs + 1) + opReturnLen
+        let withChangeFee = Int64(withChangeSize) * feePerByte
+        let change = sum - payAmount - withChangeFee
+        if change > dustThresholdSats {
+            return Plan(
+                selected: cashes, change: change,
+                fee: withChangeFee, estimatedSize: withChangeSize
+            )
+        }
+        // Without change: the dust-or-less remainder burns as fee.
+        // The recipient still receives exactly `payAmount`.
+        let noChangeSize = sizeFor(nIn: nIn, nOut: payOutputs) + opReturnLen
+        let noChangeFee = Int64(noChangeSize) * feePerByte
+        if sum >= payAmount + noChangeFee {
+            return Plan(
+                selected: cashes, change: 0,
+                fee: sum - payAmount, estimatedSize: noChangeSize
+            )
+        }
+        throw Failure.insufficientFunds(needed: payAmount + noChangeFee, have: sum)
+    }
+
+    // MARK: - which cashes
+
+    /// Choose the cashes to spend, before pricing: enough value for
+    /// `payValue` plus `feeFor(inputCount)`, and at least `requiredCd`
+    /// CoinDays, destroying as few CoinDays as it can.
+    ///
+    /// 1. **Required CoinDays first.** Take the smallest cash that
+    ///    closes the gap on its own, or the largest when none does, and
+    ///    look again — so the CoinDays destroyed overshoot the
+    ///    requirement by little.
+    /// 2. **Then the value, youngest first** — least CoinDays per
+    ///    satoshi — and the larger cash first among equals. A cash worth
+    ///    no more than the fee its own input adds is skipped.
+    /// 3. **Then drop what the rest can do without**, most CoinDays
+    ///    first: an early small pick is often made redundant by a later
+    ///    one.
+    ///
+    /// Returns what it picked even when that falls short; the callers
+    /// say which requirement wasn't met.
+    static func pick(
+        _ cashes: [Cash],
+        payValue: Int64,
+        requiredCd: Int64,
+        feeFor: (Int) -> Int64
+    ) -> [Cash] {
+        func cd(_ i: Int) -> Int64 { cashes[i].cd ?? 0 }
+        var remaining = cashes.indices.filter { cashes[$0].value > 0 }
+        var picked: [Int] = []
+        var value: Int64 = 0
+        var cdSum: Int64 = 0
+
+        if requiredCd > 0 {
+            var withCd = remaining.filter { cd($0) > 0 }
+                .sorted { cd($0) != cd($1) ? cd($0) < cd($1) : $0 < $1 }
+            while cdSum < requiredCd, let largest = withCd.last {
+                let gap = requiredCd - cdSum
+                let choice = withCd.first { cd($0) >= gap } ?? largest
+                withCd.removeAll { $0 == choice }
+                remaining.removeAll { $0 == choice }
+                picked.append(choice)
+                value += cashes[choice].value
+                cdSum += cd(choice)
+            }
+        }
+
+        remaining.sort { a, b in
+            let ageA = Double(cd(a)) / Double(cashes[a].value)
+            let ageB = Double(cd(b)) / Double(cashes[b].value)
+            if ageA != ageB { return ageA < ageB }
+            if cashes[a].value != cashes[b].value { return cashes[a].value > cashes[b].value }
+            return a < b
+        }
+        for i in remaining {
+            if !picked.isEmpty, value >= payValue + feeFor(picked.count) { break }
+            let addedFee = feeFor(picked.count + 1) - feeFor(picked.count)
+            if cashes[i].value <= addedFee { continue }
+            picked.append(i)
+            value += cashes[i].value
+            cdSum += cd(i)
+        }
+
+        let mostCdFirst = picked.sorted { cd($0) != cd($1) ? cd($0) > cd($1) : $0 < $1 }
+        for i in mostCdFirst {
+            guard picked.count > 1 else { break }
+            let valueLeft = value - cashes[i].value
+            let cdLeft = cdSum - cd(i)
+            if valueLeft >= payValue + feeFor(picked.count - 1), cdLeft >= requiredCd {
+                picked.removeAll { $0 == i }
+                value = valueLeft
+                cdSum = cdLeft
+            }
+        }
+        return picked.map { cashes[$0] }
     }
 }

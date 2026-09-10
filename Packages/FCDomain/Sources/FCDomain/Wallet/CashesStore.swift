@@ -36,6 +36,17 @@ public struct CashSnapshot: Codable, Equatable, Sendable {
 
     public var totalValue: Int64 { cashes.reduce(0) { $0 + $1.value } }
 
+    /// Recompute every cash's ``Cash/cd`` at the latest height known —
+    /// `height` when it is ahead of ``bestHeight``, otherwise
+    /// ``bestHeight``. A height the wallet has actually seen can only lag
+    /// the chain, so this may understate CoinDays but never overstates
+    /// them, and a carve it funds can't fall short on chain.
+    public mutating func refreshCd(atHeight height: Int64? = nil) {
+        let at = max(height ?? 0, bestHeight ?? 0)
+        guard at > 0 else { return }
+        cashes = cashes.map { $0.withCd(atHeight: at) }
+    }
+
     private enum CodingKeys: String, CodingKey {
         case addr, cashes, snapshotAt, bestHeight, watermarkHeight
     }
@@ -112,8 +123,13 @@ public struct CashesStore {
         self.inner = TypedStore(kv: kv, namespace: Self.namespace)
     }
 
+    /// The stored snapshot with CoinDays counted at its best height, so
+    /// nothing that reads the cache — a pane, a picker, coin selection —
+    /// sees the server's stale figure.
     public func snapshot(forAddress addr: String) throws -> CashSnapshot? {
-        try inner.get(addr)
+        guard var snapshot = try inner.get(addr) else { return nil }
+        snapshot.refreshCd()
+        return snapshot
     }
 
     public func save(_ snapshot: CashSnapshot) throws {

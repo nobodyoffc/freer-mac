@@ -244,6 +244,7 @@ public struct WalletService {
             if let previous = try? cashes?.snapshot(forAddress: fid) {
                 snapshot = mergeLocalAnnotations(into: snapshot, from: previous)
             }
+            snapshot.refreshCd()
             if let store = self.cashes { try store.save(snapshot) }
             return snapshot
         }
@@ -267,6 +268,8 @@ public struct WalletService {
         if let previous = try? cashes?.snapshot(forAddress: fid) {
             snapshot = mergeLocalAnnotations(into: snapshot, from: previous)
         }
+        // The server's cd is as of whenever it last indexed each cash.
+        snapshot.refreshCd()
         if let store = self.cashes {
             try store.save(snapshot)
         }
@@ -327,6 +330,9 @@ public struct WalletService {
         working.snapshotAt = Date()
         working.bestHeight = bestHeight
         working.watermarkHeight = bestHeight ?? watermark
+        // Every row ages with the chain, including the ones this page
+        // didn't touch.
+        working.refreshCd()
         if let store = self.cashes {
             try store.save(working)
         }
@@ -731,8 +737,8 @@ public struct WalletService {
         // cashes are flagged, so a transaction being built in parallel
         // — a background carve, the chat outbox — picks different ones
         // rather than colliding with us in the mempool.
-        let plan: CoinSelector.Plan
-        if let chosenInputs {
+        var plan: CoinSelector.Plan
+        if let chosenInputs = chosenInputs.map({ withFreshCd($0, owner: fromAddress) }) {
             try requireSpendable(chosenInputs, fromAddress: fromAddress)
             plan = try planAndClaim(
                 ownerFid: fromAddress,
@@ -776,19 +782,32 @@ public struct WalletService {
         // user the use of their cash.
         let signed: Transaction
         let txidString: String
+        // What this transaction holds right now. Swapping inputs in the
+        // dialog changes it, and the cleanup must give back exactly this.
+        var claimed = plan.selected
         do {
-            let unsigned = try TxBuilder.buildUnsigned(
+            var unsigned = try TxBuilder.buildUnsigned(
                 plan: plan, toFid: toFid, amount: amount, changeFid: fromAddress
             )
-            try await requireApproval(
+            while let replacement = try await requireApproval(
                 kind: .payment, from: fromAddress, inputs: plan.selected,
                 unsigned: unsigned, fee: plan.fee,
-                estimatedSize: plan.estimatedSize, feePerByte: feePerByte
-            )
+                estimatedSize: plan.estimatedSize, feePerByte: feePerByte,
+                reselection: .payment(amount: amount)
+            ) {
+                plan = try swapClaim(
+                    &claimed, for: replacement, ownerFid: fromAddress,
+                    makePlan: { try CoinSelector.fixed(cashes: $0, amount: amount, feePerByte: feePerByte) },
+                    inputsOf: { $0.selected }
+                )
+                unsigned = try TxBuilder.buildUnsigned(
+                    plan: plan, toFid: toFid, amount: amount, changeFid: fromAddress
+                )
+            }
             signed = try signAllInputs(unsigned: unsigned, inputs: plan.selected, privkey: privkey)
             txidString = try await broadcast(signed: signed, timeoutMs: timeoutMs)
         } catch {
-            release(plan.selected, ownerFid: fromAddress)
+            release(claimed, ownerFid: fromAddress)
             throw error
         }
 
@@ -841,7 +860,7 @@ public struct WalletService {
         timeoutMs: Int = 10_000
     ) async throws -> UnsignedSendResult {
         let plan: CoinSelector.Plan
-        if let chosenInputs {
+        if let chosenInputs = chosenInputs.map({ withFreshCd($0, owner: fromAddress) }) {
             try requireSpendable(chosenInputs, fromAddress: fromAddress)
             plan = try CoinSelector.fixed(
                 cashes: chosenInputs, amount: amount, feePerByte: feePerByte
@@ -912,6 +931,7 @@ public struct WalletService {
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> ReorgResult {
+        let inputs = withFreshCd(inputs, owner: fromAddress)
         try requireSpendable(inputs, fromAddress: fromAddress)
         let plan = try planAndClaim(
             ownerFid: fromAddress,
@@ -971,6 +991,7 @@ public struct WalletService {
         shape: CashReorg.Shape,
         feePerByte: Int64 = 1
     ) throws -> UnsignedReorgResult {
+        let inputs = withFreshCd(inputs, owner: fromAddress)
         try requireSpendable(inputs, fromAddress: fromAddress)
         let plan: CashReorg.Plan
         do {
@@ -1054,7 +1075,7 @@ public struct WalletService {
         // outbox, mail retries, contact syncs — so this is the path
         // where two builds racing for the same cash is likeliest.
         // Reserve as we select.
-        let plan = try planAndClaim(
+        var plan = try planAndClaim(
             ownerFid: fromAddress,
             snapshot: snapshot,
             makePlan: { snap in
@@ -1072,21 +1093,42 @@ public struct WalletService {
 
         let signed: Transaction
         let txidString: String
+        let payment = paying ? payAmount : 0
+        var claimed = plan.selected
         do {
-            let unsigned = try TxBuilder.buildUnsignedCarve(
+            var unsigned = try TxBuilder.buildUnsignedCarve(
                 plan: plan, changeFid: fromAddress, opReturn: opReturnData,
-                toFid: paying ? payTo : nil, payAmount: paying ? payAmount : 0
+                toFid: paying ? payTo : nil, payAmount: payment
             )
-            try await requireApproval(
+            while let replacement = try await requireApproval(
                 kind: .carve, from: fromAddress, inputs: plan.selected,
                 unsigned: unsigned, fee: plan.fee,
                 estimatedSize: plan.estimatedSize, feePerByte: feePerByte,
-                opReturn: opReturn
-            )
+                opReturn: opReturn,
+                reselection: .carve(
+                    opReturnByteCount: opReturnData.count,
+                    requiredCd: requiredCd, payAmount: payment
+                )
+            ) {
+                plan = try swapClaim(
+                    &claimed, for: replacement, ownerFid: fromAddress,
+                    makePlan: {
+                        try CoinSelector.fixedForCarve(
+                            cashes: $0, opReturnByteCount: opReturnData.count,
+                            feePerByte: feePerByte, requiredCd: requiredCd, payAmount: payment
+                        )
+                    },
+                    inputsOf: { $0.selected }
+                )
+                unsigned = try TxBuilder.buildUnsignedCarve(
+                    plan: plan, changeFid: fromAddress, opReturn: opReturnData,
+                    toFid: paying ? payTo : nil, payAmount: payment
+                )
+            }
             signed = try signAllInputs(unsigned: unsigned, inputs: plan.selected, privkey: privkey)
             txidString = try await broadcast(signed: signed, timeoutMs: timeoutMs)
         } catch {
-            release(plan.selected, ownerFid: fromAddress)
+            release(claimed, ownerFid: fromAddress)
             throw error
         }
 
@@ -1179,6 +1221,7 @@ public struct WalletService {
         try AdvancedTxBuilder.requireUnlocked(info.inputs ?? [], bestHeight: bestHeight)
 
         let slots = info.inputs ?? []
+        let inputCashes = withFreshCd(inputCashes, owner: fromAddress)
         try claim(inputCashes, ownerFid: fromAddress)
 
         let signed: Transaction
@@ -1348,6 +1391,7 @@ public struct WalletService {
             throw Failure.underlying(error)
         }
         let ours = snapshot.cashes
+            .map { $0.withCd(atHeight: snapshot.bestHeight) }
             .filter { !$0.pendingSpend && $0.locksToP2PKH(hash160: ownerHash160) }
         // A cash at the end of a maximal unconfirmed chain is ours and
         // valid and still unspendable — the next node in the line is
@@ -1363,6 +1407,14 @@ public struct WalletService {
             throw Failure.unsupportedCashType(sample.type ?? sample.lockScript ?? "<no lockScript>")
         }
         return spendable
+    }
+
+    /// `inputs` with CoinDays counted at the latest height this wallet
+    /// has cached for `owner` — for cash a caller hands in, which may
+    /// have been read long before it is spent.
+    private func withFreshCd(_ inputs: [Cash], owner: String) -> [Cash] {
+        let height = (try? cachedSnapshot(forAddress: owner))?.bestHeight
+        return inputs.map { $0.withCd(atHeight: height) }
     }
 
     /// The caller-named-inputs counterpart of ``spendableCashes``.
@@ -1503,11 +1555,56 @@ public struct WalletService {
         throw lastConflict ?? Failure.unexpectedDataShape(api: "claim")
     }
 
+    /// Trade this transaction's claim for `replacement`, the cashes
+    /// picked in the approval dialog, and return the plan they price to.
+    ///
+    /// **The old claim goes back before the new one is taken**, because
+    /// the user may keep some of the same cashes and a row can't be
+    /// claimed twice. If the new claim then fails — something else took
+    /// one of those cashes in that instant — the old inputs are claimed
+    /// again when they still can be. Either way `claimed` ends up saying
+    /// what this transaction holds, so the caller's cleanup releases its
+    /// own cashes and nobody else's.
+    private func swapClaim<Plan>(
+        _ claimed: inout [Cash],
+        for replacement: [Cash],
+        ownerFid: String,
+        makePlan: ([Cash]) throws -> Plan,
+        inputsOf: (Plan) -> [Cash]
+    ) throws -> Plan {
+        let previous = claimed
+        // The dialog read these rows while this transaction held them,
+        // so they carry our own pendingSpend flag. That claim is the one
+        // being traded, not a reason to refuse them.
+        let inputs = withFreshCd(replacement, owner: ownerFid).map { cash -> Cash in
+            var cash = cash
+            if previous.contains(where: { $0.birthTxId == cash.birthTxId && $0.birthIndex == cash.birthIndex }) {
+                cash.pendingSpend = false
+            }
+            return cash
+        }
+        try requireSpendable(inputs, fromAddress: ownerFid)
+        let plan = try makePlan(inputs)
+
+        release(previous, ownerFid: ownerFid)
+        claimed = []
+        do {
+            try claim(inputsOf(plan), ownerFid: ownerFid)
+        } catch {
+            if (try? claim(previous, ownerFid: ownerFid)) != nil { claimed = previous }
+            throw error
+        }
+        claimed = inputsOf(plan)
+        return plan
+    }
+
     // MARK: - approval gate
 
     /// Ask ``approve`` — if anyone is listening — whether to sign
     /// `unsigned`, and throw ``Failure/declinedByUser`` if the answer
-    /// is no.
+    /// is no. Returns the cashes to rebuild from when the answer is to
+    /// swap the inputs — possible only when `reselection` is given — and
+    /// nil to sign as shown.
     ///
     /// **The preview is read off the assembled transaction, not off
     /// the caller's intent.** Every output is decoded back out of its
@@ -1516,6 +1613,7 @@ public struct WalletService {
     /// wrongly, the preview shows *that*, which is the entire value of
     /// asking. A preview reconstructed from the same variables the
     /// builder used could only ever agree with it.
+    @discardableResult
     private func requireApproval(
         kind: TxPreview.Kind,
         from: String,
@@ -1524,9 +1622,10 @@ public struct WalletService {
         fee: Int64,
         estimatedSize: Int,
         feePerByte: Int64,
-        opReturn: String? = nil
-    ) async throws {
-        guard let approve else { return }
+        opReturn: String? = nil,
+        reselection: TxPreview.Reselection? = nil
+    ) async throws -> [Cash]? {
+        guard let approve else { return nil }
         let preview = TxPreview(
             kind: kind,
             from: from,
@@ -1537,10 +1636,18 @@ public struct WalletService {
             fee: fee,
             estimatedSize: estimatedSize,
             feePerByte: feePerByte,
-            opReturn: opReturn
+            opReturn: opReturn,
+            reselection: reselection
         )
-        if await approve(preview) { return }
-        throw Failure.declinedByUser
+        switch await approve(preview) {
+        case .approve:
+            return nil
+        case .decline:
+            throw Failure.declinedByUser
+        case .reselect(let replacement):
+            guard reselection != nil else { throw Failure.declinedByUser }
+            return replacement
+        }
     }
 
     /// Decode one built output back into something a person can read:

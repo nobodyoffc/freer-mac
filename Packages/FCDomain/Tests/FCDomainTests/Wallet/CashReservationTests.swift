@@ -157,7 +157,7 @@ final class CashReservationTests: XCTestCase {
             bestHeight: 1_000, watermarkHeight: 1_000
         ))
 
-        alice.txApprover = { _ in false }
+        alice.txApprover = { _ in .decline }
         do {
             _ = try await alice.sendFromLive(to: bob.mainFid, amount: 100_000, useCache: true)
             XCTFail("expected the refusal to throw")
@@ -172,7 +172,7 @@ final class CashReservationTests: XCTestCase {
         )
 
         // And the cash really is usable again.
-        alice.txApprover = { _ in true }
+        alice.txApprover = { _ in .approve }
         _ = try await alice.sendFromLive(to: bob.mainFid, amount: 100_000, useCache: true)
     }
 

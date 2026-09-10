@@ -53,6 +53,16 @@ public struct TxPreview: Sendable, Equatable {
         }
     }
 
+    /// What stays fixed when a transaction's inputs are swapped:
+    /// everything the new cashes have to pay for.
+    public enum Reselection: Sendable, Equatable {
+        /// ``WalletService/send``: `amount` to one recipient.
+        case payment(amount: Int64)
+        /// ``WalletService/carve``: the payload, the CoinDays the
+        /// protocol demands, and the payment a mail carries (0 if none).
+        case carve(opReturnByteCount: Int, requiredCd: Int64, payAmount: Int64)
+    }
+
     public let kind: Kind
     public let from: String
     public let inputs: [Cash]
@@ -62,6 +72,10 @@ public struct TxPreview: Sendable, Equatable {
     public let feePerByte: Int64
     /// The OP_RETURN payload, as text, when there is one.
     public let opReturn: String?
+    /// Set when the dialog may offer to rebuild this transaction from
+    /// other cash. Nil for a reorg or a composed transaction, whose
+    /// inputs are the instruction itself.
+    public let reselection: Reselection?
 
     public init(
         kind: Kind,
@@ -71,7 +85,8 @@ public struct TxPreview: Sendable, Equatable {
         fee: Int64,
         estimatedSize: Int,
         feePerByte: Int64,
-        opReturn: String? = nil
+        opReturn: String? = nil,
+        reselection: Reselection? = nil
     ) {
         self.kind = kind
         self.from = from
@@ -81,6 +96,7 @@ public struct TxPreview: Sendable, Equatable {
         self.estimatedSize = estimatedSize
         self.feePerByte = feePerByte
         self.opReturn = opReturn
+        self.reselection = reselection
     }
 
     public var totalIn: Int64 { inputs.reduce(0) { $0 + $1.value } }
@@ -101,6 +117,32 @@ public struct TxPreview: Sendable, Equatable {
     /// on this, so it belongs in the preview: it is the one cost of a
     /// carve that isn't denominated in money.
     public var coinDaysDestroyed: Int64 { inputs.reduce(0) { $0 + ($1.cd ?? 0) } }
+
+    /// CoinDays the inputs must destroy for the transaction to count.
+    public var requiredCd: Int64 {
+        if case let .carve(_, requiredCd, _) = reselection { return requiredCd }
+        return 0
+    }
+
+    /// Price this transaction as if it spent `inputs` instead — the
+    /// pricing the wallet itself applies to a
+    /// ``TxDecision/reselect(_:)`` answer, so a choice that prices here
+    /// is one the wallet can build. Nil when the inputs can't be
+    /// swapped; throws ``CoinSelector/Failure`` when `inputs` can't
+    /// fund it.
+    public func plan(spending inputs: [Cash]) throws -> CoinSelector.Plan? {
+        switch reselection {
+        case nil:
+            return nil
+        case let .payment(amount):
+            return try CoinSelector.fixed(cashes: inputs, amount: amount, feePerByte: feePerByte)
+        case let .carve(opReturnByteCount, requiredCd, payAmount):
+            return try CoinSelector.fixedForCarve(
+                cashes: inputs, opReturnByteCount: opReturnByteCount,
+                feePerByte: feePerByte, requiredCd: requiredCd, payAmount: payAmount
+            )
+        }
+    }
 
     /// Deepest unconfirmed ancestry among the inputs. Zero means every
     /// input is confirmed; anything else means this transaction is
@@ -155,11 +197,25 @@ public struct TxPreview: Sendable, Equatable {
     }
 }
 
-/// The approval gate. Returns `true` to sign, `false` to abort.
+/// What the approval gate answers.
+public enum TxDecision: Sendable, Equatable {
+    /// Sign and broadcast the transaction as shown.
+    case approve
+    /// Abort; nothing is signed.
+    case decline
+    /// Build the same transaction from these cashes instead, and ask
+    /// again. Honoured only for a preview whose
+    /// ``TxPreview/reselection`` is set; anywhere else it counts as a
+    /// decline, because signing something other than what was shown is
+    /// never the safe reading.
+    case reselect([Cash])
+}
+
+/// The approval gate.
 ///
 /// `async` because the only honest implementation asks a human, and
 /// people are slow. Nothing is signed and nothing is broadcast until
 /// this returns, so an implementation that never answers stalls the
 /// send — which is the correct failure mode for a question about
 /// spending money.
-public typealias TxApprover = @Sendable (TxPreview) async -> Bool
+public typealias TxApprover = @Sendable (TxPreview) async -> TxDecision

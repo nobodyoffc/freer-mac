@@ -74,7 +74,7 @@ final class TxApprovalTests: XCTestCase {
         let seen = PreviewBox()
         alice.txApprover = { preview in
             await seen.set(preview)
-            return true
+            return .approve
         }
 
         let inputs = [try cash(owner: alice.mainFid, txidByte: 0x11, index: 0, value: 1_000_000, cd: 7)]
@@ -109,7 +109,7 @@ final class TxApprovalTests: XCTestCase {
         let bob = sessions[1]
         broadcastOnly(mock)
 
-        alice.txApprover = { _ in false }
+        alice.txApprover = { _ in .decline }
         let inputs = [try cash(owner: alice.mainFid, txidByte: 0x22, index: 0, value: 1_000_000)]
 
         do {
@@ -121,6 +121,153 @@ final class TxApprovalTests: XCTestCase {
             let snap = try alice.cashes.snapshot(forAddress: alice.mainFid)
             XCTAssertNil(snap)
         }
+    }
+
+    // MARK: - choosing other cash
+
+    /// Swapping the inputs in the dialog rebuilds the same payment from
+    /// the picked cash, shows it again, and moves the reservation with it.
+    func testReselectingInputsRebuildsFromTheChosenCashAndAsksAgain() async throws {
+        let mock = MockFapiClient()
+        let sessions = try makeSessions(passwords: ["swap-a", "swap-b"], fapi: mock)
+        let alice = sessions[0]
+        let bob = sessions[1]
+        broadcastOnly(mock)
+
+        let old = try cash(owner: alice.mainFid, txidByte: 0x81, index: 0, value: 5_000_000, cd: 900)
+        let young = try cash(owner: alice.mainFid, txidByte: 0x82, index: 0, value: 1_000_000, cd: 0)
+        try alice.cashes.save(CashSnapshot(
+            addr: alice.mainFid, cashes: [old, young],
+            bestHeight: 1_000, watermarkHeight: 1_000
+        ))
+
+        let asked = PreviewLog()
+        alice.txApprover = { preview in
+            let count = await asked.append(preview)
+            return count == 1 ? .reselect([young]) : .approve
+        }
+
+        let result = try await alice.sendFromLive(to: bob.mainFid, amount: 100_000, using: [old])
+
+        let previews = await asked.all
+        XCTAssertEqual(previews.count, 2, "the rebuilt transaction is shown again")
+        XCTAssertEqual(previews[0].reselection, .payment(amount: 100_000))
+        XCTAssertEqual(previews[0].inputs.map(\.id), [old.id])
+        XCTAssertEqual(previews[1].inputs.map(\.id), [young.id])
+        XCTAssertEqual(previews[1].coinDaysDestroyed, 0)
+        XCTAssertEqual(result.plan.selected.map(\.id), [young.id])
+
+        let snap = try XCTUnwrap(try alice.cashes.snapshot(forAddress: alice.mainFid))
+        XCTAssertFalse(
+            try XCTUnwrap(snap.cashes.first { $0.id == old.id }).pendingSpend,
+            "the cash swapped out is free again"
+        )
+        XCTAssertTrue(try XCTUnwrap(snap.cashes.first { $0.id == young.id }).pendingSpend)
+    }
+
+    /// A carve can be rebuilt too, and the choice may keep the cash the
+    /// carve already holds even though the cache marks it as being spent.
+    func testCarveReselectionCanKeepTheCashItAlreadyHolds() async throws {
+        let mock = MockFapiClient()
+        let alice = try makeSessions(passwords: ["swap-carve"], fapi: mock)[0]
+        broadcastOnly(mock)
+
+        let aged = try cash(owner: alice.mainFid, txidByte: 0xA1, index: 0, value: 50_000, cd: 3)
+        let fresh = try cash(owner: alice.mainFid, txidByte: 0xA2, index: 0, value: 2_000_000, cd: 0)
+        try alice.cashes.save(CashSnapshot(
+            addr: alice.mainFid, cashes: [aged, fresh],
+            bestHeight: 1_000, watermarkHeight: 1_000
+        ))
+        // What the dialog reads while the carve holds `aged`.
+        let heldAged: Cash = {
+            var row = aged
+            row.pendingSpend = true
+            return row
+        }()
+
+        let asked = PreviewLog()
+        alice.txApprover = { preview in
+            let count = await asked.append(preview)
+            return count == 1 ? .reselect([heldAged, fresh]) : .approve
+        }
+
+        _ = try await alice.wallet.carve(
+            fromAddress: alice.mainFid,
+            privkey: try alice.mainPrikey(),
+            opReturn: #"{"type":"FEIP","sn":"1","ver":"5","data":{"op":"add"}}"#,
+            minimumCd: 1,
+            useCache: true
+        )
+
+        let previews = await asked.all
+        XCTAssertEqual(previews.count, 2)
+        XCTAssertEqual(previews[0].inputs.map(\.id), [aged.id], "the aged cash alone covers the CoinDay")
+        XCTAssertEqual(previews[0].requiredCd, 1)
+        XCTAssertEqual(Set(previews[1].inputs.map(\.id)), [aged.id, fresh.id])
+    }
+
+    /// CoinDays are counted at the cached chain height, not taken from
+    /// the server: a cash the index last touched while it was young
+    /// still funds a carve once it has aged.
+    func testCarveCountsCoinDaysAtTheChainHeightNotTheServerFigure() async throws {
+        let mock = MockFapiClient()
+        let alice = try makeSessions(passwords: ["cd-live"], fapi: mock)[0]
+        broadcastOnly(mock)
+
+        // The server says 0 CD; two days at 10 coins is 20.
+        var aged = try cash(owner: alice.mainFid, txidByte: 0xB1, index: 0, value: 1_000_000_000, cd: 0)
+        aged.birthHeight = 1_000
+        try alice.cashes.save(CashSnapshot(
+            addr: alice.mainFid, cashes: [aged],
+            bestHeight: 1_000 + 2 * Cash.blocksPerCoinDay,
+            watermarkHeight: 1_000 + 2 * Cash.blocksPerCoinDay
+        ))
+
+        let seen = PreviewBox()
+        alice.txApprover = { preview in
+            await seen.set(preview)
+            return .approve
+        }
+
+        _ = try await alice.wallet.carve(
+            fromAddress: alice.mainFid,
+            privkey: try alice.mainPrikey(),
+            opReturn: #"{"type":"FEIP","sn":"1","ver":"5","data":{"op":"add"}}"#,
+            minimumCd: 5,
+            useCache: true
+        )
+
+        let captured = await seen.value
+        let preview = try XCTUnwrap(captured)
+        XCTAssertEqual(preview.coinDaysDestroyed, 20)
+        let cached = try XCTUnwrap(try alice.wallet.cachedSnapshot(forAddress: alice.mainFid))
+        XCTAssertEqual(cached.cashes.first { $0.id == aged.id }?.cd, 20)
+    }
+
+    /// A reorg's inputs are the instruction itself, so the gate can't be
+    /// answered with other cash; trying counts as a refusal.
+    func testReselectingWhereItIsNotOfferedDeclines() async throws {
+        let mock = MockFapiClient()
+        let alice = try makeSessions(passwords: ["swap-reorg"], fapi: mock)[0]
+        broadcastOnly(mock)
+
+        let inputs = try (0..<2).map {
+            try cash(owner: alice.mainFid, txidByte: UInt8(0x90 + $0), index: $0, value: 200_000)
+        }
+        let asked = PreviewLog()
+        alice.txApprover = { preview in
+            _ = await asked.append(preview)
+            return .reselect(inputs)
+        }
+
+        do {
+            _ = try await alice.reorganizeFromLive(inputs: inputs, shape: .consolidate)
+            XCTFail("expected throw")
+        } catch WalletService.Failure.declinedByUser {
+            XCTAssertTrue(mock.recorded.isEmpty)
+        }
+        let previews = await asked.all
+        XCTAssertNil(previews.first?.reselection)
     }
 
     /// Every path that signs is gated, not just the pane that has a
@@ -154,7 +301,7 @@ final class TxApprovalTests: XCTestCase {
         let seen = PreviewBox()
         alice.txApprover = { preview in
             await seen.set(preview)
-            return true
+            return .approve
         }
 
         let feip = #"{"type":"FEIP","sn":"1","ver":"5","data":{"op":"add"}}"#
@@ -185,7 +332,7 @@ final class TxApprovalTests: XCTestCase {
         let seen = PreviewBox()
         alice.txApprover = { preview in
             await seen.set(preview)
-            return true
+            return .approve
         }
         let inputs = try (0..<2).map {
             try cash(owner: alice.mainFid, txidByte: UInt8(0x30 + $0), index: $0, value: 200_000)
@@ -212,7 +359,7 @@ final class TxApprovalTests: XCTestCase {
         let asked = PreviewBox()
         alice.txApprover = { preview in
             await asked.set(preview)
-            return false                      // would refuse, if asked
+            return .decline                   // would refuse, if asked
         }
         XCTAssertTrue(alice.confirmBeforeSigning, "on by default, as on Android")
 
@@ -364,4 +511,13 @@ final class TxApprovalTests: XCTestCase {
 private actor PreviewBox {
     private(set) var value: TxPreview?
     func set(_ preview: TxPreview) { value = preview }
+}
+
+/// Every preview the approver was shown, in order.
+private actor PreviewLog {
+    private(set) var all: [TxPreview] = []
+    func append(_ preview: TxPreview) -> Int {
+        all.append(preview)
+        return all.count
+    }
 }

@@ -35,7 +35,7 @@ final class TxApprovalCenter: @unchecked Sendable {
     struct Request: Identifiable {
         let id = UUID()
         let preview: TxPreview
-        @ObservationIgnored let resume: (Bool) -> Void
+        @ObservationIgnored let resume: (TxDecision) -> Void
     }
 
     /// The request currently on screen, if any.
@@ -51,16 +51,16 @@ final class TxApprovalCenter: @unchecked Sendable {
     /// The gate handed to ``ActiveSession/txApprover``.
     func approver() -> TxApprover {
         { [weak self] preview in
-            guard let self else { return false }
+            guard let self else { return .decline }
             return await self.ask(preview)
         }
     }
 
-    func ask(_ preview: TxPreview) async -> Bool {
+    func ask(_ preview: TxPreview) async -> TxDecision {
         await withCheckedContinuation { continuation in
             Task { @MainActor in
-                let request = Request(preview: preview) { approved in
-                    continuation.resume(returning: approved)
+                let request = Request(preview: preview) { decision in
+                    continuation.resume(returning: decision)
                 }
                 if current == nil {
                     current = request
@@ -71,11 +71,13 @@ final class TxApprovalCenter: @unchecked Sendable {
         }
     }
 
-    /// Answer the request on screen and promote the next one.
-    func answer(_ approved: Bool) {
+    /// Answer the request on screen and promote the next one. A swap of
+    /// inputs comes back as a fresh request, behind anything already
+    /// waiting.
+    func answer(_ decision: TxDecision) {
         guard let request = current else { return }
         current = queue.isEmpty ? nil : queue.removeFirst()
-        request.resume(approved)
+        request.resume(decision)
     }
 
     /// Refuse everything outstanding — used when the session goes
@@ -84,6 +86,6 @@ final class TxApprovalCenter: @unchecked Sendable {
         let pending = ([current].compactMap { $0 }) + queue
         current = nil
         queue = []
-        for request in pending { request.resume(false) }
+        for request in pending { request.resume(.decline) }
     }
 }

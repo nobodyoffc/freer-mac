@@ -20,12 +20,13 @@ final class CoinSelectorTests: XCTestCase {
 
     // MARK: - happy paths
 
-    func testSelectPicksLargestFirst() throws {
+    func testSelectTakesTheLargerOfEquallyAgedCashesFirst() throws {
         let plan = try CoinSelector.select(
             cashes: [cash(100, txidByte: 1), cash(500, txidByte: 2), cash(50, txidByte: 3)],
             amount: 200
         )
-        // Largest cash (500) covers 200 + fee comfortably; only 1 input needed.
+        // No cash reports CoinDays, so age can't tell them apart and the
+        // larger goes first: 500 covers 200 + fee alone.
         XCTAssertEqual(plan.selected.count, 1)
         XCTAssertEqual(plan.selected[0].value, 500)
     }
@@ -145,20 +146,17 @@ final class CoinSelectorTests: XCTestCase {
         XCTAssertEqual(plan.fee, 700)
     }
 
-    func testCarveSelectKeepsAddingInputsUntilCdCovered() throws {
-        // Largest-first grabs the 10k cash, but it has no CoinDays —
-        // the small aged cash must join before the plan can close.
+    func testCarveSelectMeetsCdWithTheAgedCashAlone() throws {
+        // The big cash has no CoinDays; the aged one covers the
+        // requirement and the fee by itself, so the big one stays put.
+        let aged = cdCash(5_000, cd: 5, txidByte: 2)
         let plan = try CoinSelector.selectForCarve(
-            cashes: [
-                cdCash(10_000, cd: 0, txidByte: 1),
-                cdCash(600, cd: 5, txidByte: 2)
-            ],
+            cashes: [cdCash(10_000, cd: 0, txidByte: 1), aged],
             opReturnByteCount: 100,
             feePerByte: 1,
             requiredCd: 1
         )
-        XCTAssertEqual(plan.selected.count, 2)
-        XCTAssertEqual(plan.totalIn, 10_600)
+        XCTAssertEqual(plan.selected, [aged])
         XCTAssertTrue(plan.hasChange)
     }
 
@@ -255,6 +253,53 @@ final class CoinSelectorTests: XCTestCase {
         ))
     }
 
+    // MARK: - CoinDays
+
+    /// Largest-first would spend the old cash here; its age is worth
+    /// more than the fee a second input would ever cost.
+    func testSelectPaysWithYoungCashRatherThanOldCash() throws {
+        let old = cdCash(5_000_000, cd: 50_000, txidByte: 1)
+        let young = cdCash(200_000, cd: 0, txidByte: 2)
+        let plan = try CoinSelector.select(cashes: [old, young], amount: 100_000)
+        XCTAssertEqual(plan.selected, [young])
+    }
+
+    func testCarveMeetsRequiredCdWithTheSmallestCashThatCovers() throws {
+        let cd10 = cdCash(100_000, cd: 10, txidByte: 1)
+        let cd60 = cdCash(100_000, cd: 60, txidByte: 2)
+        let cd1000 = cdCash(900_000, cd: 1_000, txidByte: 3)
+        let plan = try CoinSelector.selectForCarve(
+            cashes: [cd1000, cd10, cd60], opReturnByteCount: 100, requiredCd: 50
+        )
+        XCTAssertEqual(plan.selected, [cd60])
+    }
+
+    func testCarveCombinesCdCashesWhenNoneCoversAlone() throws {
+        let cd30 = cdCash(100_000, cd: 30, txidByte: 1)
+        let cd45 = cdCash(100_000, cd: 45, txidByte: 2)
+        let cd80 = cdCash(100_000, cd: 80, txidByte: 3)
+        let plan = try CoinSelector.selectForCarve(
+            cashes: [cd30, cd45, cd80], opReturnByteCount: 100, requiredCd: 100
+        )
+        // 80 first, since none reaches 100 alone; then the smallest that
+        // closes the last 20.
+        XCTAssertEqual(Set(plan.selected), [cd80, cd30])
+    }
+
+    func testSelectDropsAnInputALaterOneMadeRedundant() throws {
+        let small = cdCash(100_000, cd: 0, txidByte: 1)
+        let large = cdCash(10_000_000, cd: 100, txidByte: 2)
+        let plan = try CoinSelector.select(cashes: [small, large], amount: 5_000_000)
+        XCTAssertEqual(plan.selected, [large])
+    }
+
+    func testSelectSkipsCashWorthLessThanItsInputFee() throws {
+        let dust = cdCash(100, cd: 0, txidByte: 1)
+        let coin = cdCash(1_000_000, cd: 3, txidByte: 2)
+        let plan = try CoinSelector.select(cashes: [dust, coin], amount: 10_000)
+        XCTAssertEqual(plan.selected, [coin])
+    }
+
     // MARK: - fixed inputs
 
     func testFixedSpendsEveryInputInOrder() throws {
@@ -289,6 +334,28 @@ final class CoinSelectorTests: XCTestCase {
     func testFixedRejectsNonPositiveAmountAndFeeRate() {
         XCTAssertThrowsError(try CoinSelector.fixed(cashes: [cash(10_000)], amount: 0))
         XCTAssertThrowsError(try CoinSelector.fixed(cashes: [cash(10_000)], amount: 100, feePerByte: 0))
+    }
+
+    func testFixedForCarveSpendsEveryInputAndPricesThePayload() throws {
+        let inputs = [cdCash(3_000, cd: 1, txidByte: 1), cdCash(20_000, cd: 0, txidByte: 2)]
+        let plan = try CoinSelector.fixedForCarve(
+            cashes: inputs, opReturnByteCount: 100, requiredCd: 1
+        )
+        XCTAssertEqual(plan.selected, inputs)
+        // size = sizeFor(2 in, 1 change out) = 326, + opReturn 112 = 438
+        XCTAssertEqual(plan.fee, 438)
+        XCTAssertEqual(plan.change, 23_000 - 438)
+    }
+
+    func testFixedForCarveRefusesInputsShortOfTheRequiredCd() {
+        XCTAssertThrowsError(try CoinSelector.fixedForCarve(
+            cashes: [cdCash(1_000_000, cd: 2, txidByte: 1)],
+            opReturnByteCount: 10, requiredCd: 5
+        )) { error in
+            guard case CoinSelector.Failure.insufficientCoinDays(5, 2) = error else {
+                return XCTFail("wrong error: \(error)")
+            }
+        }
     }
 
 }

@@ -396,9 +396,10 @@ struct CashView: View {
 
     private func cdHelp(_ cash: Cash) -> String {
         guard let cd = cash.cd else {
-            return "CoinDays unknown — the server hasn't reported this cash yet."
+            return "CoinDays unknown — this cash isn't in a block yet, so it has no age to count."
         }
-        return "\(formatExactNumber(cd)) CoinDays — value × days held. "
+        let at = snapshot?.bestHeight.map { " at block \($0)" } ?? ""
+        return "\(formatExactNumber(cd)) CoinDays\(at) — value × whole days held, counted in blocks. "
              + "Carving a FEIP record destroys some, and merging resets the clock on what's merged."
     }
 

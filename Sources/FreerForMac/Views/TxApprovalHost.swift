@@ -16,8 +16,8 @@ import FCDomain
 /// the same whether the request came from a pane, from a sheet inside
 /// a pane, or from a background carve with no UI at all.
 ///
-/// The panel has no close button on purpose. The two buttons inside
-/// are the only exits, so the question cannot be dismissed into
+/// The panel has no close button on purpose. The buttons inside are
+/// the only exits, so the question cannot be dismissed into
 /// ambiguity — and ``TxApprovalCenter/cancelAll()`` handles the case
 /// where the session disappears underneath it.
 struct TxApprovalHost: View {
@@ -91,8 +91,8 @@ private struct TxApprovalWindowContent: View {
                 preview: request.preview,
                 waiting: center.waitingCount,
                 session: session
-            ) { approved in
-                center.answer(approved)
+            ) { decision in
+                center.answer(decision)
             }
             .id(request.id)
         } else {

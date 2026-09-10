@@ -26,9 +26,10 @@ struct TxConfirmSheet: View {
     /// request outliving its session is a bug, but one that should
     /// still be refusable rather than crash.
     let session: ActiveSession?
-    let onAnswer: (Bool) -> Void
+    let onAnswer: (TxDecision) -> Void
 
     @State private var showInputs = false
+    @State private var showPicker = false
     /// FID → the name we can show for it. Seeded synchronously from
     /// local contacts on appear, then topped up from the chain.
     @State private var names: [String: String] = [:]
@@ -52,6 +53,19 @@ struct TxConfirmSheet: View {
             buttons
         }
         .frame(minWidth: 580, minHeight: 540)
+        .sheet(isPresented: $showPicker) {
+            if let session {
+                InputPickerSheet(
+                    preview: preview,
+                    session: session,
+                    onCancel: { showPicker = false },
+                    onPick: { inputs in
+                        showPicker = false
+                        onAnswer(.reselect(inputs))
+                    }
+                )
+            }
+        }
         .onAppear {
             resolveLocalNames()
             Task { await resolveChainNames() }
@@ -250,6 +264,9 @@ struct TxConfirmSheet: View {
             if preview.coinDaysDestroyed > 0 {
                 row("CoinDays destroyed", "\(preview.coinDaysDestroyed)")
             }
+            if preview.requiredCd > 0 {
+                row("CoinDays required", "\(preview.requiredCd)")
+            }
             HStack(spacing: 8) {
                 Text("From").font(.callout).foregroundStyle(.secondary)
                 Spacer(minLength: 8)
@@ -369,6 +386,11 @@ struct TxConfirmSheet: View {
                                 chip("unconfirmed ×\(cash.unconfirmedDepth)", color: .orange)
                             }
                             Spacer(minLength: 8)
+                            if let cd = cash.cd, cd > 0 {
+                                Text("\(cd) CD")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
                             Text(formatFch(cash.value))
                                 .font(.caption.monospacedDigit())
                         }
@@ -379,6 +401,17 @@ struct TxConfirmSheet: View {
                 Text("\(preview.inputs.count) cash(es), \(formatFch(preview.totalIn)) in total")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            // Selection picked these; the user may know better which
+            // cash they'd rather keep aging.
+            if preview.reselection != nil, session != nil {
+                Button {
+                    showPicker = true
+                } label: {
+                    Label("Choose other cash…", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .controlSize(.small)
+                .help("Build this same transaction from cash you pick, and review it again")
             }
         }
     }
@@ -397,14 +430,14 @@ struct TxConfirmSheet: View {
 
     private var buttons: some View {
         HStack(spacing: 8) {
-            Button("Don't sign") { onAnswer(false) }
+            Button("Don't sign") { onAnswer(.decline) }
                 .keyboardShortcut(.cancelAction)
             Spacer()
             Text("Nothing is signed or broadcast until you approve.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Button {
-                onAnswer(true)
+                onAnswer(.approve)
             } label: {
                 Text("Approve & sign").frame(width: 150)
             }

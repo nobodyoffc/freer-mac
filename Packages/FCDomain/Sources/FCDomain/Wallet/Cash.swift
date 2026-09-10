@@ -231,6 +231,40 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
         unconfirmedDepth < Cash.maxUnconfirmedChain
     }
 
+    /// Blocks in one CoinDay. The chain counts a cash's age in blocks,
+    /// one a minute, not in clock time.
+    public static let blocksPerCoinDay: Int64 = 1440
+
+    /// CoinDays that `value` satoshis born at `birthHeight` hold at
+    /// `height`: whole days of age × value in coins, rounded down.
+    ///
+    /// This is the parser's own formula (`FchUtils.cdd`) — the one it
+    /// uses for the `cd` it indexes and for the CDD a spend destroys,
+    /// which is what a FEIP carve's CoinDays requirement is checked
+    /// against. At the chain's current height it is a floor on what a
+    /// spend will destroy: the spend lands in a later block, never an
+    /// earlier one.
+    public static func coinDays(value: Int64, birthHeight: Int64, atHeight height: Int64) -> Int64 {
+        guard height > birthHeight, value > 0 else { return 0 }
+        let days = (height - birthHeight) / blocksPerCoinDay
+        // value × days can pass Int64 for a large cash. Splitting off
+        // the whole coins keeps every product small and the floor exact.
+        let coins = value / satoshisPerBch
+        let remainder = value % satoshisPerBch
+        return coins * days + remainder * days / satoshisPerBch
+    }
+
+    /// This cash with ``cd`` worked out at `height` rather than taken
+    /// from the server, whose figure is only as fresh as the last time
+    /// the indexer touched the cash. Unchanged when either height is
+    /// unknown — a cash not yet in a block has no age to count.
+    public func withCd(atHeight height: Int64?) -> Cash {
+        guard let height, height > 0, let birthHeight, birthHeight > 0 else { return self }
+        var cash = self
+        cash.cd = Cash.coinDays(value: value, birthHeight: birthHeight, atHeight: height)
+        return cash
+    }
+
     /// Compute the canonical cash id from `(birthTxId, birthIndex)` —
     /// the same value the server's indexer assigns. Mirrors
     /// `data.fchData.Cash.makeCashId(txId, j)` in FC-AJDK:
