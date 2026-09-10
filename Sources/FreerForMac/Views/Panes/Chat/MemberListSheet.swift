@@ -37,6 +37,11 @@ struct MemberListSheet: View {
     /// privilege a square does not have: anyone may rename one who
     /// outbids the standing coin-day price.
     @State private var namers: [String] = []
+    /// Members the chain lists as not having agreed to the team's
+    /// current consensus. Read straight off the record — there is no
+    /// list of who *has* agreed and no per-member signature stored, so
+    /// this negative set is the only answer anybody has.
+    @State private var notAgreed: [String] = []
     @State private var isOwner = false
     @State private var addFid = ""
     @State private var working = false
@@ -84,7 +89,15 @@ struct MemberListSheet: View {
         case .room:
             return "Nothing about this room is on the chain. The owner's copy is the membership, and everyone else holds what the owner last told them."
         case .team:
-            return "This membership is on the chain: it is public, and every change to it is a transaction."
+            var note = "This membership is on the chain: it is public, and every change to it is a transaction."
+            if !notAgreed.isEmpty {
+                // The negative set, stated as what it is. There is no
+                // list of who *has* agreed, so "not agreed" is the only
+                // fact available — and it clears itself when each
+                // member carves their own agreement.
+                note += " \(notAgreed.count) member(s) have not yet agreed to the current consensus document; until they carve an agreement of their own, what they signed and what this team runs on are two different documents."
+            }
+            return note
         case .square:
             return "A square's membership is on the chain and open — anyone may join, which is why there is no key and nothing here is encrypted. Nobody is in charge either: whoever destroys the most coin-days names it, and \"named it\" marks the ones who have."
         case .p2p:
@@ -106,6 +119,7 @@ struct MemberListSheet: View {
                         if fid == owner { ChatChip("owner", color: style.tint) }
                         if managers.contains(fid) { ChatChip("manager", color: .secondary) }
                         if namers.contains(fid) { ChatChip("named it", color: .secondary) }
+                        if notAgreed.contains(fid) { ChatChip("not agreed", color: .orange) }
                         if fid == session.liveFid { ChatChip("you", color: .secondary) }
                         Spacer()
                         if canSendKey(fid) {
@@ -186,6 +200,7 @@ struct MemberListSheet: View {
                 owner = room?.owner
                 managers = []
                 namers = []
+                notAgreed = []
                 isOwner = room?.isOwner(session.liveFid) ?? false
             case .team:
                 let team = try session.teams.get(id: conversation.targetId)
@@ -193,6 +208,7 @@ struct MemberListSheet: View {
                 owner = team?.owner
                 managers = team?.managers ?? []
                 namers = []
+                notAgreed = team?.notAgreeMembers ?? []
                 isOwner = team?.isOwner(session.liveFid) ?? false
             case .square:
                 let square = try session.squares.get(id: conversation.targetId)
@@ -200,9 +216,11 @@ struct MemberListSheet: View {
                 owner = nil
                 managers = []
                 namers = square?.namers ?? []
+                notAgreed = []
                 isOwner = false
             case .p2p:
                 members = []
+                notAgreed = []
             }
             error = nil
         } catch {
@@ -231,6 +249,11 @@ struct MemberListSheet: View {
                         note = summary(added: added, outbound: outbound, unreachable: unreachable)
                     }
                 case .team:
+                    // The carve filters the list against the chain and
+                    // refuses one that names nobody new — the indexer
+                    // would skip them silently while the transaction was
+                    // paid for anyway, and re-index the team for a write
+                    // that changed nothing.
                     let txid = try await session.carveTeamInviteOnChain(
                         teamId: conversation.targetId, fids: [fid]
                     )

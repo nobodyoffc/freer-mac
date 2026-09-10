@@ -91,6 +91,11 @@ struct ChatView: View {
     /// Room invitations waiting for an answer. Rooms tab only — a team
     /// or a square is joined by carving, not by being invited here.
     @State private var invites: [RoomInvite] = []
+    /// Teams whose consensus changed under this identity and which are
+    /// waiting on an `agree consensus` carve. Teams tab only, and read
+    /// from the chain by the group sync — see ``ConsensusSignatureSheet``.
+    @State private var consensusDue: [ConsensusSignatureRequest] = []
+    @State private var showConsensus = false
     @State private var confirmLeave = false
     /// The thread the user asked to delete, held until they confirm.
     /// Nil is "nothing pending" — a Bool could not name the row, and the
@@ -222,6 +227,9 @@ struct ChatView: View {
             }
             if mode == .room, !invites.isEmpty {
                 invitesBanner
+            }
+            if mode == .team, !consensusDue.isEmpty {
+                consensusBanner
             }
 
             if let err = loadError {
@@ -381,6 +389,13 @@ struct ChatView: View {
         } message: { conversation in
             Text(deleteMessage(conversation))
         }
+        .sheet(isPresented: $showConsensus) {
+            ConsensusSignatureSheet(
+                session: session,
+                onClose: { showConsensus = false },
+                onChanged: { reload() }
+            )
+        }
         .sheet(isPresented: $showRequests) {
             MessageRequestsSheet(
                 session: session,
@@ -536,7 +551,12 @@ struct ChatView: View {
             case .p2p:
                 Button("Message requests…") { showRequests = true }
                 Button("Who can message me…") { showPolicy = true }
-            case .room, .team, .square:
+            case .team:
+                // Reachable even when nothing is outstanding, because a
+                // member who put one off has to be able to get back to
+                // it — the banner deliberately stops asking.
+                Button("Consensus agreements…") { showConsensus = true }
+            case .room, .square:
                 // The per-flavour membership actions land with the rest
                 // of the group menus; until then there is nothing here
                 // that would be true.
@@ -572,6 +592,38 @@ struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help("These are stored on this Mac and appear nowhere else until you accept them")
+    }
+
+    /// Teams that changed their consensus out from under this identity.
+    ///
+    /// **A banner rather than a notification, because nothing was sent.**
+    /// The chain lists us in `notAgreeMembers` and that is the entire
+    /// signal; it is read on every group refresh, so this appears without
+    /// anybody having messaged us and disappears without anybody having
+    /// to dismiss it.
+    private var consensusBanner: some View {
+        let count = consensusDue.count
+        return Button {
+            showConsensus = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "signature")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("\(count) team\(count == 1 ? "" : "s") changed \(count == 1 ? "its" : "their") consensus document")
+                    Text("Until you agree on chain, what you signed and what the team runs on are two different documents.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text("Review").font(.caption.bold())
+            }
+            .font(.callout)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.14)))
+        }
+        .buttonStyle(.plain)
+        .help("Read the new consensus and the one you agreed to, then agree, put it off, or leave")
     }
 
     /// Room invitations, with the two facts that decide the answer:
@@ -851,6 +903,10 @@ struct ChatView: View {
             threads = rebuilt
             requests = try session.messageRequests.pending()
             invites = try session.roomInvites.all()
+            // Only the ones still asking: a member who put one off has
+            // answered, and the banner must not keep arguing with them.
+            // The sheet behind it still lists every row.
+            consensusDue = try session.consensusSignatures.outstanding()
             // Every P2P thread's other party, so the list can name its
             // rows. Group targets are deliberately not asked about: a
             // room id is not a FID, and a group already carries its own
@@ -1458,7 +1514,14 @@ struct ChatView: View {
         var parts: [String] = []
         do {
             let teams = try await session.groups.syncTeams(
-                fid: session.liveFid, into: session.teams, conversations: session.conversations
+                fid: session.liveFid, into: session.teams,
+                conversations: session.conversations,
+                // What tells a member their team's consensus changed
+                // under them. Nothing is sent to say so — the chain
+                // lists them in `notAgreeMembers` and this is where we
+                // read it, on every refresh, so the prompt also clears
+                // itself when the signature came from another device.
+                signatures: session.consensusSignatures
             )
             let squares = try await session.groups.syncSquares(
                 fid: session.liveFid, into: session.squares, conversations: session.conversations
@@ -1469,6 +1532,9 @@ struct ChatView: View {
             }
             if teams.left + squares.left > 0 {
                 parts.append("\(teams.left + squares.left) left")
+            }
+            if teams.awaitingSignature > 0 {
+                parts.append("\(teams.awaitingSignature) awaiting your agreement")
             }
             if let keyed = keyOwnedTeams() { parts.append(keyed) }
         } catch {

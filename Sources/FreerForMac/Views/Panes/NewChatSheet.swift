@@ -78,10 +78,25 @@ struct NewChatSheet: View {
     /// DOCK is one whose members have nowhere to leave a message, so it
     /// can be carved and then never spoken in.
     @State private var groupDock = ""
+    /// The team's DISK — where the consensus document is published, and
+    /// therefore the only route any member has to reading it. Carved
+    /// with the team, in plaintext, because a peer holding no key at all
+    /// has to be able to resolve it.
+    @State private var groupDisk = ""
+    @State private var pickingDisk = false
+    @State private var document: DocumentRequest?
 
     @State private var working = false
     @State private var error: String?
     @State private var note: String?
+
+    /// An open consensus-document sheet. Identifiable so a fresh id
+    /// re-opens it after a save rather than reusing stale text.
+    private struct DocumentRequest: Identifiable {
+        let id = UUID()
+        let consensusId: String
+        let editable: Bool
+    }
 
     private var style: ChatModeStyle { .of(mode) }
 
@@ -148,6 +163,50 @@ struct NewChatSheet: View {
             } onCancel: {
                 pickingDock = false
             }
+        }
+        .sheet(isPresented: $pickingDisk) {
+            ServicePickerSheet(
+                session: session,
+                component: ServiceName.disk,
+                title: "Choose this team's DISK",
+                subtitle: "The consensus document is stored here. Its id is the hash of its contents, so anyone can check that what they downloaded is what was carved.",
+                initialQuery: groupDisk
+            ) { service in
+                groupDisk = service.sid
+                pickingDisk = false
+            } onCancel: {
+                pickingDisk = false
+            }
+        }
+        .sheet(item: $document) { request in
+            ConsensusDocumentSheet(
+                session: session,
+                title: "This team's consensus",
+                consensusId: request.consensusId,
+                // Nothing is on chain yet, so the only DISK worth trying
+                // is the one being chosen for the team.
+                diskSids: [groupDisk],
+                editable: request.editable,
+                onSaved: { newId in
+                    consensusId = newId
+                    document = nil
+                },
+                onClose: { document = nil }
+            )
+        }
+    }
+
+    private func pickConsensusFile() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.message = "Choose the document this team's members will agree to."
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            consensusId = try session.teamConsensus.importFile(at: url)
+            error = nil
+        } catch {
+            self.error = String(describing: error)
         }
     }
 
@@ -358,12 +417,47 @@ struct NewChatSheet: View {
 
             if mode == .team {
                 LabeledField(
-                    "Consensus document id",
-                    hint: "The consensus document is what members agree to when they join — their carve quotes it, which is what makes agreement a public, signed act rather than a checkbox. A team created without one has nothing for its members to agree to."
+                    "Consensus document",
+                    hint: "What members agree to when they join — their carve quotes its id, which is what makes agreement a public, signed act rather than a checkbox. The id is the hash of the text, so it is written after the document is, not before."
                 ) {
-                    TextField("", text: $consensusId, prompt: Text("optional, but see below"))
-                        .font(.system(.body, design: .monospaced))
-                        .fieldInputStyle()
+                    VStack(alignment: .leading, spacing: 6) {
+                        TextField("", text: $consensusId, prompt: Text("required"))
+                            .font(.system(.body, design: .monospaced))
+                            .fieldInputStyle()
+                        HStack(spacing: 8) {
+                            Button {
+                                document = DocumentRequest(
+                                    consensusId: consensusId.trimmingCharacters(in: .whitespaces),
+                                    editable: true
+                                )
+                            } label: {
+                                Label(consensusId.isEmpty ? "Write one…" : "Edit…",
+                                      systemImage: "square.and.pencil")
+                            }
+                            .help("Start from a template that asks the questions a consensus has to answer, and edit it into yours.")
+                            Button { pickConsensusFile() } label: {
+                                Label("Choose file…", systemImage: "doc.badge.plus")
+                            }
+                            .help("Use a document already on this Mac.")
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.caption)
+                    }
+                }
+
+                LabeledField(
+                    "DISK",
+                    hint: "Where the consensus document is stored, unencrypted and permanently, so anyone weighing up joining can read it. The id is published in the team's home in plain text, which is the whole of how a member finds the document."
+                ) {
+                    HStack(spacing: 8) {
+                        TextField("", text: $groupDisk, prompt: Text("service id"))
+                            .font(.system(.body, design: .monospaced))
+                            .fieldInputStyle()
+                        Button { pickingDisk = true } label: {
+                            Label("Find…", systemImage: "externaldrive")
+                        }
+                        .help("Search the chain for a server that offers DISK.")
+                    }
                 }
             }
 
@@ -408,7 +502,13 @@ struct NewChatSheet: View {
         case .room: return filled(roomName) && session.canSign
         case .team, .square:
             guard session.canSign else { return false }
-            return groupAction == .join ? filled(joinId) : filled(groupName)
+            if groupAction == .join { return filled(joinId) }
+            guard filled(groupName) else { return false }
+            // A team is refused without both halves of its consensus:
+            // the document, and somewhere members can read it. Stated by
+            // the button rather than discovered at carve time.
+            if mode == .team { return filled(consensusId) && filled(groupDisk) }
+            return true
         }
     }
 
@@ -527,10 +627,14 @@ struct NewChatSheet: View {
         do {
             let txid: String
             if mode == .team {
-                // Read the consensus id from the team record rather than
-                // a cached copy: the carve is a signed statement about
-                // *which* document was agreed to.
-                let consensus = try session.teams.get(id: id)?.consensusId
+                // **Read from the chain, not the cache.** The carve is a
+                // signed statement about *which* document was agreed to,
+                // and the parser refuses a join whose id is not the
+                // team's current one — so a stale cached copy costs the
+                // fee and joins nothing. This is also the only way a
+                // team we have never synced can be joined at all.
+                let consensus = try await session.freshTeam(id: id)?.consensusId
+                    ?? session.teams.get(id: id)?.consensusId
                 txid = try await session.carveTeamJoinOnChain(teamId: id, consensusId: consensus)
             } else {
                 txid = try await session.carveSquareJoinOnChain(squareId: id)
@@ -552,19 +656,35 @@ struct NewChatSheet: View {
     /// Nothing is written locally, and that is not laziness: the id is
     /// the carve's txid, so until the transaction confirms there is no
     /// entity to make a row for. The group sync finds it.
+    ///
+    /// **A team's consensus document is uploaded first, and the carve is
+    /// abandoned if that fails.** The id carved on chain is a hash and
+    /// nothing else — the indexer never resolves it, so a team whose
+    /// consensus points at bytes no DISK holds looks perfectly valid and
+    /// is unreadable forever. Failing here costs nothing; failing after
+    /// the carve costs the fee and leaves a permanent dead pointer that
+    /// every joiner signs their agreement to.
     private func createGroupOnChain() async {
         await MainActor.run { working = true }
         let name = groupName.trimmingCharacters(in: .whitespaces)
         let desc = groupDesc.trimmingCharacters(in: .whitespaces)
         let dock = groupDock.trimmingCharacters(in: .whitespaces)
-        // The service id goes on the chain, not the address it currently
-        // resolves to — the same reasoning as a room's DOCK, except that
-        // here it is public and everyone reads it from the same record.
-        let home = dock.isEmpty ? nil : [ServiceName.dock: dock]
+        let diskSid = groupDisk.trimmingCharacters(in: .whitespaces)
+        let consensus = consensusId.trimmingCharacters(in: .whitespaces)
+
+        // The service ids go on the chain, not the addresses they
+        // currently resolve to — the same reasoning as a room's DOCK,
+        // except that here they are public and everyone reads them from
+        // the same record. `(sid)`-prefixed, which is the shape the rest
+        // of the family writes.
+        let home = GroupHome.merged(over: nil, changing: [
+            ServiceName.dock: dock.isEmpty ? nil : dock,
+            ServiceName.disk: mode == .team && !diskSid.isEmpty ? diskSid : nil,
+        ])
         do {
             let txid: String
             if mode == .team {
-                let consensus = consensusId.trimmingCharacters(in: .whitespaces)
+                try await publishConsensus(consensus, toDiskSid: diskSid)
                 txid = try await session.carveTeamCreateOnChain(
                     stdName: name,
                     desc: desc.isEmpty ? nil : desc,
@@ -588,6 +708,38 @@ struct NewChatSheet: View {
             await MainActor.run {
                 working = false
                 self.error = String(describing: error)
+            }
+        }
+    }
+
+    /// Put the consensus document on the team's DISK before the team
+    /// exists. Refuses rather than carving an id with nothing behind it.
+    private func publishConsensus(_ consensus: String, toDiskSid diskSid: String) async throws {
+        guard !consensus.isEmpty else { throw CreateRefusal.noConsensus }
+        guard !diskSid.isEmpty else { throw CreateRefusal.noDisk }
+        await MainActor.run { note = "Uploading the consensus document…" }
+        let placement = try await session.teamConsensus.place(
+            consensusId: consensus,
+            onDiskSid: diskSid,
+            // A team being created is not moving from anywhere.
+            fallbackDiskSid: nil
+        )
+        if case .unavailable = placement { throw CreateRefusal.documentMissing }
+    }
+
+    private enum CreateRefusal: Error, CustomStringConvertible {
+        case noConsensus
+        case noDisk
+        case documentMissing
+
+        var description: String {
+            switch self {
+            case .noConsensus:
+                return "A team needs a consensus document: it is what every member signs their agreement to when they join, and a team without one has nothing for that signature to mean. Write one, or choose a file."
+            case .noDisk:
+                return "A team needs a DISK. The consensus id carved on chain is only a hash — without a server publishing the bytes, nobody can read what they are agreeing to."
+            case .documentMissing:
+                return "That consensus id names no document this Mac holds, so there is nothing to upload. Nothing was carved. Write the document or choose its file, and the id follows from its contents."
             }
         }
     }

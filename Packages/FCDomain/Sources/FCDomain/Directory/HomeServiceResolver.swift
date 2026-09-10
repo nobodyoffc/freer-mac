@@ -100,6 +100,31 @@ public actor HomeServiceResolver {
         return candidate
     }
 
+    /// A home value as it belongs in a `home` map: a service id becomes
+    /// `(sid)<id>`, and anything else — a direct URL, most of all — is
+    /// left exactly as typed.
+    ///
+    /// **Written prefixed, read either way.** ``extractSid(_:)`` accepts
+    /// the bare form because peers publish it, but a client that *wrote*
+    /// the bare form would be storing something subtly different from
+    /// what it read back: a picker handing over a bare id makes an
+    /// unchanged server look like a change, and carves a fee for it. So
+    /// the prefixed form is the one this family writes, and this is the
+    /// single place that decides it.
+    public static func homeValue(_ input: String?) -> String {
+        let trimmed = (input ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let sid = extractSid(trimmed) else { return trimmed }
+        return sidPrefix + sid
+    }
+
+    /// The bare service id behind a home value, for showing in a form —
+    /// the inverse of ``homeValue(_:)``. A value that names no service
+    /// (a direct URL) is its own display form.
+    public static func displayValue(_ input: String?) -> String {
+        let trimmed = (input ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return extractSid(trimmed) ?? trimmed
+    }
+
     // MARK: - resolving
 
     /// Resolve one home value. Returns nil when it is neither a URL nor

@@ -727,6 +727,38 @@ public final class ActiveSession {
         TeamKeyService(teams: teams, symkeys: symkeys)
     }
 
+    /// The bytes behind a team's `consensusId` — writing one, putting it
+    /// on the team's DISK, and reading it back.
+    ///
+    /// **The DISK resolver is wired here and nowhere else**, for the same
+    /// reason ``publishBody``'s is: a team's document lives on *its* DISK,
+    /// which is a server this identity may otherwise never talk to, and
+    /// opening connections is the app shell's job. The route is the one
+    /// the whole family uses — the plaintext `(sid)` in the team's `home`,
+    /// resolved through the chain to a URL, then a client from
+    /// ``dockRegistry``, which already holds one connection per server and
+    /// so does not open a second socket to a host we are also DOCKing at.
+    public var teamConsensus: TeamConsensus {
+        let resolver = self.homeServices
+        let registry = self.dockRegistry
+        let ownDisk = self.disk
+        let ownSid = try? preferences.load().preferredDiskServiceSid
+        return TeamConsensus(files: files, hats: hats) { sid in
+            // Our own DISK is already connected; going round the
+            // resolver for it would be a lookup to reach ourselves.
+            if let ownSid, ownSid == sid { return ownDisk }
+            guard let url = await resolver.resolve(HomeServiceResolver.sidPrefix + sid),
+                  let client = await registry.client(for: url)
+            else { return nil }
+            return DiskService(fapi: client)
+        }
+    }
+
+    /// Teams waiting on this identity's `agree consensus`. Written by
+    /// the team sync; read by the pane that offers to sign.
+    public lazy var consensusSignatures: ConsensusSignaturesStore =
+        ConsensusSignaturesStore(kv: storage)
+
     /// A member's public key, as fresh as this device can answer without
     /// a round-trip — what a key share is sealed to.
     public func knownPubkey(of fid: String) throws -> Data? {
@@ -2026,12 +2058,153 @@ public final class ActiveSession {
         )
     }
 
+    /// Sign a team's **new** consensus document.
+    ///
+    /// The member's way out of ``Team/notAgreeMembers``, and the only
+    /// one besides leaving. Three things the parser will refuse, all
+    /// handled here rather than discovered after paying:
+    ///
+    /// - **The id must be the team's current one.** So it is re-read
+    ///   from the chain at the moment of signing, not taken from the
+    ///   prompt that raised this: a further change may have landed while
+    ///   the member was deciding, and signing the id they were shown
+    ///   would carve a fee for a statement about a superseded document.
+    /// - **The signer must currently be in `notAgreeMembers`.** An owner
+    ///   never is — their update *is* their signature — and a member who
+    ///   already signed from another device is not either.
+    /// - **The team must be active.**
+    ///
+    /// Returns the txid. The obligation clears on the next sync, from
+    /// the chain, like everything else about it.
+    @discardableResult
+    public func carveTeamAgreeConsensusOnChain(
+        teamId: String,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        let fid = liveFid
+        guard let team = try await freshTeam(id: teamId, timeoutMs: timeoutMs) else {
+            throw Failure.underlying(TeamConsensusFailure.noSuchTeam(teamId))
+        }
+        guard team.isActive else {
+            throw Failure.underlying(TeamConsensusFailure.disbanded(teamId))
+        }
+        guard let consensusId = team.consensusId, !consensusId.isEmpty else {
+            throw Failure.underlying(TeamConsensusFailure.noConsensus(teamId))
+        }
+        guard team.notAgreeMembers?.contains(fid) ?? false else {
+            throw Failure.underlying(TeamConsensusFailure.nothingToSign(teamId: teamId, fid: fid))
+        }
+        // Keep the cache honest before the carve, so the prompt reflects
+        // what we just read even if the carve then fails.
+        try? teams.upsert(team)
+        return try await carveGroupOp(
+            TeamFeip.envelope(
+                opJson: try TeamFeip.agreeConsensusOp(tid: teamId, consensusId: consensusId)
+            ),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// One team, read from the chain rather than the cache.
+    ///
+    /// Used wherever being wrong costs a fee: signing a consensus, and
+    /// deciding who is already in a team before paying to invite them.
+    public func freshTeam(id: String, timeoutMs: Int = 10_000) async throws -> Team? {
+        guard !id.isEmpty else { return nil }
+        let body = try JSONSerialization.data(
+            withJSONObject: ["entity": "team", "ids": [id]], options: [.sortedKeys]
+        )
+        let reply = try await fapi.call(
+            api: DirectoryService.getByIdsApi,
+            params: nil, fcdsl: body, binary: nil,
+            sid: nil, via: nil, maxCost: nil,
+            timeoutMs: timeoutMs
+        )
+        let resp = reply.response
+        if let code = resp.code, code != 0 {
+            // 404 = no such team. An ordinary answer for an id that has
+            // not confirmed yet, so it is nil rather than a throw.
+            if code == 404 { return nil }
+            throw Failure.underlying(GroupService.Failure.fapiNonZeroCode(
+                api: DirectoryService.getByIdsApi, code: code, message: resp.message
+            ))
+        }
+        guard let data = resp.data,
+              let map = try? JSONDecoder().decode([String: Team].self, from: data),
+              var team = map[id] ?? map.values.first
+        else { return nil }
+        // The map key is authoritative: a record whose body omits its
+        // own id still has one here.
+        if team.id == nil || team.id?.isEmpty == true { team.id = id }
+        return team
+    }
+
+    /// What an invite carve would actually accomplish, worked out before
+    /// it is paid for. See ``carveTeamInviteOnChain(teamId:fids:feePerByte:timeoutMs:)``.
+    public struct InvitePlan: Equatable, Sendable {
+        /// Genuinely new — the only ones worth carving.
+        public let toInvite: [String]
+        /// Already the owner or a member. Nothing to do at all.
+        public let alreadyIn: [String]
+        /// Already invited and not yet joined. Dropped from the carve,
+        /// because adding a FID twice to a set is not a second
+        /// invitation.
+        public let alreadyInvited: [String]
+
+        public var isEmpty: Bool { toInvite.isEmpty }
+    }
+
+    /// Work out who an invitation would actually reach.
+    ///
+    /// **Membership is read from the chain, not the cache**, because the
+    /// two failure directions are not symmetrical: including somebody
+    /// already in the team wastes a fee, but *excluding* somebody who is
+    /// not costs them their invitation and is invisible to everyone. So
+    /// a failed read degrades to no filtering — pay the fee rather than
+    /// silently drop a person.
+    public func planTeamInvite(
+        teamId: String, fids: [String], timeoutMs: Int = 10_000
+    ) async -> InvitePlan {
+        let wanted = fids
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        var seen: Set<String> = []
+        let unique = wanted.filter { seen.insert($0).inserted }
+
+        guard let team = (try? await freshTeam(id: teamId, timeoutMs: timeoutMs)) ?? nil else {
+            return InvitePlan(toInvite: unique, alreadyIn: [], alreadyInvited: [])
+        }
+        var toInvite: [String] = [], alreadyIn: [String] = [], alreadyInvited: [String] = []
+        for fid in unique {
+            if team.isOwner(fid) || team.isMember(fid) {
+                alreadyIn.append(fid)
+            } else if team.isInvited(fid) {
+                alreadyInvited.append(fid)
+            } else {
+                toInvite.append(fid)
+            }
+        }
+        return InvitePlan(
+            toInvite: toInvite, alreadyIn: alreadyIn, alreadyInvited: alreadyInvited
+        )
+    }
+
     /// Invite FIDs to a team we own.
     ///
     /// **An invitation is not a membership.** The invitee still has to
     /// carve their own `join`, quoting the consensus document — which is
     /// what makes belonging to a team a signed act by the member rather
     /// than something an owner can do to somebody.
+    ///
+    /// **The list is filtered first, and that is not tidiness.** The
+    /// indexer silently skips the owner and existing members — but the
+    /// transaction is still paid for, and it re-indexes the team anyway,
+    /// bumping `lastTxId`/`lastTime`/`lastHeight` for a write that
+    /// changed nothing. So a carve naming nobody new is refused here
+    /// rather than broadcast; ``planTeamInvite(teamId:fids:timeoutMs:)``
+    /// is the same answer without the carve, for a caller that wants to
+    /// say so before the button is pressed.
     @discardableResult
     public func carveTeamInviteOnChain(
         teamId: String,
@@ -2039,8 +2212,14 @@ public final class ActiveSession {
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> String {
-        try await carveGroupOp(
-            TeamFeip.envelope(opJson: try TeamFeip.inviteOp(tid: teamId, fids: fids)),
+        let plan = await planTeamInvite(teamId: teamId, fids: fids, timeoutMs: timeoutMs)
+        guard !plan.isEmpty else {
+            throw Failure.underlying(TeamConsensusFailure.nobodyNewToInvite(
+                alreadyIn: plan.alreadyIn, alreadyInvited: plan.alreadyInvited
+            ))
+        }
+        return try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.inviteOp(tid: teamId, fids: plan.toInvite)),
             feePerByte: feePerByte, timeoutMs: timeoutMs
         )
     }

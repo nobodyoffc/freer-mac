@@ -154,6 +154,56 @@ public struct Team: Codable, Equatable, Sendable, Identifiable {
     }
 }
 
+/// The `home` map an `update` carve should carry.
+///
+/// **The indexer replaces `home` wholesale, it does not merge.** Both
+/// team and square updates end in one line of `OrganizationParser`:
+///
+/// ```java
+/// if (teamHist.getHome() != null) team.setHome(teamHist.getHome());
+/// ```
+///
+/// Omitting `home` therefore preserves everything stored — which is the
+/// only way the protocol has of saying "I am not talking about this" —
+/// while carving a *partial* map **erases every key not in it**. A
+/// settings form that knows about DOCK and builds a map holding only
+/// DOCK will silently delete the team's `DISK@No1_NrC7` entry, and with
+/// it every member's only route to the consensus document they are
+/// supposed to have agreed to. There is no undo: the next update erases
+/// it again unless whoever carves it happens to know.
+///
+/// So no screen builds a `home` map. They state the entries they mean to
+/// change, and this merges them over what the chain already holds.
+public enum GroupHome {
+
+    /// Merge `changes` over an entity's stored `home`.
+    ///
+    /// A `nil` value in `changes` means **"say nothing about this key"**,
+    /// which is as close to clearing as the protocol gets: the stored
+    /// entry survives. Values are normalised through
+    /// ``HomeServiceResolver/homeValue(_:)``, so a service id typed or
+    /// picked in either shape is carved in the one shape this family
+    /// writes.
+    ///
+    /// Returns **nil when nothing would change**, so an update that only
+    /// renames a team omits `home` entirely rather than re-announcing a
+    /// DOCK move that is not one.
+    public static func merged(
+        over stored: [String: String]?,
+        changing changes: [String: String?]
+    ) -> [String: String]? {
+        var merged = stored ?? [:]
+        for (key, value) in changes {
+            guard let value else { continue }
+            let normalised = HomeServiceResolver.homeValue(value)
+            if normalised.isEmpty { continue }
+            merged[key] = normalised
+        }
+        guard !merged.isEmpty, merged != (stored ?? [:]) else { return nil }
+        return merged
+    }
+}
+
 /// A square: **open** group chat with on-chain membership, mirroring
 /// `FC-AJDK/.../data/feipData/Square.java`.
 ///

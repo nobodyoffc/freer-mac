@@ -49,6 +49,19 @@ public struct GroupService {
         /// Conversations flagged because the chain says we are out.
         public let left: Int
         public let total: Int
+        /// Teams now waiting on this identity's `agree consensus`.
+        /// Always zero for squares, which have no consensus to agree to.
+        public let awaitingSignature: Int
+
+        public init(
+            merged: Int, joined: Int, left: Int, total: Int, awaitingSignature: Int = 0
+        ) {
+            self.merged = merged
+            self.joined = joined
+            self.left = left
+            self.total = total
+            self.awaitingSignature = awaitingSignature
+        }
     }
 
     /// How far below the local watermark an incremental sync re-reads,
@@ -161,22 +174,39 @@ public struct GroupService {
 
     /// Pull `fid`'s teams and fold them into the store and the
     /// conversation list.
+    ///
+    /// **`signatures` is where a member finds out they owe one.** Pass
+    /// it wherever a freshly-fetched team is stored — which is here, on
+    /// every refresh path — and the "your team changed its consensus"
+    /// prompt appears, disappears when the obligation is gone, and
+    /// captures the outgoing `consensusId` at the only instant that
+    /// value exists on this device. See ``ConsensusSignaturesStore``.
     @discardableResult
     public func syncTeams(
         fid: String,
         into store: TeamsStore,
         conversations: ConversationsStore? = nil,
+        signatures: ConsensusSignaturesStore? = nil,
         incremental: Bool = true,
         timeoutMs: Int = 15_000
     ) async throws -> SyncResult {
         let watermark = incremental ? (try? store.highestKnownHeight()) ?? nil : nil
         let teams = try await fetchTeams(fid: fid, newerThanHeight: watermark, timeoutMs: timeoutMs)
 
-        var merged = 0, joined = 0, left = 0
+        var merged = 0, joined = 0, left = 0, awaiting = 0
         for team in teams {
             guard let id = team.id, !id.isEmpty else { continue }
+            // Read the row we are about to replace *first*: it carries
+            // the consensus id the chain is discarding, and after the
+            // upsert nothing anywhere holds it.
+            let cached = try? store.get(id: id)
             try store.upsert(team)
             merged += 1
+
+            if let signatures {
+                let request = try? signatures.reconcile(team: team, cached: cached, as: fid)
+                if let request, !request.isPostponed { awaiting += 1 }
+            }
 
             guard let conversations else { continue }
             let belongs = team.isMember(fid) && team.isActive
@@ -196,7 +226,10 @@ public struct GroupService {
             case .unchanged: break
             }
         }
-        return SyncResult(merged: merged, joined: joined, left: left, total: teams.count)
+        return SyncResult(
+            merged: merged, joined: joined, left: left,
+            total: teams.count, awaitingSignature: awaiting
+        )
     }
 
     /// Pull `fid`'s squares. Same shape as ``syncTeams(fid:into:conversations:incremental:timeoutMs:)``,
