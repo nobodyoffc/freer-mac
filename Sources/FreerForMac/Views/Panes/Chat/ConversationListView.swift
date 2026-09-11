@@ -112,6 +112,9 @@ struct ConversationListView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
+                    if conversation.type == .p2p {
+                        NobodyChip(fid: conversation.targetId)
+                    }
                     // **The name is the loudest thing in the row.** A
                     // thread list is scanned, not read: the eye is
                     // looking for one name among twenty, and it was

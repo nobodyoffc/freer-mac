@@ -321,6 +321,8 @@ struct MailComposeSheet: View {
 
     private func send() async {
         guard let quote, canSend else { return }
+        // Mail sealed to a nobody can be opened by anyone.
+        guard await NobodyGate.confirm([quote.recipientFid], .mail, session: session) else { return }
         sending = true
         sendError = nil
         defer { sending = false }

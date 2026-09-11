@@ -142,10 +142,13 @@ struct RateFreerSheet: View {
         HStack(spacing: 12) {
             FidAvatarView(fid: ratee, size: 40, isNobody: record?.isNobody == true)
             VStack(alignment: .leading, spacing: 3) {
-                Text(record?.cid ?? ratee.elidingMiddle(head: 10, tail: 10))
-                    .font(.title3.bold())
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    NobodyChip(fid: ratee, force: record?.isNobody == true, compact: false)
+                    Text(record?.cid ?? ratee.elidingMiddle(head: 10, tail: 10))
+                        .font(.title3.bold())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 HStack(spacing: 10) {
                     standing("Reputation", record?.reputation)
                     standing("Hot", record?.hot)
@@ -457,6 +460,8 @@ struct RateFreerSheet: View {
 
     private func send() async {
         guard let weightCd else { return }
+        // Rating a nobody spends coin days on a reputation anyone can wear.
+        guard await NobodyGate.confirm([ratee], .rate, session: session) else { return }
         carving = true
         carveError = nil
         defer { carving = false }

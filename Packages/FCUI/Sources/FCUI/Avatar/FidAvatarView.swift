@@ -1,4 +1,5 @@
 import SwiftUI
+import FCCore
 
 /// SwiftUI view that renders an ``AvatarMaker`` avatar for a given
 /// FID. Falls back to a neutral SF symbol if the FID is malformed
@@ -8,13 +9,14 @@ import SwiftUI
 /// `size` is the rendered side length in points; the underlying
 /// `NSImage` is always native 150×150 and the view scales it.
 ///
-/// **Nobody FIDs.** Set `isNobody` for a FID whose private key is public
-/// knowledge — a vanity key from a published list, a demo key, anything
-/// anyone can spend from. The avatar renders desaturated, matching
-/// Android's `NobodyBoard.applyNobodyMark` (a colour matrix at zero
-/// saturation). Colour is the whole point of a generated avatar, so
-/// draining it reads as "this identity is not yours alone" at a glance,
-/// across every list the avatar appears in.
+/// **Nobody FIDs.** A FID whose private key is public knowledge renders
+/// desaturated with a skull badge, matching Android's `NobodyUi`. The view
+/// asks ``NobodyRegistry`` itself, so every avatar in the app is marked
+/// the moment any lookup learns the key was published — no call site has
+/// to remember. `isNobody` is still accepted for a caller that already
+/// knows. Colour is the whole point of a generated avatar, so draining it
+/// reads as "this identity is not yours alone" at a glance; the badge says
+/// it where grey alone would pass for a dull palette. See `NOBODY_SPEC.md`.
 public struct FidAvatarView: View {
 
     public let fid: String
@@ -27,8 +29,13 @@ public struct FidAvatarView: View {
         self.isNobody = isNobody
     }
 
+    private var nobody: Bool {
+        isNobody || NobodyRegistry.shared.isNobody(fid)
+    }
+
     public var body: some View {
-        Group {
+        let nobody = self.nobody
+        return Group {
             if let nsImage = try? AvatarMaker.avatar(for: fid) {
                 Image(nsImage: nsImage)
                     .resizable()
@@ -45,10 +52,19 @@ public struct FidAvatarView: View {
             }
         }
         .frame(width: size, height: size)
-        .saturation(isNobody ? 0 : 1)
+        .grayscale(nobody ? 1 : 0)
         .clipShape(Circle())
-        .help(isNobody
-              ? "Nobody FID — its private key is public, so anyone can spend from it."
+        .overlay(alignment: .topLeading) {
+            if nobody {
+                // Drawn after the clip, inside the inscribed circle.
+                let center = NobodyMark.badgeCenter(size: size)
+                NobodyBadge(diameter: size * NobodyMark.badgeRadiusRatio * 2)
+                    .position(center)
+                    .frame(width: size, height: size)
+            }
+        }
+        .help(nobody
+              ? "Nobody FID — its private key is public, so anyone can act as it and spend from it."
               : "")
     }
 }

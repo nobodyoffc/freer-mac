@@ -42,6 +42,28 @@ struct PaneHeader: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            identityRow
+            // The live key's prikey is public: kept above every pane for
+            // as long as this is the live identity.
+            NobodyBanner(fid: session.liveFid, message: NobodyText.selfIdentity)
+        }
+        .sheet(isPresented: $showQr) {
+            QrDisplaySheet(
+                title: info?.hasCid == true ? (info?.displayName ?? "My FID") : "My FID",
+                content: session.liveFid
+            ) { showQr = false }
+        }
+        .sheet(isPresented: $showAvatar) {
+            FidAvatarSheet(
+                fid: session.liveFid,
+                title: info?.hasCid == true ? info?.displayName : nonEmptyLabel,
+                isNobody: info?.isNobody == true
+            ) { showAvatar = false }
+        }
+    }
+
+    private var identityRow: some View {
         HStack(alignment: .center, spacing: 14) {
             // The avatar is the only picture this app has of an
             // identity, and at 56 points it is a thumbnail. Clicking it
@@ -66,19 +88,6 @@ struct PaneHeader: View {
 
             valueRail
         }
-        .sheet(isPresented: $showQr) {
-            QrDisplaySheet(
-                title: info?.hasCid == true ? (info?.displayName ?? "My FID") : "My FID",
-                content: session.liveFid
-            ) { showQr = false }
-        }
-        .sheet(isPresented: $showAvatar) {
-            FidAvatarSheet(
-                fid: session.liveFid,
-                title: info?.hasCid == true ? info?.displayName : nonEmptyLabel,
-                isNobody: info?.isNobody == true
-            ) { showAvatar = false }
-        }
     }
 
     /// The local label, or nil when it is unset — the avatar sheet
@@ -95,6 +104,7 @@ struct PaneHeader: View {
             // With a CID registered, the CID is the name and the FID
             // rides beside it. Without one the FID *is* the name, and
             // printing it twice would just be noise.
+            NobodyChip(fid: session.liveFid, compact: false)
             if let info, info.hasCid {
                 Text(info.displayName)
                     .font(.title2).bold()

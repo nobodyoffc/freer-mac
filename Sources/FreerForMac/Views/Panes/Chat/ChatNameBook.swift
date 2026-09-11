@@ -33,9 +33,6 @@ final class ChatNameBook {
     /// distinction would change nothing on screen.
     private(set) var cids: [String: String] = [:]
 
-    /// FIDs whose private key is public knowledge. Their avatars are
-    /// drained of colour, the same as everywhere else in the app.
-    private(set) var nobodies: Set<String> = []
 
     /// Everyone already asked about, answered or not, so a FID with no
     /// record is not re-fetched on every redraw.
@@ -44,7 +41,10 @@ final class ChatNameBook {
     /// The CID for `fid`, or nil when the chain has published none.
     func cid(of fid: String) -> String? { cids[fid] }
 
-    func isNobody(_ fid: String) -> Bool { nobodies.contains(fid) }
+    /// Whether `fid`'s private key is public. The app-wide
+    /// ``NobodyRegistry`` answers, so a chat marks the same identities
+    /// every other pane does — and redraws when a lookup elsewhere learns one.
+    func isNobody(_ fid: String) -> Bool { NobodyRegistry.shared.isNobody(fid) }
 
     /// What to *show* for a FID: its CID when there is one, else the
     /// FID with its middle elided.
@@ -65,7 +65,6 @@ final class ChatNameBook {
         for fid in wanted {
             if let contact = (try? session.contacts.get(fid: fid)) ?? nil {
                 if let cid = contact.cid, !cid.isEmpty { cids[fid] = cid }
-                if contact.isNobody == true { nobodies.insert(fid) }
                 // A contact row can predate the CID it was later given,
                 // so one without a name is still worth asking about.
                 if contact.cid?.isEmpty != false { unresolved.append(fid) }
@@ -73,9 +72,18 @@ final class ChatNameBook {
                 unresolved.append(fid)
             }
         }
+        let directory = session.directory
+        // Whether a speaker's key is public is asked of the nobody index,
+        // the one lookup that can also say "no". Marks and hidden cards
+        // follow from the registry.
+        let speakers = Array(wanted)
+        Task {
+            await NobodyRegistry.shared.resolve(speakers, retryFailed: false) { fids in
+                await directory.nobodyFids(among: fids)
+            }
+        }
         guard !unresolved.isEmpty else { return }
 
-        let directory = session.directory
         Task { @MainActor [weak self] in
             // One call for the lot. `freerByIds` simply omits the FIDs
             // that have no record, so an unnamed identity is an absence
@@ -85,7 +93,6 @@ final class ChatNameBook {
             else { return }
             for (fid, freer) in found {
                 if let cid = freer.cid, !cid.isEmpty { cids[fid] = cid }
-                if freer.isNobody == true { nobodies.insert(fid) }
             }
         }
     }

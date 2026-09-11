@@ -55,6 +55,10 @@ final class TxApprovalTests: XCTestCase {
             switch call.api {
             case "base.broadcastTx":
                 return try makeResponse(data: String(repeating: "cd", count: 32))
+            case "base.getByIds":
+                // The nobody index, asked when confirmation is off: none of
+                // these test identities is a nobody.
+                return FapiResponse(code: 404, message: "NOT_FOUND")
             default:
                 XCTFail("unexpected api: \(call.api)")
                 return FapiResponse(code: 1, message: "unexpected")
@@ -372,6 +376,42 @@ final class TxApprovalTests: XCTestCase {
 
         let seen = await asked.value
         XCTAssertNil(seen, "approver must not be consulted when the setting is off")
+    }
+
+    /// Turning the dialog off is a choice about routine spends. A payment
+    /// to a key anyone holds is still shown. See NOBODY_SPEC.md.
+    func testConfirmationSettingOffStillAsksBeforePayingANobody() async throws {
+        let mock = MockFapiClient()
+        let sessions = try makeSessions(passwords: ["nobody-setting-a", "nobody-setting-b"], fapi: mock)
+        let alice = sessions[0]
+        let bob = sessions[1]
+        mock.responder = { call in
+            switch call.api {
+            case "base.getByIds":
+                return try makeResponse(data: [bob.mainFid: ["id": bob.mainFid, "priKey": "00"]])
+            default:
+                XCTFail("nothing may be broadcast once the user declines: \(call.api)")
+                return FapiResponse(code: 1, message: "unexpected")
+            }
+        }
+
+        let asked = PreviewBox()
+        alice.txApprover = { preview in
+            await asked.set(preview)
+            return .decline
+        }
+        try alice.preferences.update { $0.confirmBeforeSigning = false }
+        alice.reloadPreferences()
+
+        let inputs = [try cash(owner: alice.mainFid, txidByte: 0x45, index: 0, value: 1_000_000)]
+        do {
+            _ = try await alice.sendFromLive(to: bob.mainFid, amount: 100_000, using: inputs)
+            XCTFail("expected the decline to stop the send")
+        } catch WalletService.Failure.declinedByUser {
+            let seen = await asked.value
+            XCTAssertEqual(seen?.outputs.first?.fid, bob.mainFid)
+            XCTAssertTrue(NobodyRegistry.shared.isNobody(bob.mainFid))
+        }
     }
 
     // MARK: - unconfirmed chain

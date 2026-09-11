@@ -233,6 +233,7 @@ struct ContactsView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
+                    NobodyChip(fid: c.id)
                     Text(c.name)
                         .font(.body.bold())
                         .lineLimit(1)

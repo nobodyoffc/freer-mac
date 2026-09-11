@@ -86,6 +86,7 @@ struct FidDetailSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    NobodyBanner(fid: fid, message: NobodyText.identity)
                     if let loadError {
                         Text(loadError)
                             .font(.callout)
@@ -140,10 +141,13 @@ struct FidDetailSheet: View {
                 isNobody: freer?.isNobody == true
             )
             VStack(alignment: .leading, spacing: 3) {
-                Text(displayName)
-                    .font(.title3.bold())
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    NobodyChip(fid: fid, compact: false)
+                    Text(displayName)
+                        .font(.title3.bold())
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
                 Text(role)
                     .font(.caption)
                     .foregroundStyle(.secondary)

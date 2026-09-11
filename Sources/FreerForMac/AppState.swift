@@ -230,6 +230,12 @@ final class AppState {
         }
         self.manager = resolved
         self.fapiFactory = fapiFactory
+        // Nobodies (published prikeys) learned by any lookup, kept across
+        // launches. Beside the configures, outside any vault: it holds only
+        // identities that are public by definition. See NOBODY_SPEC.md.
+        NobodyRegistry.shared.install(
+            store: FileNobodyStore(url: resolved.baseDirectory.appendingPathComponent("nobodies.json"))
+        )
         // Always start at the password view — never reveal whether
         // the vault index is empty.
         self.configures = (try? resolved.listConfigures()) ?? []
@@ -972,6 +978,15 @@ final class AppState {
         liveFidInfo = session.cachedLiveFidInfo()
     }
 
+    /// The live key's prikey is published: say so once, loudly. The FID bar
+    /// keeps a banner for as long as it stays the live identity.
+    private func noteIfLiveKeyIsNobody(_ info: LiveFidInfo?) {
+        guard let session = activeSession, info?.isNobody == true else { return }
+        let fid = session.liveFid
+        NobodyRegistry.shared.markNobodies([fid])
+        Task { @MainActor in NobodyGate.alertOwnKeyIfNeeded(fid) }
+    }
+
     /// Tell every view rendering the live `KeyInfo` to re-read it.
     func bumpIdentityRevision() { identityRevision += 1 }
 
@@ -1000,6 +1015,7 @@ final class AppState {
             // from briefly showing the wrong identity's balance.
             guard session.liveFid == fidAtStart else { return }
             liveFidInfo = info
+            noteIfLiveKeyIsNobody(info)
         } catch {
             guard session.liveFid == fidAtStart else { return }
             liveFidInfoError = String(describing: error)

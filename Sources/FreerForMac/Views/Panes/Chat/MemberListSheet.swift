@@ -63,6 +63,13 @@ struct MemberListSheet: View {
 
             list
 
+            // Label only: a nobody member's consent can be given by anyone,
+            // but counting it is the protocol's business, not this sheet's.
+            NobodyBanner(
+                shown: style.mode == .team && !NobodyRegistry.shared.nobodies(among: members).isEmpty,
+                message: NobodyText.consensus
+            )
+
             if isOwner, style.mode != .square {
                 addRow
             }
@@ -81,6 +88,12 @@ struct MemberListSheet: View {
         // through the window's host — so this one installs its own.
         .fidDetailsHost(session: session)
         .onAppear(perform: load)
+        .task(id: members) {
+            let directory = session.directory
+            await NobodyRegistry.shared.resolve(members, retryFailed: false) { fids in
+                await directory.nobodyFids(among: fids)
+            }
+        }
     }
 
     /// Where this membership actually lives, said once, at the top.
@@ -234,6 +247,13 @@ struct MemberListSheet: View {
         working = true
         error = nil
         Task {
+            // A nobody member is a member anyone can be.
+            guard await NobodyGate.confirm(
+                [fid], style.mode == .team ? .team : .room, session: session
+            ) else {
+                await MainActor.run { working = false }
+                return
+            }
             do {
                 switch style.mode {
                 case .room:
@@ -298,6 +318,14 @@ struct MemberListSheet: View {
     /// Hand one team member the current key. **Owner only, and the
     /// check is the service's** — see ``TeamKeyService``.
     private func sendKey(to fid: String) {
+        Task {
+            // The key sealed to a nobody is a key everyone holds.
+            guard await NobodyGate.confirm([fid], .team, session: session) else { return }
+            sendKeyConfirmed(to: fid)
+        }
+    }
+
+    private func sendKeyConfirmed(to fid: String) {
         working = true
         error = nil
         do {

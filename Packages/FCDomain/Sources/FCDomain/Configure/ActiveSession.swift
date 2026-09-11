@@ -822,11 +822,23 @@ public final class ActiveSession {
         confirmBeforeSigningCache = nil
     }
 
-    /// The approver the wallet actually gets: nil when the identity
-    /// has turned confirmation off, so the gate costs nothing.
+    /// The approver the wallet actually gets. With confirmation on, every
+    /// transaction is shown. With it off, only one that pays a nobody or
+    /// spends from one: turning the dialog off is a choice about routine
+    /// spends, not about handing coins to a key anyone holds. See
+    /// `NOBODY_SPEC.md`.
     private var effectiveApprover: TxApprover? {
-        guard let txApprover, confirmBeforeSigning else { return nil }
-        return txApprover
+        guard let txApprover else { return nil }
+        if confirmBeforeSigning { return txApprover }
+        let directory = self.directory
+        return { preview in
+            let registry = NobodyRegistry.shared
+            await registry.resolve(preview.nobodyCandidates, retryFailed: true) { fids in
+                await directory.nobodyFids(among: fids)
+            }
+            guard preview.involvesNobody(in: registry) else { return .approve }
+            return await txApprover(preview)
+        }
     }
 
     /// Computed (not lazy) so ``setFapi(_:)`` is picked up the next

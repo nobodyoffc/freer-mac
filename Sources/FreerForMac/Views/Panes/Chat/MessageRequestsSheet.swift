@@ -88,6 +88,7 @@ struct MessageRequestsSheet: View {
                         )
                         VStack(alignment: .leading, spacing: 3) {
                             HStack(spacing: 4) {
+                                NobodyChip(fid: request.fid)
                                 Text(names.label(for: request.fid))
                                     .font(.body.weight(.bold))
                                     .lineLimit(1)
@@ -154,6 +155,8 @@ struct MessageRequestsSheet: View {
                     .font(.caption)
                     Spacer()
                 }
+
+                NobodyBanner(fid: selected, message: NobodyText.sender)
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {

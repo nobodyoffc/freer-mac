@@ -219,7 +219,16 @@ struct TranscriptView: View {
 
     @ViewBuilder
     private func body(of message: ImMessage) -> some View {
-        if message.isSealed {
+        // Anyone on earth can have written what a nobody sends, so its
+        // interactive cards — a file offer, a voice note — are never
+        // drawn as something to click. Text stays readable. See NOBODY_SPEC.md.
+        let fromNobody = !message.isOutgoing(from: session.liveFid)
+            && senderFid(of: message).map(names.isNobody) == true
+        if fromNobody && (message.contentType == .voice || message.contentType == .hat) {
+            Text(NobodyText.contentHidden)
+                .font(.caption)
+                .foregroundStyle(NobodyMark.color)
+        } else if message.isSealed {
             HStack(spacing: 4) {
                 Image(systemName: "lock.slash")
                 Text(message.symkeyVersion.map { "Sealed with key v\($0) — not held here" }

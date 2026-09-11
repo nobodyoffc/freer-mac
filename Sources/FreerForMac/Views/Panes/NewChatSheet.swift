@@ -517,8 +517,21 @@ struct NewChatSheet: View {
     private func commit() {
         error = nil
         switch mode {
-        case .p2p:  openChat()
-        case .room: createRoom()
+        case .p2p:
+            // A nobody's side of a chat is anyone's to read and write.
+            // The request board explains itself and is not asked about.
+            let fid = contactFid.trimmingCharacters(in: .whitespaces)
+            Task {
+                if !NobodyBoard.isDefaultNobody(fid) {
+                    guard await NobodyGate.confirm([fid], .chat, session: session) else { return }
+                }
+                openChat()
+            }
+        case .room:
+            Task {
+                guard await NobodyGate.confirm(roomInvitees.map(\.fid), .room, session: session) else { return }
+                createRoom()
+            }
         case .team, .square:
             Task { groupAction == .join ? await joinOnChain() : await createGroupOnChain() }
         }
@@ -633,7 +646,14 @@ struct NewChatSheet: View {
                 // team's current one — so a stale cached copy costs the
                 // fee and joins nothing. This is also the only way a
                 // team we have never synced can be joined at all.
-                let consensus = try await session.freshTeam(id: id)?.consensusId
+                let fresh = try await session.freshTeam(id: id)
+                // A team owned by a nobody can be run by anyone.
+                let owner = try fresh?.owner ?? session.teams.get(id: id)?.owner
+                guard await NobodyGate.confirm([owner], .teamOwner, session: session) else {
+                    await MainActor.run { working = false }
+                    return
+                }
+                let consensus = try fresh?.consensusId
                     ?? session.teams.get(id: id)?.consensusId
                 txid = try await session.carveTeamJoinOnChain(teamId: id, consensusId: consensus)
             } else {

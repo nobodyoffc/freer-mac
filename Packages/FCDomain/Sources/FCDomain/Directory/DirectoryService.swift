@@ -34,8 +34,24 @@ public struct DirectoryService {
 
     public let fapi: any FapiCalling
 
-    public init(fapi: any FapiCalling) {
+    /// Told about every nobody a lookup turns up, so the mark on an
+    /// avatar never depends on which pane happened to ask.
+    public let nobodies: NobodyRegistry
+
+    public init(fapi: any FapiCalling, nobodies: NobodyRegistry = .shared) {
         self.fapi = fapi
+        self.nobodies = nobodies
+    }
+
+    /// Record the nobodies among freshly decoded freers. Positives only:
+    /// a record fetched without the flag says nothing either way.
+    private func observe<S: Sequence>(_ freers: S) where S.Element == Freer {
+        nobodies.markNobodies(freers.compactMap { freer in
+            guard let id = freer.id,
+                  freer.isNobody == true || !(freer.prikey ?? "").isEmpty
+            else { return nil }
+            return id
+        })
     }
 
     /// Look up the on-chain ``Freer`` records for `fids`. Mirrors the
@@ -75,10 +91,65 @@ public struct DirectoryService {
         }
         guard let data = resp.data else { return [:] }
         do {
-            return try JSONDecoder().decode([String: Freer].self, from: data)
+            let found = try JSONDecoder().decode([String: Freer].self, from: data)
+            observe(found.map { fid, freer in
+                var keyed = freer
+                if keyed.id == nil { keyed.id = fid }
+                return keyed
+            })
+            return found
         } catch {
             throw Failure.underlying(error)
         }
+    }
+
+    // MARK: - the nobody index
+
+    public static let nobodyIndex = "nobody"
+
+    /// Look up FIDs in the chain's nobody index — Java's
+    /// `FapiClient.checkNobodies`. The returned map holds only the FIDs
+    /// that are nobodies. Both answers are recorded in ``nobodies``: this
+    /// is the one lookup that can also say "not a nobody".
+    public func nobodyByIds(
+        _ fids: [String],
+        timeoutMs: Int = 5_000
+    ) async throws -> [String: NobodyRecord] {
+        guard !fids.isEmpty else { return [:] }
+        let body = try JSONSerialization.data(
+            withJSONObject: ["entity": Self.nobodyIndex, "ids": fids],
+            options: [.sortedKeys]
+        )
+        let reply = try await fapi.call(
+            api: Self.getByIdsApi,
+            params: nil, fcdsl: body, binary: nil,
+            sid: nil, via: nil, maxCost: nil,
+            timeoutMs: timeoutMs
+        )
+        let resp = reply.response
+        var found: [String: NobodyRecord] = [:]
+        if let code = resp.code, code != 0 {
+            // None of the FIDs is in the index: an answer, not a failure.
+            guard code == 404 else {
+                throw Failure.fapiNonZeroCode(api: Self.getByIdsApi, code: code, message: resp.message)
+            }
+        } else if let data = resp.data {
+            do {
+                found = try JSONDecoder().decode([String: NobodyRecord].self, from: data)
+            } catch {
+                throw Failure.underlying(error)
+            }
+        }
+        nobodies.markNobodies(found.keys)
+        nobodies.markNotNobodies(fids.filter { found[$0] == nil })
+        return found
+    }
+
+    /// Check `fids` against the nobody index for ``NobodyRegistry/resolve(_:retryFailed:using:)``:
+    /// the nobodies among them, or nil when the lookup failed.
+    public func nobodyFids(among fids: [String]) async -> Set<String>? {
+        guard let found = try? await nobodyByIds(fids) else { return nil }
+        return Set(found.keys)
     }
 
     /// Convenience wrapper: look up one FID. Returns nil when the
@@ -327,6 +398,7 @@ public struct DirectoryService {
         }
         do {
             let freers = try JSONDecoder().decode([Freer].self, from: data)
+            observe(freers)
             return FreerSearchPage(freers: freers, last: resp.last, total: resp.total)
         } catch {
             throw Failure.underlying(error)
@@ -441,6 +513,7 @@ public struct DirectoryService {
         }
         do {
             let freers = try JSONDecoder().decode([Freer].self, from: data)
+            observe(freers)
             return FreerSearchPage(freers: freers, last: resp.last, total: resp.total)
         } catch {
             throw Failure.underlying(error)

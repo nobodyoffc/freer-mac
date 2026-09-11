@@ -163,6 +163,7 @@ struct FidPickerView: View {
     private func chip(_ picked: PickedFid) -> some View {
         HStack(spacing: 5) {
             FidAvatarView(fid: picked.fid, size: 18)
+            NobodyChip(fid: picked.fid)
             Text(picked.cid ?? picked.fid.elidingMiddle(head: 6, tail: 6))
                 .font(.caption)
                 .lineLimit(1)
@@ -274,6 +275,7 @@ struct FidPickerView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
+                        NobodyChip(fid: picked.fid)
                         Text(picked.name)
                             .font(.body.weight(picked.cid == nil ? .regular : .semibold))
                             .lineLimit(1)

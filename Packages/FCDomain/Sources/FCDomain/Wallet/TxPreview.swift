@@ -219,3 +219,22 @@ public enum TxDecision: Sendable, Equatable {
 /// send — which is the correct failure mode for a question about
 /// spending money.
 public typealias TxApprover = @Sendable (TxPreview) async -> TxDecision
+
+public extension TxPreview {
+
+    /// The addresses whose being a nobody matters to this transaction: the
+    /// recipients other than the sender, and the sender itself.
+    var nobodyCandidates: [String] {
+        var fids = outputs.compactMap { out -> String? in
+            guard !out.isOpReturn, !out.isSelf, let fid = out.fid, fid.first == "F" else { return nil }
+            return fid
+        }
+        fids.append(from)
+        return fids
+    }
+
+    /// Whether a recipient or the sender is a known nobody.
+    func involvesNobody(in registry: NobodyRegistry = .shared) -> Bool {
+        !registry.nobodies(among: nobodyCandidates).isEmpty
+    }
+}

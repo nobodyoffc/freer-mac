@@ -455,11 +455,19 @@ struct ContactEditorSheet: View {
         }
     }
 
+    /// Adding a nobody as a contact is adding someone anyone can be. Asked
+    /// once, when the contact is new; editing an existing one is not.
+    private func confirmNobody() async -> Bool {
+        if isEdit { return true }
+        return await NobodyGate.confirm([fid.trimmingCharacters(in: .whitespaces)], .contact, session: session)
+    }
+
     /// Local-only save — Android's `saveContactToDatabase` (which
     /// writes `onChain = false` and never touches the chain).
     @MainActor
     private func save() async {
         guard fidLooksValid else { return }
+        guard await confirmNobody() else { return }
         saving = true
         saveError = nil
         defer { saving = false }
@@ -480,6 +488,7 @@ struct ContactEditorSheet: View {
     @MainActor
     private func saveAndCarve() async {
         guard fidLooksValid, session.canSign else { return }
+        guard await confirmNobody() else { return }
         carving = true
         saveError = nil
         defer { carving = false }

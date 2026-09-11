@@ -29,6 +29,10 @@ struct MailReadSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    // Anyone could have written a nobody's mail.
+                    if incoming {
+                        NobodyBanner(fid: mail.counterparty(for: me), message: NobodyText.sender)
+                    }
                     bodySection
                     Divider()
                     envelopeSection
@@ -43,6 +47,13 @@ struct MailReadSheet: View {
         // This sheet draws a FID of its own, and a sheet cannot present
         // another sheet through the window's host — so it installs one.
         .fidDetailsHost(session: session)
+        .task {
+            guard let counterparty = mail.counterparty(for: me) else { return }
+            let directory = session.directory
+            await NobodyRegistry.shared.resolve([counterparty], retryFailed: false) { fids in
+                await directory.nobodyFids(among: fids)
+            }
+        }
     }
 
     // MARK: - sections
@@ -60,6 +71,7 @@ struct MailReadSheet: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 6) {
+                    NobodyChip(fid: counterparty, compact: false)
                     CopyableText(
                         display: displayName,
                         copy: mail.counterparty(for: me) ?? "",

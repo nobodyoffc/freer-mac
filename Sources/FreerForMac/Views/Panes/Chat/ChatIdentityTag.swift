@@ -68,6 +68,16 @@ struct ChatIdentityTag: View {
     private var color: Color { named ? tint : .secondary }
 
     var body: some View {
+        // A nobody's name is anyone's to wear: the chip sits in front of
+        // it for as long as the registry knows. Group ids are never marked.
+        HStack(spacing: 4) {
+            NobodyChip(fid: noun == "FID" ? fid : nil, compact: size == .small)
+            tag
+        }
+        .fixedSize()
+    }
+
+    private var tag: some View {
         CopyableText(
             display: named ? cid! : fid.elidingMiddle(head: 6, tail: 6),
             copy: fid,

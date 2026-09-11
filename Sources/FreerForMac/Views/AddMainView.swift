@@ -196,6 +196,14 @@ struct AddMainView: View {
             localError = String(describing: error)
             return
         }
+        // A key whose prikey is published is nobody's to own. Before a
+        // session there is no FAPI to ask, so this knows what the registry
+        // knows; the first refresh of the new identity checks the chain.
+        if let fid = try? FchAddress(publicKey: Secp256k1.publicKey(fromPrivateKey: priv)).fid {
+            guard await NobodyGate.confirm([fid], .importKey, session: appState.activeSession) else { return }
+            // Already confirmed here: no separate "your key is public" alert later.
+            _ = NobodyRegistry.shared.claimOwnKeyAlert(fid)
+        }
         await appState.addMain(privkey: priv, label: label)
         // Wipe sensitive fields irrespective of success/error.
         hexInput = ""

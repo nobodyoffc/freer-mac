@@ -317,7 +317,7 @@ struct CreateMultisigSheet: View {
             Spacer()
             Button("Cancel", role: .cancel) { onCancel() }
                 .keyboardShortcut(.cancelAction)
-            Button("Create") { create() }
+            Button("Create") { Task { await confirmAndCreate() } }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
                 .disabled(group == nil || blockReason != nil)
@@ -365,6 +365,13 @@ struct CreateMultisigSheet: View {
 
     private func clampThreshold() {
         threshold = min(max(1, threshold), max(1, members.count))
+    }
+
+    /// A nobody member can be signed for by anyone.
+    private func confirmAndCreate() async {
+        guard group != nil else { return }
+        guard await NobodyGate.confirm(members.map(\.fid), .multisig, session: session) else { return }
+        create()
     }
 
     private func create() {

@@ -531,6 +531,8 @@ struct TransferProofSheet: View {
 
     private func transfer() async {
         guard let recipient else { return }
+        // A proof owned by a nobody is owned by anyone.
+        guard await NobodyGate.confirm([recipient.fid], .send, session: session) else { return }
         busy = true
         defer { busy = false }
         error = nil

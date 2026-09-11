@@ -1,4 +1,5 @@
 import SwiftUI
+import FCCore
 import AppKit
 import FCDomain
 import FCUI
@@ -41,6 +42,7 @@ struct TxConfirmSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     headline
+                    nobodyWarnings
                     outputsCard
                     costCard
                     if preview.opReturn != nil { payloadCard }
@@ -69,6 +71,7 @@ struct TxConfirmSheet: View {
         .onAppear {
             resolveLocalNames()
             Task { await resolveChainNames() }
+            Task { await resolveNobodies() }
         }
     }
 
@@ -137,6 +140,43 @@ struct TxConfirmSheet: View {
         }
     }
 
+    // MARK: - nobodies
+
+    /// The recipients whose private key is public — paying one hands the
+    /// coins to anyone. Change back to the sender is the sender's warning.
+    private var nobodyRecipients: [String] {
+        NobodyRegistry.shared.nobodies(among: preview.outputs.compactMap { out in
+            guard !out.isOpReturn, !out.isSelf, let fid = out.fid, isAddress(fid) else { return nil }
+            return fid
+        })
+    }
+
+    /// Said above the outputs rather than in a second dialog: this sheet
+    /// is already the confirmation, and Approve is the "proceed anyway".
+    @ViewBuilder
+    private var nobodyWarnings: some View {
+        let recipients = nobodyRecipients
+        if !recipients.isEmpty {
+            NobodyBanner(
+                shown: true,
+                message: "Private key published on chain: "
+                    + recipients.map { $0.elidingMiddle(head: 8, tail: 8) }.joined(separator: ", ")
+                    + ". " + NobodyConsequence.send.text
+            )
+        }
+        NobodyBanner(fid: preview.from, message: NobodyConsequence.sendFrom.text)
+    }
+
+    /// Check every address on screen against the nobody index. Marks
+    /// appear when it answers; approving never waits on it.
+    private func resolveNobodies() async {
+        guard let session else { return }
+        let directory = session.directory
+        await NobodyRegistry.shared.resolve(addressesOnScreen, retryFailed: true) { fids in
+            await directory.nobodyFids(among: fids)
+        }
+    }
+
     // MARK: - cards
 
     /// **Who is being paid, at a glance.** A 34-point avatar is
@@ -167,6 +207,7 @@ struct TxConfirmSheet: View {
                                     .font(.callout.bold())
                                     .lineLimit(1)
                                     .truncationMode(.tail)
+                                NobodyChip(fid: fid)
                                 if out.isSelf {
                                     chip(preview.kind == .reorg ? "yours" : "change", color: .blue)
                                         .help("This output pays the sending identity back.")

@@ -634,7 +634,11 @@ struct ChatView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "envelope.open")
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("\(invite.name ?? "A room") — invitation from \(invite.from.elidingMiddle(head: 6, tail: 6))")
+                        HStack(spacing: 4) {
+                            NobodyChip(fid: invite.from)
+                            Text("\(invite.name ?? "A room") — invitation from \(invite.from.elidingMiddle(head: 6, tail: 6))")
+                        }
+                        NobodyBanner(fid: invite.from, message: NobodyText.inviter)
                         Text("Nothing about a room is on the chain, so this claim cannot be checked against anything. Accept only if you expected it.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
@@ -649,6 +653,9 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 8).fill(style.tint.opacity(0.12)))
             }
+        }
+        .task(id: invites.map(\.from)) {
+            names.resolve(invites.map(\.from), session: session)
         }
     }
 
@@ -679,6 +686,11 @@ struct ChatView: View {
         if let conversation = selected {
             VStack(alignment: .leading, spacing: 10) {
                 transcriptHeader(conversation)
+                // The board explains itself; any other nobody partner is a
+                // conversation anyone can read and write as.
+                if conversation.type == .p2p, !NobodyBoard.isDefaultNobody(conversation.targetId) {
+                    NobodyBanner(fid: conversation.targetId, message: NobodyText.partner)
+                }
                 Divider()
 
                 TranscriptView(
@@ -733,6 +745,7 @@ struct ChatView: View {
                     size: 24,
                     isNobody: names.isNobody(conversation.targetId)
                 )
+                NobodyChip(fid: conversation.targetId, compact: false)
             }
             if let name {
                 Text(name)

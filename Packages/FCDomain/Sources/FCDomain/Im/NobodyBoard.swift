@@ -27,7 +27,7 @@ public enum NobodyBoard {
     /// The default nobody freer. Its private key is public **by
     /// design**; publishing it here is not a leak, it is the mechanism.
     /// The FID below is what ``prikey`` derives to — see the test.
-    public static let defaultNobodyFid = "FHG8DW2eHQ5wNAJQnLNKzYUSo2YKt7ffff"
+    public static let defaultNobodyFid = NobodyRegistry.defaultNobodyFid
     public static let defaultNobodyPrikeyHex =
         "d710ff828229c8fd9923407a5ebfb4a27a42504a1d69ae7ec95b9cc2c7073226"
 

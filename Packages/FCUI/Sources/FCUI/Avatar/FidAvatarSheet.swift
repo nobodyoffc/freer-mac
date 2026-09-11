@@ -1,4 +1,5 @@
 import SwiftUI
+import FCCore
 import AppKit
 import UniformTypeIdentifiers
 
@@ -64,7 +65,7 @@ public struct FidAvatarSheet: View {
             VStack(spacing: 14) {
                 portrait
                 identityLine
-                if isNobody {
+                if isNobody || NobodyRegistry.shared.isNobody(fid) {
                     Label(
                         "Nobody FID — its private key is public, so anyone can spend from it.",
                         systemImage: "exclamationmark.triangle.fill"

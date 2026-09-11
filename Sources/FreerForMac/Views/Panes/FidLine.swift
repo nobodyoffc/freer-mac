@@ -53,6 +53,7 @@ struct FidLine: View {
         if let fid, !fid.isEmpty {
             HStack(spacing: 3) {
                 Text(label).font(.caption2).foregroundStyle(.tertiary)
+                NobodyChip(fid: fid)
                 CopyableText(
                     display: name ?? fid.elidingMiddle(head: 6, tail: 6),
                     copy: fid,
@@ -173,6 +174,7 @@ struct FidBadge: View {
 
     var body: some View {
         HStack(spacing: 3) {
+            NobodyChip(fid: fid)
             CopyableText(
                 display: name ?? fid.elidingMiddle(head: head, tail: tail),
                 copy: fid,

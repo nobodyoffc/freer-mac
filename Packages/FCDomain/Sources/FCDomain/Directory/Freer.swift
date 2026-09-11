@@ -21,6 +21,8 @@ public struct Freer: Codable, Hashable, Sendable {
     /// 33-byte ``Contact/pubkey`` at merge time.
     public var pubkey: String?
     public var isNobody: Bool?
+    /// Present only on a nobody: the private key its owner published.
+    public var prikey: String?
 
     public var balance: Int64?
     public var cash: Int64?

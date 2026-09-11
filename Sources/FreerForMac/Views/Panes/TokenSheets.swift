@@ -482,6 +482,7 @@ struct IssueTokenSheet: View {
     }
 
     private func issue() async {
+        guard await NobodyGate.confirm(transfers.map(\.fid), .send, session: session) else { return }
         busy = true
         defer { busy = false }
         error = nil
@@ -698,6 +699,8 @@ struct SendTokenSheet: View {
     }
 
     private func send() async {
+        // Tokens credited to a nobody are anyone's.
+        guard await NobodyGate.confirm([transfer.fid], .send, session: session) else { return }
         busy = true
         defer { busy = false }
         error = nil

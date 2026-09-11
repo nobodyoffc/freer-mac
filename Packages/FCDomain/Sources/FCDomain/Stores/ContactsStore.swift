@@ -48,7 +48,9 @@ public struct ContactsStore {
     }
 
     public func get(fid: String) throws -> Contact? {
-        try inner.get(fid)
+        let contact = try inner.get(fid)
+        if contact?.isNobody == true { NobodyRegistry.shared.markNobodies([fid]) }
+        return contact
     }
 
     @discardableResult
@@ -75,6 +77,9 @@ public struct ContactsStore {
     /// scale.
     public func all() throws -> [Contact] {
         let rows = try inner.all().map(\.value)
+        // A row flagged by an earlier lookup still counts, and may predate
+        // the registry.
+        NobodyRegistry.shared.markNobodies(rows.filter { $0.isNobody == true }.map(\.id))
         return rows.sorted { lhs, rhs in
             switch (lhs.pinnedAt, rhs.pinnedAt) {
             case (.some, .none): return true

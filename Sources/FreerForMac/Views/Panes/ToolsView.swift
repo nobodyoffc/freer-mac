@@ -40,7 +40,7 @@ struct ToolsView: View {
                     case .encrypt: EncryptToolView(session: session)
                     case .decrypt: DecryptToolView(session: session)
                     case .sign:    SignToolView(session: session)
-                    case .verify:  VerifyToolView()
+                    case .verify:  VerifyToolView(session: session)
                     case .hash:    HashToolView()
                     case .random:  RandomToolView()
                     }
@@ -168,7 +168,17 @@ private struct EncryptToolView: View {
                 guard let pubkey = Data(fcHex: key), pubkey.count == 33 else {
                     error = "It is not a public key (33 bytes hex)"; return
                 }
-                result = try TextCipher.encryptWithPubkey(plaintext, pubkey: pubkey)
+                // Anyone can open what is encrypted to a nobody's key.
+                Task {
+                    guard await NobodyGate.confirm(
+                        pubkeys: [Hex.encode(pubkey)], .encrypt, session: session
+                    ) else { return }
+                    do {
+                        result = try TextCipher.encryptWithPubkey(plaintext, pubkey: pubkey)
+                    } catch {
+                        self.error = "Encryption failed: \(errorText(error))"
+                    }
+                }
             }
         } catch {
             self.error = "Encryption failed: \(errorText(error))"
@@ -334,7 +344,12 @@ private struct SignToolView: View {
 // MARK: - Verify
 
 private struct VerifyToolView: View {
+    let session: ActiveSession
+
     @State private var signatureJson = ""
+    /// Who a valid key signature came from — checked against the nobody
+    /// index, because a valid signature by a public key proves nothing.
+    @State private var signer: String?
     @State private var key = ""
     @State private var verdict: Bool?
     @State private var error: String?
@@ -365,6 +380,10 @@ private struct VerifyToolView: View {
                 }
             }
 
+            if verdict == true, let signer {
+                NobodyBanner(fid: signer, message: NobodyText.signature)
+            }
+
             if let error {
                 CopyableText(error, font: .caption).foregroundStyle(.red)
             }
@@ -372,7 +391,7 @@ private struct VerifyToolView: View {
     }
 
     private func verify() {
-        verdict = nil; error = nil
+        verdict = nil; error = nil; signer = nil
         do {
             var signature = try MsgSignature.fromJson(signatureJson)
             let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -389,6 +408,15 @@ private struct VerifyToolView: View {
                     signature.fid = trimmedKey
                 }
                 verdict = signature.verify()
+                if verdict == true, let fid = signature.fid {
+                    signer = fid
+                    let directory = session.directory
+                    Task {
+                        await NobodyRegistry.shared.resolve([fid], retryFailed: true) { fids in
+                            await directory.nobodyFids(among: fids)
+                        }
+                    }
+                }
             }
         } catch {
             self.error = "Not a valid signature: \(errorText(error))"

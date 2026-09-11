@@ -349,6 +349,9 @@ struct SetMasterSheet: View {
     @MainActor
     private func carve() async {
         guard canCarve, let fid = candidate?.fid, let pubkey = candidatePubkey else { return }
+        // The master receives this identity's prikey: a nobody master
+        // publishes it to everyone.
+        guard await NobodyGate.confirm([fid], .master, session: session) else { return }
         carving = true
         carveError = nil
         defer { carving = false }
