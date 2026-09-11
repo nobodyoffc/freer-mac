@@ -685,6 +685,8 @@ extension MessageCourier.ReceiveReport {
             fetched: fetched + other.fetched,
             filed: filed + other.filed,
             sealed: sealed + other.sealed,
+            held: held + other.held,
+            routed: routed + other.routed,
             other: self.other + other.other
         )
     }

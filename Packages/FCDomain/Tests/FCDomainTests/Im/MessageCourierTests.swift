@@ -393,6 +393,19 @@ final class MessageCourierTests: XCTestCase {
         XCTAssertEqual(received.filed, 0)
     }
 
+    /// A collect over several DOCKs sums one report per server. `held`
+    /// and `routed` used to fall back to their defaults in the sum, so
+    /// the app's poller — which always takes that path — reported every
+    /// message request and every routed signal as zero.
+    func testSummingReportsKeepsEveryCount() {
+        let a = MessageCourier.ReceiveReport(fetched: 5, filed: 1, sealed: 1, held: 1, routed: 1, other: 2)
+        let b = MessageCourier.ReceiveReport(fetched: 7, filed: 2, sealed: 0, held: 3, routed: 2, other: 1)
+        XCTAssertEqual(
+            a.adding(b),
+            MessageCourier.ReceiveReport(fetched: 12, filed: 3, sealed: 1, held: 4, routed: 3, other: 3)
+        )
+    }
+
     /// The DOCK put is hashed with a **single** SHA-256 — the file
     /// endpoints hash twice, and this one does not. Matching the
     /// endpoint is the only thing that matters, and hashing twice would
