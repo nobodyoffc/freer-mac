@@ -400,6 +400,14 @@ struct OverviewView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
             }
 
+            if let type = FeipProtocol.displayName(forSn: item.objectType) {
+                Text(type)
+                    .font(.caption2.bold())
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Color.blue.opacity(0.15))
+                    .clipShape(RoundedRectangle(cornerRadius: 4))
+            }
+
             Text(item.objectName
                  ?? item.objectId?.elidingMiddle(head: 6, tail: 6)
                  ?? "—")
