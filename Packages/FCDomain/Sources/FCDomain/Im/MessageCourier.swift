@@ -141,10 +141,7 @@ public struct MessageCourier {
         if let note = outcome.note {
             SystemLog.shared.info(SystemSource.dock, note)
         }
-        let acted = !outcome.outbound.isEmpty
-            || outcome.invitation != nil
-            || outcome.learnedKeyFor != nil
-        return acted ? 1 : 0
+        return outcome.acted ? 1 : 0
     }
 
     public struct ReceiveReport: Equatable, Sendable {

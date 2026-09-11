@@ -351,11 +351,17 @@ final class AppState {
             collect: { [weak self] selection in
                 guard let session = self?.activeSession else { return .none }
                 do {
-                    return try await session.courier.collect(
+                    let report = try await session.courier.collect(
                         as: session.liveFid,
                         docks: selection,
                         privkey: try? session.livePrikey()
                     )
+                    // A history answer is routed during the collect but
+                    // is a file on somebody's DISK, which the synchronous
+                    // router cannot fetch. Nothing waiting makes this a
+                    // read of one empty namespace.
+                    await session.historyShare.importReceived(as: session.liveFid)
+                    return report
                 } catch {
                     return .none
                 }

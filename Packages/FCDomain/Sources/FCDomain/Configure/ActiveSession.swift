@@ -575,6 +575,8 @@ public final class ActiveSession {
         let invites = self.roomInvites
         let contacts = self.contacts
         let roomConversations = self.roomConversations
+        let historyShares = self.historyShares
+        let squares = self.squares
         return { message, liveFid, now in
             let router = SignalRouter(
                 rooms: rooms,
@@ -598,7 +600,9 @@ public final class ActiveSession {
                         return try? Secp256k1.publicKey(fromPrivateKey: privkey)
                     }
                     return try contacts.get(fid: fid)?.pubkey
-                }
+                },
+                historyShares: historyShares,
+                squares: squares
             )
             return try router.route(message, as: liveFid, now: now)
         }
@@ -606,6 +610,25 @@ public final class ActiveSession {
 
     /// Room invitations waiting for an answer.
     public lazy var roomInvites: RoomInvitesStore = RoomInvitesStore(kv: storage)
+
+    /// History asks we sent, asks waiting for a person here, and answers
+    /// waiting to be fetched. See ``HistoryShare``.
+    public lazy var historyShares: HistorySharesStore = HistorySharesStore(kv: storage)
+
+    /// Asking for, handing over and filing a conversation's messages.
+    /// Computed so a ``setFapi(_:)`` swap reaches the DISK it uploads to.
+    ///
+    /// The export directory sits inside ``dataDirectory`` on purpose:
+    /// ``FileVault`` deletes app-managed copies only there, which is what
+    /// lets the approval remove its plaintext export with the record.
+    public var historyShare: HistoryShareService {
+        HistoryShareService(
+            messages: messages, conversations: conversations,
+            symkeys: symkeys, outbox: outbox, shares: historyShares,
+            files: files, hats: hats, sync: hatSync,
+            exportDirectory: dataDirectory.appendingPathComponent("history-exports", isDirectory: true)
+        )
+    }
 
     /// Everything a DOCK fetch should ask for: this identity, plus every
     /// group it belongs to — a team's messages are addressed to the
@@ -763,6 +786,19 @@ public final class ActiveSession {
     /// a round-trip — what a key share is sealed to.
     public func knownPubkey(of fid: String) throws -> Data? {
         try contacts.get(fid: fid)?.pubkey
+    }
+
+    /// A FID's public key from wherever it can be had: our own key for
+    /// our own FID (nobody carves themselves a contact), then the address
+    /// book, then the chain. Nil only when the FID has never signed
+    /// anything, so there is nothing to seal to.
+    public func resolvePubkey(of fid: String, timeoutMs: Int = 10_000) async -> Data? {
+        if fid == liveFid, let privkey = try? livePrikey() {
+            return try? Secp256k1.publicKey(fromPrivateKey: privkey)
+        }
+        if let known = (try? knownPubkey(of: fid)) ?? nil { return known }
+        let freer = try? await directory.freerByIds([fid], timeoutMs: timeoutMs)[fid]
+        return freer?.pubkey.flatMap { Data(fcHex: $0) }
     }
 
     /// A member's `home` map, which is how we know whether there is

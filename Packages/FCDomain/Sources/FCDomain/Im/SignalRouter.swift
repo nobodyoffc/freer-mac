@@ -29,6 +29,13 @@ public struct SignalRouter {
     private let roomConversations: RoomConversations
     private let privkey: Data?
     private let pubkeys: (String) throws -> Data?
+    /// Where history asks and answers are kept. Nil turns the history
+    /// exchange off, which is what a router built for key traffic alone
+    /// wants.
+    private let historyShares: HistorySharesStore?
+    /// Only history needs a square: it is the one question a square's
+    /// members can ask each other, since a square has no key.
+    private let squares: SquaresStore?
 
     public init(
         rooms: RoomsStore,
@@ -38,7 +45,9 @@ public struct SignalRouter {
         roomService: RoomService,
         roomConversations: RoomConversations,
         privkey: Data?,
-        pubkeys: @escaping (String) throws -> Data? = { _ in nil }
+        pubkeys: @escaping (String) throws -> Data? = { _ in nil },
+        historyShares: HistorySharesStore? = nil,
+        squares: SquaresStore? = nil
     ) {
         self.rooms = rooms
         self.teams = teams
@@ -48,6 +57,8 @@ public struct SignalRouter {
         self.roomConversations = roomConversations
         self.privkey = privkey
         self.pubkeys = pubkeys
+        self.historyShares = historyShares
+        self.squares = squares
     }
 
     /// What routing one signal produced.
@@ -61,18 +72,35 @@ public struct SignalRouter {
         /// An entity whose key we just learned, so the caller can retry
         /// the messages that were sealed to it.
         public var learnedKeyFor: String?
+        /// Somebody asked for a conversation's messages. Stored for a
+        /// person to answer, like an invitation.
+        public var historyRequest: IncomingHistoryRequest?
+        /// An answer to one of our history asks, stored for
+        /// ``HistoryShareService/importReceived(now:)`` to fetch.
+        public var historyReceived: ReceivedHistoryShare?
         public var note: String?
 
         public init(
             outbound: [ImMessage] = [],
             invitation: (from: String, roomInfoJson: String)? = nil,
             learnedKeyFor: String? = nil,
+            historyRequest: IncomingHistoryRequest? = nil,
+            historyReceived: ReceivedHistoryShare? = nil,
             note: String? = nil
         ) {
             self.outbound = outbound
             self.invitation = invitation
             self.learnedKeyFor = learnedKeyFor
+            self.historyRequest = historyRequest
+            self.historyReceived = historyReceived
             self.note = note
+        }
+
+        /// Whether routing changed anything a person or a later pass
+        /// will see.
+        public var acted: Bool {
+            !outbound.isEmpty || invitation != nil || learnedKeyFor != nil
+                || historyRequest != nil || historyReceived != nil
         }
 
         public static func == (a: Outcome, b: Outcome) -> Bool {
@@ -80,6 +108,8 @@ public struct SignalRouter {
                 && a.invitation?.from == b.invitation?.from
                 && a.invitation?.roomInfoJson == b.invitation?.roomInfoJson
                 && a.learnedKeyFor == b.learnedKeyFor
+                && a.historyRequest == b.historyRequest
+                && a.historyReceived == b.historyReceived
                 && a.note == b.note
         }
 
@@ -98,6 +128,8 @@ public struct SignalRouter {
             return try routeSymkeyShare(message, as: liveFid, now: now)
         case .request:
             return try routeRequest(message, as: liveFid, now: now)
+        case .history:
+            return try routeHistoryAnswer(message, as: liveFid, now: now)
         default:
             return .nothing
         }
@@ -207,6 +239,11 @@ public struct SignalRouter {
         _ message: ImMessage, as liveFid: String, now: Date
     ) throws -> Outcome {
         guard let requestType = message.requestType else { return .nothing }
+        // Its content is a JSON object, not an entity id, so it cannot
+        // share the guard below.
+        if requestType == .history {
+            return try routeHistoryRequest(message, as: liveFid, now: now)
+        }
         guard let senderFid = message.senderId,
               let entityId = SymkeyShare.requestedEntityId(message.content)
         else { return .nothing }
@@ -275,6 +312,105 @@ public struct SignalRouter {
             for: room, to: senderFid, from: liveFid, pubkeys: pubkeys, now: now
         )
         return Outcome(outbound: [reply], note: "sent room details for \(roomId)")
+    }
+
+    // MARK: - history
+
+    /// Somebody asked for a conversation's messages.
+    ///
+    /// **Never answered here.** Handing over a transcript hands over
+    /// what *other* people said in it, so a person decides — this only
+    /// checks that the question is one they could legitimately be asked,
+    /// and keeps it. Membership is this device's understanding, as for a
+    /// key request, and the asker's claim about the thread is turned
+    /// round for P2P rather than trusted (see
+    /// ``HistoryRequestPayload/responderConversation(requester:as:)``).
+    private func routeHistoryRequest(
+        _ message: ImMessage, as liveFid: String, now: Date
+    ) throws -> Outcome {
+        guard let historyShares else { return .nothing }
+        guard let senderFid = message.senderId,
+              let nonce = message.requestId, !nonce.isEmpty,
+              let payload = HistoryRequestPayload.parse(message.content)
+        else { return Outcome(note: "unreadable history request") }
+
+        // Our own ask, collected back off our own DOCK on its way to our
+        // other device. It is not a question for us.
+        if senderFid == liveFid, try historyShares.ask(nonce: nonce) != nil {
+            return .nothing
+        }
+        guard let (type, targetId) = payload.responderConversation(requester: senderFid, as: liveFid) else {
+            return Outcome(note: "history request from \(senderFid) about a chat they are not in")
+        }
+        if type != .p2p {
+            guard isInGroup(type, targetId, fid: liveFid), isInGroup(type, targetId, fid: senderFid) else {
+                return Outcome(note: "history request from a non-member")
+            }
+        }
+
+        let request = IncomingHistoryRequest(
+            nonce: nonce,
+            from: senderFid,
+            type: type,
+            targetId: targetId,
+            since: payload.since,
+            before: payload.before,
+            receivedAt: message.timestamp ?? Int64(now.timeIntervalSince1970 * 1000),
+            requestedTargetId: payload.targetId
+        )
+        try historyShares.recordIncoming(request)
+        return Outcome(historyRequest: request, note: "\(senderFid) asked for message history")
+    }
+
+    /// An answer arrived. Kept only when it answers an ask of ours, from
+    /// the person we asked — Android checks the nonce and not the sender,
+    /// so anyone who saw a nonce could answer in the asked member's
+    /// place.
+    private func routeHistoryAnswer(
+        _ message: ImMessage, as liveFid: String, now: Date
+    ) throws -> Outcome {
+        guard let historyShares else { return .nothing }
+        guard let nonce = message.requestId, !nonce.isEmpty,
+              let ask = try historyShares.ask(nonce: nonce)
+        else { return Outcome(note: "unsolicited history share") }
+        guard let senderFid = message.senderId, senderFid == ask.askedFid else {
+            return Outcome(note: "history share from someone who was not asked")
+        }
+        guard let hatJson = message.content, !hatJson.isEmpty else {
+            return Outcome(note: "history share with nothing in it")
+        }
+
+        let share = ReceivedHistoryShare(
+            nonce: nonce,
+            from: senderFid,
+            conversationId: ask.conversationId,
+            since: ask.since,
+            before: ask.before,
+            hatJson: hatJson,
+            receivedAt: Int64(now.timeIntervalSince1970 * 1000)
+        )
+        try historyShares.recordReceived(share)
+        try historyShares.removeAsk(nonce: nonce)
+        return Outcome(historyReceived: share, note: "history arrived from \(senderFid)")
+    }
+
+    /// Membership of a group of a named flavour. Unlike ``isMember(of:fid:)``
+    /// this includes squares, since a square's transcript is as much a
+    /// member's to ask for as a team's.
+    private func isInGroup(_ type: ImType, _ id: String, fid: String) -> Bool {
+        switch type {
+        case .room:
+            guard let room = try? rooms.get(id: id) else { return false }
+            return room.isOwner(fid) || room.isMember(fid)
+        case .team:
+            guard let team = try? teams.get(id: id) else { return false }
+            return team.isOwner(fid) || team.isMember(fid)
+        case .square:
+            guard let square = (try? squares?.get(id: id)) ?? nil else { return false }
+            return square.isMember(fid)
+        case .p2p:
+            return false
+        }
     }
 
     // MARK: - membership

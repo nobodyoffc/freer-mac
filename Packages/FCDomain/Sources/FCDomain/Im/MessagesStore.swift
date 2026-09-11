@@ -185,6 +185,28 @@ public struct MessagesStore {
         return Page(messages: messages, olderCursor: older)
     }
 
+    /// Every message with `since <= timestamp < before`, oldest first —
+    /// what a history share exports.
+    ///
+    /// Selected on the keys, which are the padded timestamps, so a year
+    /// of transcript outside the range is never decrypted to find the
+    /// week inside it.
+    public func messages(in conversationId: String, since: Int64, before: Int64) throws -> [ImMessage] {
+        let s = store(conversationId)
+        let low = String(format: "%019lld", max(0, since))
+        let high = String(format: "%019lld", max(0, before))
+        return try s.keys()
+            .filter { $0 >= low && $0 < high }
+            .compactMap { try s.get($0) }
+    }
+
+    /// The ids a conversation already holds, read off the keys.
+    public func messageIds(in conversationId: String) throws -> Set<String> {
+        Set(try store(conversationId).keys().compactMap { key in
+            key.firstIndex(of: "-").map { String(key[key.index(after: $0)...]) }
+        })
+    }
+
     /// The newest message, for a conversation-list preview that has to
     /// be rebuilt. Reads exactly one row.
     public func latest(in conversationId: String) throws -> ImMessage? {

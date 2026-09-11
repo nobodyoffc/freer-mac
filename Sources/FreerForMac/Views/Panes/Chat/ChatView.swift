@@ -96,6 +96,18 @@ struct ChatView: View {
     /// from the chain by the group sync — see ``ConsensusSignatureSheet``.
     @State private var consensusDue: [ConsensusSignatureRequest] = []
     @State private var showConsensus = false
+    @State private var showHistoryAsk = false
+    /// Somebody asked for a conversation's messages, and only a person
+    /// can say yes — what they would take includes what other people
+    /// wrote. Each tab shows the ones about its own flavour.
+    @State private var historyRequests: [IncomingHistoryRequest] = []
+    /// Answers to our own asks that could not be fetched, and have
+    /// stopped retrying on their own.
+    @State private var historyFailures: [ReceivedHistoryShare] = []
+    /// The ask the user pressed Share on, held until they confirm.
+    @State private var confirmShareHistory: IncomingHistoryRequest?
+    /// Which ask is uploading right now, so its row can say so.
+    @State private var sharingHistory: String?
     @State private var confirmLeave = false
     /// The thread the user asked to delete, held until they confirm.
     /// Nil is "nothing pending" — a Bool could not name the row, and the
@@ -231,6 +243,9 @@ struct ChatView: View {
             if mode == .team, !consensusDue.isEmpty {
                 consensusBanner
             }
+            if !historyRequestsHere.isEmpty || !historyFailuresHere.isEmpty {
+                historyBanner
+            }
 
             if let err = loadError {
                 card {
@@ -324,6 +339,34 @@ struct ChatView: View {
                     onSent: { summary in syncSummary = summary }
                 )
             }
+        }
+        .sheet(isPresented: $showHistoryAsk) {
+            if let conversation = selected {
+                RequestHistorySheet(
+                    session: session,
+                    style: style,
+                    conversation: conversation,
+                    names: names,
+                    onClose: { showHistoryAsk = false },
+                    onSent: { summary in syncSummary = summary }
+                )
+            }
+        }
+        // Driven by the ask itself, not by the selection, for the reason
+        // the Delete dialog below gives.
+        .confirmationDialog(
+            "Share this history?",
+            isPresented: Binding(
+                get: { confirmShareHistory != nil },
+                set: { if !$0 { confirmShareHistory = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: confirmShareHistory
+        ) { request in
+            Button("Share") { approveHistory(request) }
+            Button("Cancel", role: .cancel) { confirmShareHistory = nil }
+        } message: { request in
+            Text(shareHistoryMessage(request))
         }
         .sheet(isPresented: $showMembers) {
             if let conversation = selected {
@@ -659,6 +702,112 @@ struct ChatView: View {
         }
     }
 
+    private var historyRequestsHere: [IncomingHistoryRequest] {
+        historyRequests.filter { $0.type == mode }
+    }
+
+    private var historyFailuresHere: [ReceivedHistoryShare] {
+        historyFailures.filter { Self.type(ofConversationId: $0.conversationId) == mode }
+    }
+
+    /// A conversation id is `<TYPE>_<target>`, and no type name has an
+    /// underscore in it.
+    private static func type(ofConversationId id: String) -> ImType? {
+        ImType(rawValue: String(id.prefix(while: { $0 != "_" })))
+    }
+
+    /// The thread an ask is about, as the list would name it.
+    private func historyThreadName(_ conversationId: String, type: ImType, targetId: String) -> String {
+        if type == .p2p { return names.cid(of: targetId) ?? targetId.elidingMiddle(head: 6, tail: 6) }
+        if let conversation = try? session.conversations.get(id: conversationId) {
+            return ChatFormat.title(of: conversation)
+        }
+        return targetId.elidingMiddle(head: 6, tail: 6)
+    }
+
+    /// History asks waiting for an answer, and answers that could not be
+    /// fetched. Both are about one thread each, so each row says which.
+    private var historyBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(historyRequestsHere) { request in
+                HStack(spacing: 8) {
+                    Image(systemName: "clock.arrow.circlepath")
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 4) {
+                            NobodyChip(fid: request.from)
+                            Text(historyAskTitle(request))
+                        }
+                        Text(historyAskDetail(request))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if sharingHistory == request.id {
+                        ProgressView().controlSize(.small)
+                        Text("Uploading…").font(.caption)
+                    } else {
+                        Button("Share…") { confirmShareHistory = request }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(sharingHistory != nil || !session.canSign)
+                        Button("Decline") { declineHistory(request) }
+                            .disabled(sharingHistory != nil)
+                    }
+                }
+                .font(.callout)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 8).fill(style.tint.opacity(0.12)))
+            }
+            ForEach(historyFailuresHere) { share in
+                HStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("History from \(share.from.elidingMiddle(head: 6, tail: 6)) could not be added")
+                        CopyableText(share.lastError ?? "", font: .caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Retry") { retryHistoryImport(share) }
+                    Button("Dismiss") { dismissHistoryImport(share) }
+                }
+                .font(.callout)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.14)))
+            }
+        }
+        .task(id: historyRequestsHere.map(\.from)) {
+            names.resolve(historyRequestsHere.map(\.from), session: session)
+        }
+    }
+
+    private func historyAskTitle(_ request: IncomingHistoryRequest) -> String {
+        let who = request.from == session.liveFid
+            ? "Your other device"
+            : (names.cid(of: request.from) ?? request.from.elidingMiddle(head: 6, tail: 6))
+        let thread = historyThreadName(request.conversationId, type: request.type, targetId: request.targetId)
+        return request.type == .p2p
+            ? "\(who) asks for your conversation with \(request.from == session.liveFid ? thread : "them")"
+            : "\(who) asks for the messages in \(thread)"
+    }
+
+    private func historyAskDetail(_ request: IncomingHistoryRequest) -> String {
+        let count = (try? session.historyShare.messageCount(for: request)) ?? 0
+        let range = HistoryRangeText.format(since: request.since, before: request.before)
+        return count == 0
+            ? "\(range.prefix(1).uppercased() + range.dropFirst()) — this Mac holds nothing in that range."
+            : "\(range.prefix(1).uppercased() + range.dropFirst()) — \(count) message\(count == 1 ? "" : "s") on this Mac."
+    }
+
+    /// What sharing hands over, said before it is done. The part people
+    /// miss is that a group transcript is mostly other people's words.
+    private func shareHistoryMessage(_ request: IncomingHistoryRequest) -> String {
+        let count = (try? session.historyShare.messageCount(for: request)) ?? 0
+        let range = HistoryRangeText.format(since: request.since, before: request.before)
+        let whose = request.type == .p2p ? "both sides of the conversation" : "what every member wrote, not only you"
+        return "\(count) message\(count == 1 ? "" : "s") \(range) — \(whose) — are uploaded encrypted to your DISK, and the key to open them goes to \(request.from). They keep a copy; this cannot be taken back."
+    }
+
     @ViewBuilder
     private var emptyCard: some View {
         card {
@@ -835,6 +984,8 @@ struct ChatView: View {
         Menu {
             switch conversation.type {
             case .p2p:
+                Button("Request history…") { showHistoryAsk = true }
+                Divider()
                 Button("Block this FID") { block(conversation) }
                 Button("Delete…", role: .destructive) { confirmDelete = conversation }
 
@@ -842,6 +993,7 @@ struct ChatView: View {
                 Button("Members…") { showMembers = true }
                 Button("Ask for the key…") { asking = .symkey }
                 Button("Ask for this room's details…") { asking = .roomInfo }
+                Button("Request history…") { showHistoryAsk = true }
                 if facts.isOwner {
                     Divider()
                     Button("Room settings…") { showRoomSettings = true }
@@ -856,6 +1008,7 @@ struct ChatView: View {
             case .team:
                 Button("Members…") { showMembers = true }
                 Button("Ask for the key…") { asking = .symkey }
+                Button("Request history…") { showHistoryAsk = true }
                 if facts.isOwner {
                     // Owner-only, as on Android, where updating a team
                     // sits in the owner sub-menu. The chain enforces it;
@@ -874,6 +1027,7 @@ struct ChatView: View {
                 // item in `popup_group_chat_menu.xml` — with no click
                 // listener bound, so it does nothing at all.
                 Button("Members…") { showMembers = true }
+                Button("Request history…") { showHistoryAsk = true }
                 // Offered to every member, and that is the rule rather
                 // than a convenience: nobody owns a square and nobody is
                 // privileged in one. An update is accepted from whoever
@@ -920,6 +1074,8 @@ struct ChatView: View {
             // answered, and the banner must not keep arguing with them.
             // The sheet behind it still lists every row.
             consensusDue = try session.consensusSignatures.outstanding()
+            historyRequests = try session.historyShares.incoming()
+            historyFailures = try session.historyShares.received().filter(\.waitsForRetry)
             // Every P2P thread's other party, so the list can name its
             // rows. Group targets are deliberately not asked about: a
             // room id is not a FID, and a group already carries its own
@@ -1462,6 +1618,76 @@ struct ChatView: View {
         }
     }
 
+    /// Hand over the history an ask named. The user has already seen
+    /// what goes and to whom — see ``shareHistoryMessage(_:)``.
+    private func approveHistory(_ request: IncomingHistoryRequest) {
+        confirmShareHistory = nil
+        sendError = nil
+        sharingHistory = request.id
+        Task {
+            do {
+                let privkey = try session.livePrikey()
+                guard let pubkey = await session.resolvePubkey(of: request.from) else {
+                    throw ChatService.Failure.noRecipientKey(request.from)
+                }
+                let count = try await session.historyShare.approve(
+                    request, as: session.liveFid, privkey: privkey, requesterPubkey: pubkey
+                )
+                _ = try? await session.courier.drainOutbox(as: session.liveFid)
+                await MainActor.run {
+                    sharingHistory = nil
+                    syncSummary = "Shared \(count) message\(count == 1 ? "" : "s") with \(request.from.elidingMiddle(head: 6, tail: 6))."
+                    reload()
+                }
+            } catch {
+                await MainActor.run {
+                    sharingHistory = nil
+                    sendError = String(describing: error)
+                    reload()
+                }
+            }
+        }
+    }
+
+    private func declineHistory(_ request: IncomingHistoryRequest) {
+        sendError = nil
+        do {
+            try session.historyShare.decline(request)
+            reload()
+        } catch {
+            sendError = String(describing: error)
+        }
+    }
+
+    private func retryHistoryImport(_ share: ReceivedHistoryShare) {
+        sendError = nil
+        Task {
+            let results = await session.historyShare.importReceived(
+                as: session.liveFid, retrying: share.nonce
+            )
+            await MainActor.run {
+                if let result = results.first(where: { $0.nonce == share.nonce }) {
+                    if let count = result.imported {
+                        syncSummary = "Imported \(count) message\(count == 1 ? "" : "s") from history."
+                    } else {
+                        sendError = result.error
+                    }
+                }
+                reload()
+                openSelected()
+            }
+        }
+    }
+
+    private func dismissHistoryImport(_ share: ReceivedHistoryShare) {
+        do {
+            try session.historyShare.dismiss(share)
+            reload()
+        } catch {
+            sendError = String(describing: error)
+        }
+    }
+
     /// Room control traffic is P2P, so it queues into each recipient's
     /// own thread — an invitation has to reach someone not yet in the
     /// room, and a removal someone no longer in it.
@@ -1511,6 +1737,9 @@ struct ChatView: View {
             if sent.failed > 0 { parts.append("\(sent.failed) failed") }
             parts.append("received \(received.filed)")
             if received.sealed > 0 { parts.append("\(received.sealed) need a key") }
+            let imported = await session.historyShare.importReceived(as: session.liveFid)
+            let filed = imported.compactMap(\.imported).reduce(0, +)
+            if filed > 0 { parts.append("\(filed) imported from history") }
         } catch {
             await MainActor.run { sendError = String(describing: error) }
         }

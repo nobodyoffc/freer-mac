@@ -356,8 +356,12 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         return m
     }
 
-    /// A history share: `hatJson` points at the exported history file,
-    /// `kCipherBase64` is the file's symkey sealed to the receiver.
+    /// A history share: `hatJson` points at the exported history file.
+    ///
+    /// What Android actually sends — and ``HistoryShareService`` too —
+    /// is the file key **inside** the HAT (its `key`), with the whole
+    /// body sealed to the receiver, and `kCipher` nil. The parameter is
+    /// kept for a client that seals the key separately.
     public static func history(
         type: ImType, from: String, to: String,
         hatJson: String, kCipher: Data?, now: Date = Date()
