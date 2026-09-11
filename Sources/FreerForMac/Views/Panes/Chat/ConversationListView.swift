@@ -25,6 +25,14 @@ struct ConversationListView: View {
     /// anything itself — it has no stores and no way to warn — so it
     /// says which row and lets the pane confirm.
     var onDelete: ((Conversation) -> Void)?
+    /// Groups whose DOCK refused us last time — Android's red dot. Their
+    /// messages are not arriving, and a quiet thread would otherwise read
+    /// as a quiet group.
+    var unreachable: Set<String> = []
+    /// Non-nil while the pane is choosing several threads to act on
+    /// together (Android's long-press selection). A tap then ticks a row
+    /// instead of opening it.
+    var checked: Binding<Set<String>>? = nil
 
     var body: some View {
         ScrollView {
@@ -47,7 +55,17 @@ struct ConversationListView: View {
                             }
                         }
                         .contentShape(Rectangle())
-                        .onTapGesture { selectedId = conversation.id }
+                        .onTapGesture {
+                            if let checked {
+                                if checked.wrappedValue.contains(conversation.id) {
+                                    checked.wrappedValue.remove(conversation.id)
+                                } else {
+                                    checked.wrappedValue.insert(conversation.id)
+                                }
+                            } else {
+                                selectedId = conversation.id
+                            }
+                        }
                         .contextMenu {
                             // Only a person has a `Freer` behind them —
                             // a team, square or room id looks like a FID
@@ -91,6 +109,13 @@ struct ConversationListView: View {
 
     private func row(_ conversation: Conversation) -> some View {
         HStack(alignment: .top, spacing: 8) {
+            if let checked {
+                Image(systemName: checked.wrappedValue.contains(conversation.id)
+                      ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(checked.wrappedValue.contains(conversation.id)
+                                     ? AnyShapeStyle(style.tint) : AnyShapeStyle(.tertiary))
+                    .padding(.top, 8)
+            }
             // A P2P thread's target *is* a FID, so it gets the person's
             // circle. A group's target is a room id or a txid, which
             // ``AvatarMaker`` cannot read and must never be handed —
@@ -128,7 +153,13 @@ struct ConversationListView: View {
                         .foregroundStyle(nameColor)
                         .lineLimit(1)
                     if conversation.leftGroup == true {
-                        ChatChip("left", color: .secondary)
+                        // A room ends the same way whether its owner
+                        // closed it, removed us, or we left: nobody here
+                        // can speak in it again.
+                        ChatChip(conversation.type == .room ? "closed" : "left", color: .secondary)
+                    } else if unreachable.contains(conversation.targetId) {
+                        ChatChip("DOCK down", color: .red)
+                            .help("This group's DOCK refused the last connection, so nothing new is arriving. It is retried whenever this list opens.")
                     }
                     // Only the square is labelled in the list, and only
                     // because its label is a warning. The others are

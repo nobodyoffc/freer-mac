@@ -577,6 +577,7 @@ public final class ActiveSession {
         let roomConversations = self.roomConversations
         let historyShares = self.historyShares
         let squares = self.squares
+        let teamOffers = self.teamOffers
         return { message, liveFid, now in
             let router = SignalRouter(
                 rooms: rooms,
@@ -602,7 +603,8 @@ public final class ActiveSession {
                     return try contacts.get(fid: fid)?.pubkey
                 },
                 historyShares: historyShares,
-                squares: squares
+                squares: squares,
+                teamOffers: teamOffers
             )
             return try router.route(message, as: liveFid, now: now)
         }
@@ -610,6 +612,44 @@ public final class ActiveSession {
 
     /// Room invitations waiting for an answer.
     public lazy var roomInvites: RoomInvitesStore = RoomInvitesStore(kv: storage)
+
+    /// Teams inviting this identity in, or handing themselves to it —
+    /// from the chain, and from the notices that announce them.
+    public lazy var teamOffers: TeamOffersStore = TeamOffersStore(kv: storage)
+
+    /// Teams and squares carved for and not yet shown by the chain.
+    public lazy var pendingGroups: PendingGroupsStore = PendingGroupsStore(kv: storage)
+
+    /// Record a broadcast create, join or take-over, so the list can say
+    /// it is waiting for the chain. Never throws: a row that could not
+    /// be written costs a reassurance, not the carve.
+    public func notePendingGroup(
+        _ type: ImType, id: String, name: String?, act: PendingGroup.Act,
+        txid: String, now: Date = Date()
+    ) {
+        try? pendingGroups.record(PendingGroup(
+            fid: liveFid, type: type, groupId: id, name: name, act: act, txid: txid,
+            broadcastAt: Int64(now.timeIntervalSince1970 * 1000)
+        ))
+    }
+
+    /// Things in a chat flavour that wait on this identity's answer and
+    /// are not unread messages — room invitations; team invitations,
+    /// transfers and consensus agreements. What a tab badge and the
+    /// Overview count beside unread, so an invitation that arrives while
+    /// the user is elsewhere is not only visible from inside its tab.
+    public func awaitingAnswer(type: ImType, now: Date = Date()) -> Int {
+        switch type {
+        case .room:
+            return (try? roomInvites.all().count) ?? 0
+        case .team:
+            let offers = (try? teamOffers.waiting(fid: liveFid, now: now).count) ?? 0
+            let agreements = (try? consensusSignatures.outstanding().count) ?? 0
+            return offers + agreements
+        case .p2p, .square:
+            return 0
+        }
+    }
 
     /// History asks we sent, asks waiting for a person here, and answers
     /// waiting to be fetched. See ``HistoryShare``.
@@ -2279,6 +2319,10 @@ public final class ActiveSession {
     /// always did, so the key has to be rotated as well — the same
     /// bargain ``RoomService/removeMember(_:from:as:pubkeys:now:)``
     /// makes, except that here the two halves are separate acts.
+    ///
+    /// Any manager may dismiss, not only the owner, and nobody may
+    /// dismiss the owner. Both are read from the chain first: the parser
+    /// ignores a list naming nobody it can remove, after the fee.
     @discardableResult
     public func carveTeamDismissOnChain(
         teamId: String,
@@ -2286,19 +2330,283 @@ public final class ActiveSession {
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> String {
-        try await carveGroupOp(
-            TeamFeip.envelope(opJson: try TeamFeip.dismissOp(tid: teamId, fids: fids)),
+        let team = try await governedTeam(teamId, requireManager: true, timeoutMs: timeoutMs)
+        let plan = TeamGovernance.dismiss(team, fids: fids)
+        guard !plan.isEmpty else {
+            throw Failure.underlying(TeamGovernanceFailure.nothingToChange(.dismiss, skipped: plan.skipped))
+        }
+        return try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.dismissOp(tid: teamId, fids: plan.effective)),
             feePerByte: feePerByte, timeoutMs: timeoutMs
         )
     }
 
+    // MARK: - team governance
+
+    /// Hand a team to `transferee` — the port of Android's transfer in
+    /// the owner menu.
+    ///
+    /// **Not a hand-over yet.** The carve only names who may take the
+    /// team; nothing changes hands until they carve a `take over`, and
+    /// until then the owner can withdraw the offer with
+    /// ``carveTeamCancelTransferOnChain(teamId:feePerByte:timeoutMs:)``.
+    /// The signer is not checked here, because the parser also accepts
+    /// the owner's master — see ``TeamGovernance/transferRefusal(_:to:)``.
+    @discardableResult
+    public func carveTeamTransferOnChain(
+        teamId: String,
+        transferee: String,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        let team = try await governedTeam(teamId, timeoutMs: timeoutMs)
+        let fid = transferee.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let refusal = TeamGovernance.transferRefusal(team, to: fid) {
+            throw Failure.underlying(refusal)
+        }
+        return try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.transferOp(tid: teamId, transferee: fid)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// Withdraw a pending transfer. The protocol has no op for it: a
+    /// transfer naming the owner is what clears `transferee`.
+    @discardableResult
+    public func carveTeamCancelTransferOnChain(
+        teamId: String,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        let team = try await governedTeam(teamId, timeoutMs: timeoutMs)
+        guard let owner = TeamGovernance.cancelTransferee(of: team),
+              !(team.transferee ?? "").isEmpty
+        else { throw Failure.underlying(TeamGovernanceFailure.noTransferPending(teamId: teamId)) }
+        return try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.transferOp(tid: teamId, transferee: owner)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// Take over a team offered to this identity.
+    ///
+    /// The taker becomes owner, member and **sole manager** — the parser
+    /// replaces `managers` outright, so the previous owner's appointees
+    /// lose their role with the hand-over. The confirm sentence agrees
+    /// to the team consensus, and the id quoted is the one the chain
+    /// holds now, read here rather than taken from the offer.
+    @discardableResult
+    public func carveTeamTakeOverOnChain(
+        teamId: String,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        guard let team = try await freshTeam(id: teamId, timeoutMs: timeoutMs) else {
+            throw Failure.underlying(TeamGovernanceFailure.noSuchTeam(teamId))
+        }
+        if let refusal = TeamGovernance.takeOverRefusal(team, fid: liveFid) {
+            throw Failure.underlying(refusal)
+        }
+        let consensus = team.consensusId.flatMap { $0.isEmpty ? nil : $0 }
+        return try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.takeOverOp(tid: teamId, consensusId: consensus)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// Disband teams this identity owns.
+    ///
+    /// **One team the signer does not own sinks the whole carve** — the
+    /// parser checks ownership of every listed team before writing any —
+    /// so each is read first and a stranger's is refused. A team already
+    /// disbanded is dropped from the list, and a list with nothing left
+    /// active is refused, since the parser would reject it too.
+    ///
+    /// Keys are kept: disbanding ends the conversation, it does not burn
+    /// the transcript.
+    @discardableResult
+    public func carveTeamDisbandOnChain(
+        teamIds: [String],
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000
+    ) async throws -> String {
+        var live: [String] = []
+        for id in teamIds where !id.isEmpty {
+            guard let team = try await freshTeam(id: id, timeoutMs: timeoutMs) else { continue }
+            guard team.isOwner(liveFid) else {
+                throw Failure.underlying(TeamGovernanceFailure.notTheOwner(teamId: id))
+            }
+            if team.isActive { live.append(id) }
+            refreshCachedTeam(team)
+        }
+        guard let first = teamIds.first else {
+            throw Failure.underlying(TeamGovernanceFailure.noSuchTeam(""))
+        }
+        guard !live.isEmpty else {
+            throw Failure.underlying(TeamGovernanceFailure.disbanded(first))
+        }
+        return try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.disbandOp(tids: live)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// Make members managers. Owner only; managers may invite, dismiss
+    /// and withdraw invitations, and nothing else.
+    @discardableResult
+    public func carveTeamAppointOnChain(
+        teamId: String, fids: [String], feePerByte: Int64 = 1, timeoutMs: Int = 10_000
+    ) async throws -> String {
+        let team = try await governedTeam(teamId, requireOwner: true, timeoutMs: timeoutMs)
+        let plan = TeamGovernance.appoint(team, fids: fids)
+        guard !plan.isEmpty else {
+            throw Failure.underlying(TeamGovernanceFailure.nothingToChange(.appoint, skipped: plan.skipped))
+        }
+        return try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.appointOp(tid: teamId, fids: plan.effective)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// Take the manager role back. Owner only, and never from the owner.
+    @discardableResult
+    public func carveTeamCancelAppointmentOnChain(
+        teamId: String, fids: [String], feePerByte: Int64 = 1, timeoutMs: Int = 10_000
+    ) async throws -> String {
+        let team = try await governedTeam(teamId, requireOwner: true, timeoutMs: timeoutMs)
+        let plan = TeamGovernance.cancelAppointment(team, fids: fids)
+        guard !plan.isEmpty else {
+            throw Failure.underlying(TeamGovernanceFailure.nothingToChange(.cancelAppointment, skipped: plan.skipped))
+        }
+        return try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.cancelAppointmentOp(tid: teamId, fids: plan.effective)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// Withdraw invitations nobody has acted on yet. Any manager.
+    @discardableResult
+    public func carveTeamWithdrawInvitationOnChain(
+        teamId: String, fids: [String], feePerByte: Int64 = 1, timeoutMs: Int = 10_000
+    ) async throws -> String {
+        let team = try await governedTeam(teamId, requireManager: true, timeoutMs: timeoutMs)
+        let plan = TeamGovernance.withdrawInvitation(team, fids: fids)
+        guard !plan.isEmpty else {
+            throw Failure.underlying(TeamGovernanceFailure.nothingToChange(.withdrawInvitation, skipped: plan.skipped))
+        }
+        return try await carveGroupOp(
+            TeamFeip.envelope(opJson: try TeamFeip.withdrawInvitationOp(tid: teamId, fids: plan.effective)),
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+    }
+
+    /// Read a team from the chain for an op that changes it, refusing the
+    /// states every such op is rejected in.
+    private func governedTeam(
+        _ teamId: String,
+        requireOwner: Bool = false,
+        requireManager: Bool = false,
+        timeoutMs: Int
+    ) async throws -> Team {
+        guard let team = try await freshTeam(id: teamId, timeoutMs: timeoutMs) else {
+            throw Failure.underlying(TeamGovernanceFailure.noSuchTeam(teamId))
+        }
+        guard team.isActive else {
+            throw Failure.underlying(TeamGovernanceFailure.disbanded(teamId))
+        }
+        if requireOwner, !team.isOwner(liveFid) {
+            throw Failure.underlying(TeamGovernanceFailure.notTheOwner(teamId: teamId))
+        }
+        if requireManager, !TeamGovernance.canManage(team, liveFid) {
+            throw Failure.underlying(TeamGovernanceFailure.notAManager(teamId: teamId))
+        }
+        refreshCachedTeam(team)
+        return team
+    }
+
+    /// Replace a cached team with what the chain just said — **only if
+    /// it is already cached**. The team store's highest height is the
+    /// member sync's watermark, so writing a team this identity is not in
+    /// could step it over a change that has not been synced.
+    private func refreshCachedTeam(_ team: Team) {
+        guard let id = team.id, ((try? teams.get(id: id)) ?? nil) != nil else { return }
+        try? teams.upsert(team)
+    }
+
+    /// Tell people a team invited them, or is being handed to them.
+    ///
+    /// The `[TEAM_INVITE]` / `[TEAM_TRANSFER]` text Android sends and
+    /// reads (see ``TeamNotice``), sealed to each recipient and queued
+    /// **without a transcript row**: Android sends it silently, and a
+    /// line of protocol in the chat with them is not something either of
+    /// you said. Returns who could not be sealed to — a FID that has
+    /// never published a public key has nowhere to receive it, and
+    /// finds the invitation only by looking.
+    public func queueTeamNotices(
+        _ kind: TeamNotice.Kind,
+        teamId: String,
+        teamName: String?,
+        to fids: [String],
+        now: Date = Date()
+    ) async throws -> (queued: [String], unreachable: [String]) {
+        let privkey = try livePrikey()
+        let notice = TeamNotice(kind: kind, teamId: teamId, teamName: teamName)
+        var queued: [String] = [], unreachable: [String] = []
+        for fid in Set(fids).sorted() where fid != liveFid {
+            guard let pubkey = await resolvePubkey(of: fid) else {
+                unreachable.append(fid)
+                continue
+            }
+            var message = notice.message(from: liveFid, to: fid, now: now)
+            try message.sealBody(privkey: privkey, recipientPubkey: pubkey)
+            try outbox.enqueue(message, in: Conversation.id(type: .p2p, targetId: fid), now: now)
+            queued.append(fid)
+        }
+        return (queued, unreachable)
+    }
+
+    /// Ask the chain which teams are inviting this identity or being
+    /// handed to it, and fold the answer into ``teamOffers``. Returns how
+    /// many were new to this device.
+    @discardableResult
+    public func refreshTeamOffers(now: Date = Date(), timeoutMs: Int = 15_000) async throws -> Int {
+        let fid = liveFid
+        let found = try await groups.fetchTeamOffers(fid: fid, timeoutMs: timeoutMs)
+        return try teamOffers.reconcile(
+            invited: found.invited, transfers: found.transfers, for: fid, now: now
+        )
+    }
+
+    /// One square, read from the chain rather than the cache.
+    public func freshSquare(id: String, timeoutMs: Int = 10_000) async throws -> Square? {
+        guard !id.isEmpty else { return nil }
+        var square = try await groups.fetchByIds(
+            Square.self, entity: "square", ids: [id], timeoutMs: timeoutMs
+        )[id]
+        if square?.id == nil || square?.id?.isEmpty == true { square?.id = id }
+        return square
+    }
+
+    /// Join a square.
+    ///
+    /// **Read from the chain first.** The parser refuses a join from a
+    /// signer who is already a member, and there is nothing to join for
+    /// an id it does not hold — both after the fee. Android's square
+    /// search marks the squares you are in and opens them instead; a
+    /// typed id had no such check here.
     @discardableResult
     public func carveSquareJoinOnChain(
         squareId: String,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> String {
-        try await carveGroupOp(
+        guard let square = try await freshSquare(id: squareId, timeoutMs: timeoutMs) else {
+            throw Failure.underlying(SquareJoinFailure.noSuchSquare(squareId))
+        }
+        if square.isMember(liveFid) {
+            throw Failure.underlying(SquareJoinFailure.alreadyAMember(squareId))
+        }
+        return try await carveGroupOp(
             SquareFeip.envelope(opJson: try SquareFeip.joinOp(squareId: squareId)),
             feePerByte: feePerByte, timeoutMs: timeoutMs
         )

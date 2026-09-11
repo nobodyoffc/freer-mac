@@ -36,6 +36,9 @@ public struct SignalRouter {
     /// Only history needs a square: it is the one question a square's
     /// members can ask each other, since a square has no key.
     private let squares: SquaresStore?
+    /// Where team invitation and transfer notices are kept. Nil drops
+    /// them, as a router built for key traffic alone wants.
+    private let teamOffers: TeamOffersStore?
 
     public init(
         rooms: RoomsStore,
@@ -47,7 +50,8 @@ public struct SignalRouter {
         privkey: Data?,
         pubkeys: @escaping (String) throws -> Data? = { _ in nil },
         historyShares: HistorySharesStore? = nil,
-        squares: SquaresStore? = nil
+        squares: SquaresStore? = nil,
+        teamOffers: TeamOffersStore? = nil
     ) {
         self.rooms = rooms
         self.teams = teams
@@ -59,6 +63,7 @@ public struct SignalRouter {
         self.pubkeys = pubkeys
         self.historyShares = historyShares
         self.squares = squares
+        self.teamOffers = teamOffers
     }
 
     /// What routing one signal produced.
@@ -78,6 +83,9 @@ public struct SignalRouter {
         /// An answer to one of our history asks, stored for
         /// ``HistoryShareService/importReceived(now:)`` to fetch.
         public var historyReceived: ReceivedHistoryShare?
+        /// A team invitation or transfer this device had not heard of.
+        /// Only a hint — see ``TeamNotice``.
+        public var teamNotice: TeamNotice?
         public var note: String?
 
         public init(
@@ -86,6 +94,7 @@ public struct SignalRouter {
             learnedKeyFor: String? = nil,
             historyRequest: IncomingHistoryRequest? = nil,
             historyReceived: ReceivedHistoryShare? = nil,
+            teamNotice: TeamNotice? = nil,
             note: String? = nil
         ) {
             self.outbound = outbound
@@ -93,6 +102,7 @@ public struct SignalRouter {
             self.learnedKeyFor = learnedKeyFor
             self.historyRequest = historyRequest
             self.historyReceived = historyReceived
+            self.teamNotice = teamNotice
             self.note = note
         }
 
@@ -101,6 +111,7 @@ public struct SignalRouter {
         public var acted: Bool {
             !outbound.isEmpty || invitation != nil || learnedKeyFor != nil
                 || historyRequest != nil || historyReceived != nil
+                || teamNotice != nil
         }
 
         public static func == (a: Outcome, b: Outcome) -> Bool {
@@ -110,6 +121,7 @@ public struct SignalRouter {
                 && a.learnedKeyFor == b.learnedKeyFor
                 && a.historyRequest == b.historyRequest
                 && a.historyReceived == b.historyReceived
+                && a.teamNotice == b.teamNotice
                 && a.note == b.note
         }
 
@@ -130,6 +142,10 @@ public struct SignalRouter {
             return try routeRequest(message, as: liveFid, now: now)
         case .history:
             return try routeHistoryAnswer(message, as: liveFid, now: now)
+        case .text:
+            // Only a team notice reaches here as a signal — see
+            // ``ChatService/receive(_:as:privkey:now:)``.
+            return try routeTeamNotice(message, as: liveFid, now: now)
         default:
             return .nothing
         }
@@ -149,6 +165,7 @@ public struct SignalRouter {
             // the owner's pending flag, and the member was already one.
             return Outcome(note: "\(fid) accepted the invitation")
         case .disbanded:
+            try mirrorRoom(named: message.content)
             return Outcome(note: "a room was closed by its owner")
         case .removed:
             try mirrorRoom(named: message.content)
@@ -392,6 +409,35 @@ public struct SignalRouter {
         try historyShares.recordReceived(share)
         try historyShares.removeAsk(nonce: nonce)
         return Outcome(historyReceived: share, note: "history arrived from \(senderFid)")
+    }
+
+    // MARK: - teams
+
+    /// Somebody says a team invited us, or is being handed to us.
+    ///
+    /// **Kept as an unconfirmed offer, and nothing more.** Whether the
+    /// team really lists us is a question for the chain, which the
+    /// offers sheet asks before anything is carved. What is worth
+    /// refusing here is only what this device can already see is
+    /// stale: an invitation to a team we are in.
+    private func routeTeamNotice(
+        _ message: ImMessage, as liveFid: String, now: Date
+    ) throws -> Outcome {
+        guard let teamOffers else { return .nothing }
+        guard let notice = TeamNotice.parse(message.content),
+              let senderFid = message.senderId
+        else { return .nothing }
+        // Our own notice, read back off our own DOCK.
+        guard senderFid != liveFid else { return .nothing }
+        if notice.kind == .invitation,
+           let team = try? teams.get(id: notice.teamId), team.isMember(liveFid) {
+            return Outcome(note: "team invitation to a team we are already in")
+        }
+        let raised = try teamOffers.note(notice, from: senderFid, for: liveFid, now: now)
+        return Outcome(
+            teamNotice: raised ? notice : nil,
+            note: "\(senderFid) says team \(notice.teamId) \(notice.kind == .transfer ? "is being handed to us" : "invited us")"
+        )
     }
 
     /// Membership of a group of a named flavour. Unlike ``isMember(of:fid:)``

@@ -248,6 +248,23 @@ public struct ChatService {
             return .signal(stored)
         }
 
+        // **A team notice is text on the wire and a signal in meaning.**
+        // Android sends `[TEAM_INVITE]…` with its ordinary text sender,
+        // so it arrives looking like something somebody said. Filed, it
+        // would be a line of protocol in a transcript — or, from a sender
+        // not yet accepted, a message request, which is where the
+        // invitation that most needs seeing would be least seen. So it
+        // skips the stranger gate like every other signal does; its own
+        // gate is that nothing is carved until the chain confirms it
+        // (see ``TeamNotice``). A blocked sender still gets nothing.
+        if type == .p2p, opened, stored.contentType == .text,
+           TeamNotice.parse(stored.content) != nil {
+            if let sender = stored.senderId, try isBlocked(sender, as: liveFid) {
+                return .ignored(reason: "team notice from blocked sender \(sender)")
+            }
+            return .signal(stored)
+        }
+
         // **The stranger gate**, and it sits exactly here on purpose.
         //
         // Android puts it earlier, in front of everything inbound, which
@@ -319,6 +336,12 @@ public struct ChatService {
         case .drop:
             return .ignored(reason: "blocked sender \(sender)")
         }
+    }
+
+    /// Whether this identity has blocked `sender`.
+    private func isBlocked(_ sender: String, as liveFid: String) throws -> Bool {
+        guard let policy, sender != liveFid else { return false }
+        return try policy.load(liveFid: liveFid).blacklist.contains(sender)
     }
 
     // MARK: - receipts

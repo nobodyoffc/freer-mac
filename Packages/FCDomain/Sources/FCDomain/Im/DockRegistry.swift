@@ -288,6 +288,40 @@ public actor DockRegistry {
         invalidate(url)
     }
 
+    /// The groups of one flavour whose DOCK last refused us — Android's
+    /// red dot on a list row. A DOCK stays failing until a connection to
+    /// it succeeds, not merely until its cooldown runs out.
+    public func failingTargetIds(type: ImType) -> Set<String> {
+        guard let entityType = Self.entityType(of: type) else { return [] }
+        return Set(entries.values
+            .filter { $0.entityType == entityType && failedAt[$0.dockUrl] != nil }
+            .map(\.entityId))
+    }
+
+    /// Try the failing DOCKs of one flavour again now, ignoring their
+    /// cooldowns — Android's `retryFailedDocks`, run when a list opens.
+    /// Returns the groups whose DOCK still refuses.
+    public func retryFailing(type: ImType, now: Date = Date()) async -> Set<String> {
+        guard let entityType = Self.entityType(of: type) else { return [] }
+        let urls = Set(entries.values
+            .filter { $0.entityType == entityType && failedAt[$0.dockUrl] != nil }
+            .map(\.dockUrl))
+        for url in urls {
+            failedAt[url] = nil
+            _ = await client(for: url, now: now)
+        }
+        return failingTargetIds(type: type)
+    }
+
+    private static func entityType(of type: ImType) -> EntityType? {
+        switch type {
+        case .team: return .team
+        case .square: return .square
+        case .room: return .room
+        case .p2p: return nil
+        }
+    }
+
     /// Forget every cooldown, so the next pass retries all of them. For
     /// the moment the app comes back to the foreground, where waiting
     /// out a timer the user did not start is just latency.

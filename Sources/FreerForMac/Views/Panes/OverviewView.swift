@@ -42,6 +42,8 @@ struct OverviewView: View {
 
     @State private var unreadMail = 0
     @State private var unreadChat: [ImType: Int] = [:]
+    /// Invitations and agreements waiting on an answer, per chat flavour.
+    @State private var awaitingChat: [ImType: Int] = [:]
 
     @State private var recentGroups: [TxGroup] = []
     @State private var latestNews: [News] = []
@@ -280,6 +282,21 @@ struct OverviewView: View {
                 open: { appState.openChat(mode: style.mode) }
             ))
         }
+        // Invitations are not messages and never raise an unread count,
+        // so without their own tile one that arrives in the background
+        // is visible only from inside its tab — where Android would have
+        // put a dialog in front of the user.
+        for style in ChatModeStyle.all {
+            let count = awaitingChat[style.mode] ?? 0
+            guard count > 0 else { continue }
+            tiles.append(AttentionTile(
+                id: "\(style.id).awaiting",
+                title: style.mode == .room ? "Room invitations" : "\(style.title): answers due",
+                count: count,
+                systemImage: "envelope.badge", tint: .orange,
+                open: { appState.openChat(mode: style.mode) }
+            ))
+        }
         return tiles
     }
 
@@ -467,6 +484,11 @@ struct OverviewView: View {
             byType[style.mode] = (try? session.conversations.unread(type: style.mode)) ?? 0
         }
         unreadChat = byType
+        var awaiting: [ImType: Int] = [:]
+        for style in ChatModeStyle.all {
+            awaiting[style.mode] = session.awaitingAnswer(type: style.mode)
+        }
+        awaitingChat = awaiting
     }
 
     private func reloadRecentActivity() {

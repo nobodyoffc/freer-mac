@@ -137,6 +137,9 @@ final class AppState {
     /// asks for it, and dropped on lock — see ``sshAgent(for:)``.
     @ObservationIgnored private var sshAgentServer: SshAgentServer?
     @ObservationIgnored private var chatIsOpen = false
+    /// How many invitations were waiting after the last collect, so a
+    /// new one can be told apart from one already seen.
+    @ObservationIgnored private var awaitingAnswers = 0
 
     /// Raises the "approve this transaction?" modal for every signing
     /// path, when the identity has that setting on. Lives on AppState
@@ -307,6 +310,23 @@ final class AppState {
         }
     }
 
+    /// Bounce the Dock icon when a collect brought an invitation and
+    /// nobody is looking at the app.
+    ///
+    /// Android puts a dialog in front of the user wherever they are. A
+    /// Mac app that raised a modal alert from a background poll would be
+    /// taking focus it was not given, so this asks for attention the way
+    /// Mac apps do and leaves the invitation itself to the Overview tile
+    /// and the tab badge. Counted rather than flagged per message, so a
+    /// sync that only re-reads what is already there bounces nothing.
+    private func noticeNewInvitations() {
+        guard let session = activeSession else { return }
+        let now = session.awaitingAnswer(type: .room) + session.awaitingAnswer(type: .team)
+        defer { awaitingAnswers = now }
+        guard now > awaitingAnswers, !appIsActive else { return }
+        NSApplication.shared.requestUserAttention(.informationalRequest)
+    }
+
     // MARK: - background collection
 
     /// Whether a chat pane is on screen. Drives the polling rate: an
@@ -371,7 +391,10 @@ final class AppState {
                 _ = try? await session.courier.drainOutbox(as: session.liveFid)
             },
             report: { [weak self] _ in
-                Task { @MainActor in self?.inboxRevision += 1 }
+                Task { @MainActor in
+                    self?.inboxRevision += 1
+                    self?.noticeNewInvitations()
+                }
             }
         )
         fetchScheduler = scheduler

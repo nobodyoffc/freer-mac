@@ -232,7 +232,8 @@ final class GroupServiceTests: XCTestCase {
     // MARK: - the search
 
     /// `terms`, not `equals`: `members` is an array, and the question is
-    /// whether it *contains* our FID.
+    /// whether it *contains* our FID. `exMembers` beside it is how a
+    /// dismissed member finds out.
     func testSearchAsksWhetherMembersContainsUs() async throws {
         stageSearch(rows: [])
         _ = try await service.fetchTeams(fid: me)
@@ -243,7 +244,7 @@ final class GroupServiceTests: XCTestCase {
 
         let query = try XCTUnwrap(dsl["query"] as? [String: Any])
         let terms = try XCTUnwrap(query["terms"] as? [String: Any])
-        XCTAssertEqual(terms["fields"] as? [String], ["members"])
+        XCTAssertEqual(terms["fields"] as? [String], ["members", "exMembers"])
         XCTAssertEqual(terms["values"] as? [String], [me])
 
         // Ascending, because a group sync resumes from a cursor and

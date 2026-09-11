@@ -59,6 +59,12 @@ public struct RoomConversations {
         // room that survives a transfer. Mirroring the owner here means
         // the badge follows a transfer without the mark moving.
         conversation.avatarDid = room.owner
+        // A room closed by its owner, one we were removed from and one
+        // we left all end as an inactive record, and all three are rooms
+        // nobody here can speak in. The list flags it from the record,
+        // so it is flagged however the room got there — and a
+        // re-invitation that reactivates it clears the flag the same way.
+        conversation.leftGroup = room.isInactive
         // The version we can actually open, not the one the owner last
         // announced: the two differ exactly while a rotation is in
         // flight, and this row should not claim a key we are still

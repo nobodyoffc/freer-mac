@@ -182,16 +182,29 @@ public struct RoomService {
     ///
     /// Members with no DOCK are skipped for the reason
     /// ``create(name:desc:owner:invite:home:pubkeys:homes:now:)`` gives.
+    ///
+    /// `recipients` narrows it to chosen members — Android's owner menu
+    /// picks who to share with, and one member who lost the key is not
+    /// a reason to write to fifty. Anyone named who is not a member is
+    /// dropped: this re-sends a membership, it does not extend one.
+    /// The details carry the current key, so this is also how a room
+    /// owner hands chosen members the key.
     @discardableResult
     public func shareInfo(
         _ roomId: String,
+        to recipients: [String]? = nil,
         as liveFid: String,
         pubkeys: PubkeyProvider,
         homes: HomeProvider? = nil,
         now: Date = Date()
     ) throws -> (outbound: [ImMessage], unreachable: [String]) {
         let room = try requireOwned(roomId, by: liveFid)
-        let (reachable, unreachable) = try split(room.others(than: liveFid), by: homes)
+        var targets = room.others(than: liveFid)
+        if let recipients {
+            let chosen = Set(recipients)
+            targets = targets.filter { chosen.contains($0) }
+        }
+        let (reachable, unreachable) = try split(targets, by: homes)
         let outbound = try reachable.map { fid in
             try invitation(for: room, to: fid, from: liveFid, pubkeys: pubkeys, now: now)
         }

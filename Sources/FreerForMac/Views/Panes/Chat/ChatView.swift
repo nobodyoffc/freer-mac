@@ -96,6 +96,25 @@ struct ChatView: View {
     /// from the chain by the group sync — see ``ConsensusSignatureSheet``.
     @State private var consensusDue: [ConsensusSignatureRequest] = []
     @State private var showConsensus = false
+    /// Teams inviting this identity in or being handed to it, not yet
+    /// answered. Teams tab only — see ``TeamOffersSheet``.
+    @State private var teamOffers: [TeamOffer] = []
+    @State private var showTeamOffers = false
+    @State private var showTransfer = false
+    /// The team the owner asked to disband, held until they confirm.
+    @State private var confirmDisband: Conversation?
+    /// Teams and squares carved for and not yet shown by the chain, per
+    /// flavour — Android's pending rows.
+    @State private var pending: [ImType: [PendingGroup]] = [:]
+    /// Invitations and agreements waiting on an answer, per flavour, for
+    /// the tab badges.
+    @State private var awaiting: [ImType: Int] = [:]
+    /// Groups whose DOCK refused the last connection, per flavour.
+    @State private var unreachable: [ImType: Set<String>] = [:]
+    /// Choosing several threads to leave, close or disband together.
+    /// Nil when not choosing.
+    @State private var checked: Set<String>?
+    @State private var confirmBulk: BulkAction?
     @State private var showHistoryAsk = false
     /// Somebody asked for a conversation's messages, and only a person
     /// can say yes — what they would take includes what other people
@@ -240,6 +259,12 @@ struct ChatView: View {
             if mode == .room, !invites.isEmpty {
                 invitesBanner
             }
+            if !(pending[mode] ?? []).isEmpty {
+                pendingBanner
+            }
+            if mode == .team, !teamOffers.isEmpty {
+                teamOffersBanner
+            }
             if mode == .team, !consensusDue.isEmpty {
                 consensusBanner
             }
@@ -256,13 +281,21 @@ struct ChatView: View {
             } else if conversations.isEmpty {
                 emptyCard
             } else {
+                if checked != nil {
+                    selectionBar
+                }
                 HStack(alignment: .top, spacing: 12) {
                     ConversationListView(
                         style: style,
                         conversations: filtered,
                         names: names,
                         selectedId: selectedId,
-                        onDelete: { confirmDelete = $0 }
+                        onDelete: { confirmDelete = $0 },
+                        unreachable: unreachable[mode] ?? [],
+                        checked: checked == nil ? nil : Binding(
+                            get: { checked ?? [] },
+                            set: { checked = $0 }
+                        )
                     )
                     .frame(width: 260)
                     Divider()
@@ -285,6 +318,7 @@ struct ChatView: View {
             appState.setChatOpen(true)
             appState.fetchInboxNow()
             updatePriorityDock()
+            retryUnreachable()
         }
         .onDisappear {
             appState.setChatOpen(false)
@@ -302,6 +336,9 @@ struct ChatView: View {
             recorder.cancel()
             player.stop()
             search = ""
+            // A selection is of one list, and the tab just changed lists.
+            checked = nil
+            retryUnreachable()
             if selection[mode] == nil { selection[mode] = conversations.first?.id }
             openSelected()
             updatePriorityDock()
@@ -432,6 +469,56 @@ struct ChatView: View {
         } message: { conversation in
             Text(deleteMessage(conversation))
         }
+        .sheet(isPresented: $showTeamOffers) {
+            TeamOffersSheet(
+                session: session,
+                onClose: { showTeamOffers = false },
+                onChanged: { reload() }
+            )
+        }
+        .sheet(isPresented: $showTransfer) {
+            if let conversation = selected, conversation.type == .team {
+                TeamTransferSheet(
+                    session: session,
+                    teamId: conversation.targetId,
+                    onClose: { showTransfer = false },
+                    onDone: { summary in
+                        showTransfer = false
+                        syncSummary = summary
+                    }
+                )
+            }
+        }
+        // Driven by the row, like Delete, so the dialog cannot disband a
+        // different team from the one it names.
+        .confirmationDialog(
+            "Disband \(confirmDisband.map { ChatFormat.title(of: $0) } ?? "this team")?",
+            isPresented: Binding(
+                get: { confirmDisband != nil },
+                set: { if !$0 { confirmDisband = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: confirmDisband
+        ) { conversation in
+            Button("Disband (broadcast a carve)", role: .destructive) { disbandTeam(conversation) }
+            Button("Cancel", role: .cancel) { confirmDisband = nil }
+        } message: { _ in
+            Text("Disbanding is a transaction and it cannot be undone: the team stops for every member, and nobody can join, speak in or take it over again. It costs a miner fee and is public. The transcript and keys stay on this Mac.")
+        }
+        .confirmationDialog(
+            confirmBulk?.title ?? "",
+            isPresented: Binding(
+                get: { confirmBulk != nil },
+                set: { if !$0 { confirmBulk = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: confirmBulk
+        ) { action in
+            Button(action.confirm, role: .destructive) { perform(action) }
+            Button("Cancel", role: .cancel) { confirmBulk = nil }
+        } message: { action in
+            Text(action.message)
+        }
         .sheet(isPresented: $showConsensus) {
             ConsensusSignatureSheet(
                 session: session,
@@ -453,7 +540,9 @@ struct ChatView: View {
         .sheet(isPresented: $showPolicy) {
             StrangerPolicySheet(session: session, onClose: { showPolicy = false })
         }
-        .sheet(isPresented: $showNewChat) {
+        // A join or create broadcast from the sheet leaves a row waiting
+        // for the chain, which should be on screen when the sheet goes.
+        .sheet(isPresented: $showNewChat, onDismiss: { reload() }) {
             NewChatSheet(
                 session: session,
                 mode: mode,
@@ -510,6 +599,21 @@ struct ChatView: View {
                                 .padding(.vertical, 1)
                                 .background(Capsule().fill(candidate.tint))
                                 .foregroundStyle(.white)
+                        }
+                        // Not unread messages: invitations and agreements
+                        // waiting on an answer, which otherwise show only
+                        // inside the tab they belong to.
+                        if let asks = awaiting[candidate.mode], asks > 0 {
+                            HStack(spacing: 2) {
+                                Image(systemName: "envelope.badge")
+                                Text("\(asks)")
+                            }
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Capsule().fill(Color.orange))
+                            .foregroundStyle(.white)
+                            .help("\(asks) invitation\(asks == 1 ? "" : "s") or request\(asks == 1 ? "" : "s") waiting for your answer")
                         }
                     }
                     .padding(.horizontal, 10)
@@ -573,6 +677,15 @@ struct ChatView: View {
             .disabled(delivering || !session.canSign)
             .help("Park queued messages at their recipients' DOCKs, and collect whatever ours is holding for us")
 
+            if mode != .p2p, !conversations.isEmpty {
+                Button {
+                    checked = checked == nil ? [] : nil
+                } label: {
+                    Label(checked == nil ? "Select" : "Done", systemImage: "checklist")
+                }
+                .help("Choose several \(style.title.lowercased()) to leave, close or disband at once")
+            }
+
             Button {
                 showNewChat = true
             } label: {
@@ -595,9 +708,11 @@ struct ChatView: View {
                 Button("Message requests…") { showRequests = true }
                 Button("Who can message me…") { showPolicy = true }
             case .team:
-                // Reachable even when nothing is outstanding, because a
-                // member who put one off has to be able to get back to
-                // it — the banner deliberately stops asking.
+                // Both reachable when nothing is outstanding: an ignored
+                // invitation and a postponed agreement each have to be
+                // findable again, and their banners deliberately stop
+                // asking.
+                Button("Team invitations…") { showTeamOffers = true }
                 Button("Consensus agreements…") { showConsensus = true }
             case .room, .square:
                 // The per-flavour membership actions land with the rest
@@ -635,6 +750,39 @@ struct ChatView: View {
         }
         .buttonStyle(.plain)
         .help("These are stored on this Mac and appear nowhere else until you accept them")
+    }
+
+    /// Teams that want this identity in them — invited, or handed over.
+    private var teamOffersBanner: some View {
+        let invitations = teamOffers.filter { $0.kind == .invitation }.count
+        let transfers = teamOffers.count - invitations
+        var parts: [String] = []
+        if invitations > 0 { parts.append("\(invitations) team invitation\(invitations == 1 ? "" : "s")") }
+        if transfers > 0 { parts.append("\(transfers) team\(transfers == 1 ? "" : "s") being handed to you") }
+        let unconfirmed = teamOffers.contains { !$0.isOnChain }
+        return Button {
+            showTeamOffers = true
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "person.3.sequence")
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(parts.joined(separator: " · "))
+                    if unconfirmed {
+                        Text("Some are only notices so far — the chain does not list them yet.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Text("Review").font(.caption.bold())
+            }
+            .font(.callout)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(style.tint.opacity(0.12)))
+        }
+        .buttonStyle(.plain)
+        .help("Read each team's consensus, then join, take over, or ignore")
     }
 
     /// Teams that changed their consensus out from under this identity.
@@ -910,7 +1058,7 @@ struct ChatView: View {
                 identityTag(conversation, size: .large)
             }
             if conversation.leftGroup == true {
-                ChatChip("left", color: .secondary)
+                ChatChip(conversation.type == .room ? "closed" : "left", color: .secondary)
             }
             if style.isPublic {
                 ChatChip("public", color: style.tint)
@@ -997,7 +1145,7 @@ struct ChatView: View {
                 if facts.isOwner {
                     Divider()
                     Button("Room settings…") { showRoomSettings = true }
-                    Button("Share the room's details") { shareRoomInfo(conversation) }
+                    Button("Share the room's details…") { asking = .shareRoomInfo }
                     Button("Reset the key") { generateKey(for: conversation) }
                     Button("Close this room", role: .destructive) { disband(conversation) }
                 } else {
@@ -1006,18 +1154,35 @@ struct ChatView: View {
                 Button("Delete…", role: .destructive) { confirmDelete = conversation }
 
             case .team:
-                Button("Members…") { showMembers = true }
+                let isManager = ((try? session.teams.get(id: conversation.targetId)) ?? nil)
+                    .map { TeamGovernance.canManage($0, session.liveFid) } ?? false
+                // Managers invite, withdraw and dismiss; the owner also
+                // appoints. All of it lives on the member list, row by
+                // row, which is where a person is being acted on.
+                Button(isManager ? "Members & invitations…" : "Members…") { showMembers = true }
                 Button("Ask for the key…") { asking = .symkey }
                 Button("Request history…") { showHistoryAsk = true }
                 if facts.isOwner {
-                    // Owner-only, as on Android, where updating a team
-                    // sits in the owner sub-menu. The chain enforces it;
-                    // this only declines to offer a fee for nothing.
+                    // Owner-only, as on Android's owner sub-menu. The
+                    // chain enforces it; this only declines to offer a
+                    // fee for nothing.
+                    Divider()
                     Button("Team settings (carve)…") { showGroupSettings = true }
+                    Button("Hand over this team…") { showTransfer = true }
                     Button("Reset the key") { generateKey(for: conversation) }
                 }
                 Divider()
-                Button("Leave this team (carve)…", role: .destructive) { confirmLeave = true }
+                if facts.isOwner {
+                    // The owner cannot leave: the parser skips the owner
+                    // in a `leave`, so the carve would be paid for and do
+                    // nothing. Handing over or disbanding are the ways out.
+                    Button("Disband this team (carve)…", role: .destructive) {
+                        confirmDisband = conversation
+                    }
+                    .disabled(conversation.leftGroup == true)
+                } else {
+                    Button("Leave this team (carve)…", role: .destructive) { confirmLeave = true }
+                }
                 Button("Delete…", role: .destructive) { confirmDelete = conversation }
 
             case .square:
@@ -1074,6 +1239,23 @@ struct ChatView: View {
             // answered, and the banner must not keep arguing with them.
             // The sheet behind it still lists every row.
             consensusDue = try session.consensusSignatures.outstanding()
+            teamOffers = try session.teamOffers.waiting(fid: session.liveFid)
+            // A carve the chain now shows has nothing left to wait for.
+            _ = try? session.pendingGroups.reconcile(
+                fid: session.liveFid, teams: session.teams,
+                squares: session.squares, conversations: session.conversations
+            )
+            var waitingOnChain: [ImType: [PendingGroup]] = [:]
+            var asks: [ImType: Int] = [:]
+            for style in ChatModeStyle.all {
+                waitingOnChain[style.mode] = (try? session.pendingGroups.all(
+                    fid: session.liveFid, type: style.mode
+                )) ?? []
+                asks[style.mode] = session.awaitingAnswer(type: style.mode)
+            }
+            pending = waitingOnChain
+            awaiting = asks
+            refreshUnreachable()
             historyRequests = try session.historyShares.incoming()
             historyFailures = try session.historyShares.received().filter(\.waitsForRetry)
             // Every P2P thread's other party, so the list can name its
@@ -1424,33 +1606,6 @@ struct ChatView: View {
 
     // MARK: - menu actions
 
-    /// Re-send the room's details — membership and current key — to
-    /// every member. The owner's answer to "I can't read anything".
-    ///
-    /// **Owner only, and the check is ``RoomService/shareInfo(_:as:pubkeys:homes:now:)``'s
-    /// rather than this menu's.** An unasked-for `ROOM_INFO` is an
-    /// announcement about the room, and a member has nothing to
-    /// announce: their copy of the membership is only what they were
-    /// last told. A member who wants to help someone stuck answers a
-    /// request instead, which ``SignalRouter`` allows.
-    private func shareRoomInfo(_ conversation: Conversation) {
-        sendError = nil
-        do {
-            let (outbound, unreachable) = try session.roomService.shareInfo(
-                conversation.targetId,
-                as: session.liveFid,
-                pubkeys: { fid in try session.knownPubkey(of: fid) },
-                homes: { fid in try session.knownHome(of: fid) }
-            )
-            try queue(outbound)
-            syncSummary = unreachable.isEmpty
-                ? "\(outbound.count) update(s) queued."
-                : "\(outbound.count) update(s) queued. \(unreachable.count) member(s) publish no DOCK, so there is nowhere to leave one for them."
-        } catch {
-            sendError = String(describing: error)
-        }
-    }
-
     /// Close a room we own. The keys are **kept**: this ends the
     /// conversation, it does not burn the transcript.
     private func disband(_ conversation: Conversation) {
@@ -1465,6 +1620,31 @@ struct ChatView: View {
             openSelected()
         } catch {
             sendError = String(describing: error)
+        }
+    }
+
+    /// Disband a team this identity owns.
+    ///
+    /// The thread is flagged at once rather than at the next sync,
+    /// because the sync will never flag it: a disbanded team keeps its
+    /// members, and it is `active` that goes false. Keys and transcript
+    /// stay, as for a closed room.
+    private func disbandTeam(_ conversation: Conversation) {
+        confirmDisband = nil
+        sendError = nil
+        Task {
+            do {
+                let txid = try await session.carveTeamDisbandOnChain(teamIds: [conversation.targetId])
+                await MainActor.run {
+                    _ = try? session.conversations.mutate(id: conversation.id) { $0.leftGroup = true }
+                    syncSummary = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The team is gone for everyone once it confirms."
+                    reload()
+                    openSelected()
+                }
+                await session.refreshDockRegistry()
+            } catch {
+                await MainActor.run { sendError = String(describing: error) }
+            }
         }
     }
 
@@ -1768,7 +1948,11 @@ struct ChatView: View {
             let squares = try await session.groups.syncSquares(
                 fid: session.liveFid, into: session.squares, conversations: session.conversations
             )
-            parts.append("\(teams.total) team(s), \(squares.total) square(s)")
+            // Counted from the store rather than the fetch: the team
+            // query also returns teams we have left or been dismissed
+            // from, which is how we learn that, and they are not ours.
+            let inTeams = (try? session.teams.joined(by: session.liveFid).count) ?? teams.total
+            parts.append("\(inTeams) team(s), \(squares.total) square(s)")
             if teams.joined + squares.joined > 0 {
                 parts.append("\(teams.joined + squares.joined) new")
             }
@@ -1777,6 +1961,15 @@ struct ChatView: View {
             }
             if teams.awaitingSignature > 0 {
                 parts.append("\(teams.awaitingSignature) awaiting your agreement")
+            }
+            // Invitations are not in the member sync — we are not a member
+            // yet — so they are a query of their own. A failure here is a
+            // line in the summary, not a failed refresh.
+            do {
+                let offers = try await session.refreshTeamOffers()
+                if offers > 0 { parts.append("\(offers) new team invitation(s)") }
+            } catch {
+                parts.append("invitations not checked: \(error)")
             }
             if let keyed = keyOwnedTeams() { parts.append(keyed) }
         } catch {
@@ -1826,6 +2019,249 @@ struct ChatView: View {
         guard minted > 0 else { return nil }
         try? queue(shares)
         return "keyed \(minted) team(s), \(shares.count) share(s) queued"
+    }
+
+    // MARK: - carves waiting for the chain
+
+    /// Creates, joins and take-overs that were paid for and have not
+    /// shown up yet. Each row names the transaction, so "nothing
+    /// happened" can be checked rather than wondered about.
+    private var pendingBanner: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(pending[mode] ?? []) { row in
+                let overdue = row.isOverdue(now: Date())
+                HStack(spacing: 8) {
+                    if overdue {
+                        Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                    } else {
+                        ProgressView().controlSize(.small)
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(pendingTitle(row))
+                        Text(overdue
+                             ? "Not on the chain after a day — the transaction may have failed or been rejected. Check it, then dismiss this."
+                             : "Waiting for the chain. It appears here once it confirms and you refresh.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    CopyableText(
+                        display: "tx " + row.txid.elidingMiddle(head: 6, tail: 6),
+                        copy: row.txid,
+                        font: .system(.caption2, design: .monospaced)
+                    )
+                    .foregroundStyle(.tertiary)
+                    Button("Dismiss") {
+                        _ = try? session.pendingGroups.remove(row)
+                        reload()
+                    }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
+                }
+                .font(.callout)
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 8).fill(style.tint.opacity(0.08)))
+            }
+        }
+    }
+
+    private func pendingTitle(_ row: PendingGroup) -> String {
+        let name = row.name ?? row.groupId.elidingMiddle(head: 6, tail: 6)
+        switch row.act {
+        case .create: return "Creating \(name)"
+        case .join: return "Joining \(name)"
+        case .takeOver: return "Taking over \(name)"
+        }
+    }
+
+    // MARK: - DOCKs that refuse
+
+    /// Which groups' DOCKs are refusing, as the registry last saw it.
+    private func refreshUnreachable() {
+        Task {
+            var found: [ImType: Set<String>] = [:]
+            for type in [ImType.team, .square, .room] {
+                found[type] = await session.dockRegistry.failingTargetIds(type: type)
+            }
+            await MainActor.run { unreachable = found }
+        }
+    }
+
+    /// Try this tab's refusing DOCKs again now — Android does it every
+    /// time a group list opens — and collect if any came back.
+    private func retryUnreachable() {
+        guard mode != .p2p else { return }
+        let type = mode
+        Task {
+            let before = await session.dockRegistry.failingTargetIds(type: type)
+            guard !before.isEmpty else { return }
+            let after = await session.dockRegistry.retryFailing(type: type)
+            await MainActor.run {
+                unreachable[type] = after
+                if after.count < before.count { appState.fetchInboxNow() }
+            }
+        }
+    }
+
+    // MARK: - several at once
+
+    /// What the selection can do. Android's rule, kept: your own teams
+    /// and rooms are disbanded or closed, other people's are left, and a
+    /// selection mixing the two is one of each — so it is refused and
+    /// the bar says why, rather than doing half and hiding the rest.
+    enum BulkAction: Identifiable {
+        case leaveSquares([Conversation])
+        case leaveTeams([Conversation])
+        case disbandTeams([Conversation])
+        case leaveRooms([Conversation])
+        case closeRooms([Conversation])
+
+        var id: String { title }
+
+        var threads: [Conversation] {
+            switch self {
+            case .leaveSquares(let c), .leaveTeams(let c), .disbandTeams(let c),
+                 .leaveRooms(let c), .closeRooms(let c):
+                return c
+            }
+        }
+
+        var title: String {
+            let n = threads.count
+            switch self {
+            case .leaveSquares: return "Leave \(n) square\(n == 1 ? "" : "s")?"
+            case .leaveTeams:   return "Leave \(n) team\(n == 1 ? "" : "s")?"
+            case .disbandTeams: return "Disband \(n) team\(n == 1 ? "" : "s")?"
+            case .leaveRooms:   return "Leave \(n) room\(n == 1 ? "" : "s")?"
+            case .closeRooms:   return "Close \(n) room\(n == 1 ? "" : "s")?"
+            }
+        }
+
+        var confirm: String {
+            switch self {
+            case .leaveSquares, .leaveTeams: return "Leave (broadcast one carve)"
+            case .disbandTeams: return "Disband (broadcast one carve)"
+            case .leaveRooms: return "Leave"
+            case .closeRooms: return "Close"
+            }
+        }
+
+        var message: String {
+            switch self {
+            case .leaveSquares, .leaveTeams:
+                return "One transaction leaves them all: one miner fee, public on the chain. You are still in until it confirms. The transcripts stay on this Mac."
+            case .disbandTeams:
+                return "One transaction disbands them all, and it cannot be undone: each team stops for every member. It costs a miner fee and is public. Transcripts and keys stay on this Mac."
+            case .leaveRooms:
+                return "Each owner is told, and only they can let you back in. The transcripts stay on this Mac."
+            case .closeRooms:
+                return "Every member of each room is told, and nobody can speak in them again. Transcripts and keys stay on this Mac."
+            }
+        }
+    }
+
+    private var checkedThreads: [Conversation] {
+        guard let checked else { return [] }
+        return conversations.filter { checked.contains($0.id) && $0.leftGroup != true }
+    }
+
+    /// The one action the selection allows, or the reason it allows none.
+    private var bulkChoice: (action: BulkAction?, reason: String?) {
+        let chosen = checkedThreads
+        guard !chosen.isEmpty else { return (nil, nil) }
+        switch mode {
+        case .square:
+            return (.leaveSquares(chosen), nil)
+        case .team, .room:
+            let owned = chosen.filter { session.chatGateFacts(for: $0).isOwner }
+            if owned.isEmpty {
+                return (mode == .team ? .leaveTeams(chosen) : .leaveRooms(chosen), nil)
+            }
+            if owned.count == chosen.count {
+                return (mode == .team ? .disbandTeams(chosen) : .closeRooms(chosen), nil)
+            }
+            return (nil, "Your own \(style.title.lowercased()) can't be left, only \(mode == .team ? "disbanded" : "closed") — select them apart from the others.")
+        case .p2p:
+            return (nil, nil)
+        }
+    }
+
+    private var selectionBar: some View {
+        let choice = bulkChoice
+        let count = checkedThreads.count
+        return HStack(spacing: 10) {
+            Text("\(count) selected").font(.callout.bold())
+            if let reason = choice.reason {
+                Text(reason).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(count == conversations.filter { $0.leftGroup != true }.count ? "Select none" : "Select all") {
+                let open = Set(conversations.filter { $0.leftGroup != true }.map(\.id))
+                checked = (checked ?? []).isSuperset(of: open) ? [] : open
+            }
+            .buttonStyle(.borderless)
+            .font(.caption)
+            if let action = choice.action {
+                Button(action.confirm.components(separatedBy: " (").first ?? action.confirm, role: .destructive) {
+                    confirmBulk = action
+                }
+                .disabled(!session.canSign)
+            }
+            Button("Cancel") { checked = nil }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 8).fill(style.tint.opacity(0.1)))
+    }
+
+    private func perform(_ action: BulkAction) {
+        confirmBulk = nil
+        checked = nil
+        sendError = nil
+        let threads = action.threads
+        let ids = threads.map(\.targetId)
+        Task {
+            do {
+                var summary: String
+                switch action {
+                case .leaveSquares:
+                    let txid = try await session.carveSquareLeaveOnChain(squareIds: ids)
+                    summary = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). You are out of \(ids.count) square(s) once it confirms."
+                case .leaveTeams:
+                    let txid = try await session.carveTeamLeaveOnChain(teamIds: ids)
+                    summary = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). You are out of \(ids.count) team(s) once it confirms."
+                case .disbandTeams:
+                    let txid = try await session.carveTeamDisbandOnChain(teamIds: ids)
+                    summary = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). \(ids.count) team(s) end for everyone once it confirms."
+                case .leaveRooms:
+                    let service = try session.roomService
+                    var notices: [ImMessage] = []
+                    for id in ids {
+                        if let notice = try service.leave(id, as: session.liveFid) { notices.append(notice) }
+                    }
+                    try await MainActor.run { try queue(notices) }
+                    summary = "Left \(ids.count) room(s). Each owner is told on the next send."
+                case .closeRooms:
+                    let service = try session.roomService
+                    var notices: [ImMessage] = []
+                    for id in ids { notices += try service.disband(id, as: session.liveFid) }
+                    try await MainActor.run { try queue(notices) }
+                    summary = "Closed \(ids.count) room(s). \(notices.count) notice(s) queued."
+                }
+                await MainActor.run {
+                    for thread in threads {
+                        _ = try? session.conversations.mutate(id: thread.id) { $0.leftGroup = true }
+                        if thread.type == .room { _ = try? session.roomConversations.sync(thread.targetId) }
+                    }
+                    syncSummary = summary
+                    reload()
+                    openSelected()
+                }
+                await session.refreshDockRegistry()
+            } catch {
+                await MainActor.run { sendError = String(describing: error) }
+            }
+        }
     }
 
     // MARK: - chrome helpers

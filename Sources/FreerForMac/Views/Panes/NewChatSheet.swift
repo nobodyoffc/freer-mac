@@ -68,6 +68,14 @@ struct NewChatSheet: View {
 
     // Join a team or a square
     @State private var joinId = ""
+    /// Android's `JoinSquareActivity`: find a square by name rather than
+    /// having to be handed its txid.
+    @State private var squareQuery = ""
+    @State private var squareResults: [Square]?
+    @State private var searchingSquares = false
+    /// The name of the square picked from a search, for the row that
+    /// says the join is waiting for the chain.
+    @State private var pickedSquareName: String?
 
     // Create a team or a square
     @State private var groupName = ""
@@ -386,18 +394,121 @@ struct NewChatSheet: View {
 
     private var joinForm: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if mode == .square {
+                squareSearch
+            }
+
             LabeledField(mode == .team ? "Team id" : "Square id") {
                 TextField("", text: $joinId, prompt: Text("the create carve's txid"))
                     .font(.system(.body, design: .monospaced))
                     .fieldInputStyle()
+                    .onChange(of: joinId) { _, new in
+                        if squareResults?.contains(where: { $0.id == new }) != true { pickedSquareName = nil }
+                    }
             }
 
             Text(mode == .team
-                 ? "Joining a team is a transaction: carved on chain, costs a miner fee, and is public. The carve quotes the team's consensus document, so joining is a signed statement that you agree to it."
+                 ? "Only a team that has invited you can be joined — Team invitations in the tab's menu lists them. Joining is a transaction: carved on chain, costs a miner fee, and is public. The carve quotes the team's consensus document, so joining is a signed statement that you agree to it."
                  : "Joining a square is a transaction: carved on chain, costs a miner fee, and is public. A square is open and unencrypted.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Search squares by name. A result you are already in opens its
+    /// thread instead of offering a join the parser would refuse after
+    /// the fee; any other result fills in the id, and joining stays the
+    /// one button below, where its cost is stated.
+    private var squareSearch: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                SearchField("Find a square by name…", text: $squareQuery, minWidth: 200)
+                    .onSubmit { Task { await searchSquares() } }
+                Button("Search") { Task { await searchSquares() } }
+                    .disabled(searchingSquares || squareQuery.trimmingCharacters(in: .whitespaces).isEmpty)
+                if searchingSquares { ProgressView().controlSize(.small) }
+            }
+            if let results = squareResults {
+                if results.isEmpty {
+                    Text("No square by that name.").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 0) {
+                            ForEach(results, id: \.id) { square in
+                                squareResult(square)
+                                Divider()
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 170)
+                    .background(Color(NSColor.controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+            }
+        }
+    }
+
+    private func squareResult(_ square: Square) -> some View {
+        let id = square.id ?? ""
+        let isMember = square.isMember(session.liveFid)
+        return HStack(spacing: 8) {
+            GroupAvatarView(groupId: id, ownerFid: square.namers?.last, size: 26)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(square.displayName ?? id).font(.callout.bold()).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(id.elidingMiddle(head: 6, tail: 6))
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                    Label("\(square.memberNum ?? Int64(square.members?.count ?? 0))", systemImage: "person.2")
+                    Label("\(square.tCdd ?? 0) CD", systemImage: "flame")
+                        .help("Coin-days destroyed in this square so far — how much it has been paid attention to")
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if isMember {
+                ChatChip("you're in", color: style.tint)
+                Button("Open") { openJoinedSquare(square) }
+            } else {
+                Button(joinId == id ? "Chosen" : "Choose") {
+                    joinId = id
+                    pickedSquareName = square.displayName
+                }
+                .disabled(joinId == id)
+            }
+        }
+        .padding(.vertical, 5)
+        .padding(.horizontal, 8)
+    }
+
+    private func searchSquares() async {
+        let term = squareQuery.trimmingCharacters(in: .whitespaces)
+        guard !term.isEmpty else { return }
+        await MainActor.run { searchingSquares = true; error = nil }
+        do {
+            let found = try await session.groups.searchSquares(named: term)
+            await MainActor.run { searchingSquares = false; squareResults = found }
+        } catch {
+            await MainActor.run {
+                searchingSquares = false
+                self.error = "Search failed: \(error)"
+            }
+        }
+    }
+
+    /// A square the chain lists us in: put its thread on the list, if it
+    /// is not there already, and open it.
+    private func openJoinedSquare(_ square: Square) {
+        do {
+            guard let conversationId = try session.groups.adopt(
+                square, fid: session.liveFid, into: session.squares, conversations: session.conversations
+            ) else { return }
+            Task { await session.refreshDockRegistry() }
+            onOpened(conversationId, nil)
+        } catch {
+            self.error = String(describing: error)
         }
     }
 
@@ -646,18 +757,25 @@ struct NewChatSheet: View {
                 // team's current one — so a stale cached copy costs the
                 // fee and joins nothing. This is also the only way a
                 // team we have never synced can be joined at all.
-                let fresh = try await session.freshTeam(id: id)
+                guard let fresh = try await session.freshTeam(id: id) else {
+                    throw TeamGovernanceFailure.noSuchTeam(id)
+                }
+                // **Only an invitee may join.** The parser rejects a join
+                // from anyone not in `invitees` — after the fee — so an id
+                // typed here is refused now unless the chain says so.
+                if let refusal = TeamGovernance.joinRefusal(fresh, fid: session.liveFid) {
+                    throw refusal
+                }
                 // A team owned by a nobody can be run by anyone.
-                let owner = try fresh?.owner ?? session.teams.get(id: id)?.owner
-                guard await NobodyGate.confirm([owner], .teamOwner, session: session) else {
+                guard await NobodyGate.confirm([fresh.owner], .teamOwner, session: session) else {
                     await MainActor.run { working = false }
                     return
                 }
-                let consensus = try fresh?.consensusId
-                    ?? session.teams.get(id: id)?.consensusId
-                txid = try await session.carveTeamJoinOnChain(teamId: id, consensusId: consensus)
+                txid = try await session.carveTeamJoinOnChain(teamId: id, consensusId: fresh.consensusId)
+                session.notePendingGroup(.team, id: id, name: fresh.displayName, act: .join, txid: txid)
             } else {
                 txid = try await session.carveSquareJoinOnChain(squareId: id)
+                session.notePendingGroup(.square, id: id, name: pickedSquareName, act: .join, txid: txid)
             }
             await MainActor.run {
                 working = false
@@ -716,6 +834,8 @@ struct NewChatSheet: View {
                     name: name, desc: desc.isEmpty ? nil : desc, home: home
                 )
             }
+            // The new group's id is this txid, so the row can name it now.
+            session.notePendingGroup(mode, id: txid, name: name, act: .create, txid: txid)
             await MainActor.run {
                 working = false
                 var lines = ["Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). That txid is the \(style.noun)'s id. It appears here once the carve confirms and you refresh."]

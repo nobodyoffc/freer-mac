@@ -4,7 +4,10 @@ import FCDomain
 import FCUI
 
 /// Ask specific people for something — Android's `AskSymkeyActivity` and
-/// `AskRoomInfoActivity`, which are one screen with two payloads.
+/// `AskRoomInfoActivity`, which are one screen with two payloads — or,
+/// for a room's owner, send its details to chosen members (Android's
+/// "Share room info" and "Share symkey", which pick recipients the same
+/// way).
 ///
 /// **Who you ask is a choice, not a broadcast.** Asking everyone tells
 /// the whole group that this device lost the key, and in a room that
@@ -25,18 +28,22 @@ struct AskMembersSheet: View {
 
         case symkey
         case roomInfo
+        /// Not a question: the owner sends the room's details, current
+        /// key included, to the members picked.
+        case shareRoomInfo
 
         var title: String {
             switch self {
-            case .symkey:   return "Ask for the key"
-            case .roomInfo: return "Ask for this room's details"
+            case .symkey:        return "Ask for the key"
+            case .roomInfo:      return "Ask for this room's details"
+            case .shareRoomInfo: return "Share this room's details"
             }
         }
 
         var requestType: RequestType {
             switch self {
-            case .symkey:   return .symkey
-            case .roomInfo: return .roomInfo
+            case .symkey:                  return .symkey
+            case .roomInfo, .shareRoomInfo: return .roomInfo
             }
         }
     }
@@ -96,7 +103,9 @@ struct AskMembersSheet: View {
 
             HStack {
                 Spacer()
-                Button("Send request\(chosen.count == 1 ? "" : "s")") { send() }
+                Button(ask == .shareRoomInfo
+                       ? "Send to \(chosen.count) member\(chosen.count == 1 ? "" : "s")"
+                       : "Send request\(chosen.count == 1 ? "" : "s")") { send() }
                     .buttonStyle(.borderedProminent)
                     .disabled(chosen.isEmpty)
             }
@@ -116,6 +125,8 @@ struct AskMembersSheet: View {
             return "Any member who holds the room's key can send it. Only the owner's copy can replace a version this device already has."
         case .roomInfo:
             return "Only the **owner's** answer can rewrite who is in this room — a member's answer still carries the name and the key, which is usually the part that was missing. The owner is ticked for you."
+        case .shareRoomInfo:
+            return "Each member picked gets the room's membership, name, DOCK and current key, sealed to them — the same message an invitation is. Nothing is rotated. A member with no published DOCK has nowhere to receive it and is skipped."
         }
     }
 
@@ -137,7 +148,7 @@ struct AskMembersSheet: View {
                                 if fid == session.liveFid { ChatChip("your other devices", color: style.tint) }
                                 Spacer(minLength: 0)
                             }
-                            if fid == session.liveFid {
+                            if fid == session.liveFid, ask != .shareRoomInfo {
                                 Text(ownRowHint)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
@@ -181,7 +192,11 @@ struct AskMembersSheet: View {
             case .room:
                 let room = try session.rooms.get(id: conversation.targetId)
                 owner = room?.owner
-                members = roster(all: room?.members, owner: room?.owner, me: me)
+                members = ask == .shareRoomInfo
+                    // An owner telling the room: there is nobody to tell
+                    // but the others.
+                    ? (room?.others(than: me) ?? [])
+                    : roster(all: room?.members, owner: room?.owner, me: me)
             case .team:
                 let team = try session.teams.get(id: conversation.targetId)
                 owner = team?.owner
@@ -196,7 +211,8 @@ struct AskMembersSheet: View {
             // except when the owner *is* us, where the only useful tick
             // is our own row, and pre-ticking it is what makes the
             // re-installed owner's one path out of this the default.
-            if let owner, members.contains(owner) { chosen = [owner] }
+            if ask == .shareRoomInfo { chosen = Set(members) }
+            else if let owner, members.contains(owner) { chosen = [owner] }
             else if members.contains(me) { chosen = [me] }
             error = nil
         } catch {
@@ -228,7 +244,31 @@ struct AskMembersSheet: View {
         return [me] + others
     }
 
+    private func share() {
+        do {
+            let (outbound, unreachable) = try session.roomService.shareInfo(
+                conversation.targetId,
+                to: Array(chosen),
+                as: session.liveFid,
+                pubkeys: { fid in try session.knownPubkey(of: fid) },
+                homes: { fid in try session.knownHome(of: fid) }
+            )
+            for message in outbound {
+                guard let to = message.targetId else { continue }
+                try session.outbox.enqueue(message, in: Conversation.id(type: .p2p, targetId: to))
+            }
+            Task { _ = try? await session.courier.drainOutbox(as: session.liveFid) }
+            onSent(unreachable.isEmpty
+                   ? "\(outbound.count) update(s) queued."
+                   : "\(outbound.count) update(s) queued. \(unreachable.count) member(s) publish no DOCK, so there is nowhere to leave one for them.")
+            onClose()
+        } catch {
+            self.error = String(describing: error)
+        }
+    }
+
     private func send() {
+        if ask == .shareRoomInfo { return share() }
         do {
             let outbound = KeyExchange.requests(
                 entityId: conversation.targetId,
