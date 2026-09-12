@@ -4,10 +4,11 @@ import FCCore
 import FCDomain
 import FCUI
 
-/// Compose — the Mac port of Android's `CreateTxActivity`.
+/// Compose — the Mac port of Android's `CreateTxActivity`, and the
+/// second tab of the Send pane (``SendView``).
 ///
 /// **Send is for paying someone; this is for building a transaction.**
-/// The Send pane asks two questions (who, how much) and decides
+/// The Send tab asks two questions (who, how much) and decides
 /// everything else: which coins to spend, how many outputs, what the
 /// change looks like. That is the right shape for the ninety-nine
 /// percent case and the wrong shape for the rest — paying twelve
@@ -159,8 +160,6 @@ struct CreateTxView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            PaneHeader(session: session)
-            Divider()
             toolbar
 
             ScrollView {
@@ -179,7 +178,6 @@ struct CreateTxView: View {
                 .padding(.bottom, 12)
             }
         }
-        .padding()
         .frame(minWidth: 580)
         .task { await load() }
         .onChange(of: session.liveFid) { _, _ in
@@ -309,7 +307,7 @@ struct CreateTxView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(!canSubmit)
                 .help(inputSlots.isEmpty
-                      ? "No inputs named — the wallet will choose coins the way the Send pane does"
+                      ? "No inputs named — the wallet will choose coins the way the Send tab does"
                       : "Sign and broadcast, spending exactly the inputs listed")
             } else {
                 Button {
@@ -360,7 +358,7 @@ struct CreateTxView: View {
                 }
 
                 if inputSlots.isEmpty {
-                    Text("No inputs named. The wallet will pick coins itself, the way the Send pane does.")
+                    Text("No inputs named. The wallet will pick coins itself, the way the Send tab does.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -927,7 +925,7 @@ struct CreateTxView: View {
         do {
             // Empty inputs is the "choose for me" path: fall back to
             // the ordinary send, which selects coins the same way the
-            // Send pane does. Only a single-payee, no-lock draft can
+            // Send tab does. Only a single-payee, no-lock draft can
             // take it — anything richer needs the composed builder.
             if inputSlots.isEmpty {
                 result = try await autoSelectedSend()

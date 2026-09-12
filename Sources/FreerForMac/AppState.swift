@@ -88,6 +88,21 @@ final class AppState {
     /// through all twenty-odd panes to achieve the same thing.
     var selectedPane: WalletPane = .overview
 
+    /// The tab the Send pane shows. Hoisted for the same reason as
+    /// ``selectedPane``, and so it survives a trip to another pane.
+    var sendMode: SendView.Mode = .send
+
+    /// The tab the Settings pane shows — hoisted so the Overview can
+    /// open the First FCH board, which lives there.
+    var settingsTab: SettingsView.Tab = .preferences
+
+    /// Open the First FCH board. The two writes belong together, as in
+    /// ``openChat(mode:)``.
+    func openFirstFchBoard() {
+        settingsTab = .firstFch
+        selectedPane = .settings
+    }
+
     /// A chat flavour the Chat pane should open on, set by whoever
     /// navigated there. One-shot: the pane reads it and clears it, so
     /// coming back to Chat later lands on whatever tab the user last

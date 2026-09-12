@@ -105,7 +105,7 @@ struct OverviewView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 10) {
                     Button("Open the First FCH board") {
-                        appState.selectedPane = .firstFch
+                        appState.openFirstFchBoard()
                     }
                     CopyableText.elidingMiddle(session.liveFid, font: .callout.monospaced())
                 }
@@ -266,7 +266,7 @@ struct OverviewView: View {
             tiles.append(AttentionTile(
                 id: "firstFch", title: "First FCH", count: appState.newcomersWaiting,
                 systemImage: "hand.raised.fill", tint: .teal,
-                open: { appState.selectedPane = .firstFch }
+                open: { appState.openFirstFchBoard() }
             ))
         }
         // Chat flavours keep the colour, word and icon they have

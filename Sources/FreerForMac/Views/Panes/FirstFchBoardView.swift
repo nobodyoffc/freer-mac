@@ -4,8 +4,8 @@ import FCDomain
 import FCUI
 
 /// The **First FCH board** — the Mac port of Android's `NobodyBoard` /
-/// `NewcomerRequestsActivity` pair, and the one pane that serves two
-/// opposite people.
+/// `NewcomerRequestsActivity` pair, shown as a tab of the Settings pane,
+/// and the one screen that serves two opposite people.
 ///
 /// **The problem it solves.** Every action in this app costs a fee, and a
 /// brand-new FID has nothing to pay one with. It cannot carve, cannot
@@ -15,7 +15,7 @@ import FCUI
 /// whose private key is published, that a newcomer can post to for free
 /// and every existing freer can read.
 ///
-/// **So it is two panes in one frame.** If your balance is zero you are
+/// **So it is two screens in one frame.** If your balance is zero you are
 /// here to ask, and the top half is a note and a button. If it is not,
 /// you are here to answer, and the bottom half is the list of people
 /// waiting, an amount, and one transaction that pays as many of them as
@@ -129,8 +129,6 @@ struct FirstFchBoardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            PaneHeader(session: session)
-            Divider()
             toolbar
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
@@ -142,7 +140,6 @@ struct FirstFchBoardView: View {
                 .padding(.bottom, 12)
             }
         }
-        .padding()
         .frame(minWidth: 560)
         .task { await load() }
         .onChange(of: session.liveFid) { _, _ in

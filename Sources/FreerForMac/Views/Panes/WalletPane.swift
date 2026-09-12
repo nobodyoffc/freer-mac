@@ -16,11 +16,10 @@ import Foundation
 enum WalletPane: String, Hashable, CaseIterable, Identifiable {
     // Wallet. Cash sits above Transactions because the coins you hold
     // are the state, and the transactions are the history of it.
-    // Compose sits under Send because it is the same act with the
+    // Compose is a tab inside Send because it is the same act with the
     // decisions handed back to you.
     case overview
     case send
-    case compose
     case cash
     case transactions
 
@@ -29,10 +28,6 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
     case chat
     case mail
     case news
-    /// The public first-FCH board. Under Society because it is people
-    /// asking people for something, not a wallet screen — the payment it
-    /// ends in is the answer, not the subject.
-    case firstFch
 
     // Finance
     case proofs
@@ -65,6 +60,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
 
     // System
     case logs
+    /// Preferences, plus the First FCH board as a second tab.
     case settings
 
     var id: String { rawValue }
@@ -105,9 +101,9 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
 
     var group: Group {
         switch self {
-        case .overview, .send, .compose, .cash, .transactions:
+        case .overview, .send, .cash, .transactions:
             return .wallet
-        case .contacts, .chat, .mail, .news, .firstFch:
+        case .contacts, .chat, .mail, .news:
             return .society
         case .proofs, .tokens:
             return .finance
@@ -133,14 +129,12 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         switch self {
         case .overview:     return "Overview"
         case .send:         return "Send"
-        case .compose:      return "Compose"
         case .cash:         return "Cash"
         case .transactions: return "Transactions"
         case .contacts:     return "Contacts"
         case .chat:         return "Chat"
         case .mail:         return "Mail"
         case .news:         return "News"
-        case .firstFch:     return "First FCH"
         case .proofs:       return "Proofs"
         case .tokens:       return "Tokens"
         case .files:        return "Files"
@@ -216,8 +210,8 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         switch self {
         case .chat, .mail, .secrets:
             return true
-        case .overview, .send, .compose, .cash, .transactions,
-             .contacts, .news, .firstFch, .proofs, .tokens, .files,
+        case .overview, .send, .cash, .transactions,
+             .contacts, .news, .proofs, .tokens, .files,
              .publishText, .publishStatement, .publishImage, .publishSound, .publishVideo,
              .protocols, .services, .codes, .apps,
              .crypto, .convert, .terminal, .logs, .settings:
@@ -242,14 +236,12 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         switch self {
         case .overview:     return "house"
         case .send:         return "paperplane"
-        case .compose:      return "square.stack.3d.up"
         case .cash:         return "banknote"
         case .transactions: return "list.bullet"
         case .contacts:     return "person.2"
         case .chat:         return "bubble.left.and.bubble.right"
         case .mail:         return "envelope"
         case .news:         return "newspaper"
-        case .firstFch:     return "hand.raised"
         case .proofs:       return "checkmark.seal"
         case .tokens:       return "circle.grid.2x2"
         case .files:        return "folder"

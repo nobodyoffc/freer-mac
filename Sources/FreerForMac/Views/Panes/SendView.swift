@@ -3,6 +3,43 @@ import FCCore
 import FCDomain
 import FCUI
 
+/// The Send pane: two tabs over one act. **Send** pays someone and makes
+/// every other decision for you; **Compose** (``CreateTxView``) hands
+/// those decisions back — inputs, several outputs, a message, a lock.
+struct SendView: View {
+    @Environment(AppState.self) private var appState
+    let session: ActiveSession
+
+    enum Mode: String, CaseIterable, Identifiable {
+        case send = "Send"
+        case compose = "Compose"
+        var id: String { rawValue }
+    }
+
+    var body: some View {
+        @Bindable var state = appState
+        VStack(alignment: .leading, spacing: 12) {
+            PaneHeader(session: session)
+            Divider()
+
+            Picker("", selection: $state.sendMode) {
+                ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 200)
+
+            switch appState.sendMode {
+            case .send:
+                SendPaymentView(session: session)
+            case .compose:
+                CreateTxView(session: session)
+            }
+        }
+        .padding()
+    }
+}
+
 /// Build, sign, and broadcast an FCH transaction from the live FID.
 ///
 /// Flow: enter recipient + amount + fee → confirm → `session.sendFromLive`
@@ -13,7 +50,7 @@ import FCUI
 /// snapshot + coin selection produces a ``RawTxInfo`` document
 /// (Android `CreateTxActivity`'s import format) exported via copy /
 /// file / multi-part QR, to be signed where the key lives.
-struct SendView: View {
+struct SendPaymentView: View {
     @Environment(AppState.self) private var appState
     let session: ActiveSession
 
@@ -33,9 +70,6 @@ struct SendView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            PaneHeader(session: session)
-            Divider()
-
             if !session.canSign {
                 watchOnlyBanner
             }
@@ -43,7 +77,6 @@ struct SendView: View {
             form
             Spacer()
         }
-        .padding()
         .frame(minWidth: 480)
         .alert("Send \(formatBch(amountSatoshis ?? 0)) FCH?",
                isPresented: $showConfirm) {

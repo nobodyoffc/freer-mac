@@ -13,6 +13,8 @@ import FCUI
 ///   the AppState to swap the active session's FAPI client to the
 ///   new server. Subsequent Overview Refreshes hit the live server
 ///   immediately.
+///
+/// The First FCH board (``FirstFchBoardView``) is the pane's second tab.
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
     let session: ActiveSession
@@ -48,20 +50,42 @@ struct SettingsView: View {
     @State private var payBackNoticeFee: Bool = true
     @State private var confirmBeforeSigning: Bool = true
 
+    enum Tab: String, CaseIterable, Identifiable {
+        case preferences = "Preferences"
+        case firstFch = "First FCH"
+        var id: String { rawValue }
+    }
+
     enum TestResult: Equatable {
         case ok(String)
         case fail(String)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        @Bindable var state = appState
+        VStack(alignment: .leading, spacing: 12) {
             PaneHeader(session: session)
             Divider()
-            form
-            Spacer()
+
+            Picker("", selection: $state.settingsTab) {
+                ForEach(Tab.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 240)
+
+            switch appState.settingsTab {
+            case .preferences:
+                form
+                Spacer()
+            case .firstFch:
+                FirstFchBoardView(session: session)
+            }
         }
         .padding()
         .frame(minWidth: 480)
+        // On the pane rather than the Preferences tab: a trip to the
+        // board and back must not reload over edits not yet saved.
         .onAppear {
             load()
             Task { await loadNoticeFee() }

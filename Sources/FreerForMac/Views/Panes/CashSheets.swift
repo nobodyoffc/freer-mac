@@ -289,7 +289,7 @@ struct CashReorgSheet: View {
             if session.canSign {
                 Button {
                     actionError = nil
-                    // See SendView: when the global confirmation is
+                    // See SendPaymentView: when the global confirmation is
                     // on it shows the real transaction a moment from
                     // now, so this one would only be noise.
                     if session.confirmBeforeSigning {

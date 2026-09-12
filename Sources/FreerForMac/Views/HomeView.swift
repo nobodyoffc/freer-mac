@@ -196,8 +196,6 @@ struct HomeView: View {
             OverviewView(session: session)
         case .send:
             SendView(session: session)
-        case .compose:
-            CreateTxView(session: session)
         case .cash:
             CashView(session: session)
         case .transactions:
@@ -214,8 +212,6 @@ struct HomeView: View {
             MailView(session: session)
         case .news:
             NewsView(session: session)
-        case .firstFch:
-            FirstFchBoardView(session: session)
         case .files:
             FilesView(session: session)
         case .secrets:
