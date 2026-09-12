@@ -6,10 +6,12 @@ import FCUI
 
 /// Add or edit one saved server.
 ///
-/// Four fields, on purpose. Anything else `ssh` reads out of
+/// Few fields, on purpose. Anything else `ssh` reads out of
 /// `~/.ssh/config`, and `host` is passed through verbatim — so a `Host`
 /// alias defined there works here and brings its own `ProxyJump`,
-/// `Port` and `User` with it.
+/// `Port` and `User` with it. Port forwards are the exception, because
+/// a `LocalForward` in the config would be opened by every shell as
+/// well as the tunnel, and the second one to bind would lose.
 struct SshServerEditorSheet: View {
 
     enum Mode {
@@ -32,6 +34,8 @@ struct SshServerEditorSheet: View {
     @State private var identityKind: IdentityKind = .freer
     @State private var keyFilePath: String = ""
 
+    @State private var forwards: [ForwardDraft] = []
+
     /// The picker's cases. Separate from ``SshServer/Identity`` because
     /// a `Picker` needs a tag that does not carry an associated value —
     /// the path lives beside it in `keyFilePath`.
@@ -40,6 +44,28 @@ struct SshServerEditorSheet: View {
         case keyFile = "Key file"
         case systemDefaults = "System ssh"
         var id: String { rawValue }
+    }
+
+    /// One forward as typed: strings, so a half-typed port is a field
+    /// the user is still editing rather than a value that failed to
+    /// parse. The id is kept from the saved ``SshPortForward``.
+    private struct ForwardDraft: Identifiable, Equatable {
+        var id = UUID().uuidString
+        var localPort = ""
+        var remoteHost = "localhost"
+        var remotePort = ""
+
+        var forward: SshPortForward? {
+            guard let local = Int(localPort.trimmingCharacters(in: .whitespaces)),
+                  let remote = Int(remotePort.trimmingCharacters(in: .whitespaces))
+            else { return nil }
+            return SshPortForward(
+                id: id,
+                localPort: local,
+                remoteHost: remoteHost.trimmingCharacters(in: .whitespaces),
+                remotePort: remote
+            )
+        }
     }
 
     private var isEdit: Bool {
@@ -52,17 +78,28 @@ struct SshServerEditorSheet: View {
         return n
     }
 
+    /// Nil when every forward row is one the tunnel could open.
+    private var forwardsError: String? {
+        var parsed: [SshPortForward] = []
+        for draft in forwards {
+            guard let forward = draft.forward else { return "Ports are numbers from 1 to 65535." }
+            parsed.append(forward)
+        }
+        return SshPortForward.firstProblem(in: parsed)
+    }
+
     private var canSave: Bool {
         !host.trimmingCharacters(in: .whitespaces).isEmpty
             && !user.trimmingCharacters(in: .whitespaces).isEmpty
             && portValue != nil
             && (identityKind != .keyFile || !keyFilePath.trimmingCharacters(in: .whitespaces).isEmpty)
+            && forwardsError == nil
     }
 
     private var identityHint: String {
         switch identityKind {
         case .freer:
-            return "The ed25519 key derived from your main FID. Paste its line into the server's authorized_keys first — see Public key."
+            return "The ed25519 key derived from your main FID. After saving, put it on the server with Install Freer key in the server's menu."
         case .keyFile:
             return "A private key you already have. Freer's agent is never started; ssh reads the file, and asks here if it has a passphrase."
         case .systemDefaults:
@@ -81,66 +118,69 @@ struct SshServerEditorSheet: View {
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 16) {
-                LabeledField("Label", hint: "Optional. Falls back to user@host.") {
-                    TextField("prod web", text: $label).fieldInputStyle()
-                }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    LabeledField("Label", hint: "Optional. Falls back to user@host.") {
+                        TextField("prod web", text: $label).fieldInputStyle()
+                    }
 
-                LabeledField("Host", hint: "Hostname, IP, or a Host alias from ~/.ssh/config.") {
-                    TextField("vps01.example.com", text: $host)
-                        .fieldInputStyle()
-                        .autocorrectionDisabled()
-                }
-
-                HStack(alignment: .top, spacing: 12) {
-                    LabeledField("User") {
-                        TextField("root", text: $user)
+                    LabeledField("Host", hint: "Hostname, IP, or a Host alias from ~/.ssh/config.") {
+                        TextField("vps01.example.com", text: $host)
                             .fieldInputStyle()
                             .autocorrectionDisabled()
                     }
-                    LabeledField(
-                        "Port",
-                        hint: portValue == nil ? "1–65535" : nil,
-                        hintIsError: portValue == nil
-                    ) {
-                        TextField("22", text: $port)
-                            .fieldInputStyle()
-                            .frame(width: 90)
-                    }
-                }
 
-                LabeledField("Key", hint: identityHint) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Picker("Key", selection: $identityKind) {
-                            ForEach(IdentityKind.allCases) { Text($0.rawValue).tag($0) }
+                    HStack(alignment: .top, spacing: 12) {
+                        LabeledField("User") {
+                            TextField("root", text: $user)
+                                .fieldInputStyle()
+                                .autocorrectionDisabled()
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                        LabeledField(
+                            "Port",
+                            hint: portValue == nil ? "1–65535" : nil,
+                            hintIsError: portValue == nil
+                        ) {
+                            TextField("22", text: $port)
+                                .fieldInputStyle()
+                                .frame(width: 90)
+                        }
+                    }
 
-                        if identityKind == .keyFile {
-                            HStack(spacing: 8) {
-                                TextField("~/.ssh/id_ed25519", text: $keyFilePath)
-                                    .fieldInputStyle()
-                                    .autocorrectionDisabled()
-                                Button("Choose…", action: chooseKeyFile)
+                    LabeledField("Key", hint: identityHint) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Picker("Key", selection: $identityKind) {
+                                ForEach(IdentityKind.allCases) { Text($0.rawValue).tag($0) }
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+
+                            if identityKind == .keyFile {
+                                HStack(spacing: 8) {
+                                    TextField("~/.ssh/id_ed25519", text: $keyFilePath)
+                                        .fieldInputStyle()
+                                        .autocorrectionDisabled()
+                                    Button("Choose…", action: chooseKeyFile)
+                                }
                             }
                         }
                     }
-                }
 
-                LabeledField("Memo", hint: "Optional.") {
-                    TextField("what this box is for", text: $memo).fieldInputStyle()
-                }
+                    forwardsField
 
-                if let saveError {
-                    Label(saveError, systemImage: "exclamationmark.triangle")
-                        .font(.callout)
-                        .foregroundStyle(.orange)
+                    LabeledField("Memo", hint: "Optional.") {
+                        TextField("what this box is for", text: $memo).fieldInputStyle()
+                    }
+
+                    if let saveError {
+                        Label(saveError, systemImage: "exclamationmark.triangle")
+                            .font(.callout)
+                            .foregroundStyle(.orange)
+                    }
                 }
+                .padding(20)
             }
-            .padding(20)
 
-            Spacer(minLength: 0)
             Divider()
 
             HStack {
@@ -152,8 +192,68 @@ struct SshServerEditorSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 560, height: 620)
+        .frame(width: 580, height: 680)
         .onAppear(perform: load)
+    }
+
+    private var forwardsField: some View {
+        LabeledField(
+            "Port forwards",
+            hint: forwardsError ?? (forwards.isEmpty
+                ? "Optional. Open tunnel, in the server's menu, opens these."
+                : "Each port opens on this Mac's loopback only. The host on the right is looked up by the server, so localhost means the server itself."),
+            hintIsError: forwardsError != nil
+        ) {
+            VStack(alignment: .leading, spacing: 8) {
+                // By id, not `ForEach($forwards)`: removing a row while
+                // its own text fields hold index-based bindings is the
+                // classic SwiftUI out-of-range crash.
+                ForEach(forwards) { draft in
+                    HStack(spacing: 6) {
+                        Text("localhost :")
+                            .font(.system(.callout, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        TextField("8080", text: binding(draft.id, \.localPort))
+                            .fieldInputStyle()
+                            .frame(width: 72)
+                        Image(systemName: "arrow.right")
+                            .foregroundStyle(.secondary)
+                        TextField("localhost", text: binding(draft.id, \.remoteHost))
+                            .fieldInputStyle()
+                            .autocorrectionDisabled()
+                        Text(":")
+                            .font(.system(.callout, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        TextField("80", text: binding(draft.id, \.remotePort))
+                            .fieldInputStyle()
+                            .frame(width: 72)
+                        Button {
+                            forwards.removeAll { $0.id == draft.id }
+                        } label: {
+                            Image(systemName: "minus.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Remove this forward")
+                    }
+                }
+                Button {
+                    forwards.append(ForwardDraft())
+                } label: {
+                    Label("Add forward", systemImage: "plus")
+                }
+                .buttonStyle(.borderless)
+            }
+        }
+    }
+
+    private func binding(_ id: String, _ field: WritableKeyPath<ForwardDraft, String>) -> Binding<String> {
+        Binding(
+            get: { forwards.first { $0.id == id }?[keyPath: field] ?? "" },
+            set: { value in
+                guard let i = forwards.firstIndex(where: { $0.id == id }) else { return }
+                forwards[i][keyPath: field] = value
+            }
+        )
     }
 
     private func load() {
@@ -171,6 +271,14 @@ struct SshServerEditorSheet: View {
             keyFilePath = path
         case .systemDefaults:
             identityKind = .systemDefaults
+        }
+        forwards = server.portForwards.map {
+            ForwardDraft(
+                id: $0.id,
+                localPort: String($0.localPort),
+                remoteHost: $0.remoteHost,
+                remotePort: String($0.remotePort)
+            )
         }
     }
 
@@ -215,6 +323,9 @@ struct SshServerEditorSheet: View {
         case .systemDefaults:
             server.identity = .systemDefaults
         }
+
+        let parsed = forwards.compactMap(\.forward)
+        server.forwards = parsed.isEmpty ? nil : parsed
 
         do {
             try session.sshServers.upsert(server)

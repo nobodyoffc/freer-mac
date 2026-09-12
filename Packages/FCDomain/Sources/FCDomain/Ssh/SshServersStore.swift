@@ -16,12 +16,14 @@ public struct SshServersStore {
         case emptyHost
         case emptyUser
         case badPort(Int)
+        case badForward(String)
 
         public var description: String {
             switch self {
             case .emptyHost: return "SshServersStore: the host is empty"
             case .emptyUser: return "SshServersStore: the login name is empty"
             case let .badPort(p): return "SshServersStore: port \(p) is outside 1...65535"
+            case let .badForward(reason): return "SshServersStore: \(reason)"
             }
         }
     }
@@ -49,6 +51,14 @@ public struct SshServersStore {
         s.host = host
         s.user = user
         s.label = s.label.trimmingCharacters(in: .whitespaces)
+        if let forwards = s.forwards {
+            s.forwards = forwards.map { forward in
+                var f = forward
+                f.remoteHost = f.remoteHost.trimmingCharacters(in: .whitespaces)
+                return f
+            }
+        }
+        if let error = s.portForwardsError { throw Failure.badForward(error) }
         s.updatedAt = Date()
         try inner.put(s, key: s.id)
     }
@@ -68,6 +78,15 @@ public struct SshServersStore {
     public func touchLastUsed(id: String) throws {
         guard var s = try inner.get(id) else { return }
         s.lastUsedAt = Date()
+        try inner.put(s, key: s.id)
+    }
+
+    /// Remember where an upload went. Like ``touchLastUsed(id:)`` this
+    /// records use rather than an edit, so it leaves `updatedAt` alone.
+    public func setLastUploadDirectory(id: String, _ directory: String) throws {
+        guard var s = try inner.get(id) else { return }
+        let trimmed = directory.trimmingCharacters(in: .whitespaces)
+        s.lastUploadDirectory = trimmed.isEmpty ? nil : trimmed
         try inner.put(s, key: s.id)
     }
 

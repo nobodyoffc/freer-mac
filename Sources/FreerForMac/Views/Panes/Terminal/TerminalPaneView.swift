@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import FCCore
 import FCDomain
 import FCUI
@@ -41,6 +42,27 @@ struct TerminalPaneView: View {
     @State private var editor: SshServerEditorSheet.Mode?
     @State private var showingPublicKey = false
     @State private var confirmingDelete: SshServer?
+    /// The server whose Freer key is about to come off, waiting on the
+    /// lockout warning.
+    @State private var confirmingKeyRemoval: SshServer?
+
+    /// Files picked or dropped, waiting for a destination.
+    ///
+    /// **Both ways in open the same sheet.** Where the files go is the
+    /// question either way, and a drop needs asking regardless:
+    /// Terminal.app pastes a dropped file's path into the shell, so a
+    /// drop here is a gesture people make expecting something local.
+    @State private var pendingUpload: PendingUpload?
+    @State private var isDropTargeted = false
+
+    private struct PendingUpload: Identifiable {
+        let id = UUID()
+        let serverId: String
+        let paths: [String]
+        /// A running shell's reported directory, offered as a one-click
+        /// destination. Captured when the sheet opens, not live.
+        let shellDirectory: String?
+    }
 
     /// The SSH key comes from the **main** FID, so a watch-only live
     /// identity is fine — but a watch-only *main* is not, and that is
@@ -95,6 +117,21 @@ struct TerminalPaneView: View {
                     .frame(minWidth: 420)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .sheet(item: $pendingUpload) { upload in
+                if let server = servers.first(where: { $0.id == upload.serverId }) {
+                    SshUploadSheet(
+                        server: server,
+                        paths: upload.paths,
+                        shellDirectory: upload.shellDirectory,
+                        onUpload: { directory in
+                            pendingUpload = nil
+                            try? session.sshServers.setLastUploadDirectory(id: server.id, directory)
+                            connect(server, kind: .upload(localPaths: upload.paths, remoteDirectory: directory))
+                        },
+                        onCancel: { pendingUpload = nil }
+                    )
+                }
+            }
         }
         .padding()
         .onAppear(perform: reload)
@@ -123,7 +160,25 @@ struct TerminalPaneView: View {
             }
             Button("Cancel", role: .cancel) { confirmingDelete = nil }
         } message: {
-            Text("This only forgets the entry here. Nothing changes on the server.")
+            // The entry and the access are two different things, and
+            // this button only takes away the first.
+            Text("This only forgets the entry here. Nothing changes on the server — if the Freer key is installed there, it still gets in. Remove Freer key from server, in the server's menu, takes it off.")
+        }
+        .confirmationDialog(
+            "Remove the Freer key from \(confirmingKeyRemoval?.name ?? "")?",
+            isPresented: Binding(
+                get: { confirmingKeyRemoval != nil },
+                set: { if !$0 { confirmingKeyRemoval = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Remove key", role: .destructive) {
+                if let server = confirmingKeyRemoval { removeKey(from: server) }
+                confirmingKeyRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { confirmingKeyRemoval = nil }
+        } message: {
+            Text(keyRemovalWarning(confirmingKeyRemoval))
         }
         .alert(
             "Name this session",
@@ -199,7 +254,7 @@ struct TerminalPaneView: View {
                 ContentUnavailableView(
                     "No servers yet",
                     systemImage: "server.rack",
-                    description: Text("Add one, then copy your public key onto it.")
+                    description: Text("Add one, then install your key on it from its menu.")
                 )
             }
         }
@@ -234,13 +289,44 @@ struct TerminalPaneView: View {
             }
         }
         .contextMenu {
-            Button("New session") { selectedId = server.id; connect(server) }
+            Button("New session") { connect(server) }
                 .disabled(!canConnect(server))
+            serverActions(server)
             Divider()
             Button("Edit…") { editor = .edit(server) }
             Button(server.pinnedAt == nil ? "Pin" : "Unpin") { togglePin(server) }
             Divider()
             Button("Remove…", role: .destructive) { confirmingDelete = server }
+        }
+    }
+
+    /// Everything a server offers besides a shell. The same items in
+    /// the row's context menu and the header's `…` menu, so neither is
+    /// the only way in.
+    @ViewBuilder
+    private func serverActions(_ server: SshServer) -> some View {
+        Divider()
+        // Offered for every credential, not just the Freer key: logging
+        // in with your own key file to install the Freer one is how a
+        // server moves over without a password ever being involved.
+        Button("Install Freer key on server") { installKey(on: server) }
+            .disabled(!mainCanDerive || !canConnect(server))
+        // The install's undo. Asks first: on a box that takes no
+        // password, this key may be the only way back in.
+        Button("Remove Freer key from server…") { confirmingKeyRemoval = server }
+            .disabled(!mainCanDerive || !canConnect(server))
+        Divider()
+        Button("Open SFTP session") { connect(server, kind: .sftp) }
+            .disabled(!canConnect(server))
+        Button("Upload files…") { chooseUpload(for: server) }
+            .disabled(!canConnect(server))
+        Divider()
+        if server.portForwards.isEmpty {
+            Button("Open tunnel — add a port forward in Edit…") {}
+                .disabled(true)
+        } else {
+            Button("Open tunnel") { connect(server, kind: .tunnel(server.portForwards)) }
+                .disabled(!canConnect(server))
         }
     }
 
@@ -252,7 +338,7 @@ struct TerminalPaneView: View {
             let sessions = appState.terminalSessions(for: server.id)
             let active = active(for: server)
             VStack(alignment: .leading, spacing: 10) {
-                sessionHeader(server, active: active)
+                sessionHeader(server, active: active, showsKind: sessions.count <= 1)
 
                 if let connectError {
                     Label(connectError, systemImage: "exclamationmark.triangle")
@@ -288,6 +374,9 @@ struct TerminalPaneView: View {
                         .id(ObjectIdentifier(active))
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .clipShape(RoundedRectangle(cornerRadius: 8))
+                    if case let .tunnel(forwards) = active.kind, active.isRunning {
+                        tunnelForwards(forwards)
+                    }
                     if let ended = active.endedMessage {
                         Text(ended).font(.caption).foregroundStyle(.secondary)
                     }
@@ -295,16 +384,36 @@ struct TerminalPaneView: View {
                     idleDetail(server)
                 }
             }
+            // SwiftTerm's view registers for no drag types, so a drop
+            // on the terminal falls through to here rather than being
+            // pasted into the shell.
+            .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
+                guard canConnect(server) else { return false }
+                loadDroppedPaths(providers) { paths in
+                    guard !paths.isEmpty else { return }
+                    pendingUpload = PendingUpload(
+                        serverId: server.id,
+                        paths: paths,
+                        shellDirectory: shellDirectory(for: server)
+                    )
+                }
+                return true
+            }
+            .overlay {
+                if isDropTargeted && canConnect(server) {
+                    dropOverlay(server)
+                }
+            }
         } else {
             ContentUnavailableView(
                 "Pick a server",
                 systemImage: "terminal",
-                description: Text("Your first login uses a password. Paste the public key, and the next one will not.")
+                description: Text("Your first login uses a password. Install the Freer key while you are in, and the next one will not.")
             )
         }
     }
 
-    private func sessionHeader(_ server: SshServer, active: TerminalSessionModel?) -> some View {
+    private func sessionHeader(_ server: SshServer, active: TerminalSessionModel?, showsKind: Bool) -> some View {
         HStack(spacing: 10) {
             // **The server, and only the server.** This heading used
             // to follow the active session's title, so renaming a tab
@@ -327,30 +436,16 @@ struct TerminalPaneView: View {
                     .lineLimit(1)
             }
             Spacer()
-            if let active, active.isRunning {
-                Button("Disconnect", role: .destructive) {
-                    // Stops the shell but keeps the transcript, so you
-                    // can still read whatever it printed on the way out.
-                    appState.stopTerminalSession(id: active.id)
-                }
-            } else if let active {
-                // Reconnect closes the finished tab and opens a new
-                // one rather than restarting this one: its terminal
-                // view holds a spent pty and the last login's
-                // scrollback. The new tab lands at the end of the bar,
-                // not in the old one's slot — moving a session under
-                // the cursor is worse than moving the tab.
-                Button("Reconnect") {
-                    appState.closeTerminalSession(id: active.id)
-                    connect(server)
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canConnect(server))
-            } else {
-                Button("Connect") { connect(server) }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!canConnect(server))
+            // With no tab bar, nothing else says that the one session
+            // on screen is an upload rather than a shell.
+            if showsKind, let active, let symbol = active.kind.symbol {
+                Label(active.kind.tabLabel, systemImage: symbol)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
+            primaryButton(server, active: active)
             if active != nil {
                 Button {
                     connect(server)
@@ -361,7 +456,108 @@ struct TerminalPaneView: View {
                 .disabled(!canConnect(server))
                 .help("Open another session on this server (⌘T) — one to watch a log in, one to type in.")
             }
+            Menu {
+                serverActions(server)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Install or remove the Freer key, SFTP, upload files, open a tunnel")
         }
+    }
+
+    /// What the header's main button does depends on what is on screen.
+    @ViewBuilder
+    private func primaryButton(_ server: SshServer, active: TerminalSessionModel?) -> some View {
+        if let active, active.isRunning {
+            Button(stopTitle(active.kind), role: .destructive) {
+                // Stops the program but keeps the transcript, so you
+                // can still read whatever it printed on the way out.
+                appState.stopTerminalSession(id: active.id)
+            }
+        } else if let active {
+            // Each of these closes the finished tab and opens a new one
+            // rather than restarting this one: its terminal view holds a
+            // spent pty and the last run's scrollback. The new tab lands
+            // at the end of the bar, not in the old one's slot — moving
+            // a session under the cursor is worse than moving the tab.
+            switch active.kind {
+            case .upload:
+                // Never "again": running it twice copies every file
+                // twice, and the user already has the panel for more.
+                Button("Close") { close(active, of: server) }
+            case .removeKey:
+                // Not Connect: with the key gone, a server set to the
+                // Freer key would only ask for a password, or refuse.
+                Button("Close") { close(active, of: server) }
+            case .installKey:
+                // What you install a key *for*.
+                Button("Connect") {
+                    appState.closeTerminalSession(id: active.id)
+                    connect(server)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canConnect(server))
+            case .tunnel:
+                // The forwards as saved now, not as they were when the
+                // closed tunnel opened — Edit is how you fix a port.
+                Button("Reopen tunnel") {
+                    appState.closeTerminalSession(id: active.id)
+                    connect(server, kind: .tunnel(server.portForwards))
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canConnect(server) || server.portForwards.isEmpty)
+            case .shell, .sftp:
+                Button("Reconnect") {
+                    appState.closeTerminalSession(id: active.id)
+                    connect(server, kind: active.kind)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canConnect(server))
+            }
+        } else {
+            Button("Connect") { connect(server) }
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canConnect(server))
+        }
+    }
+
+    private func stopTitle(_ kind: SshLaunch.Kind) -> String {
+        switch kind {
+        case .upload, .installKey, .removeKey: return "Cancel"
+        case .tunnel: return "Close tunnel"
+        case .shell, .sftp: return "Disconnect"
+        }
+    }
+
+    /// The local end of each forward, click to copy — the one thing you
+    /// open the tunnel to go and paste somewhere else.
+    private func tunnelForwards(_ forwards: [SshPortForward]) -> some View {
+        HStack(spacing: 14) {
+            ForEach(forwards) { forward in
+                CopyableText(
+                    display: forward.summary,
+                    copy: "localhost:\(forward.localPort)",
+                    font: .system(.caption, design: .monospaced),
+                    help: "Click to copy localhost:\(forward.localPort)"
+                )
+            }
+        }
+    }
+
+    private func dropOverlay(_ server: SshServer) -> some View {
+        RoundedRectangle(cornerRadius: 10)
+            .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            .background(Color.accentColor.opacity(0.06))
+            .overlay {
+                Label("Upload to \(server.target)…", systemImage: "arrow.up.doc")
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+            }
+            .allowsHitTesting(false)
     }
 
     /// One chip per open session, in the order they were opened.
@@ -400,6 +596,11 @@ struct TerminalPaneView: View {
             Text("\(model.ordinal)")
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
+            if let symbol = model.kind.symbol {
+                Image(systemName: symbol)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             // Only what the heading above does not already say — the
             // directory the shell is in, a name the user typed, or
             // failing both the time it opened. Elided in the middle so
@@ -460,13 +661,19 @@ struct TerminalPaneView: View {
             if let memo = server.memo, !memo.isEmpty {
                 Text(memo).font(.callout).foregroundStyle(.secondary)
             }
+            // Only before the first connection. After that the key is
+            // either on the box or the user has chosen not to put it
+            // there, and the menu still has the item either way.
+            if server.credentialKind == .freer, server.lastUsedAt == nil, mainCanDerive {
+                installKeyCallout(server)
+            }
             Spacer()
             HStack {
                 Spacer()
                 ContentUnavailableView(
                     "Not connected",
                     systemImage: "terminal",
-                    description: Text("Connect to open a shell on \(server.host).")
+                    description: Text("Connect to open a shell on \(server.host), or drop files here to upload them.")
                 )
                 Spacer()
             }
@@ -474,9 +681,30 @@ struct TerminalPaneView: View {
         }
     }
 
+    private func installKeyCallout(_ server: SshServer) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "key")
+                .foregroundStyle(.secondary)
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("First time on this server?")
+                    .font(.callout.weight(.semibold))
+                Text("Install the Freer key logs in once — with your password, if that is all the server takes — and adds your key to its authorized_keys. Every connection after that is keyless.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("Install Freer key") { installKey(on: server) }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(NSColor.controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
     // MARK: - Actions
 
-    /// The dot in the sidebar: **any** live shell on this box, not a
+    /// The dot in the sidebar: **any** live session on this box, not a
     /// particular one.
     private func isRunning(_ server: SshServer) -> Bool {
         appState.terminalSessions(for: server.id).contains { $0.isRunning }
@@ -494,12 +722,13 @@ struct TerminalPaneView: View {
         return sessions.last
     }
 
-    /// Open one more shell on this server and show it.
-    private func connect(_ server: SshServer) {
+    /// Open one more session on this server and show it.
+    private func connect(_ server: SshServer, kind: SshLaunch.Kind = .shell) {
         connectError = nil
+        selectedId = server.id
         do {
             let credential = try resolveCredential(for: server)
-            let model = appState.openTerminalSession(for: server)
+            let model = appState.openTerminalSession(for: server, kind: kind)
             if let error = model.start(credential: credential) {
                 connectError = error
                 appState.closeTerminalSession(id: model.id)
@@ -511,6 +740,89 @@ struct TerminalPaneView: View {
         } catch {
             connectError = "\(error)"
         }
+    }
+
+    /// Log in with whatever this server already uses and append the
+    /// Freer key's line. The line is derived here and handed over as
+    /// text; nothing about it outlives the call.
+    private func installKey(on server: SshServer) {
+        do {
+            let line = try session.sshIdentity().authorizedKeysLine()
+            connect(server, kind: .installKey(authorizedKeysLine: line))
+        } catch {
+            selectedId = server.id
+            connectError = "Could not derive the SSH key — \(error)"
+        }
+    }
+
+    /// The install's inverse, over the same one login. Only the current
+    /// key: one derived from a main FID this vault no longer holds
+    /// cannot be derived again to be looked for.
+    private func removeKey(from server: SshServer) {
+        do {
+            let line = try session.sshIdentity().authorizedKeysLine()
+            connect(server, kind: .removeKey(authorizedKeysLine: line))
+        } catch {
+            selectedId = server.id
+            connectError = "Could not derive the SSH key — \(error)"
+        }
+    }
+
+    /// The lockout, said before it can happen. **Nothing on this side
+    /// can tell** whether the server still takes a password or holds
+    /// another key of yours, so the warning is as strong as what this
+    /// entry itself logs in with.
+    private func keyRemovalWarning(_ server: SshServer?) -> String {
+        let what = "This logs in once and deletes every line holding the Freer key from ~/.ssh/authorized_keys. Other keys stay."
+        guard server?.credentialKind == .freer else { return what }
+        return what + " This server logs in with that key: if it takes no password and has no other key of yours, you will not get back in."
+    }
+
+    private func chooseUpload(for server: SshServer) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = "Choose"
+        panel.message = "Folders are copied with everything in them. Next, the folder on \(server.target) they go into."
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        selectedId = server.id
+        pendingUpload = PendingUpload(
+            serverId: server.id,
+            paths: panel.urls.map(\.path),
+            shellDirectory: shellDirectory(for: server)
+        )
+    }
+
+    /// The directory to offer as "the shell's": the tab on screen if it
+    /// is a live shell that has reported one, else the newest live shell
+    /// on this server that has.
+    private func shellDirectory(for server: SshServer) -> String? {
+        if let active = active(for: server), active.kind.isShell, active.isRunning,
+           let directory = active.remoteDirectory {
+            return directory
+        }
+        return appState.terminalSessions(for: server.id)
+            .last { $0.kind.isShell && $0.isRunning && $0.remoteDirectory != nil }?
+            .remoteDirectory
+    }
+
+    /// The file URLs in a drop, in the order they were dropped.
+    /// `loadObject` answers on a background queue and in no particular
+    /// order, so each lands in its own slot on the main queue.
+    private func loadDroppedPaths(_ providers: [NSItemProvider], completion: @escaping ([String]) -> Void) {
+        var paths = [String?](repeating: nil, count: providers.count)
+        let group = DispatchGroup()
+        for (index, provider) in providers.enumerated() {
+            group.enter()
+            _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                DispatchQueue.main.async {
+                    if let url, url.isFileURL { paths[index] = url.path }
+                    group.leave()
+                }
+            }
+        }
+        group.notify(queue: .main) { completion(paths.compactMap { $0 }) }
     }
 
     private func beginRename(_ model: TerminalSessionModel) {

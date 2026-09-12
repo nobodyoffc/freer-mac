@@ -151,4 +151,44 @@ final class SshServersStoreTests: XCTestCase {
         let direct = try SshEd25519Key(mainPrikey: alice, mainFid: session.mainFid)
         XCTAssertEqual(try session.sshIdentity().publicKeyBlob, direct.publicKeyBlob)
     }
+
+    // MARK: - Upload destination
+
+    func testLastUploadDirectoryIsRememberedWithoutCountingAsAnEdit() throws {
+        let store = session.sshServers
+        let server = makeServer()
+        try store.upsert(server)
+        let before = try XCTUnwrap(try store.get(id: server.id)).updatedAt
+
+        try store.setLastUploadDirectory(id: server.id, " /var/www ")
+        let after = try XCTUnwrap(try store.get(id: server.id))
+        XCTAssertEqual(after.lastUploadDirectory, "/var/www")
+        XCTAssertEqual(after.updatedAt, before)
+
+        try store.setLastUploadDirectory(id: server.id, "  ")
+        XCTAssertNil(try store.get(id: server.id)?.lastUploadDirectory, "blank is home, stored as nothing")
+    }
+
+    // MARK: - Port forwards
+
+    /// A forward the tunnel could not open is refused at save, not
+    /// discovered as exit 255 the next time someone opens the tunnel.
+    func testForwardsRoundTripAndBadOnesAreRefusedAtSave() throws {
+        let store = session.sshServers
+        var server = makeServer()
+        server.forwards = [SshPortForward(localPort: 15432, remoteHost: "  db.internal ", remotePort: 5432)]
+        try store.upsert(server)
+        XCTAssertEqual(try store.get(id: server.id)?.portForwards.first?.remoteHost, "db.internal")
+
+        server.forwards = [
+            SshPortForward(localPort: 8080, remotePort: 80),
+            SshPortForward(localPort: 8080, remotePort: 443)
+        ]
+        XCTAssertThrowsError(try store.upsert(server)) { error in
+            guard case .badForward = error as? SshServersStore.Failure else {
+                return XCTFail("expected badForward, got \(error)")
+            }
+        }
+        XCTAssertEqual(try store.get(id: server.id)?.portForwards.count, 1, "the refused save left the row alone")
+    }
 }

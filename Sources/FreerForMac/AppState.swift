@@ -722,10 +722,15 @@ final class AppState {
     /// scrollback and a spent pty, and a live one is a shell somebody
     /// is in the middle of using. Either way, reconnecting *into* it
     /// would splice two logins into one transcript.
+    ///
+    /// Every kind — `sftp`, an upload, a tunnel, the key install — is a
+    /// session here like a shell, and that is what keeps the agent up
+    /// for as long as any of them is still using it.
     @discardableResult
-    func openTerminalSession(for server: SshServer) -> TerminalSessionModel {
+    func openTerminalSession(for server: SshServer, kind: SshLaunch.Kind = .shell) -> TerminalSessionModel {
         let session = TerminalSessionModel(
             server: server,
+            kind: kind,
             ordinal: nextTerminalOrdinal(forServer: server.id)
         )
         session.onEnded = { [weak self] in self?.stopSshAgentIfIdle() }

@@ -3,13 +3,14 @@ import FCCore
 import FCDomain
 import FCUI
 
-/// The one thing the user has to do by hand: get this line onto the
-/// server.
+/// The key itself, and how to get its line onto a server by hand.
 ///
-/// There is no "install for me" button in this cut, so this sheet is
-/// the whole key-distribution story and has to carry the three facts
-/// that are surprising about it — the key is derived, not stored; it
-/// cannot spend; and it dies if the main FID changes.
+/// Install Freer key, in each server's menu, does the installing over
+/// one login. This sheet is for everything that button cannot reach —
+/// a box behind a console, a colleague's `authorized_keys` — and it
+/// carries the three facts that are surprising about the key: it is
+/// derived, not stored; it cannot spend; and it dies if the main FID
+/// changes.
 struct SshPublicKeySheet: View {
 
     let session: ActiveSession
@@ -21,6 +22,13 @@ struct SshPublicKeySheet: View {
     private var installCommand: String {
         guard let key else { return "" }
         return "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '\(key.authorizedKeysLine())' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+    }
+
+    /// The menu item's own script, so the by-hand removal is the tested
+    /// one — a naive `grep -v > file` truncates before it reads.
+    private var removeCommand: String {
+        guard let key else { return "" }
+        return (try? SshLaunch.removeKeyCommand(authorizedKeysLine: key.authorizedKeysLine())) ?? ""
     }
 
     var body: some View {
@@ -38,6 +46,7 @@ struct SshPublicKeySheet: View {
                         fingerprintSection(key)
                         lineSection(key)
                         installSection
+                        removeSection
                         explanation
                     } else {
                         ProgressView()
@@ -89,11 +98,24 @@ struct SshPublicKeySheet: View {
     private var installSection: some View {
         LabeledField(
             "Install it",
-            hint: "Log in with your password once, paste this, and the next connection needs no password."
+            hint: "Install Freer key in a server's menu does this for you. By hand: log in with your password once, paste this, and the next connection needs no password."
         ) {
             CopyableText(
                 display: "mkdir -p ~/.ssh && … >> ~/.ssh/authorized_keys",
                 copy: installCommand,
+                font: .system(.callout, design: .monospaced)
+            )
+        }
+    }
+
+    private var removeSection: some View {
+        LabeledField(
+            "Remove it",
+            hint: "Remove Freer key from server, in the same menu, does this for you. By hand: paste this on the server. It deletes every line holding this key and leaves the others."
+        ) {
+            CopyableText(
+                display: "sh -c '… grep -vF … ~/.ssh/authorized_keys …'",
+                copy: removeCommand,
                 font: .system(.callout, design: .monospaced)
             )
         }
@@ -115,7 +137,7 @@ struct SshPublicKeySheet: View {
             note(
                 "exclamationmark.triangle",
                 "It is tied to this main FID.",
-                "Change or re-mint the main identity and this line stops working on every server you have installed it on — you would have to get in by password and paste the new one."
+                "Change or re-mint the main identity and this line stops working on every server you have installed it on — you would have to get in by password and paste the new one. Take it off those servers first: afterwards Freer can no longer derive it to remove it."
             )
         }
     }
