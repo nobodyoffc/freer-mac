@@ -50,9 +50,9 @@ public enum CryptoBundle {
     // MARK: - constants
 
     /// Whether ``sealPassword(plaintext:password:)`` records its KDF (type 4)
-    /// rather than writing legacy type 3. FTSP30's transition rule keeps this
-    /// off until every reader we exchange bundles with accepts type 4.
-    static let writePasswordBundleWithKdf = false
+    /// rather than writing legacy type 3. On since the release after every
+    /// reader we exchange bundles with learned type 4 (FTSP30).
+    static let writePasswordBundleWithKdf = true
 
     /// How one FTSP30 algorithm frames its bundle.
     struct Algorithm: Equatable {

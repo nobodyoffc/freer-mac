@@ -62,7 +62,7 @@
     {
       "id": "BUNDLE-T3-PASSWORD-GCM-ARGON2ID",
       "expect": "decrypt",
-      "canonical": true,
+      "canonical": false,
       "typeByte": 3,
       "type": "Password",
       "alg": "AesGcm256@No1_NrC7",
@@ -77,7 +77,7 @@
     {
       "id": "BUNDLE-T3-PASSWORD-GCM-SHA256IV",
       "expect": "decrypt",
-      "canonical": true,
+      "canonical": false,
       "typeByte": 3,
       "type": "Password",
       "alg": "AesGcm256@No1_NrC7",
@@ -92,7 +92,7 @@
     {
       "id": "BUNDLE-T3-PASSWORD-CBC-SHA256IV",
       "expect": "decrypt",
-      "canonical": true,
+      "canonical": false,
       "typeByte": 3,
       "type": "Password",
       "alg": "AesCbc256@No1_NrC7",
@@ -107,7 +107,7 @@
     {
       "id": "BUNDLE-T4-PASSWORD-GCM-ARGON2ID",
       "expect": "decrypt",
-      "canonical": false,
+      "canonical": true,
       "typeByte": 4,
       "type": "Password",
       "alg": "AesGcm256@No1_NrC7",
@@ -123,7 +123,7 @@
     {
       "id": "BUNDLE-T4-PASSWORD-GCM-SHA256IV",
       "expect": "decrypt",
-      "canonical": false,
+      "canonical": true,
       "typeByte": 4,
       "type": "Password",
       "alg": "AesGcm256@No1_NrC7",
@@ -139,7 +139,7 @@
     {
       "id": "BUNDLE-T4-PASSWORD-CBC-SHA256IV",
       "expect": "decrypt",
-      "canonical": false,
+      "canonical": true,
       "typeByte": 4,
       "type": "Password",
       "alg": "AesCbc256@No1_NrC7",
