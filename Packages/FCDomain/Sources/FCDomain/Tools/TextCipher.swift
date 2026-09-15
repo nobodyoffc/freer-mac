@@ -47,8 +47,8 @@ public enum TextCipher {
 
     static let algGcm = "AesGcm256@No1_NrC7"
     static let algCbc = "AesCbc256@No1_NrC7"
-    static let kdfArgon2id = "Argon2id@No1_NrC7"
-    static let kdfLegacySha256 = "Sha256Iv@No1_NrC7"
+    static let kdfArgon2id = KdfKind.argon2id.wireName
+    static let kdfLegacySha256 = KdfKind.legacySha256.wireName
 
     // MARK: - Parse
 
@@ -108,17 +108,17 @@ public enum TextCipher {
     /// `sha256(sha256(password) ‖ iv)` derivation — mirroring
     /// `Decryptor.decryptByPassword`.
     public static func decrypt(envelope: Envelope, password: Data) throws -> Data {
-        let (alg, iv, cipher) = try symmetricParts(envelope)
+        let (alg, iv, cipher, sum) = try symmetricParts(envelope)
         switch envelope.kdf {
         case kdfArgon2id:
-            return try open(alg: alg, key: Argon2.hashID(password: password, salt: iv), iv: iv, cipher: cipher)
+            return try open(alg: alg, key: Argon2.hashID(password: password, salt: iv), iv: iv, cipher: cipher, sum: sum)
         case kdfLegacySha256:
-            return try open(alg: alg, key: legacyKey(password, iv: iv), iv: iv, cipher: cipher)
+            return try open(alg: alg, key: legacyKey(password, iv: iv), iv: iv, cipher: cipher, sum: sum)
         case nil:
-            if let plain = try? open(alg: alg, key: Argon2.hashID(password: password, salt: iv), iv: iv, cipher: cipher) {
+            if let plain = try? open(alg: alg, key: Argon2.hashID(password: password, salt: iv), iv: iv, cipher: cipher, sum: sum) {
                 return plain
             }
-            return try open(alg: alg, key: legacyKey(password, iv: iv), iv: iv, cipher: cipher)
+            return try open(alg: alg, key: legacyKey(password, iv: iv), iv: iv, cipher: cipher, sum: sum)
         case .some(let other):
             throw Failure.unsupportedAlgorithm(other)
         }
@@ -126,26 +126,31 @@ public enum TextCipher {
 
     /// Decrypt a Symkey-type envelope with a 32-byte key.
     public static func decrypt(envelope: Envelope, symkey: Data) throws -> Data {
-        let (alg, iv, cipher) = try symmetricParts(envelope)
-        return try open(alg: alg, key: symkey, iv: iv, cipher: cipher)
+        let (alg, iv, cipher, sum) = try symmetricParts(envelope)
+        return try open(alg: alg, key: symkey, iv: iv, cipher: cipher, sum: sum)
     }
 
     private static func legacyKey(_ password: Data, iv: Data) -> Data {
         Hash.sha256(Hash.sha256(password) + iv)
     }
 
-    private static func symmetricParts(_ envelope: Envelope) throws -> (alg: String, iv: Data, cipher: Data) {
+    private static func symmetricParts(_ envelope: Envelope) throws -> (alg: String, iv: Data, cipher: Data, sum: Data?) {
         guard let ivHex = envelope.iv, let iv = Data(fcHex: ivHex) else {
             throw Failure.badField("iv")
         }
         guard let cipherB64 = envelope.cipher, let cipher = Data(base64Encoded: cipherB64) else {
             throw Failure.badField("cipher")
         }
+        var sum: Data?
+        if let sumHex = envelope.sum {
+            guard let parsed = Data(fcHex: sumHex) else { throw Failure.badField("sum") }
+            sum = parsed
+        }
         // Missing alg defaults to the CBC scheme, like the Java Decryptor.
-        return (envelope.alg ?? algCbc, iv, cipher)
+        return (envelope.alg ?? algCbc, iv, cipher, sum)
     }
 
-    private static func open(alg: String, key: Data, iv: Data, cipher: Data) throws -> Data {
+    private static func open(alg: String, key: Data, iv: Data, cipher: Data, sum: Data?) throws -> Data {
         switch alg {
         case algGcm:
             guard cipher.count > AesGcm256.tagLength else { throw Failure.badField("cipher") }
@@ -160,11 +165,18 @@ public enum TextCipher {
             }
         case algCbc:
             guard iv.count == 16 else { throw Failure.badField("iv") }
+            let plain: Data
             do {
-                return try AsyOneWayCipher.cbcOpen(alg: alg, key: key, iv: iv, cipher: cipher)
+                plain = try AsyOneWayCipher.cbcOpen(alg: alg, key: key, iv: iv, cipher: cipher)
             } catch {
                 throw Failure.decryptFailed
             }
+            // CBC has no tag. The FVEP8 sum is what tells a wrong key from the right one;
+            // without it a wrong KDF guess passes PKCS#7 padding about once in 256 tries.
+            if let sum, !CryptoBundle.sumMatches(sum, key: key, iv: iv, plaintext: plain) {
+                throw Failure.decryptFailed
+            }
+            return plain
         default:
             throw Failure.unsupportedAlgorithm(alg)
         }

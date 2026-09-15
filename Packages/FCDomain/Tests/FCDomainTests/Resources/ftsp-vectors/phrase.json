@@ -1,0 +1,68 @@
+{
+  "description": "Phrase to secp256k1 private key (FTSP28). Conformant: Argon2id with the FTSP29 parameters and an empty salt. conformant=false entries exist only to recover keys made by older builds.",
+  "generatedBy": "FC-JDK core.crypto.CryptoVectorsGenerator",
+  "vectors": [
+    {
+      "id": "PHRASE-ARGON2ID-1",
+      "scheme": "argon2id-empty-salt",
+      "conformant": true,
+      "phrase": "Hello world!",
+      "phraseUtf8Hex": "48656c6c6f20776f726c6421",
+      "salt": "",
+      "priKey32": "3107f02758ff375bfed40885d7e7a24239e4a3bf55caa9cbea7ffeddfd7ddbf6"
+    },
+    {
+      "id": "PHRASE-ARGON2ID-2",
+      "scheme": "argon2id-empty-salt",
+      "conformant": true,
+      "phrase": "correct horse battery staple",
+      "phraseUtf8Hex": "636f727265637420686f727365206261747465727920737461706c65",
+      "salt": "",
+      "priKey32": "338c985a49e05a31cd2eb80a149dcea46df6ae7a487fc86a53a65da1fa8ec201"
+    },
+    {
+      "id": "PHRASE-ARGON2ID-3",
+      "scheme": "argon2id-empty-salt",
+      "conformant": true,
+      "phrase": "你好，世界",
+      "phraseUtf8Hex": "e4bda0e5a5bdefbc8ce4b896e7958c",
+      "salt": "",
+      "priKey32": "70d94592a1242af620ec77f7fe9a7b2df5e39e28059d50d2e30f9f119e165cad"
+    },
+    {
+      "id": "PHRASE-ARGON2ID-4",
+      "scheme": "argon2id-empty-salt",
+      "conformant": true,
+      "phrase": "🔑 Ünïcødé",
+      "phraseUtf8Hex": "f09f949120c39c6ec3af63c3b864c3a9",
+      "salt": "",
+      "priKey32": "abafcd6f6d6cf00fbc210e633f2803591a0c72b482f11aa81a90871283f6fefa"
+    },
+    {
+      "id": "PHRASE-LEGACY-FREER-ANDROID-SALT",
+      "scheme": "argon2id-sha256prefix16-salt",
+      "conformant": false,
+      "phrase": "correct horse battery staple",
+      "phraseUtf8Hex": "636f727265637420686f727365206261747465727920737461706c65",
+      "salt": "c4bbcb1fbec99d65bf59d85c8cb62ee2",
+      "priKey32": "afa4d6d948331f7152dbc602a3e5b1900126225a0189bde2cbf1f0c5a2fd49b9"
+    },
+    {
+      "id": "PHRASE-LEGACY-FREERFORMAC-SALT",
+      "scheme": "argon2id-freerformac-salt",
+      "conformant": false,
+      "phrase": "correct horse battery staple",
+      "phraseUtf8Hex": "636f727265637420686f727365206261747465727920737461706c65",
+      "salt": "66632e66726565722e7068726173652e7631",
+      "priKey32": "7ef2e239b0f1dc435f22cc6a02a19290e5b92753550b77d48797e8689c28de0d"
+    },
+    {
+      "id": "PHRASE-SHA256",
+      "scheme": "sha256",
+      "conformant": false,
+      "phrase": "correct horse battery staple",
+      "phraseUtf8Hex": "636f727265637420686f727365206261747465727920737461706c65",
+      "priKey32": "c4bbcb1fbec99d65bf59d85c8cb62ee2db963f0fe106f483d9afa73bd4e39a8a"
+    }
+  ]
+}

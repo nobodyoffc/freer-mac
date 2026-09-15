@@ -82,6 +82,7 @@ struct AddMainView: View {
                     Picker("KDF", selection: $phraseScheme) {
                         Text("Argon2id (recommended)").tag(PhraseKey.Scheme.argon2id)
                         Text("Legacy SHA-256 (Android import)").tag(PhraseKey.Scheme.legacySha256)
+                        Text("Old FreerForMac Argon2id (recovery)").tag(PhraseKey.Scheme.legacyFreerMacArgon2id)
                     }
                     if let advisory = phraseScheme.advisory {
                         Text(advisory)

@@ -38,7 +38,9 @@ let package = Package(
             name: "FCCoreTests",
             dependencies: ["FCCore"],
             resources: [
-                .process("Resources/testVectors.json")
+                .process("Resources/testVectors.json"),
+                // Shared FTSP vectors, copied in by Freeverse/tools/sync-ftsp-vectors.sh.
+                .copy("Resources/ftsp-vectors")
             ]
         )
     ]

@@ -43,19 +43,12 @@ final class Argon2Tests: XCTestCase {
         XCTAssertNotEqual(alpha, beta)
     }
 
-    func testRejectsShortSalt() {
-        XCTAssertThrowsError(
-            try Argon2.hashID(
-                password: Data("password".utf8),
-                salt: Data([0x00]),
-                params: Self.quick
-            )
-        ) { error in
-            guard case Argon2.Failure.argon2(_, _) = error else {
-                XCTFail("Expected Argon2.Failure.argon2, got \(error)")
-                return
-            }
-        }
+    /// FTSP28 derives phrase keys over an empty salt, so the vendored library's
+    /// 8-byte minimum is relaxed (see CArgon2/UPSTREAM.md). An empty salt must
+    /// work and match BouncyCastle, which FC-JDK and the Android wallets use.
+    func testAcceptsEmptySaltLikeBouncyCastle() throws {
+        let key = try Argon2.hashID(password: Data("Hello world!".utf8), salt: Data())
+        XCTAssertEqual(key.hex, "3107f02758ff375bfed40885d7e7a24239e4a3bf55caa9cbea7ffeddfd7ddbf6")
     }
 
     func testCustomOutputLength() throws {

@@ -25,6 +25,32 @@ public enum KdfKind: String, Codable, Sendable, CaseIterable {
         }
     }
 
+    /// This KDF's byte in FTSP30 type-4 bundles.
+    public var bundleId: UInt8 {
+        switch self {
+        case .legacySha256: return 0x01
+        case .argon2id:     return 0x02
+        }
+    }
+
+    /// This KDF's name in CryptoDataStr JSON (`kdf`) — Java's `Kdf.getDisplayName()`.
+    public var wireName: String {
+        switch self {
+        case .legacySha256: return "Sha256Iv@No1_NrC7"
+        case .argon2id:     return "Argon2id@No1_NrC7"
+        }
+    }
+
+    public init?(bundleId: UInt8) {
+        guard let kind = Self.allCases.first(where: { $0.bundleId == bundleId }) else { return nil }
+        self = kind
+    }
+
+    public init?(wireName: String) {
+        guard let kind = Self.allCases.first(where: { $0.wireName == wireName }) else { return nil }
+        self = kind
+    }
+
     /// User-facing advisory shown in the UI when this scheme is chosen.
     /// `nil` when there's nothing unusual to warn about.
     public var advisory: String? {

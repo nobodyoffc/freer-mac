@@ -1,0 +1,212 @@
+{
+  "description": "Binary CryptoDataByte bundles (FTSP30). expect=decrypt: parse, check alg/type/kdfRecorded, decrypt with secret. expect=reject: a conforming parser must refuse the bytes. canonical=true: current writers produce exactly these bytes.",
+  "generatedBy": "FC-JDK core.crypto.CryptoVectorsGenerator",
+  "vectors": [
+    {
+      "id": "BUNDLE-T0-SYMKEY-GCM",
+      "expect": "decrypt",
+      "canonical": true,
+      "typeByte": 0,
+      "type": "Symkey",
+      "alg": "AesGcm256@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "76f7b226a8b3006ede688dea3b000102030405060708090a0b508e39217d5becfa840674d93c3241e99f003519262284412e7613fd",
+      "bundleBase64": "dveyJqizAG7eaI3qOwABAgMEBQYHCAkKC1COOSF9W+z6hAZ02TwyQemfADUZJiKEQS52E/0="
+    },
+    {
+      "id": "BUNDLE-T0-SYMKEY-CBC",
+      "expect": "decrypt",
+      "canonical": true,
+      "typeByte": 0,
+      "type": "Symkey",
+      "alg": "AesCbc256@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "51515d32878c006ede688dea3b000102030405060708090a0b0c0d0e0f8ea0dc2ec35d43dfa2f2cf93768acff6d162994e",
+      "bundleBase64": "UVFdMoeMAG7eaI3qOwABAgMEBQYHCAkKCwwNDg+OoNwuw11D36Lyz5N2is/20WKZTg=="
+    },
+    {
+      "id": "BUNDLE-T1-ASYONEWAY-ECCK1GCM",
+      "expect": "decrypt",
+      "canonical": true,
+      "typeByte": 1,
+      "type": "AsyOneWay",
+      "alg": "EccK1AesGcm256@No1_NrC7",
+      "secret": {
+        "prikey": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "a5acd70778050102536e4f3a6871831fa91089a5d5a950b96a31c861956f01459c0cd4f4374b2f67000102030405060708090a0bd798368a31ea17e09625f5973982e59a7f808c79d3ee69153157164e",
+      "bundleBase64": "pazXB3gFAQJTbk86aHGDH6kQiaXVqVC5ajHIYZVvAUWcDNT0N0svZwABAgMEBQYHCAkKC9eYNoox6hfgliX1lzmC5Zp/gIx50+5pFTFXFk4="
+    },
+    {
+      "id": "BUNDLE-T2-ASYTWOWAY-ECCK1GCM",
+      "expect": "decrypt",
+      "canonical": true,
+      "typeByte": 2,
+      "type": "AsyTwoWay",
+      "alg": "EccK1AesGcm256@No1_NrC7",
+      "secret": {
+        "prikey": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+        "pubkey": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "a5acd707780502030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a000102030405060708090a0bd798368a31ea17e09625f5973982e59a7f808c79d3ee69153157164e",
+      "bundleBase64": "pazXB3gFAgML4dfmM/6yM4p0qGDnbYk7rFJfNaWBPLeyHie6G8gxKgABAgMEBQYHCAkKC9eYNoox6hfgliX1lzmC5Zp/gIx50+5pFTFXFk4="
+    },
+    {
+      "id": "BUNDLE-T3-PASSWORD-GCM-ARGON2ID",
+      "expect": "decrypt",
+      "canonical": true,
+      "typeByte": 3,
+      "type": "Password",
+      "alg": "AesGcm256@No1_NrC7",
+      "derivedWith": "Argon2id@No1_NrC7",
+      "secret": {
+        "password": "MyPassword"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "76f7b226a8b303000102030405060708090a0b61c04a9cf0fd74fea2d38af8e4b0d64e4acbd597a4e2c43d2c8645ee",
+      "bundleBase64": "dveyJqizAwABAgMEBQYHCAkKC2HASpzw/XT+otOK+OSw1k5Ky9WXpOLEPSyGRe4="
+    },
+    {
+      "id": "BUNDLE-T3-PASSWORD-GCM-SHA256IV",
+      "expect": "decrypt",
+      "canonical": true,
+      "typeByte": 3,
+      "type": "Password",
+      "alg": "AesGcm256@No1_NrC7",
+      "derivedWith": "Sha256Iv@No1_NrC7",
+      "secret": {
+        "password": "MyPassword"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "76f7b226a8b303000102030405060708090a0b9c9d9a6e60f9c12620268238ecd5602dd044f5d8e582929fb24d5b86",
+      "bundleBase64": "dveyJqizAwABAgMEBQYHCAkKC5ydmm5g+cEmICaCOOzVYC3QRPXY5YKSn7JNW4Y="
+    },
+    {
+      "id": "BUNDLE-T3-PASSWORD-CBC-SHA256IV",
+      "expect": "decrypt",
+      "canonical": true,
+      "typeByte": 3,
+      "type": "Password",
+      "alg": "AesCbc256@No1_NrC7",
+      "derivedWith": "Sha256Iv@No1_NrC7",
+      "secret": {
+        "password": "MyPassword"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "51515d32878c03000102030405060708090a0b0c0d0e0f748c50f701394b6d78cea5fdbc364a782d917a6e",
+      "bundleBase64": "UVFdMoeMAwABAgMEBQYHCAkKCwwNDg90jFD3ATlLbXjOpf28Nkp4LZF6bg=="
+    },
+    {
+      "id": "BUNDLE-T4-PASSWORD-GCM-ARGON2ID",
+      "expect": "decrypt",
+      "canonical": false,
+      "typeByte": 4,
+      "type": "Password",
+      "alg": "AesGcm256@No1_NrC7",
+      "kdfRecorded": "Argon2id@No1_NrC7",
+      "derivedWith": "Argon2id@No1_NrC7",
+      "secret": {
+        "password": "MyPassword"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "76f7b226a8b30402000102030405060708090a0b61c04a9cf0fd74fea2d38af8e4b0d64e4acbd597a4e2c43d2c8645ee",
+      "bundleBase64": "dveyJqizBAIAAQIDBAUGBwgJCgthwEqc8P10/qLTivjksNZOSsvVl6TixD0shkXu"
+    },
+    {
+      "id": "BUNDLE-T4-PASSWORD-GCM-SHA256IV",
+      "expect": "decrypt",
+      "canonical": false,
+      "typeByte": 4,
+      "type": "Password",
+      "alg": "AesGcm256@No1_NrC7",
+      "kdfRecorded": "Sha256Iv@No1_NrC7",
+      "derivedWith": "Sha256Iv@No1_NrC7",
+      "secret": {
+        "password": "MyPassword"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "76f7b226a8b30401000102030405060708090a0b9c9d9a6e60f9c12620268238ecd5602dd044f5d8e582929fb24d5b86",
+      "bundleBase64": "dveyJqizBAEAAQIDBAUGBwgJCgucnZpuYPnBJiAmgjjs1WAt0ET12OWCkp+yTVuG"
+    },
+    {
+      "id": "BUNDLE-T4-PASSWORD-CBC-SHA256IV",
+      "expect": "decrypt",
+      "canonical": false,
+      "typeByte": 4,
+      "type": "Password",
+      "alg": "AesCbc256@No1_NrC7",
+      "kdfRecorded": "Sha256Iv@No1_NrC7",
+      "derivedWith": "Sha256Iv@No1_NrC7",
+      "secret": {
+        "password": "MyPassword"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "51515d32878c0401000102030405060708090a0b0c0d0e0f748c50f701394b6d78cea5fdbc364a782d917a6e",
+      "bundleBase64": "UVFdMoeMBAEAAQIDBAUGBwgJCgsMDQ4PdIxQ9wE5S214zqX9vDZKeC2Rem4="
+    },
+    {
+      "id": "BUNDLE-T0-SYMKEY-GCM-LEGACY-PREFIX",
+      "expect": "decrypt",
+      "canonical": false,
+      "typeByte": 0,
+      "type": "Symkey",
+      "alg": "AesGcm256@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "000000000003006ede688dea3b000102030405060708090a0b508e39217d5becfa840674d93c3241e99f003519262284412e7613fd",
+      "bundleBase64": "AAAAAAADAG7eaI3qOwABAgMEBQYHCAkKC1COOSF9W+z6hAZ02TwyQemfADUZJiKEQS52E/0="
+    },
+    {
+      "id": "REJECT-TRUNCATED",
+      "expect": "reject",
+      "reason": "ends inside keyName",
+      "bundleHex": "76f7b226a8b3006ede68",
+      "bundleBase64": "dveyJqizAG7eaA=="
+    },
+    {
+      "id": "REJECT-UNKNOWN-ALG-PREFIX",
+      "expect": "reject",
+      "reason": "ffffffffffff is not a registered algorithm prefix",
+      "bundleHex": "ffffffffffff006ede688dea3b000102030405060708090a0b508e39217d5becfa840674d93c3241e99f003519262284412e7613fd",
+      "bundleBase64": "////////AG7eaI3qOwABAgMEBQYHCAkKC1COOSF9W+z6hAZ02TwyQemfADUZJiKEQS52E/0="
+    },
+    {
+      "id": "REJECT-UNKNOWN-TYPE",
+      "expect": "reject",
+      "reason": "type byte 9 is not registered",
+      "bundleHex": "76f7b226a8b3096ede688dea3b000102030405060708090a0b508e39217d5becfa840674d93c3241e99f003519262284412e7613fd",
+      "bundleBase64": "dveyJqizCW7eaI3qOwABAgMEBQYHCAkKC1COOSF9W+z6hAZ02TwyQemfADUZJiKEQS52E/0="
+    },
+    {
+      "id": "REJECT-UNKNOWN-KDF",
+      "expect": "reject",
+      "reason": "KDF id 0x7f is not registered",
+      "bundleHex": "76f7b226a8b3047f000102030405060708090a0b61c04a9cf0fd74fea2d38af8e4b0d64e4acbd597a4e2c43d2c8645ee",
+      "bundleBase64": "dveyJqizBH8AAQIDBAUGBwgJCgthwEqc8P10/qLTivjksNZOSsvVl6TixD0shkXu"
+    },
+    {
+      "id": "REJECT-KDF-ZERO",
+      "expect": "reject",
+      "reason": "KDF id 0x00 is invalid",
+      "bundleHex": "76f7b226a8b30400000102030405060708090a0b61c04a9cf0fd74fea2d38af8e4b0d64e4acbd597a4e2c43d2c8645ee",
+      "bundleBase64": "dveyJqizBAAAAQIDBAUGBwgJCgthwEqc8P10/qLTivjksNZOSsvVl6TixD0shkXu"
+    },
+    {
+      "id": "REJECT-TYPE4-NO-KDF-BYTE",
+      "expect": "reject",
+      "reason": "type 4 with nothing after the type byte",
+      "bundleHex": "76f7b226a8b304",
+      "bundleBase64": "dveyJqizBA=="
+    }
+  ]
+}

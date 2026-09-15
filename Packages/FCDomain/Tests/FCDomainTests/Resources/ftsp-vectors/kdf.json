@@ -1,0 +1,42 @@
+{
+  "description": "Password KDFs. Sha256Iv (FTSP25): SHA256(SHA256(pwUTF8) || salt). Argon2id (FTSP29): Argon2id v0x13, t=3, m=65536 KiB, p=1, 32-byte output. In ciphers the salt is the IV.",
+  "generatedBy": "FC-JDK core.crypto.CryptoVectorsGenerator",
+  "vectors": [
+    {
+      "id": "KDF-SHA256IV-SALT12",
+      "kdf": "Sha256Iv@No1_NrC7",
+      "kdfId": "01",
+      "password": "MyPassword",
+      "passwordUtf8Hex": "4d7950617373776f7264",
+      "salt": "000102030405060708090a0b",
+      "symkey": "18f6a17f6fe849af1a43a7c006c2315006d5e644daf69f8b0555ad57defce54f"
+    },
+    {
+      "id": "KDF-SHA256IV-SALT16",
+      "kdf": "Sha256Iv@No1_NrC7",
+      "kdfId": "01",
+      "password": "MyPassword",
+      "passwordUtf8Hex": "4d7950617373776f7264",
+      "salt": "000102030405060708090a0b0c0d0e0f",
+      "symkey": "442c5118b7f5ae123a6c07ff37e5793fb511496a0677a0a7ad6806e030906630"
+    },
+    {
+      "id": "KDF-ARGON2ID-SALT12",
+      "kdf": "Argon2id@No1_NrC7",
+      "kdfId": "02",
+      "password": "MyPassword",
+      "passwordUtf8Hex": "4d7950617373776f7264",
+      "salt": "000102030405060708090a0b",
+      "symkey": "9ee69df427169f8eab1e285ec544cfa96587094ab33898b58b8c3cf458808f54"
+    },
+    {
+      "id": "KDF-ARGON2ID-SALT16",
+      "kdf": "Argon2id@No1_NrC7",
+      "kdfId": "02",
+      "password": "MyPassword",
+      "passwordUtf8Hex": "4d7950617373776f7264",
+      "salt": "000102030405060708090a0b0c0d0e0f",
+      "symkey": "2e0f4d2d8834d9ded0cc51a1766dad94ff7678274c14a9f5b2eae7af3b3c9d96"
+    }
+  ]
+}

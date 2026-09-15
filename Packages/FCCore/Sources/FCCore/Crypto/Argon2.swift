@@ -47,7 +47,8 @@ public enum Argon2 {
     ///
     /// - Parameters:
     ///   - password: Password bytes (typically UTF-8 of the passphrase).
-    ///   - salt: Salt bytes. Argon2 requires at least 8 bytes.
+    ///   - salt: Salt bytes. May be empty: FTSP28 phrase keys use an empty salt
+    ///     (the vendored library's 8-byte minimum is relaxed; see `CArgon2/UPSTREAM.md`).
     ///   - params: Cost parameters. Defaults to ``Params/freer``.
     /// - Returns: `params.outputLength` bytes of derived key material.
     public static func hashID(password: Data, salt: Data, params: Params = .freer) throws -> Data {

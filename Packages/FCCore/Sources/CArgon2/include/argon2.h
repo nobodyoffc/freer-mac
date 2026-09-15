@@ -80,7 +80,8 @@ extern "C" {
 #define ARGON2_MAX_AD_LENGTH UINT32_C(0xFFFFFFFF)
 
 /* Minimum and maximum salt length in bytes */
-#define ARGON2_MIN_SALT_LENGTH UINT32_C(8)
+/* FreerForMac: upstream is 8. FTSP28 phrase keys use an empty salt; see UPSTREAM.md. */
+#define ARGON2_MIN_SALT_LENGTH UINT32_C(0)
 #define ARGON2_MAX_SALT_LENGTH UINT32_C(0xFFFFFFFF)
 
 /* Minimum and maximum key length in bytes */

@@ -2,24 +2,28 @@ import Foundation
 
 /// Derive a 32-byte private key from a user-typed phrase.
 ///
-/// Supports two schemes:
+/// Supports three schemes:
+/// - ``Scheme/argon2id`` — recommended; FTSP28, Argon2id with the project
+///   parameters and an empty salt — the derivation Safe and Freer Android use.
 /// - ``Scheme/legacySha256`` — **weak**; kept only for importing
 ///   phrase-derived keys from legacy Freer Android builds.
-/// - ``Scheme/argon2id`` — recommended; Argon2id with the project
-///   parameters and a fixed protocol salt.
+/// - ``Scheme/legacyFreerMacArgon2id`` — recovery only; the salted
+///   derivation FreerForMac used before FTSP28.
 ///
 /// Call sites that present UI to the user should show ``Scheme/advisory``
 /// when it is non-nil so the user understands which scheme they're using
 /// and the security implications.
 public enum PhraseKey {
 
-    /// Fixed salt for the argon2id phrase-to-key derivation.
-    ///
-    /// A constant salt is required here because the derivation is
-    /// *deterministic recovery* (same phrase → same key) rather than
-    /// password storage. The Mac and Android sides must agree on this
-    /// string byte-for-byte for cross-platform phrase-import to work.
-    public static let argon2idProtocolSalt: Data = Data("fc.freer.phrase.v1".utf8)
+    /// Salt of the conformant FTSP28 derivation: empty. A fixed input is what
+    /// lets the same phrase reproduce the same key in every wallet; the
+    /// memory-hard cost, not the salt, is the defense.
+    public static let argon2idSalt = Data()
+
+    /// The salt FreerForMac used before FTSP28 pinned it empty. Keys made with
+    /// it don't match the same phrase in Safe or Freer Android; it survives
+    /// only so those keys can be recovered.
+    public static let legacyFreerMacSalt: Data = Data("fc.freer.phrase.v1".utf8)
 
     public enum Scheme: String, Codable, Sendable, CaseIterable {
 
@@ -35,12 +39,18 @@ public enum PhraseKey {
         /// ``Scheme/argon2id`` for that.
         case legacySha256 = "legacy_sha256"
 
-        /// Recommended. Argon2id with the project-standard parameters
-        /// (iter=3, mem=64 MiB, par=1, 32-byte output) and the fixed
-        /// protocol salt ``PhraseKey/argon2idProtocolSalt``. One
-        /// derivation costs ~300 ms — roughly a 10⁸× grinding slowdown
-        /// versus ``Scheme/legacySha256``.
+        /// Recommended. FTSP28: Argon2id with the project-standard parameters
+        /// (iter=3, mem=64 MiB, par=1, 32-byte output) and the empty salt
+        /// ``PhraseKey/argon2idSalt``, so a phrase gives the same key here as
+        /// in Safe and Freer Android. One derivation costs ~300 ms — roughly
+        /// a 10⁸× grinding slowdown versus ``Scheme/legacySha256``.
         case argon2id = "argon2id"
+
+        /// ⚠️ **Recovery only.** Argon2id with ``PhraseKey/legacyFreerMacSalt``,
+        /// the salt FreerForMac used before FTSP28. It gives a different key
+        /// from ``Scheme/argon2id`` for the same phrase, so it exists only to
+        /// recover keys created by those builds.
+        case legacyFreerMacArgon2id = "legacy_freermac_argon2id"
 
         /// Whether this scheme should be offered for *new* keys.
         /// ``legacySha256`` returns `false`.
@@ -48,6 +58,7 @@ public enum PhraseKey {
             switch self {
             case .legacySha256: return false
             case .argon2id:     return true
+            case .legacyFreerMacArgon2id: return false
             }
         }
 
@@ -60,6 +71,10 @@ public enum PhraseKey {
                      + "grindable. It exists only to import phrase-derived "
                      + "keys from legacy Freer Android builds. Do not use "
                      + "it for new keys."
+            case .legacyFreerMacArgon2id:
+                return "This scheme uses the salt older FreerForMac builds used, "
+                     + "which Safe and Freer Android don't. Use it only to "
+                     + "recover a key created by one of those builds."
             case .argon2id:
                 return nil
             }
@@ -89,10 +104,9 @@ public enum PhraseKey {
         case .legacySha256:
             return Hash.sha256(phraseBytes)
         case .argon2id:
-            return try Argon2.hashID(
-                password: phraseBytes,
-                salt: argon2idProtocolSalt
-            )
+            return try Argon2.hashID(password: phraseBytes, salt: argon2idSalt)
+        case .legacyFreerMacArgon2id:
+            return try Argon2.hashID(password: phraseBytes, salt: legacyFreerMacSalt)
         }
     }
 }

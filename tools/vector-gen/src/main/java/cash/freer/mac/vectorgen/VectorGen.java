@@ -663,10 +663,11 @@ public final class VectorGen {
     }
 
     /**
-     * Protocol-constant salt for the argon2id phrase → privkey derivation.
-     * A fixed salt is required so the same phrase always yields the same key
-     * (this is a deterministic-recovery scheme, not password storage). The
-     * Mac and Android sides must agree on this string byte-for-byte.
+     * The pre-FTSP28 FreerForMac salt for the argon2id phrase → privkey derivation.
+     * FTSP28 now pins that salt empty; these vectors pin the Swift recovery scheme
+     * PhraseKey.Scheme.legacyFreerMacArgon2id.
+     * Safe and Freer Android never used it, which is why keys made with it
+     * didn't match theirs for the same phrase.
      */
     private static final String PHRASE_ARGON2ID_SALT = "fc.freer.phrase.v1";
 

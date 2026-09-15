@@ -1,0 +1,107 @@
+{
+  "description": "CryptoDataStr JSON ciphers (FVEP8). Decrypt cipherJson with secret; plaintext must equal plaintextHex. derivedWith is the KDF that actually produced the key; kdfRecorded says whether the JSON names it.",
+  "generatedBy": "FC-JDK core.crypto.CryptoVectorsGenerator",
+  "vectors": [
+    {
+      "id": "JSON-SYMKEY-GCM",
+      "type": "Symkey",
+      "alg": "AesGcm256@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"Symkey\",\"alg\":\"AesGcm256@No1_NrC7\",\"cipher\":\"UI45IX1b7PqEBnTZPDJB6Z8ANRkmIoRBLnYT/Q\\u003d\\u003d\",\"keyName\":\"6ede688dea3b\",\"iv\":\"000102030405060708090a0b\"}"
+    },
+    {
+      "id": "JSON-SYMKEY-CBC",
+      "type": "Symkey",
+      "alg": "AesCbc256@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"Symkey\",\"alg\":\"AesCbc256@No1_NrC7\",\"cipher\":\"jqDcLsNdQ9+i8s+TdorP9g\\u003d\\u003d\",\"keyName\":\"6ede688dea3b\",\"iv\":\"000102030405060708090a0b0c0d0e0f\",\"sum\":\"d162994e\"}"
+    },
+    {
+      "id": "JSON-PASSWORD-GCM-ARGON2ID",
+      "type": "Password",
+      "alg": "AesGcm256@No1_NrC7",
+      "derivedWith": "Argon2id@No1_NrC7",
+      "kdfRecorded": true,
+      "secret": {
+        "password": "MyPassword"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"Password\",\"alg\":\"AesGcm256@No1_NrC7\",\"kdf\":\"Argon2id@No1_NrC7\",\"cipher\":\"YcBKnPD9dP6i04r45LDWTkrL1Zek4sQ9LIZF7g\\u003d\\u003d\",\"keyName\":\"f700db5983ea\",\"iv\":\"000102030405060708090a0b\"}"
+    },
+    {
+      "id": "JSON-PASSWORD-GCM-SHA256IV",
+      "type": "Password",
+      "alg": "AesGcm256@No1_NrC7",
+      "derivedWith": "Sha256Iv@No1_NrC7",
+      "kdfRecorded": true,
+      "secret": {
+        "password": "MyPassword"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"Password\",\"alg\":\"AesGcm256@No1_NrC7\",\"kdf\":\"Sha256Iv@No1_NrC7\",\"cipher\":\"nJ2abmD5wSYgJoI47NVgLdBE9djlgpKfsk1bhg\\u003d\\u003d\",\"keyName\":\"bbeddbe89c74\",\"iv\":\"000102030405060708090a0b\"}"
+    },
+    {
+      "id": "JSON-PASSWORD-GCM-NOKDF-ARGON2ID",
+      "type": "Password",
+      "alg": "AesGcm256@No1_NrC7",
+      "derivedWith": "Argon2id@No1_NrC7",
+      "kdfRecorded": false,
+      "secret": {
+        "password": "MyPassword"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"Password\",\"alg\":\"AesGcm256@No1_NrC7\",\"cipher\":\"YcBKnPD9dP6i04r45LDWTkrL1Zek4sQ9LIZF7g\\u003d\\u003d\",\"keyName\":\"f700db5983ea\",\"iv\":\"000102030405060708090a0b\"}"
+    },
+    {
+      "id": "JSON-PASSWORD-GCM-NOKDF-SHA256IV",
+      "type": "Password",
+      "alg": "AesGcm256@No1_NrC7",
+      "derivedWith": "Sha256Iv@No1_NrC7",
+      "kdfRecorded": false,
+      "secret": {
+        "password": "MyPassword"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"Password\",\"alg\":\"AesGcm256@No1_NrC7\",\"cipher\":\"nJ2abmD5wSYgJoI47NVgLdBE9djlgpKfsk1bhg\\u003d\\u003d\",\"keyName\":\"bbeddbe89c74\",\"iv\":\"000102030405060708090a0b\"}"
+    },
+    {
+      "id": "JSON-PASSWORD-CBC-NOKDF-SHA256IV",
+      "type": "Password",
+      "alg": "AesCbc256@No1_NrC7",
+      "derivedWith": "Sha256Iv@No1_NrC7",
+      "kdfRecorded": false,
+      "secret": {
+        "password": "MyPassword"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"Password\",\"alg\":\"AesCbc256@No1_NrC7\",\"cipher\":\"dIxQ9wE5S214zqX9vDZKeA\\u003d\\u003d\",\"keyName\":\"f25e7f92ceef\",\"iv\":\"000102030405060708090a0b0c0d0e0f\",\"sum\":\"2d917a6e\"}"
+    },
+    {
+      "id": "JSON-ASYONEWAY-ECCK1GCM",
+      "type": "AsyOneWay",
+      "alg": "EccK1AesGcm256@No1_NrC7",
+      "secret": {
+        "prikey": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"AsyOneWay\",\"alg\":\"EccK1AesGcm256@No1_NrC7\",\"cipher\":\"15g2ijHqF+CWJfWXOYLlmn+AjHnT7mkVMVcWTg\\u003d\\u003d\",\"pubkeyA\":\"02536e4f3a6871831fa91089a5d5a950b96a31c861956f01459c0cd4f4374b2f67\",\"iv\":\"000102030405060708090a0b\"}"
+    },
+    {
+      "id": "JSON-ASYTWOWAY-ECCK1GCM",
+      "type": "AsyTwoWay",
+      "alg": "EccK1AesGcm256@No1_NrC7",
+      "secret": {
+        "prikey": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+        "pubkey": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"AsyTwoWay\",\"alg\":\"EccK1AesGcm256@No1_NrC7\",\"cipher\":\"15g2ijHqF+CWJfWXOYLlmn+AjHnT7mkVMVcWTg\\u003d\\u003d\",\"pubkeyA\":\"030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a\",\"pubkeyB\":\"02536e4f3a6871831fa91089a5d5a950b96a31c861956f01459c0cd4f4374b2f67\",\"iv\":\"000102030405060708090a0b\"}"
+    }
+  ]
+}

@@ -4,7 +4,7 @@ Source: https://github.com/P-H-C/phc-winner-argon2
 Version: tag `20190702` (commit `62358ba2123abd17fccf2a108a301d4b52c01a7c`)
 License: CC0 1.0 / Apache 2.0 dual (see `LICENSE`)
 
-Files vendored (unmodified):
+Files vendored (unmodified except as noted under **Local modifications**):
 - `include/argon2.h`            ← upstream `include/argon2.h`
 - `argon2.c`, `core.{c,h}`      ← upstream `src/`
 - `encoding.{c,h}`, `thread.{c,h}`, `ref.c`  ← upstream `src/`
@@ -19,3 +19,11 @@ Deliberately **not** vendored:
 To bump the version: `rm -rf` this directory, clone upstream at the new tag,
 repeat the file list above, update this file with the new commit hash,
 and run the CArgon2 + FCCore tests.
+
+## Local modifications
+
+- `include/argon2.h`: `ARGON2_MIN_SALT_LENGTH` is `0` instead of upstream's `8`.
+  FTSP28 derives phrase keys with Argon2id over an **empty** salt. BouncyCastle,
+  which FC-JDK and the Android wallets use, accepts that; upstream's input check
+  rejects it. Only the check is relaxed — the digest for any salt length is
+  unchanged. Re-apply this after bumping the version.

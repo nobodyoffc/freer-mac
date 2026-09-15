@@ -22,7 +22,9 @@ let package = Package(
             dependencies: ["FCDomain"],
             resources: [
                 .process("Resources/domainVectors.json"),
-                .process("Resources/txFeeVectors.json")
+                .process("Resources/txFeeVectors.json"),
+                // Shared FTSP vectors, copied in by Freeverse/tools/sync-ftsp-vectors.sh.
+                .copy("Resources/ftsp-vectors")
             ]
         )
     ]
