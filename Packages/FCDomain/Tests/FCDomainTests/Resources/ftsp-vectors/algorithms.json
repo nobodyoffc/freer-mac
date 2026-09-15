@@ -1,0 +1,322 @@
+{
+  "description": "Other FTSP cipher profiles. form=json: decrypt cipherJson; form=bundle: parse bundleHex, check alg, decrypt; form=bitcoreEncbuf: Bitcore.decrypt(encbufHex, prikey). expect=decrypt: plaintext must equal plaintextHex. expect=reject-decrypt: a tampered cipher that must not decrypt successfully. knownGaps lists tamper cases FC-JDK itself does not yet detect.",
+  "generatedBy": "FC-JDK core.crypto.CryptoVectorsGenerator",
+  "vectors": [
+    {
+      "id": "SYMKEY-CHACHA20-JSON",
+      "expect": "decrypt",
+      "form": "json",
+      "type": "Symkey",
+      "alg": "ChaCha20@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"Symkey\",\"alg\":\"ChaCha20@No1_NrC7\",\"cipher\":\"f6Z5/0sfqv6zMjL/\",\"keyName\":\"6ede688dea3b\",\"iv\":\"000102030405060708090a0b\",\"sum\":\"bf818243\"}"
+    },
+    {
+      "id": "SYMKEY-CHACHA20-BUNDLE",
+      "expect": "decrypt",
+      "form": "bundle",
+      "type": "Symkey",
+      "alg": "ChaCha20@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "bcc39a9628e2006ede688dea3b000102030405060708090a0b7fa679ff4b1faafeb33232ffbf818243"
+    },
+    {
+      "id": "SYMKEY-CHACHA20POLY1305-JSON",
+      "expect": "decrypt",
+      "form": "json",
+      "type": "Symkey",
+      "alg": "ChaCha20Poly1305@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"Symkey\",\"alg\":\"ChaCha20Poly1305@No1_NrC7\",\"cipher\":\"LOMV6bgcozQw6LHqtHHMCZayMbV30gjjo0gy/g\\u003d\\u003d\",\"keyName\":\"6ede688dea3b\",\"iv\":\"000102030405060708090a0b\"}"
+    },
+    {
+      "id": "SYMKEY-CHACHA20POLY1305-BUNDLE",
+      "expect": "decrypt",
+      "form": "bundle",
+      "type": "Symkey",
+      "alg": "ChaCha20Poly1305@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "b1788c3b7320006ede688dea3b000102030405060708090a0b2ce315e9b81ca33430e8b1eab471cc0996b231b577d208e3a34832fe"
+    },
+    {
+      "id": "ASYONEWAY-ECCK1AESCBC256-JSON",
+      "expect": "decrypt",
+      "form": "json",
+      "type": "AsyOneWay",
+      "alg": "EccK1AesCbc256@No1_NrC7",
+      "secret": {
+        "prikey": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"AsyOneWay\",\"alg\":\"EccK1AesCbc256@No1_NrC7\",\"cipher\":\"hnwShbSLZ0SWhNtsHDS78g\\u003d\\u003d\",\"pubkeyA\":\"0293f1f8f2e4640b410d70266e4a7f0f07bf4f8c6ec130545c8c0299370cc77ea1\",\"iv\":\"51f08e4c41544c31a4d464b1c7854093\",\"sum\":\"1932aa56\"}"
+    },
+    {
+      "id": "ASYONEWAY-ECCK1AESCBC256-BUNDLE",
+      "expect": "decrypt",
+      "form": "bundle",
+      "type": "AsyOneWay",
+      "alg": "EccK1AesCbc256@No1_NrC7",
+      "secret": {
+        "prikey": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "3ea47cd61381010293f1f8f2e4640b410d70266e4a7f0f07bf4f8c6ec130545c8c0299370cc77ea151f08e4c41544c31a4d464b1c7854093867c1285b48b67449684db6c1c34bbf21932aa56"
+    },
+    {
+      "id": "ASYTWOWAY-ECCK1AESCBC256-JSON",
+      "expect": "decrypt",
+      "form": "json",
+      "type": "AsyTwoWay",
+      "alg": "EccK1AesCbc256@No1_NrC7",
+      "secret": {
+        "prikey": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+        "pubkey": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"AsyTwoWay\",\"alg\":\"EccK1AesCbc256@No1_NrC7\",\"cipher\":\"QKY/+Cl81pHQNVhlXgMlFA\\u003d\\u003d\",\"pubkeyA\":\"030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a\",\"pubkeyB\":\"02536e4f3a6871831fa91089a5d5a950b96a31c861956f01459c0cd4f4374b2f67\",\"iv\":\"da7f85282b3852d143596ea50dbb41c8\",\"sum\":\"66b3d6d1\"}"
+    },
+    {
+      "id": "ASYTWOWAY-ECCK1AESCBC256-BUNDLE",
+      "expect": "decrypt",
+      "form": "bundle",
+      "type": "AsyTwoWay",
+      "alg": "EccK1AesCbc256@No1_NrC7",
+      "secret": {
+        "prikey": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+        "pubkey": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "3ea47cd6138102030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312ada7f85282b3852d143596ea50dbb41c840a63ff8297cd691d03558655e03251466b3d6d1"
+    },
+    {
+      "id": "ASYTWOWAY-ECCK1CHACHA20-JSON",
+      "expect": "decrypt",
+      "form": "json",
+      "type": "AsyTwoWay",
+      "alg": "EccK1ChaCha20@No1_NrC7",
+      "secret": {
+        "prikey": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+        "pubkey": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"AsyTwoWay\",\"alg\":\"EccK1ChaCha20@No1_NrC7\",\"cipher\":\"zWjMEloFu3QtADqp\",\"pubkeyA\":\"030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a\",\"pubkeyB\":\"02536e4f3a6871831fa91089a5d5a950b96a31c861956f01459c0cd4f4374b2f67\",\"iv\":\"3ad35461f5247fd577d4a335\",\"sum\":\"ffc9807c\"}"
+    },
+    {
+      "id": "ASYTWOWAY-ECCK1CHACHA20-BUNDLE",
+      "expect": "decrypt",
+      "form": "bundle",
+      "type": "AsyTwoWay",
+      "alg": "EccK1ChaCha20@No1_NrC7",
+      "secret": {
+        "prikey": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+        "pubkey": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "355319f84bd502030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a3ad35461f5247fd577d4a335cd68cc125a05bb742d003aa9ffc9807c"
+    },
+    {
+      "id": "ASYONEWAY-ECCK1CHACHA20POLY1305-JSON",
+      "expect": "decrypt",
+      "form": "json",
+      "type": "AsyOneWay",
+      "alg": "EccK1ChaCha20Poly1305@No1_NrC7",
+      "secret": {
+        "prikey": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"AsyOneWay\",\"alg\":\"EccK1ChaCha20Poly1305@No1_NrC7\",\"cipher\":\"luwZVW5qcoLsKewgaN2cvmYqXyWDAHmw6GtQxA\\u003d\\u003d\",\"pubkeyA\":\"038b69f2e6233a1d70ec913ac31b17e634a78096812ccff68176bf70ca45e2e171\",\"iv\":\"483cc93f271cae3200a64d4b\"}"
+    },
+    {
+      "id": "ASYONEWAY-ECCK1CHACHA20POLY1305-BUNDLE",
+      "expect": "decrypt",
+      "form": "bundle",
+      "type": "AsyOneWay",
+      "alg": "EccK1ChaCha20Poly1305@No1_NrC7",
+      "secret": {
+        "prikey": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "d1691132aee101038b69f2e6233a1d70ec913ac31b17e634a78096812ccff68176bf70ca45e2e171483cc93f271cae3200a64d4b96ec19556e6a7282ec29ec2068dd9cbe662a5f25830079b0e86b50c4"
+    },
+    {
+      "id": "ASYTWOWAY-ECCK1CHACHA20POLY1305-JSON",
+      "expect": "decrypt",
+      "form": "json",
+      "type": "AsyTwoWay",
+      "alg": "EccK1ChaCha20Poly1305@No1_NrC7",
+      "secret": {
+        "prikey": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+        "pubkey": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"AsyTwoWay\",\"alg\":\"EccK1ChaCha20Poly1305@No1_NrC7\",\"cipher\":\"IQHOxnS/kRzXIXZWSSvXyXAGG5ggowL5Dxki0A\\u003d\\u003d\",\"pubkeyA\":\"030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a\",\"pubkeyB\":\"02536e4f3a6871831fa91089a5d5a950b96a31c861956f01459c0cd4f4374b2f67\",\"iv\":\"e93726bce06bf947308dd4fc\"}"
+    },
+    {
+      "id": "ASYTWOWAY-ECCK1CHACHA20POLY1305-BUNDLE",
+      "expect": "decrypt",
+      "form": "bundle",
+      "type": "AsyTwoWay",
+      "alg": "EccK1ChaCha20Poly1305@No1_NrC7",
+      "secret": {
+        "prikey": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+        "pubkey": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "d1691132aee102030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312ae93726bce06bf947308dd4fc2101cec674bf911cd7217656492bd7c970061b9820a302f90f1922d0"
+    },
+    {
+      "id": "ASYTWOWAY-X25519AESGCM256-JSON",
+      "expect": "decrypt",
+      "form": "json",
+      "type": "AsyTwoWay",
+      "alg": "X25519AesGcm256@No1_NrC7",
+      "secret": {
+        "prikey": "4242424242424242424242424242424242424242424242424242424242424242",
+        "pubkey": "7a1a4e709bf085ac494aba0469b9b1eda0ab1f78b16aabb79ffeda90623e8522"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"AsyTwoWay\",\"alg\":\"X25519AesGcm256@No1_NrC7\",\"cipher\":\"cz4LRoH+5qi4/tzmYNwpWelLS9vfXGDd1DY8XA\\u003d\\u003d\",\"pubkeyA\":\"7a1a4e709bf085ac494aba0469b9b1eda0ab1f78b16aabb79ffeda90623e8522\",\"pubkeyB\":\"132c442be010fbd57e72603328aa76e71fccc1503aae219327d14d9c9993f472\",\"iv\":\"824731065d11c67f86458cfe\"}"
+    },
+    {
+      "id": "ASYTWOWAY-X25519AESGCM256-BUNDLE",
+      "expect": "decrypt",
+      "form": "bundle",
+      "type": "AsyTwoWay",
+      "alg": "X25519AesGcm256@No1_NrC7",
+      "secret": {
+        "prikey": "4242424242424242424242424242424242424242424242424242424242424242",
+        "pubkey": "7a1a4e709bf085ac494aba0469b9b1eda0ab1f78b16aabb79ffeda90623e8522"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "b4a25b3c3043027a1a4e709bf085ac494aba0469b9b1eda0ab1f78b16aabb79ffeda90623e8522824731065d11c67f86458cfe733e0b4681fee6a8b8fedce660dc2959e94b4bdbdf5c60ddd4363c5c"
+    },
+    {
+      "id": "ASYTWOWAY-ECCAES256K1P7-JSON",
+      "expect": "decrypt",
+      "form": "json",
+      "type": "AsyTwoWay",
+      "alg": "EccAes256K1P7@No1_NrC7",
+      "secret": {
+        "prikey": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+        "pubkey": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "cipherJson": "{\"type\":\"AsyTwoWay\",\"alg\":\"EccAes256K1P7@No1_NrC7\",\"cipher\":\"j8sknqfQtw7ZPH4SyoJ8Eg\\u003d\\u003d\",\"pubkeyA\":\"030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a\",\"pubkeyB\":\"02536e4f3a6871831fa91089a5d5a950b96a31c861956f01459c0cd4f4374b2f67\",\"iv\":\"c2ca81e4dbfe9e95ba3a81f26f058dc8\",\"sum\":\"42e7659b\"}"
+    },
+    {
+      "id": "BITCORE-ENCBUF",
+      "expect": "decrypt",
+      "form": "bitcoreEncbuf",
+      "type": "AsyOneWay",
+      "alg": "ECC256k1-AES256CBC",
+      "secret": {
+        "prikey": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "encbufHex": "024a3698891606024f4a526ec1a8ec6a124392a02523abc7cc840309fd9700ed2bee175f418d3793c95bd480d4c9ca4a7aee96be1c3efc1c95a7e9a0eac5556246c47a272d71dada2ae89bf402ba511d4b13a8253d3eb2305da84de6d08c4d34c3"
+    },
+    {
+      "id": "TAMPER-SYMKEY-AESGCM256",
+      "expect": "reject-decrypt",
+      "form": "bundle",
+      "type": "Symkey",
+      "alg": "AesGcm256@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "76f7b226a8b3006ede688dea3b000102030405060708090a0b508e39217d5becfa840674d93c3241e99f003519262284412e7613fc"
+    },
+    {
+      "id": "TAMPER-SYMKEY-AESCBC256",
+      "expect": "reject-decrypt",
+      "form": "bundle",
+      "type": "Symkey",
+      "alg": "AesCbc256@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "51515d32878c006ede688dea3b000102030405060708090a0b0c0d0e0f8ea0dc2ec35d43dfa2f2cf93768acff7d162994e"
+    },
+    {
+      "id": "TAMPER-SYMKEY-CHACHA20",
+      "expect": "reject-decrypt",
+      "form": "bundle",
+      "type": "Symkey",
+      "alg": "ChaCha20@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "bcc39a9628e2006ede688dea3b000102030405060708090a0b7fa679ff4b1faafeb33232febf818243"
+    },
+    {
+      "id": "TAMPER-SYMKEY-CHACHA20POLY1305",
+      "expect": "reject-decrypt",
+      "form": "bundle",
+      "type": "Symkey",
+      "alg": "ChaCha20Poly1305@No1_NrC7",
+      "secret": {
+        "symkey": "dc1e7c03e162397b355b6f1c895dfdf3790d98c10b920c55e91272b8eecada2a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "b1788c3b7320006ede688dea3b000102030405060708090a0b2ce315e9b81ca33430e8b1eab471cc0996b231b577d208e3a34832ff"
+    },
+    {
+      "id": "TAMPER-ASYTWOWAY-ECCK1AESGCM256",
+      "expect": "reject-decrypt",
+      "form": "bundle",
+      "type": "AsyTwoWay",
+      "alg": "EccK1AesGcm256@No1_NrC7",
+      "secret": {
+        "prikey": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+        "pubkey": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "a5acd707780502030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a5cdba62d2ad47512eb95adfec9755a294c1859a5bcf8ae42939c3b8b1c23c21cd503d34a11b12a76"
+    },
+    {
+      "id": "TAMPER-ASYTWOWAY-ECCK1CHACHA20POLY1305",
+      "expect": "reject-decrypt",
+      "form": "bundle",
+      "type": "AsyTwoWay",
+      "alg": "EccK1ChaCha20Poly1305@No1_NrC7",
+      "secret": {
+        "prikey": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+        "pubkey": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "d1691132aee102030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a5b0060f8fd8e95371eaa4649292b3edfc7cb5a2e58bab2f06bb12d78dbaa36da42e551d55dd18e55"
+    },
+    {
+      "id": "TAMPER-ASYTWOWAY-X25519AESGCM256",
+      "expect": "reject-decrypt",
+      "form": "bundle",
+      "type": "AsyTwoWay",
+      "alg": "X25519AesGcm256@No1_NrC7",
+      "secret": {
+        "prikey": "4242424242424242424242424242424242424242424242424242424242424242",
+        "pubkey": "7a1a4e709bf085ac494aba0469b9b1eda0ab1f78b16aabb79ffeda90623e8522"
+      },
+      "plaintextHex": "48656c6c6f20776f726c6421",
+      "bundleHex": "b4a25b3c3043027a1a4e709bf085ac494aba0469b9b1eda0ab1f78b16aabb79ffeda90623e85226becd46b8a4ec804aa9b6b5a2a1df93a917125eccb26c29413258b499212b9974c601304dcb42c06"
+    }
+  ],
+  "knownGaps": [
+    "TAMPER-ASYTWOWAY-ECCK1AESCBC256: FC-JDK does not detect this tampering, so it is not a vector yet",
+    "TAMPER-ASYTWOWAY-ECCK1CHACHA20: FC-JDK does not detect this tampering, so it is not a vector yet"
+  ]
+}

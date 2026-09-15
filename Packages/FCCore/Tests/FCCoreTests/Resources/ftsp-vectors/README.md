@@ -10,6 +10,7 @@ All byte values are lowercase hex unless the field name says `Base64`. Inputs ar
 | `phrase.json` | FTSP28 | Deriving from `phraseUtf8Hex` with `salt` gives `priKey32`. Only `conformant: true` entries are how new keys are made; the rest exist to recover keys from older builds. |
 | `cipher-json.json` | FVEP8 | Decrypting `cipherJson` with `secret` gives `plaintextHex`. For Password, the KDF that worked equals `derivedWith`, including when the JSON has no `kdf` (`kdfRecorded: false`). |
 | `bundle.json` | FTSP30 | `expect: "decrypt"`: parsing gives `alg`, `type` and `kdfRecorded`, and decrypting with `secret` gives `plaintextHex`. `expect: "reject"`: the parser must refuse the bytes. `canonical: true`: re-serialising the parsed bundle reproduces the bytes exactly. |
+| `algorithms.json` | FTSP11–27 | Every other cipher profile — ChaCha20 variants, the legacy ECC CBC and P7 profiles, X25519, BitCore — as JSON (`cipherJson`), bundle (`bundleHex`) or BitCore `encbufHex`. `expect: "decrypt"` must give `plaintextHex`; `expect: "reject-decrypt"` is a tampered cipher that must not decrypt successfully. `knownGaps` lists tampering FC-JDK does not yet detect. |
 
 `secret` holds one of `symkey`, `password`, or `prikey` (plus the peer's `pubkey` for AsyTwoWay).
 

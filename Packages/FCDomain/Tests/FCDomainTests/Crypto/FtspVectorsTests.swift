@@ -85,6 +85,18 @@ final class FtspVectorsTests: XCTestCase {
         }
     }
 
+    /// The other FTSP profiles. FreerForMac opens none of them, but its parser must still
+    /// read the framing of their bundles, tampered ones included.
+    func testAlgorithmBundlesParse() throws {
+        for v in try vectors("algorithms") where v["form"] as? String == "bundle" {
+            let id = v["id"] as? String ?? "?"
+            let bundle = Data(fromHex: try XCTUnwrap(v["bundleHex"] as? String, id))
+            let parsed = try CryptoBundle.parse(bundle)
+            XCTAssertEqual(parsed.algorithm.name, v["alg"] as? String, id)
+            XCTAssertEqual(parsed.type, Self.encryptTypes[v["type"] as? String ?? ""], id)
+        }
+    }
+
     func testSealPasswordRoundTrip() throws {
         let plaintext = Data("Hello world!".utf8)
         let bundle = try CryptoBundle.sealPassword(plaintext: plaintext, password: Data("MyPassword".utf8))
