@@ -4,8 +4,8 @@ import FCDomain
 import FCUI
 
 /// The **First FCH board** — the Mac port of Android's `NobodyBoard` /
-/// `NewcomerRequestsActivity` pair, shown as a tab of the Settings pane,
-/// and the one screen that serves two opposite people.
+/// `NewcomerRequestsActivity` pair, the **Help beginners** pane under
+/// Society, and the one screen that serves two opposite people.
 ///
 /// **The problem it solves.** Every action in this app costs a fee, and a
 /// brand-new FID has nothing to pay one with. It cannot carve, cannot
@@ -129,6 +129,9 @@ struct FirstFchBoardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            PaneHeader(session: session)
+            Divider()
+
             toolbar
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
@@ -140,6 +143,7 @@ struct FirstFchBoardView: View {
                 .padding(.bottom, 12)
             }
         }
+        .padding()
         .frame(minWidth: 560)
         .task { await load() }
         .onChange(of: session.liveFid) { _, _ in
@@ -186,37 +190,86 @@ struct FirstFchBoardView: View {
         }
     }
 
-    // MARK: - the notice
+    // MARK: - what this page is for
 
+    /// The opening sentences, written for whoever is reading them.
+    ///
+    /// **Two readers want opposite things.** Somebody holding coins came
+    /// here to give; somebody holding none came here to ask. One neutral
+    /// paragraph serves neither, so this switches on the same
+    /// `liveFidIsBroke` test that decides whether ``askCard`` appears —
+    /// the explanation and the form under it always agree.
+    ///
+    /// **It used to open with "this is a public board on a nobody
+    /// identity".** That is true, and it answers a question nobody
+    /// arrives with: the reader has just clicked **Help beginners** and
+    /// needs to know why a stranger is stuck without them, not how the
+    /// board's key is held. The published key still matters — it is what
+    /// lets somebody with nothing post at all, and what makes a row
+    /// unverifiable — so it stays, as the caution it is, below the point.
     private var noticeCard: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle")
-                .foregroundStyle(.orange)
+            Image(systemName: appState.liveFidIsBroke ? "hand.raised" : "gift")
+                .foregroundStyle(.teal)
             VStack(alignment: .leading, spacing: 6) {
-                Text("This is a public board on a nobody identity.")
+                Text(appState.liveFidIsBroke
+                     ? "Nothing works until somebody sends you a coin."
+                     : "A beginner can do nothing until somebody gives them a coin.")
                     .font(.callout.bold())
-                Text("""
-                    Its private key is published, so everything here can be read — and \
-                    written — by anyone. Use it only to ask for your first FCH. You never \
-                    need to pay, click a link, or share anything to receive coins; the only \
-                    proof that somebody helped is your own balance going up.
-                    """)
+                Text(appState.liveFidIsBroke ? Self.askerText : Self.helperText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) {
-                    FidAvatarView(fid: NobodyBoard.defaultNobodyFid, size: 16, isNobody: true)
-                    CopyableText.elidingMiddle(
-                        NobodyBoard.defaultNobodyFid,
-                        font: .caption.monospaced(), color: .secondary
-                    )
-                }
+                boardAddressLine
             }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.10))
+        .background(Color.teal.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    /// For the reader who has coins: what helping is, then what to watch
+    /// for. The caution is about the *rows*, which is the only part of
+    /// the board a helper has to make a judgement about.
+    private static let helperText = """
+        Every action on chain costs a fee, so a brand-new FID can do nothing at all — \
+        not buy a name, not send a message, not record anything — until somebody who \
+        already has coins sends it a few. The people below are in exactly that position \
+        and have said so. Tick the ones you want to help, choose an amount, and one \
+        transaction pays them all.
+
+        Anyone can write on this board, as often as they like, and a row is only a FID \
+        and a sentence somebody typed — none of it is checked. Click a FID to see how \
+        old it is and what others have said about it on chain, and send only what you \
+        are content to give away.
+        """
+
+    /// For the reader who has none: how to ask, then the one rule that
+    /// keeps them from being fleeced on their way in.
+    private static let askerText = """
+        Every action on chain costs a fee, and this FID has none, so there is nothing it \
+        can do yet. Post below and any freer who opens this page can send you enough to \
+        start.
+
+        You never need to pay, click a link, or share anything to receive coins. The only \
+        sign that somebody helped is your own balance going up.
+        """
+
+    /// Where the rows come from, said once and quietly. The board FID's
+    /// private key is published — that is what lets a newcomer with no
+    /// coins post to it — so it keeps the app's usual nobody marker.
+    private var boardAddressLine: some View {
+        HStack(spacing: 6) {
+            Text("Public board")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            FidAvatarView(fid: NobodyBoard.defaultNobodyFid, size: 16, isNobody: true)
+            CopyableText.elidingMiddle(
+                NobodyBoard.defaultNobodyFid,
+                font: .caption.monospaced(), color: .secondary
+            )
+        }
     }
 
     // MARK: - asking
@@ -241,8 +294,8 @@ struct FirstFchBoardView: View {
                 }
             } else {
                 Text("""
-                    Posts your FID publicly, so an existing freer can send you the coins every \
-                    other action needs. Anyone can see it.
+                    Your FID and your note go on the public board above, where anyone can \
+                    read them. Nothing else about you is shared.
                     """)
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -302,7 +355,7 @@ struct FirstFchBoardView: View {
 
             if requests.isEmpty {
                 Text(boardError
-                     ?? "Nobody is waiting. Requests from FIDs that have since been funded are not shown.")
+                     ?? "No one is asking right now. Anybody who has been funded since they asked has already dropped off this list.")
                     .font(.callout)
                     .foregroundStyle(boardError == nil
                                      ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.red))

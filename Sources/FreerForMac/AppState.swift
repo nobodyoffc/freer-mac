@@ -92,15 +92,9 @@ final class AppState {
     /// ``selectedPane``, and so it survives a trip to another pane.
     var sendMode: SendView.Mode = .send
 
-    /// The tab the Settings pane shows — hoisted so the Overview can
-    /// open the First FCH board, which lives there.
-    var settingsTab: SettingsView.Tab = .preferences
-
-    /// Open the First FCH board. The two writes belong together, as in
-    /// ``openChat(mode:)``.
+    /// Open the First FCH board, which is the Help beginners pane.
     func openFirstFchBoard() {
-        settingsTab = .firstFch
-        selectedPane = .settings
+        selectedPane = .helpBeginners
     }
 
     /// A chat flavour the Chat pane should open on, set by whoever

@@ -97,14 +97,14 @@ struct OverviewView: View {
                 Text("This FID holds no coins").font(.headline)
                 Text("""
                     Every carve, name and message costs a fee, so an empty FID cannot do much. \
-                    Ask on the public First FCH board, or have somebody send coins straight to \
-                    your address.
+                    Ask on the public First FCH board, under Help beginners, or have somebody \
+                    send coins straight to your address.
                     """)
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 10) {
-                    Button("Open the First FCH board") {
+                    Button("Open Help beginners") {
                         appState.openFirstFchBoard()
                     }
                     CopyableText.elidingMiddle(session.liveFid, font: .callout.monospaced())
@@ -264,7 +264,7 @@ struct OverviewView: View {
         // for a helper who opted in — see ``FirstFchBoardView``.
         if appState.newcomersWaiting > 0 {
             tiles.append(AttentionTile(
-                id: "firstFch", title: "First FCH", count: appState.newcomersWaiting,
+                id: "firstFch", title: "Help beginners", count: appState.newcomersWaiting,
                 systemImage: "hand.raised.fill", tint: .teal,
                 open: { appState.openFirstFchBoard() }
             ))

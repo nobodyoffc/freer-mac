@@ -28,6 +28,11 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
     case chat
     case mail
     case news
+    /// The First FCH board. Under Society rather than System because it
+    /// is other people asking you for something, not a setting — and
+    /// last in the group because it is the one you visit on purpose
+    /// rather than the one that fills up on its own.
+    case helpBeginners
 
     // Finance
     case proofs
@@ -60,7 +65,6 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
 
     // System
     case logs
-    /// Preferences, plus the First FCH board as a second tab.
     case settings
 
     var id: String { rawValue }
@@ -103,7 +107,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         switch self {
         case .overview, .send, .cash, .transactions:
             return .wallet
-        case .contacts, .chat, .mail, .news:
+        case .contacts, .chat, .mail, .news, .helpBeginners:
             return .society
         case .proofs, .tokens:
             return .finance
@@ -135,6 +139,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .chat:         return "Chat"
         case .mail:         return "Mail"
         case .news:         return "News"
+        case .helpBeginners: return "Help beginners"
         case .proofs:       return "Proofs"
         case .tokens:       return "Tokens"
         case .files:        return "Files"
@@ -211,7 +216,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .chat, .mail, .secrets:
             return true
         case .overview, .send, .cash, .transactions,
-             .contacts, .news, .proofs, .tokens, .files,
+             .contacts, .news, .helpBeginners, .proofs, .tokens, .files,
              .publishText, .publishStatement, .publishImage, .publishSound, .publishVideo,
              .protocols, .services, .codes, .apps,
              .crypto, .convert, .terminal, .logs, .settings:
@@ -242,6 +247,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .chat:         return "bubble.left.and.bubble.right"
         case .mail:         return "envelope"
         case .news:         return "newspaper"
+        case .helpBeginners: return "hand.raised"
         case .proofs:       return "checkmark.seal"
         case .tokens:       return "circle.grid.2x2"
         case .files:        return "folder"
