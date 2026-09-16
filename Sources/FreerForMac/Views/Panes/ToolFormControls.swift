@@ -15,27 +15,23 @@ struct ToolTextEditor: View {
     var minHeight: CGFloat = 64
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $text)
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .padding(4)
-            if text.isEmpty {
-                Text(placeholder)
-                    .foregroundStyle(.tertiary)
-                    .font(.system(.body, design: .monospaced))
-                    .padding(.top, 8)
-                    .padding(.leading, 9)
-                    .allowsHitTesting(false)
+        // The chrome is FCUI's, so a workbench editor focuses and hovers
+        // like every other input. The placeholder is an overlay rather
+        // than the other half of a ZStack because the focus binding has
+        // to land on the TextEditor itself, not on a container.
+        TextEditor(text: $text)
+            .font(.system(.body, design: .monospaced))
+            .fieldEditorStyle(minHeight: minHeight)
+            .overlay(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text(placeholder)
+                        .foregroundStyle(.tertiary)
+                        .font(.system(.body, design: .monospaced))
+                        .padding(.top, 10)
+                        .padding(.leading, 11)
+                        .allowsHitTesting(false)
+                }
             }
-        }
-        .frame(minHeight: minHeight)
-        .background(Color(NSColor.textBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .overlay(
-            RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(Color(NSColor.separatorColor))
-        )
     }
 }
 

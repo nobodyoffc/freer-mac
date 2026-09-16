@@ -30,12 +30,16 @@ public struct SearchField: View {
         self.maxWidth = maxWidth
     }
 
+    @FocusState private var focused: Bool
+    @State private var hovering = false
+
     public var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(focused ? Color.accentColor : .secondary)
             TextField("", text: $text, prompt: Text(prompt))
                 .textFieldStyle(.plain)
+                .focused($focused)
                 .frame(minWidth: minWidth, maxWidth: maxWidth)
             if !text.isEmpty {
                 Button {
@@ -49,13 +53,14 @@ public struct SearchField: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color(nsColor: .textBackgroundColor))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .strokeBorder(Color.secondary.opacity(0.3), lineWidth: 0.5)
-        )
+        .background(FieldChrome.background)
+        .overlay(FieldChrome.border(focused: focused, hovering: hovering))
+        // The magnifier and the whitespace around the field are the
+        // part of a search box people actually aim at.
+        .contentShape(FieldChrome.shape)
+        .onTapGesture { focused = true }
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: focused)
+        .animation(.easeOut(duration: 0.12), value: hovering)
     }
 }

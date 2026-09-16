@@ -58,7 +58,7 @@ struct FidPickerView: View {
         HStack(spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(searchFocused ? Color.accentColor : .secondary)
                 TextField("", text: $model.query, prompt: Text(prompt))
                     .textFieldStyle(.plain)
                     .font(.system(.body, design: .monospaced))
@@ -78,14 +78,13 @@ struct FidPickerView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(Color(nsColor: .textBackgroundColor))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .strokeBorder(Color.secondary.opacity(0.3), lineWidth: 0.5)
-            )
+            // Shares FCUI's field chrome rather than its own copy of it,
+            // so this box picks up the focus ring every other input has.
+            .background(FieldChrome.background)
+            .overlay(FieldChrome.border(focused: searchFocused))
+            .contentShape(FieldChrome.shape)
+            .onTapGesture { searchFocused = true }
+            .animation(.easeOut(duration: 0.12), value: searchFocused)
 
             if model.searchesChain {
                 Button {

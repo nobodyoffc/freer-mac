@@ -206,7 +206,7 @@ struct PaneHeader: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
             TextField("e.g. daily spending", text: $labelDraft)
-                .textFieldStyle(.roundedBorder)
+                .fieldInputStyle()
                 .frame(width: 260)
                 .onSubmit { commitLabel() }
             if let labelError {

@@ -272,11 +272,7 @@ struct AddMultisigSheet: View {
                 LabeledField("Redeem script", hint: "Hex, starting with the threshold opcode.") {
                     TextEditor(text: $scriptText)
                         .font(.system(.caption, design: .monospaced))
-                        .frame(minHeight: 90)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 5)
-                                .stroke(Color.secondary.opacity(0.3))
-                        )
+                        .fieldEditorStyle(minHeight: 90)
                         .onChange(of: scriptText) { _, _ in reparse() }
                 }
 

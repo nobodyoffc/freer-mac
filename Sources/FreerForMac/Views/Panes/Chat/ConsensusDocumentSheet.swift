@@ -86,11 +86,7 @@ struct ConsensusDocumentSheet: View {
             } else if editable {
                 TextEditor(text: $text)
                     .font(.system(.body, design: .monospaced))
-                    .frame(minHeight: 300)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.3))
-                    )
+                    .fieldEditorStyle(minHeight: 300)
             } else {
                 ScrollView {
                     Text(text)

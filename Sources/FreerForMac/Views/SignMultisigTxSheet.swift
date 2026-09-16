@@ -200,11 +200,7 @@ struct SignMultisigTxSheet: View {
                 .foregroundStyle(.secondary)
             TextEditor(text: $importText)
                 .font(.system(.caption, design: .monospaced))
-                .frame(minHeight: 90)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 5)
-                        .stroke(Color.secondary.opacity(0.3))
-                )
+                .fieldEditorStyle(minHeight: 90)
             HStack {
                 Text("Paste the JSON a member sent you.")
                     .font(.caption)
@@ -328,11 +324,7 @@ struct SignMultisigTxSheet: View {
                     .foregroundStyle(.secondary)
                 TextEditor(text: $importText)
                     .font(.system(.caption, design: .monospaced))
-                    .frame(minHeight: 70)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 5)
-                            .stroke(Color.secondary.opacity(0.3))
-                    )
+                    .fieldEditorStyle(minHeight: 70)
                 HStack {
                     Spacer()
                     Button("Merge") { merge(importText) }

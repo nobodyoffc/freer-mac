@@ -108,7 +108,7 @@ struct RemarkThreadView: View {
             LabeledField("Title") {
                 VStack(alignment: .leading, spacing: 2) {
                     TextField("What this remark says, in a few words", text: $remarkTitle)
-                        .textFieldStyle(.roundedBorder)
+                        .fieldInputStyle()
                     Text("Required by the protocol, and carved on chain. This is what the thread shows.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -119,7 +119,7 @@ struct RemarkThreadView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     TextField("Optional — a line under the title", text: $remarkNote, axis: .vertical)
                         .lineLimit(1...3)
-                        .textFieldStyle(.roundedBorder)
+                        .fieldInputStyle()
                     Text("Also carved on chain, so a thread can show it without fetching anything.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
@@ -129,11 +129,7 @@ struct RemarkThreadView: View {
             DisclosureGroup("The remark itself — optional, stored on DISK, not on the chain") {
                 TextEditor(text: $remarkBody)
                     .font(.callout)
-                    .frame(height: 90)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color(NSColor.separatorColor))
-                    )
+                    .fieldEditorStyle(minHeight: 90, maxHeight: 90)
                     .padding(.top, 4)
             }
             .font(.caption)

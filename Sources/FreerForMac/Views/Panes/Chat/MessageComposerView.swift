@@ -155,7 +155,7 @@ struct MessageComposerView: View {
 
             TextField(enabled ? "Message" : "Can't send here", text: $draft, axis: .vertical)
                 .lineLimit(1...5)
-                .textFieldStyle(.roundedBorder)
+                .fieldInputStyle()
                 .disabled(!enabled)
                 .onSubmit(onSend)
 

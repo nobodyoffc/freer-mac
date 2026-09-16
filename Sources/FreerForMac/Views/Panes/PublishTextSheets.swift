@@ -117,7 +117,7 @@ struct PublishTextComposer: View {
                 VStack(alignment: .leading, spacing: 12) {
                     LabeledField("Title") {
                         TextField("What the work is called", text: $title)
-                            .textFieldStyle(.roundedBorder)
+                            .fieldInputStyle()
                     }
 
                     LabeledField("The work") {
@@ -130,11 +130,7 @@ struct PublishTextComposer: View {
                             }
                             TextEditor(text: $body_)
                                 .font(.body)
-                                .frame(minHeight: 200)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color(NSColor.separatorColor))
-                                )
+                                .fieldEditorStyle(minHeight: 200)
                             HStack(spacing: 8) {
                                 Text("\(Data(body_.utf8).count) bytes — stored on DISK, not on the chain")
                                     .font(.caption2)
@@ -150,7 +146,7 @@ struct PublishTextComposer: View {
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("A line or two, carved on chain so a list can show it", text: $summary, axis: .vertical)
                                 .lineLimit(2...5)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                             Text(remaining >= 0
                                  ? "\(remaining) bytes left in the carve"
                                  : "\(-remaining) bytes over the OP_RETURN limit")
@@ -162,22 +158,22 @@ struct PublishTextComposer: View {
                     HStack(spacing: 12) {
                         LabeledField("Type") {
                             TextField("essay, note, article…", text: $type)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                         LabeledField("Language") {
                             TextField("en, zh…", text: $lang)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                         LabeledField("Format") {
                             TextField("markdown, plain…", text: $format)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                     }
 
                     LabeledField("Authors") {
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("FIDs or names, comma separated", text: $authorsText)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                             if !authors.isEmpty {
                                 // Echo the parse back, so what will be
                                 // carved is never a guess the writer

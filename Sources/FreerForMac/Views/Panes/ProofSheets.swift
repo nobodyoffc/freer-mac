@@ -85,18 +85,14 @@ struct IssueProofSheet: View {
 
             field("Title") {
                 TextField("What this proof is", text: $title)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldInputStyle()
             }
 
             field("Content") {
                 VStack(alignment: .leading, spacing: 4) {
                     TextEditor(text: $content)
                         .font(.body)
-                        .frame(minHeight: 120, maxHeight: 200)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color(NSColor.separatorColor))
-                        )
+                        .fieldEditorStyle(minHeight: 120, maxHeight: 200)
                     HStack {
                         Text(remaining >= 0
                              ? "\(remaining) bytes left"

@@ -1,6 +1,7 @@
 import SwiftUI
 import FCCore
 import FCDomain
+import FCUI
 
 /// Single password field plus two explicit actions: **Check** opens
 /// an existing vault, **Create new** mints a fresh one. The view
@@ -33,7 +34,7 @@ struct PasswordView: View {
             VStack(spacing: 12) {
                 SecureField("Password", text: $password)
                     .textContentType(.password)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldInputStyle()
                     .frame(width: 360)
                     .onSubmit {
                         if working == .none && !password.isEmpty {

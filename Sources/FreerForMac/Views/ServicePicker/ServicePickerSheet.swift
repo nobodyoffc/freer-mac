@@ -109,7 +109,7 @@ struct ServicePickerSheet: View {
     private var searchBar: some View {
         HStack(spacing: 8) {
             TextField("Name, service id, owner or description", text: $query)
-                .textFieldStyle(.roundedBorder)
+                .fieldInputStyle()
                 .onSubmit { search(reset: true) }
             Button {
                 search(reset: true)

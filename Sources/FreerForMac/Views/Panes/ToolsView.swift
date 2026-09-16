@@ -116,7 +116,7 @@ private struct EncryptToolView: View {
             .pickerStyle(.segmented)
 
             TextField(keyHint, text: $key)
-                .textFieldStyle(.roundedBorder)
+                .fieldInputStyle()
                 .font(.system(.body, design: .monospaced))
 
             HStack {
@@ -209,7 +209,7 @@ private struct DecryptToolView: View {
             }
             if !(session.canSign && useMyKey) {
                 TextField("Password, symkey hex, or privkey hex — per the cipher's type", text: $key)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldInputStyle()
                     .font(.system(.body, design: .monospaced))
             }
             Toggle("Show result as hex", isOn: $toHex)
@@ -296,7 +296,7 @@ private struct SignToolView: View {
 
             if alg == .symkey {
                 TextField("Symkey — 32 bytes in hex", text: $symkeyHex)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldInputStyle()
                     .font(.system(.body, design: .monospaced))
             } else if !session.canSign {
                 Label("Watch-only — the live FID has no private key to sign with", systemImage: "eye")
@@ -361,7 +361,7 @@ private struct VerifyToolView: View {
             ToolTextEditor(placeholder: "Signature JSON", text: $signatureJson)
 
             TextField("Symkey hex (symkey signatures) or FID (when the JSON lacks one)", text: $key)
-                .textFieldStyle(.roundedBorder)
+                .fieldInputStyle()
                 .font(.system(.body, design: .monospaced))
 
             HStack {
@@ -551,7 +551,7 @@ private struct RandomToolView: View {
 
             HStack {
                 TextField("Bytes", text: $countText)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldInputStyle()
                     .frame(width: 80)
                 ForEach([1, 4, 8, 16, 32], id: \.self) { n in
                     Button("\(n)") { countText = "\(n)" }

@@ -143,7 +143,7 @@ private struct PrikeyConvertView: View {
             .fixedSize(horizontal: false, vertical: true)
 
             TextField("Private key — 64 hex characters, or WIF", text: $input)
-                .textFieldStyle(.roundedBorder)
+                .fieldInputStyle()
                 .font(.system(.body, design: .monospaced))
 
             if session.canSign {
@@ -495,7 +495,7 @@ private struct TimeConvertView: View {
                         Spacer(minLength: 0)
                     }
                     TextField(field.placeholder, text: binding(for: field))
-                        .textFieldStyle(.roundedBorder)
+                        .fieldInputStyle()
                         .font(.system(.body, design: .monospaced))
                 }
             }

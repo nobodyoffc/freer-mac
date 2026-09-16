@@ -255,7 +255,7 @@ struct RateFreerSheet: View {
         panel("Weight") {
             HStack(spacing: 8) {
                 TextField("", text: $weightText)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldInputStyle()
                     .frame(width: 110)
                     .monospacedDigit()
                 Text("coin-days")
@@ -292,12 +292,7 @@ struct RateFreerSheet: View {
         panel("Cause (optional)") {
             TextEditor(text: $cause)
                 .font(.body)
-                .frame(height: 70)
-                .padding(4)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color(NSColor.separatorColor))
-                )
+                .fieldEditorStyle(minHeight: 70, maxHeight: 70)
             HStack {
                 caption(
                     "Public and permanent, like everything else in the carve. Left blank, the field is "

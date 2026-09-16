@@ -158,16 +158,7 @@ struct ContactEditorSheet: View {
                     LabeledField("Memo") {
                         TextEditor(text: $memo)
                             .font(.body)
-                            .frame(minHeight: 70, maxHeight: 140)
-                            .padding(6)
-                            .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(Color(nsColor: .textBackgroundColor))
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .strokeBorder(Color.secondary.opacity(0.3), lineWidth: 0.5)
-                            )
+                            .fieldEditorStyle(minHeight: 70, maxHeight: 140)
                     }
                 } header: {
                     Text("Detail")

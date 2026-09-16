@@ -177,11 +177,11 @@ struct PublishCodeSheet: View {
                     HStack(spacing: 10) {
                         field("Name") {
                             TextField("What the implementation is called", text: $name)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                         field("Version") {
                             TextField("e.g. 1.4.2", text: $ver)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                         .frame(maxWidth: 140)
                     }
@@ -190,11 +190,7 @@ struct PublishCodeSheet: View {
                         VStack(alignment: .leading, spacing: 4) {
                             TextEditor(text: $desc)
                                 .font(.body)
-                                .frame(minHeight: 80, maxHeight: 160)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color(NSColor.separatorColor))
-                                )
+                                .fieldEditorStyle(minHeight: 80, maxHeight: 160)
                             HStack {
                                 Text(remaining >= 0
                                      ? "\(remaining) bytes left"
@@ -212,7 +208,7 @@ struct PublishCodeSheet: View {
                     field("Languages") {
                         VStack(alignment: .leading, spacing: 5) {
                             TextField("swift, c, rust — comma separated", text: $langsText)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                             if langs.isEmpty {
                                 Text("None — the registration does not say what it is written in.")
                                     .font(.caption2)
@@ -243,7 +239,7 @@ struct PublishCodeSheet: View {
 
                     field("Artefact DID") {
                         TextField("digest of the code being registered", text: $did)
-                            .textFieldStyle(.roundedBorder)
+                            .fieldInputStyle()
                             .font(.system(.body, design: .monospaced))
                     }
                     .help("The code itself is not carved. This is its digest, so whoever fetches it can check it is what was registered.")
@@ -503,7 +499,7 @@ struct ProtocolIdListEditor: View {
                 .controlSize(.small)
 
                 TextField("or paste a protocol ID", text: $typed)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldInputStyle()
                     .font(.system(.caption, design: .monospaced))
                     .onSubmit { addTyped() }
 
@@ -981,7 +977,7 @@ struct CloseCodeSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Closing statement").font(.caption).foregroundStyle(.secondary)
                 TextField("why, or what replaces it — optional", text: $statement)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldInputStyle()
                 Text("The last thing you will ever be able to say about this code record on chain.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

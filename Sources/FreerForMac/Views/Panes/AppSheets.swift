@@ -199,11 +199,11 @@ struct PublishAppSheet: View {
                     HStack(spacing: 10) {
                         field("Standard name") {
                             TextField("What the app is called", text: $stdName)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                         field("Version") {
                             TextField("e.g. 1.4.2", text: $ver)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                         .frame(maxWidth: 140)
                     }
@@ -212,11 +212,7 @@ struct PublishAppSheet: View {
                         VStack(alignment: .leading, spacing: 4) {
                             TextEditor(text: $desc)
                                 .font(.body)
-                                .frame(minHeight: 70, maxHeight: 140)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color(NSColor.separatorColor))
-                                )
+                                .fieldEditorStyle(minHeight: 70, maxHeight: 140)
                             HStack {
                                 Text(remaining >= 0
                                      ? "\(remaining) bytes left"
@@ -234,7 +230,7 @@ struct PublishAppSheet: View {
                     field("Types") {
                         VStack(alignment: .leading, spacing: 5) {
                             TextField("wallet, im, browser — comma separated", text: $typesText)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                             if types.isEmpty {
                                 Text("None — the registration does not say what kind of app this is.")
                                     .font(.caption2)
@@ -551,14 +547,14 @@ struct DownloadsEditor: View {
                             get: { row.os ?? "" },
                             set: { row.os = $0.isEmpty ? nil : $0 }
                         ))
-                        .textFieldStyle(.roundedBorder)
+                        .fieldInputStyle()
                         .frame(width: 90)
 
                         TextField("https://… where to download it", text: Binding(
                             get: { row.link ?? "" },
                             set: { row.link = $0.isEmpty ? nil : $0 }
                         ))
-                        .textFieldStyle(.roundedBorder)
+                        .fieldInputStyle()
 
                         Button {
                             let id = row.id
@@ -574,7 +570,7 @@ struct DownloadsEditor: View {
                             get: { row.did ?? "" },
                             set: { row.did = $0.isEmpty ? nil : $0 }
                         ))
-                        .textFieldStyle(.roundedBorder)
+                        .fieldInputStyle()
                         .font(.system(.caption, design: .monospaced))
                         if (row.did ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
                             Text("no digest — the link is unverifiable")
@@ -987,7 +983,7 @@ struct CloseAppSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Closing statement").font(.caption).foregroundStyle(.secondary)
                 TextField("why, or which app replaces it — optional", text: $statement)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldInputStyle()
                 Text("The last thing you will ever be able to say about this app on chain, and the only place to name its successor.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

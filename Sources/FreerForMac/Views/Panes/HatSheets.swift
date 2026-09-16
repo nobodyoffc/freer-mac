@@ -280,8 +280,7 @@ struct HatImportSheet: View {
 
             TextEditor(text: $text)
                 .font(.system(.caption, design: .monospaced))
-                .frame(height: 180)
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.secondary.opacity(0.3)))
+                .fieldEditorStyle(minHeight: 180, maxHeight: 180)
                 .onChange(of: text) { _, _ in parse() }
 
             if !preview.isEmpty {

@@ -242,14 +242,7 @@ struct MailComposeSheet: View {
             }
             TextEditor(text: $messageText)
                 .font(.body)
-                .frame(minHeight: 200)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(
-                            overLimit ? Color.red : Color.secondary.opacity(0.3),
-                            lineWidth: overLimit ? 1.5 : 0.5
-                        )
-                )
+                .fieldEditorStyle(minHeight: 200, isError: overLimit)
             if overLimit {
                 Text("Too long by \(bodyBytes - MailFeip.maxBodyBytes) bytes. A mail lives inside one transaction's data field; the limit is on the encrypted, encoded body, which is about a third larger than what you typed.")
                     .font(.caption)

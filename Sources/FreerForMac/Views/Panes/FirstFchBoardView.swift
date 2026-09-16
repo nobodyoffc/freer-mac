@@ -250,7 +250,7 @@ struct FirstFchBoardView: View {
 
                 HStack(spacing: 8) {
                     TextField("", text: $note, prompt: Text("Add a note (optional)"))
-                        .textFieldStyle(.roundedBorder)
+                        .fieldInputStyle()
                         .onChange(of: note) { _, new in
                             if new.count > NobodyBoard.noteMaxCharacters {
                                 note = String(new.prefix(NobodyBoard.noteMaxCharacters))

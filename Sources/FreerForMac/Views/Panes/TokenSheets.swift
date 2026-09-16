@@ -133,17 +133,17 @@ struct DeployTokenSheet: View {
                 VStack(alignment: .leading, spacing: 12) {
                     field("Name") {
                         TextField("What the token is called", text: $name)
-                            .textFieldStyle(.roundedBorder)
+                            .fieldInputStyle()
                     }
 
                     field("Description") {
                         TextField("What it is for (optional)", text: $desc)
-                            .textFieldStyle(.roundedBorder)
+                            .fieldInputStyle()
                     }
 
                     field("Consensus FID") {
                         TextField("Whose word settles disputes (optional)", text: $consensusId)
-                            .textFieldStyle(.roundedBorder)
+                            .fieldInputStyle()
                             .font(.system(.body, design: .monospaced))
                         Text("Declarative only — the chain enforces nothing about it.")
                             .font(.caption2).foregroundStyle(.tertiary)
@@ -152,13 +152,13 @@ struct DeployTokenSheet: View {
                     HStack(alignment: .top, spacing: 12) {
                         field("Capacity") {
                             TextField("No cap", text: $capacity)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                             Text("Total supply ceiling.")
                                 .font(.caption2).foregroundStyle(.tertiary)
                         }
                         field("Decimal places") {
                             TextField("0", text: $decimal)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                             Text("How finely it divides.")
                                 .font(.caption2).foregroundStyle(.tertiary)
                         }
@@ -194,15 +194,15 @@ struct DeployTokenSheet: View {
                         HStack(alignment: .top, spacing: 12) {
                             field("Max per issue") {
                                 TextField("Unlimited", text: $maxAmtPerIssue)
-                                    .textFieldStyle(.roundedBorder)
+                                    .fieldInputStyle()
                             }
                             field("Min CDD per issue") {
                                 TextField("None", text: $minCddPerIssue)
-                                    .textFieldStyle(.roundedBorder)
+                                    .fieldInputStyle()
                             }
                             field("Max issues per FID") {
                                 TextField("Unlimited", text: $maxIssuesPerAddr)
-                                    .textFieldStyle(.roundedBorder)
+                                    .fieldInputStyle()
                             }
                         }
                         Text("Coin-days destroyed is the cost the issuer pays in held time — the anti-spam lever for an open-issue token.")
@@ -393,7 +393,7 @@ struct IssueTokenSheet: View {
 
                             VStack(alignment: .leading, spacing: 2) {
                                 TextField("Recipient FID", text: $line.fid)
-                                    .textFieldStyle(.roundedBorder)
+                                    .fieldInputStyle()
                                     .font(.system(.body, design: .monospaced))
                                 if let cid = line.cid, !cid.isEmpty {
                                     Text(cid).font(.caption2).foregroundStyle(.secondary)
@@ -401,7 +401,7 @@ struct IssueTokenSheet: View {
                             }
 
                             TextField("Amount", text: $line.amount)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                                 .frame(width: 130)
                                 .multilineTextAlignment(.trailing)
 
@@ -618,7 +618,7 @@ struct SendTokenSheet: View {
                 } else {
                     HStack(spacing: 8) {
                         TextField("Paste a FID, or choose", text: $manualFid)
-                            .textFieldStyle(.roundedBorder)
+                            .fieldInputStyle()
                             .font(.system(.body, design: .monospaced))
                         Button {
                             openPicker()
@@ -635,7 +635,7 @@ struct SendTokenSheet: View {
                 HStack(spacing: 8) {
                     TextField(scale == 0 ? "Whole units only" : "Up to \(scale) decimal places",
                               text: $amount)
-                        .textFieldStyle(.roundedBorder)
+                        .fieldInputStyle()
                         .multilineTextAlignment(.trailing)
                     Button("Max") { amount = TokenAmount.plain(balance, scale: scale) }
                         .controlSize(.small)

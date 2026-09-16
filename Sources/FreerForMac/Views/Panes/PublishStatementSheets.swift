@@ -87,7 +87,7 @@ struct ComposeStatementSheet: View {
                     LabeledField("Title") {
                         VStack(alignment: .leading, spacing: 2) {
                             TextField("Optional — what the statement is about", text: $title)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                             Text("Carved on chain, like everything else here.")
                                 .font(.caption2).foregroundStyle(.tertiary)
                         }
@@ -97,11 +97,7 @@ struct ComposeStatementSheet: View {
                         VStack(alignment: .leading, spacing: 4) {
                             TextEditor(text: $content)
                                 .font(.body)
-                                .frame(minHeight: 220)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color(NSColor.separatorColor))
-                                )
+                                .fieldEditorStyle(minHeight: 220)
                             HStack {
                                 Text(remaining >= 0
                                      ? "\(remaining) bytes left in the carve"

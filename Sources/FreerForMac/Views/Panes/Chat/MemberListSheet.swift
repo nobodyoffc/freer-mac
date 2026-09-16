@@ -254,7 +254,7 @@ struct MemberListSheet: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 TextField("FID to add", text: $addFid)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldInputStyle()
                 if style.mode == .team {
                     Button {
                         pick = .many(

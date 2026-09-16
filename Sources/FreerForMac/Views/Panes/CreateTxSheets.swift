@@ -421,11 +421,7 @@ struct ImportTxSheet: View {
 
                 TextEditor(text: $text)
                     .font(.system(.caption, design: .monospaced))
-                    .frame(minHeight: 200)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.3))
-                    )
+                    .fieldEditorStyle(minHeight: 200)
 
                 Button {
                     if let pasted = NSPasteboard.general.string(forType: .string) {

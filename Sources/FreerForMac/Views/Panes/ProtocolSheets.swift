@@ -158,26 +158,26 @@ struct PublishProtocolSheet: View {
                 VStack(alignment: .leading, spacing: 12) {
                     field("Name") {
                         TextField("What the protocol is called", text: $name)
-                            .textFieldStyle(.roundedBorder)
+                            .fieldInputStyle()
                     }
 
                     HStack(spacing: 10) {
                         field("Type") {
                             TextField("e.g. FEIP", text: $type)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                         field("Serial number") {
                             TextField("the protocol's own sn", text: $sn)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                         .help("The number this protocol goes by — not the FEIP envelope's sn, which is always 1 for a protocol registration.")
                         field("Version") {
                             TextField("e.g. 3", text: $ver)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                         field("Language") {
                             TextField("en", text: $lang)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                         .frame(maxWidth: 90)
                     }
@@ -186,11 +186,7 @@ struct PublishProtocolSheet: View {
                         VStack(alignment: .leading, spacing: 4) {
                             TextEditor(text: $desc)
                                 .font(.body)
-                                .frame(minHeight: 80, maxHeight: 160)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(Color(NSColor.separatorColor))
-                                )
+                                .fieldEditorStyle(minHeight: 80, maxHeight: 160)
                             HStack {
                                 Text(remaining >= 0
                                      ? "\(remaining) bytes left"
@@ -207,14 +203,14 @@ struct PublishProtocolSheet: View {
 
                     field("Document DID") {
                         TextField("digest of the specification document", text: $did)
-                            .textFieldStyle(.roundedBorder)
+                            .fieldInputStyle()
                             .font(.system(.body, design: .monospaced))
                     }
                     .help("The spec itself is not carved. This is its digest, so a reader who fetches the document can check it is the one that was registered.")
 
                     field("Supersedes") {
                         TextField("id of the protocol record this replaces", text: $preDid)
-                            .textFieldStyle(.roundedBorder)
+                            .fieldInputStyle()
                             .font(.system(.body, design: .monospaced))
                     }
                     .help("A published version is not editable in place: a new version is a new record that points back at the old one.")
@@ -458,10 +454,10 @@ struct HomeMapEditor: View {
             ForEach($rows) { $row in
                 HStack(spacing: 6) {
                     TextField(keyPlaceholder, text: $row.key)
-                        .textFieldStyle(.roundedBorder)
+                        .fieldInputStyle()
                         .frame(width: 120)
                     TextField(valuePlaceholder, text: $row.value)
-                        .textFieldStyle(.roundedBorder)
+                        .fieldInputStyle()
                     Button {
                         rows.removeAll { $0.id == row.id }
                     } label: {
@@ -771,7 +767,7 @@ struct CloseProtocolSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Closing statement").font(.caption).foregroundStyle(.secondary)
                 TextField("why, or what replaces it — optional", text: $statement)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldInputStyle()
                 Text("The last thing you will ever be able to say about this protocol on chain.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)

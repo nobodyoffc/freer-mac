@@ -278,7 +278,7 @@ struct RateRecordSheet: View {
         panel("Weight") {
             HStack(spacing: 8) {
                 TextField("", text: $weightText)
-                    .textFieldStyle(.roundedBorder)
+                    .fieldInputStyle()
                     .frame(width: 110)
                     .monospacedDigit()
                 Text("coin-days")
@@ -331,12 +331,7 @@ struct RateRecordSheet: View {
         panel("Cause (optional)") {
             TextEditor(text: $cause)
                 .font(.body)
-                .frame(height: 70)
-                .padding(4)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color(NSColor.separatorColor))
-                )
+                .fieldEditorStyle(minHeight: 70, maxHeight: 70)
             HStack {
                 caption(
                     "Why you rated it this way. Public and permanent, like everything else in the "

@@ -139,7 +139,7 @@ struct StrangerPolicySheet: View {
     private var blockByHand: some View {
         HStack(spacing: 8) {
             TextField("FID to block", text: $addFid)
-                .textFieldStyle(.roundedBorder)
+                .fieldInputStyle()
             Button("Block") {
                 let fid = addFid.trimmingCharacters(in: .whitespaces)
                 guard !fid.isEmpty else { return }

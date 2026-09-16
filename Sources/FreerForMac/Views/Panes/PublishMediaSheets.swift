@@ -275,14 +275,14 @@ struct PublishMediaComposer: View {
 
                     LabeledField("Title") {
                         TextField("What the work is called", text: $title)
-                            .textFieldStyle(.roundedBorder)
+                            .fieldInputStyle()
                     }
 
                     LabeledField("Summary") {
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("A line or two, carved on chain so a list can show it", text: $summary, axis: .vertical)
                                 .lineLimit(2...5)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                             Text(remaining >= 0
                                  ? "\(remaining) bytes left in the carve"
                                  : "\(-remaining) bytes over the OP_RETURN limit")
@@ -294,18 +294,18 @@ struct PublishMediaComposer: View {
                     HStack(spacing: 12) {
                         LabeledField("Format") {
                             TextField(formatPlaceholder, text: $format)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                         LabeledField("Language") {
                             TextField("en, zh…", text: $lang)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                         }
                     }
 
                     LabeledField("Authors") {
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("FIDs or names, comma separated", text: $authorsText)
-                                .textFieldStyle(.roundedBorder)
+                                .fieldInputStyle()
                             if !authors.isEmpty {
                                 HStack(spacing: 4) {
                                     ForEach(authors, id: \.self) { author in
