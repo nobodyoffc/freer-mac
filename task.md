@@ -1,11 +1,12 @@
 Task
-
+[] master
+[] list default Square
+[x] onboarding task list.
 [] contacts detail
-[] Dock/DISK setup
-
-[] introduction for newcomer
-[] Newcomer has to expose the pubkey. register CID.
-[] first FCH(default words) - CID - DOCK/DISK - say thanks to guide - add guide to contacts - join a square  
+[x] Dock/DISK setup
+[x] introduction for newcomer
+[x] Newcomer has to expose the pubkey. register CID.
+[x] first FCH(default words) - CID - DOCK/DISK - say thanks to guide - add guide to contacts - join a square  
 
 [x] prikey backup
 [x] input box hard to put cursor

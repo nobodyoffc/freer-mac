@@ -59,9 +59,8 @@ struct OverviewView: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    GettingStartedCard(session: session)
                     attentionCard
-                    if !appState.prikeyBackedUp { backupPrikeyCard }
-                    if appState.liveFidIsBroke { firstFchCard }
                     if !pendingCashes.isEmpty {
                         pendingCard
                     }
@@ -87,71 +86,6 @@ struct OverviewView: View {
         .onChange(of: appState.inboxRevision) { _, _ in
             reloadUnread()
         }
-    }
-
-    /// The newcomer's other missing piece. Android nags with a modal on every
-    /// Home launch until the flag flips; a desktop window has room to say it
-    /// in place, and a card that stays put is harder to dismiss reflexively
-    /// than a dialog with a Later button. It is not an attention tile: those
-    /// count unread things and hide at zero, and this counts nothing.
-    private var backupPrikeyCard: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "key.viewfinder")
-                .font(.title3)
-                .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Your prikey isn't backed up").font(.headline)
-                Text("""
-                    This key is the only thing that proves this identity is yours, and it exists \
-                    on this Mac alone. If the machine dies, so does the identity — nobody can \
-                    reissue it. Take a copy now: on paper, or as an encrypted file you can keep \
-                    anywhere.
-                    """)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Back up now") {
-                    appState.openBackupPrikey()
-                }
-                .padding(.top, 2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-    }
-
-    private var firstFchCard: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "hand.raised")
-                .font(.title3)
-                .foregroundStyle(.teal)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("This FID holds no coins").font(.headline)
-                Text("""
-                    Every carve, name and message costs a fee, so an empty FID cannot do much. \
-                    Ask on the public First FCH board, under Help beginners, or have somebody \
-                    send coins straight to your address.
-                    """)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
-                    Button("Open Help beginners") {
-                        appState.openFirstFchBoard()
-                    }
-                    CopyableText.elidingMiddle(session.liveFid, font: .callout.monospaced())
-                }
-                .padding(.top, 2)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.teal.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     private var pendingCard: some View {

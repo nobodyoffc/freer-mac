@@ -21,6 +21,9 @@ public struct LiveFidInfo: Codable, Hashable, Sendable {
     /// The registered CID, when this FID has bought one. The bar shows
     /// this in place of the FID as the display name.
     public var cid: String?
+    /// Every CID this FID has held. FEIP3 caps it at four, and a name
+    /// already in it can be made current again for free of that cap.
+    public var usedCids: [String]?
 
     /// Set when the private key behind this FID is public knowledge.
     /// The avatar renders desaturated for these, matching Android's
@@ -34,6 +37,22 @@ public struct LiveFidInfo: Codable, Hashable, Sendable {
     public var reputation: Int64?
     public var hot: Int64?
     public var weight: Int64?
+
+    /// Present once this FID has spent anything: a spend is what puts
+    /// the pubkey on the chain.
+    public var pubkey: String?
+    /// The FID that sent this one its first coins.
+    public var guide: String?
+    /// The FID named as this one's master (FEIP6). Write-once on chain.
+    public var master: String?
+    /// Service links the FID registered with FEIP9 — `DOCK` and `DISK`
+    /// are the two that let other people reach it.
+    public var home: [String: String]?
+
+    /// The chain height the index answered at. Not a property of the
+    /// FID, but it arrives in the same reply and decides whether a
+    /// carve needs coin days (``FeipCdd``).
+    public var bestHeight: Int64?
 
     public var fetchedAt: Date
 
@@ -52,6 +71,7 @@ public struct LiveFidInfo: Codable, Hashable, Sendable {
     public func merging(_ freer: Freer, fetchedAt: Date = Date()) -> LiveFidInfo {
         var info = self
         if let v = freer.cid { info.cid = v }
+        if let v = freer.usedCids { info.usedCids = v }
         if let v = freer.isNobody { info.isNobody = v }
         if let v = freer.balance { info.balance = v }
         if let v = freer.cash { info.cash = v }
@@ -59,6 +79,10 @@ public struct LiveFidInfo: Codable, Hashable, Sendable {
         if let v = freer.reputation { info.reputation = v }
         if let v = freer.hot { info.hot = v }
         if let v = freer.weight { info.weight = v }
+        if let v = freer.pubkey { info.pubkey = v }
+        if let v = freer.guide { info.guide = v }
+        if let v = freer.master { info.master = v }
+        if let v = freer.home { info.home = v }
         info.fetchedAt = fetchedAt
         return info
     }

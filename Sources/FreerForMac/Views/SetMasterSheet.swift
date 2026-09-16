@@ -54,8 +54,29 @@ struct SetMasterSheet: View {
         return candidateFreer.flatMap { KeyInfo.from(freer: $0)?.pubkey }
     }
 
+    /// A master this FID can no longer change: one the chain holds, or one
+    /// carved in the last day and still confirming. FEIP6 is write-once, so
+    /// either way a new carve would be paid for and ignored. The local
+    /// KeyInfo is not asked — it is written on broadcast, and would lock
+    /// the sheet forever behind a carve that never landed.
+    private var lockedMaster: String? {
+        if session.liveFid == session.mainFid,
+           let onChain = session.cachedLiveFidInfo().master?.trimmingCharacters(in: .whitespaces),
+           !onChain.isEmpty {
+            return onChain
+        }
+        if let pending = try? session.pendingIdentityCarves.get(fid: session.mainFid, kind: .master),
+           !pending.isOverdue(now: Date()) {
+            return pending.master
+        }
+        return nil
+    }
+
     /// Why this candidate can't be set, or nil when it can.
     private var blockReason: String? {
+        if let locked = lockedMaster {
+            return "This FID's master is already \(locked.elidingMiddle(head: 8, tail: 8)), on the chain or on its way there. A master is permanent: the protocol ignores any later master carve, after taking its fee."
+        }
         guard let fid = candidate?.fid else { return nil }
         if fid == session.mainFid {
             return "That's this FID itself — a FID cannot be its own master."
@@ -162,7 +183,7 @@ struct SetMasterSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 bullet("Whoever holds the master's prikey can decrypt yours.")
                 bullet("From then on they can spend this FID's coins, sign as it, and read everything ever encrypted to it.")
-                bullet("It cannot be undone. Naming a different master later leaves the first record on chain, so the first master keeps your key.")
+                bullet("It cannot be undone or changed. The first master is the only one: the protocol ignores any later master carve.")
             }
             .font(.callout)
 

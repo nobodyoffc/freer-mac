@@ -38,6 +38,13 @@ struct NewChatSheet: View {
     /// that has something to say (members with no DOCK were not written
     /// to), and it has to survive the sheet.
     let onOpened: (String, String?) -> Void
+    /// Called when a join or create has been broadcast: there is no thread
+    /// to open until it confirms, and the pane's pending banner is where it
+    /// is followed. The sheet closes on this too — left open, its button
+    /// is still armed with the same id, and a second press pays a second
+    /// fee for a carve the parser discards. The string is anything the
+    /// pane still has to say.
+    let onBroadcast: (String?) -> Void
     let onCancel: () -> Void
 
     /// The one question a team and a square still leave open.
@@ -73,6 +80,13 @@ struct NewChatSheet: View {
     @State private var squareQuery = ""
     @State private var squareResults: [Square]?
     @State private var searchingSquares = false
+    /// What the join form shows before anything is searched: most members
+    /// first. Nil until loaded.
+    @State private var popularSquares: [Square]?
+    @State private var popularError: String?
+    /// Squares with a join broadcast in the last day. The chain does not
+    /// list us in them yet, so without this they would offer a second join.
+    @State private var joiningSquareIds: Set<String> = []
     /// The name of the square picked from a search, for the row that
     /// says the join is waiting for the chain.
     @State private var pickedSquareName: String?
@@ -416,7 +430,9 @@ struct NewChatSheet: View {
         }
     }
 
-    /// Search squares by name. A result you are already in opens its
+    /// Search squares by name, or — before any search — pick from the ones
+    /// with the most members, so somebody who knows no square's name still
+    /// has somewhere to start. A result you are already in opens its
     /// thread instead of offering a join the parser would refuse after
     /// the fee; any other result fills in the id, and joining stays the
     /// one button below, where its cost is stated.
@@ -433,19 +449,60 @@ struct NewChatSheet: View {
                 if results.isEmpty {
                     Text("No square by that name.").font(.caption).foregroundStyle(.secondary)
                 } else {
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 0) {
-                            ForEach(results, id: \.id) { square in
-                                squareResult(square)
-                                Divider()
-                            }
-                        }
+                    squareList(results)
+                }
+            } else {
+                Text("Popular squares").font(.caption.bold()).foregroundStyle(.secondary)
+                if let popularError {
+                    CopyableText("Couldn't load squares: \(popularError)", font: .caption, color: .red)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if let popular = popularSquares {
+                    if popular.isEmpty {
+                        Text("The chain holds no squares yet. Create the first one.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        squareList(popular)
                     }
-                    .frame(maxHeight: 170)
-                    .background(Color(NSColor.controlBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                } else {
+                    ProgressView().controlSize(.small)
                 }
             }
+        }
+        .onChange(of: squareQuery) { _, query in
+            // Clearing the box goes back to the popular list rather than
+            // leaving the last search's answer under an empty question.
+            if query.trimmingCharacters(in: .whitespaces).isEmpty { squareResults = nil }
+        }
+        .task {
+            let now = Date()
+            joiningSquareIds = Set(((try? session.pendingGroups.all(fid: session.liveFid, type: .square)) ?? [])
+                .filter { $0.act == .join && !$0.isOverdue(now: now) }
+                .map(\.groupId))
+            await loadPopularSquares()
+        }
+    }
+
+    private func squareList(_ squares: [Square]) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(squares, id: \.id) { square in
+                    squareResult(square)
+                    Divider()
+                }
+            }
+        }
+        .frame(maxHeight: 220)
+        .background(Color(NSColor.controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func loadPopularSquares() async {
+        guard popularSquares == nil else { return }
+        do {
+            popularSquares = try await session.groups.popularSquares()
+            popularError = nil
+        } catch {
+            popularError = String(describing: error)
         }
     }
 
@@ -461,8 +518,17 @@ struct NewChatSheet: View {
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.tertiary)
                     Label("\(square.memberNum ?? Int64(square.members?.count ?? 0))", systemImage: "person.2")
-                    Label("\(square.tCdd ?? 0) CD", systemImage: "flame")
-                        .help("Coin-days destroyed in this square so far — how much it has been paid attention to")
+                        .help("Members now")
+                    // Not tCdd: it only ever grows, leaves included, so it
+                    // cannot tell a busy square from an abandoned one.
+                    if let lastTime = square.lastTime, lastTime > 0 {
+                        Label(
+                            Date(timeIntervalSince1970: TimeInterval(lastTime))
+                                .formatted(.relative(presentation: .named)),
+                            systemImage: "clock"
+                        )
+                        .help("Last on-chain change: a join, a leave or a rename. Messages are not on the chain, so a quiet date does not mean a quiet square.")
+                    }
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -471,6 +537,9 @@ struct NewChatSheet: View {
             if isMember {
                 ChatChip("you're in", color: style.tint)
                 Button("Open") { openJoinedSquare(square) }
+            } else if joiningSquareIds.contains(id) {
+                ChatChip("joining…", color: style.tint)
+                    .help("Your join is waiting for the chain. It shows in the Squares tab until it confirms.")
             } else {
                 Button(joinId == id ? "Chosen" : "Choose") {
                     joinId = id
@@ -613,7 +682,11 @@ struct NewChatSheet: View {
         case .room: return filled(roomName) && session.canSign
         case .team, .square:
             guard session.canSign else { return false }
-            if groupAction == .join { return filled(joinId) }
+            if groupAction == .join {
+                // A typed id is caught too, not only a clicked row.
+                let id = joinId.trimmingCharacters(in: .whitespaces)
+                return filled(id) && !(mode == .square && joiningSquareIds.contains(id))
+            }
             guard filled(groupName) else { return false }
             // A team is refused without both halves of its consensus:
             // the document, and somewhere members can read it. Stated by
@@ -779,7 +852,7 @@ struct NewChatSheet: View {
             }
             await MainActor.run {
                 working = false
-                note = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The thread appears after the carve confirms and you refresh."
+                onBroadcast(nil)
             }
         } catch {
             await MainActor.run {
@@ -838,11 +911,10 @@ struct NewChatSheet: View {
             session.notePendingGroup(mode, id: txid, name: name, act: .create, txid: txid)
             await MainActor.run {
                 working = false
-                var lines = ["Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). That txid is the \(style.noun)'s id. It appears here once the carve confirms and you refresh."]
-                if dock.isEmpty {
-                    lines.append("No DOCK was carved, so nothing can be said here until you set one — which is another transaction.")
-                }
-                note = lines.joined(separator: " ")
+                // The banner names the tx; only the missing DOCK is news.
+                onBroadcast(dock.isEmpty
+                    ? "No DOCK was carved for \(name), so nothing can be said in it until you set one — which is another transaction."
+                    : nil)
             }
         } catch {
             await MainActor.run {

@@ -32,13 +32,13 @@ final class MasterTests: XCTestCase {
         if let baseDir { try? FileManager.default.removeItem(at: baseDir) }
     }
 
-    private func makeActiveSession() throws -> ActiveSession {
+    private func makeActiveSession(fapi: MockFapiClient = MockFapiClient()) throws -> ActiveSession {
         let mgr = try ConfigureManager(baseDirectory: baseDir)
         let cs = try mgr.createConfigure(
             password: Data("master".utf8), kdfKind: .legacySha256
         )
         let main = try cs.addMain(privkey: mainPriv, label: "main")
-        return try cs.unlockMain(fid: main.fid, fapi: MockFapiClient())
+        return try cs.unlockMain(fid: main.fid, fapi: fapi)
     }
 
     private func masterPair() throws -> (fid: String, pubkey: Data) {
@@ -115,6 +115,31 @@ final class MasterTests: XCTestCase {
             XCTAssertEqual(derived, try masterPair().fid)
         }
         XCTAssertNil(session.mainKeyInfo.master, "nothing recorded locally")
+    }
+
+    /// FEIP6 is write-once: the parser rejects a master carve from a FID
+    /// that already has one, after the fee. The chain is asked, not the
+    /// local KeyInfo, which is written on broadcast and can be wrong.
+    func testCarveRefusesWhenTheChainAlreadyNamesAMaster() async throws {
+        let mock = MockFapiClient()
+        let session = try makeActiveSession(fapi: mock)
+        let (masterFid, masterPubkey) = try masterPair()
+        let existing = try pair(for: strangerPriv).fid
+        let main = session.mainFid
+        mock.responder = { call in
+            XCTAssertEqual(call.api, "base.freerByIds", "refused before any cash is fetched")
+            return try makeResponse(data: [main: ["id": main, "master": existing]])
+        }
+
+        do {
+            _ = try await session.carveMasterOnChain(masterFid: masterFid, masterPubkey: masterPubkey)
+            XCTFail("a second master must not be carved")
+        } catch let e as ActiveSession.Failure {
+            guard case .masterAlreadySet(let master) = e else { return XCTFail("wrong failure: \(e)") }
+            XCTAssertEqual(master, existing)
+        }
+        XCTAssertEqual(mock.recorded.count, 1)
+        XCTAssertNil(session.mainKeyInfo.master)
     }
 
     func testCarveRefusesTheFidAsItsOwnMaster() async throws {

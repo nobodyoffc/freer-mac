@@ -66,7 +66,18 @@ public struct DirectoryService {
         _ fids: [String],
         timeoutMs: Int = 5_000
     ) async throws -> [String: Freer] {
-        guard !fids.isEmpty else { return [:] }
+        try await freerByIdsWithHeight(fids, timeoutMs: timeoutMs).freers
+    }
+
+    /// ``freerByIds(_:timeoutMs:)`` plus the chain height the index
+    /// answered at. The height is what decides whether a FEIP carve
+    /// needs coin days at all (``FeipCdd``), and this reply already
+    /// carries it, so asking for it separately would cost a round trip.
+    public func freerByIdsWithHeight(
+        _ fids: [String],
+        timeoutMs: Int = 5_000
+    ) async throws -> (freers: [String: Freer], bestHeight: Int64?) {
+        guard !fids.isEmpty else { return ([:], nil) }
         let body = try JSONSerialization.data(
             withJSONObject: ["ids": fids],
             options: [.sortedKeys]
@@ -82,14 +93,14 @@ public struct DirectoryService {
         // requested FIDs exist on-chain. That's a normal "off-chain"
         // result, not a failure.
         if let code = resp.code, code != 0 {
-            if code == 404 { return [:] }
+            if code == 404 { return ([:], resp.bestHeight) }
             throw Failure.fapiNonZeroCode(
                 api: "base.freerByIds",
                 code: code,
                 message: resp.message
             )
         }
-        guard let data = resp.data else { return [:] }
+        guard let data = resp.data else { return ([:], resp.bestHeight) }
         do {
             let found = try JSONDecoder().decode([String: Freer].self, from: data)
             observe(found.map { fid, freer in
@@ -97,7 +108,7 @@ public struct DirectoryService {
                 if keyed.id == nil { keyed.id = fid }
                 return keyed
             })
-            return found
+            return (found, resp.bestHeight)
         } catch {
             throw Failure.underlying(error)
         }
@@ -400,6 +411,39 @@ public struct DirectoryService {
             let freers = try JSONDecoder().decode([Freer].self, from: data)
             observe(freers)
             return FreerSearchPage(freers: freers, last: resp.last, total: resp.total)
+        } catch {
+            throw Failure.underlying(error)
+        }
+    }
+
+    /// The FID that has ever used `cid`, or nil — the port of Java's
+    /// `FapiClient.getFidByUsedCid`, and the collision test behind
+    /// ``CidFeip/preview(name:fid:ownUsedCids:ownerOf:)``.
+    ///
+    /// `usedCids` rather than `cid`: the parser refuses a CID that any
+    /// other FID has *ever* held, not just one somebody holds today.
+    public func fidUsingCid(_ cid: String, timeoutMs: Int = 10_000) async throws -> String? {
+        guard !cid.isEmpty else { return nil }
+        let dict: [String: Any] = [
+            "entity": "freer",
+            "filter": ["terms": ["fields": ["usedCids"], "values": [cid]]],
+        ]
+        let body = try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
+        let reply = try await fapi.call(
+            api: "base.search",
+            params: nil, fcdsl: body, binary: nil,
+            sid: nil, via: nil, maxCost: nil,
+            timeoutMs: timeoutMs
+        )
+        let resp = reply.response
+        if let code = resp.code, code != 0 {
+            if code == 404 { return nil }
+            throw Failure.fapiNonZeroCode(api: "base.search", code: code, message: resp.message)
+        }
+        guard let data = resp.data else { return nil }
+        do {
+            let freers = try JSONDecoder().decode([Freer].self, from: data)
+            return freers.first { $0.usedCids?.contains(cid) == true }?.id
         } catch {
             throw Failure.underlying(error)
         }

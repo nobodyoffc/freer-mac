@@ -157,6 +157,31 @@ final class GroupListsTests: XCTestCase {
         XCTAssertEqual(part["value"] as? String, "plaza")
     }
 
+    func testPopularSquaresSortByMembersThenRecency() async throws {
+        mock.responder = { _ in
+            try makeResponse(code: 0, data: [["id": "sq1", "name": "Plaza", "memberNum": 40]])
+        }
+        let found = try await service.popularSquares()
+        XCTAssertEqual(found.map(\.id), ["sq1"])
+        XCTAssertEqual(found.first?.memberNum, 40)
+
+        let dsl = try XCTUnwrap(
+            try JSONSerialization.jsonObject(with: try XCTUnwrap(mock.recorded.last?.fcdsl)) as? [String: Any]
+        )
+        XCTAssertEqual(dsl["entity"] as? String, "square")
+        XCTAssertNil(dsl["query"], "every square is a candidate; the sort is the whole question")
+        let sort = try XCTUnwrap(dsl["sort"] as? [[String: String]])
+        XCTAssertEqual(sort.map { $0["field"] }, ["memberNum", "lastHeight", "id"],
+                       "tCdd never falls, so it must not rank squares")
+        XCTAssertTrue(sort.allSatisfy { $0["order"] == "desc" })
+    }
+
+    func testPopularSquaresWithNoneIndexedIsEmpty() async throws {
+        mock.responder = { _ in try makeResponse(code: 404) }
+        let found = try await service.popularSquares()
+        XCTAssertEqual(found, [])
+    }
+
     /// A square a search turns up that we are in, with no thread for it,
     /// goes straight on the list.
     func testAdoptingASquareWeAreInOpensItsThread() throws {

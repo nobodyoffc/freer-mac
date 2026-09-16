@@ -312,6 +312,7 @@ struct ChatView: View {
             // before the first reload so the pane never paints the wrong
             // tab first.
             if let requested = appState.consumePendingChatMode() { mode = requested }
+            if appState.consumePendingNewChat() { showNewChat = true }
             reload()
             if selection[mode] == nil { selection[mode] = conversations.first?.id }
             openSelected()
@@ -554,6 +555,11 @@ struct ChatView: View {
                     }
                     selection[mode] = id
                     syncSummary = note
+                },
+                onBroadcast: { note in
+                    showNewChat = false
+                    reload()
+                    if let note { syncSummary = note }
                 },
                 onCancel: { showNewChat = false }
             )

@@ -18,10 +18,11 @@ import Foundation
 /// same power over this FID that its owner has: spend its coins, sign
 /// as it, read everything ever encrypted to it.
 ///
-/// Nothing undoes that. A later carve can name a *different* master,
-/// but the bytes of the first one stay on chain forever, so the first
-/// master keeps the key it was given. Treat setting a master as
-/// handing over the identity, because that is what it is.
+/// Nothing undoes that, and nothing replaces it: FEIP6 is write-once, so
+/// the parser ignores a master carve from a FID that already has one. The
+/// first master is the only master, and it keeps the key it was given.
+/// Treat setting a master as handing over the identity, because that is
+/// what it is.
 ///
 /// **There is no `op` field.** Unlike Contact, Secret and the rest of
 /// the FEIP family, `MasterOpData` carries no verb — the presence of

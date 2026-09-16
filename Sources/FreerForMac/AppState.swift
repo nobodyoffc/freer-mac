@@ -79,9 +79,14 @@ final class AppState {
 
     /// Observable mirror of the live Setting's `prikeyBackedUp` flag —
     /// `Setting` is a struct behind a plain class, so SwiftUI cannot see it
-    /// change. Starts as `true` so the Overview nudge cannot flash on the way
+    /// change. Starts as `true` so the getting-started checklist cannot flash on the way
     /// into a session that has long since been backed up.
     private(set) var prikeyBackedUp: Bool = true
+
+    /// Observable mirrors of the getting-started flags on the live Setting,
+    /// for the same reason as ``prikeyBackedUp``.
+    private(set) var onboardingSkipped: Set<OnboardingStep> = []
+    private(set) var onboardingStarted = false
 
     private(set) var liveFidInfo: LiveFidInfo?
     private(set) var liveFidInfoLoading = false
@@ -114,6 +119,21 @@ final class AppState {
     func openChat(mode: ImType) {
         pendingChatMode = mode
         selectedPane = .chat
+    }
+
+    /// Set with ``pendingChatMode`` when the Chat pane should also open its
+    /// new-chat sheet — the checklist's "Join a square", which is otherwise
+    /// a tab with a button on it to find.
+    private(set) var pendingNewChat = false
+
+    func openJoinSquare() {
+        pendingNewChat = true
+        openChat(mode: .square)
+    }
+
+    func consumePendingNewChat() -> Bool {
+        defer { pendingNewChat = false }
+        return pendingNewChat
     }
 
     func consumePendingChatMode() -> ImType? {
@@ -489,6 +509,8 @@ final class AppState {
         activeSession = nil
         liveFid = nil
         prikeyBackedUp = true
+        onboardingSkipped = []
+        onboardingStarted = false
         clearLiveFidInfo()
         configureSession?.lock()
         configureSession = nil
@@ -566,6 +588,8 @@ final class AppState {
             self.activeSession = session
             self.liveFid = session.liveFid
             self.prikeyBackedUp = session.prikeyBackedUp
+            self.onboardingSkipped = session.onboardingSkipped
+            self.onboardingStarted = session.onboardingStarted
             self.route = .home
             // Before the first frame of `.home`: the theme is a
             // per-identity preference, so it can only be known now.
@@ -597,6 +621,8 @@ final class AppState {
         activeSession = nil
         liveFid = nil
         prikeyBackedUp = true
+        onboardingSkipped = []
+        onboardingStarted = false
         clearLiveFidInfo()
         applyTheme(.system)
         route = .chooseMain
@@ -1027,6 +1053,7 @@ final class AppState {
     private func loadCachedLiveFidInfo() {
         guard let session = activeSession else { return }
         liveFidInfoError = nil
+        liveFidInfoConfirmed = false
         liveFidInfo = session.cachedLiveFidInfo()
     }
 
@@ -1047,6 +1074,13 @@ final class AppState {
 
     func openBackupPrikey() { backupPrikeyRequested = true }
 
+    /// Same one-shot shape, for the Set master sheet ``HomeView`` owns.
+    private(set) var setMasterRequested = false
+
+    func openSetMaster() { setMasterRequested = true }
+
+    func consumeSetMasterRequest() { setMasterRequested = false }
+
     func consumeBackupPrikeyRequest() { backupPrikeyRequested = false }
 
     /// Record that the user has taken a copy of their private key, and stop the
@@ -1063,11 +1097,43 @@ final class AppState {
         }
     }
 
+    func skipOnboardingStep(_ step: OnboardingStep) {
+        guard let session = activeSession else { return }
+        do {
+            try session.skipOnboardingStep(step)
+            onboardingSkipped = session.onboardingSkipped
+        } catch {
+            lastError = String(describing: error)
+        }
+    }
+
+    func markOnboardingStarted() {
+        guard let session = activeSession, !onboardingStarted else { return }
+        do {
+            try session.markOnboardingStarted()
+            onboardingStarted = true
+        } catch {
+            lastError = String(describing: error)
+        }
+    }
+
+    /// The live FID's record once the chain has answered for it in this
+    /// session. The cached row from an earlier launch would tick or untick
+    /// steps on stale data; and unlike ``liveFidIsBroke`` this does not go
+    /// blank while a later refresh is in flight, or the checklist would
+    /// fold every time Overview appears.
+    var knownLiveFidInfo: LiveFidInfo? {
+        liveFidInfoConfirmed ? liveFidInfo : nil
+    }
+
+    private(set) var liveFidInfoConfirmed = false
+
     /// Tell every view rendering the live `KeyInfo` to re-read it.
     func bumpIdentityRevision() { identityRevision += 1 }
 
     private func clearLiveFidInfo() {
         liveFidInfo = nil
+        liveFidInfoConfirmed = false
         liveFidInfoLoading = false
         liveFidInfoError = nil
     }
@@ -1091,6 +1157,7 @@ final class AppState {
             // from briefly showing the wrong identity's balance.
             guard session.liveFid == fidAtStart else { return }
             liveFidInfo = info
+            liveFidInfoConfirmed = true
             noteIfLiveKeyIsNobody(info)
         } catch {
             guard session.liveFid == fidAtStart else { return }

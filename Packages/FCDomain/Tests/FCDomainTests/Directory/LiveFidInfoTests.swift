@@ -67,6 +67,19 @@ final class LiveFidInfoTests: XCTestCase {
         XCTAssertEqual(info.merging(freer).balance, 0)
     }
 
+    func testMergingCarriesTheGettingStartedFields() {
+        var freer = Freer()
+        freer.pubkey = "02abc"
+        freer.guide = "FGuide"
+        freer.home = ["DOCK": "sid1"]
+
+        let merged = LiveFidInfo(fid: "FTestFid111").merging(freer)
+
+        XCTAssertEqual(merged.pubkey, "02abc")
+        XCTAssertEqual(merged.guide, "FGuide")
+        XCTAssertEqual(merged.home, ["DOCK": "sid1"])
+    }
+
     func testMergingStampsFetchedAt() {
         let then = Date(timeIntervalSince1970: 1_000)
         var info = LiveFidInfo(fid: "FTestFid111", fetchedAt: then)
@@ -119,13 +132,17 @@ final class LiveFidInfoTests: XCTestCase {
                 fid: [
                     "id": fid, "cid": "alice", "balance": 12_345,
                     "cash": 4, "cd": 900, "weight": 5_000,
-                    "reputation": 12, "hot": 340, "isNobody": false
+                    "reputation": 12, "hot": 340, "isNobody": false,
+                    "guide": "FGuide", "home": ["DOCK": "sid1"]
                 ]
-            ])
+            ], bestHeight: 4_100_000)
         }
 
         let info = try await session.refreshLiveFidInfo()
 
+        XCTAssertEqual(info.guide, "FGuide")
+        XCTAssertEqual(info.home, ["DOCK": "sid1"])
+        XCTAssertEqual(info.bestHeight, 4_100_000, "the reply's height decides whether a carve needs coin days")
         XCTAssertEqual(info.cid, "alice")
         XCTAssertEqual(info.balance, 12_345)
         XCTAssertEqual(info.cash, 4)
@@ -139,6 +156,23 @@ final class LiveFidInfoTests: XCTestCase {
         // the network answers.
         XCTAssertEqual(session.cachedLiveFidInfo().balance, 12_345)
         XCTAssertEqual(session.cachedLiveFidInfo().cid, "alice")
+    }
+
+    func testHomeCarveThatChangesNothingStopsBeforeBuildingATx() async throws {
+        let (session, _, mock) = try makeSession()
+        let fid = session.liveFid
+        let sid = String(repeating: "c", count: 64)
+        mock.responder = { call in
+            XCTAssertEqual(call.api, "base.freerByIds", "nothing past the chain read: no cashes, no carve")
+            return try makeResponse(data: [fid: ["id": fid, "home": [ServiceName.dock: "(sid)" + sid]]])
+        }
+
+        do {
+            try await session.carveHomeOnChain(dock: sid, disk: nil)
+            XCTFail("an unchanged home must not be carved")
+        } catch ActiveSession.Failure.homeUnchanged {
+            XCTAssertEqual(mock.recorded.count, 1)
+        }
     }
 
     func testRefreshWithNoOnChainRecordStillStampsTheCache() async throws {

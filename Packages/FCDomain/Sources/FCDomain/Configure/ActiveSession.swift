@@ -34,6 +34,8 @@ public final class ActiveSession {
         case masterPubkeyUnknown(fid: String)
         case multisigIncomplete
         case notAMultisigMember(fid: String, group: String)
+        case homeUnchanged
+        case masterAlreadySet(master: String)
         case underlying(Error)
 
         public var description: String {
@@ -56,6 +58,10 @@ public final class ActiveSession {
                 return "ActiveSession: that multisig group has no address — it is missing its members or its m-of-n"
             case let .notAMultisigMember(fid, group):
                 return "ActiveSession: \(fid) is not a member of \(group), so this Setting could never sign for it"
+            case .masterAlreadySet(let master):
+                return "This FID's master is already \(master) on the chain. FEIP6 makes a master permanent, so another master carve would be paid for and ignored"
+            case .homeUnchanged:
+                return "The chain already has this DOCK and DISK, so there is nothing to carve"
             case .underlying(let err):
                 return "ActiveSession: \(err)"
             }
@@ -323,7 +329,7 @@ public final class ActiveSession {
     // MARK: - prikey backup
 
     /// Whether this main FID's private key has been copied somewhere outside this
-    /// Mac. Drives the Overview nudge; see ``Setting/prikeyBackedUp``.
+    /// Mac. Drives the getting-started checklist; see ``Setting/prikeyBackedUp``.
     public var prikeyBackedUp: Bool { setting.prikeyBackedUp }
 
     /// Record that the user has taken their copy. Android flips the same flag when
@@ -332,6 +338,26 @@ public final class ActiveSession {
     public func markPrikeyBackedUp() throws {
         guard !setting.prikeyBackedUp else { return }
         setting.prikeyBackedUp = true
+        try saveSetting()
+    }
+
+    // MARK: - getting started
+
+    public var onboardingSkipped: Set<OnboardingStep> { setting.onboardingSkipped }
+    public var onboardingStarted: Bool { setting.onboardingStarted }
+
+    /// Leave a skippable step undone for good. Required steps cannot be
+    /// skipped; asking to is a no-op rather than an error, since the only
+    /// caller is a button that is not drawn for them.
+    public func skipOnboardingStep(_ step: OnboardingStep) throws {
+        guard step.isSkippable, !setting.onboardingSkipped.contains(step) else { return }
+        setting.onboardingSkipped.insert(step)
+        try saveSetting()
+    }
+
+    public func markOnboardingStarted() throws {
+        guard !setting.onboardingStarted else { return }
+        setting.onboardingStarted = true
         try saveSetting()
     }
 
@@ -634,6 +660,7 @@ public final class ActiveSession {
 
     /// Teams and squares carved for and not yet shown by the chain.
     public lazy var pendingGroups: PendingGroupsStore = PendingGroupsStore(kv: storage)
+    public lazy var pendingIdentityCarves: PendingIdentityCarvesStore = PendingIdentityCarvesStore(kv: storage)
 
     /// Record a broadcast create, join or take-over, so the list can say
     /// it is waiting for the chain. Never throws: a row that could not
@@ -972,9 +999,9 @@ public final class ActiveSession {
     @discardableResult
     public func refreshLiveFidInfo(timeoutMs: Int = 5_000) async throws -> LiveFidInfo {
         let fid = liveFid
-        let found = try await directory.freerByIds([fid], timeoutMs: timeoutMs)
+        let (found, bestHeight) = try await directory.freerByIdsWithHeight([fid], timeoutMs: timeoutMs)
         let base = (try? liveFidInfoCache.get(fid: fid)) ?? LiveFidInfo(fid: fid)
-        let updated: LiveFidInfo
+        var updated: LiveFidInfo
         if let freer = found[fid] {
             updated = base.merging(freer)
         } else {
@@ -982,6 +1009,9 @@ public final class ActiveSession {
             stamped.fetchedAt = Date()
             updated = stamped
         }
+        if let bestHeight { updated.bestHeight = bestHeight }
+        // A CID or home carve the chain now shows has nothing left to wait for.
+        try? pendingIdentityCarves.reconcile(fid: fid, info: updated)
         try liveFidInfoCache.upsert(updated)
         // A CID is the one value from that reply worth writing back into
         // the KeyInfo. Everything else ticks; this is a name someone
@@ -1410,11 +1440,14 @@ public final class ActiveSession {
     /// encrypted to it. See ``MasterFeip`` for the protocol's own words
     /// on that.
     ///
-    /// **It cannot be undone.** A later carve can name a different
-    /// master, but the first record stays on chain, so the first master
-    /// keeps what it was given. Callers must put that in front of the
-    /// user in those terms before calling — the tx-approval dialog
-    /// shows a fee and a payload, which is not the same warning.
+    /// **It cannot be undone, or redone.** FEIP6 is write-once: the parser
+    /// rejects a master carve from a FID whose record already names one,
+    /// so the first master is the only master, and it keeps the key it was
+    /// given. This checks the chain first and throws
+    /// ``Failure/masterAlreadySet(master:)`` rather than pay for a carve
+    /// that would be ignored. Callers must still put the consequence in
+    /// front of the user before calling — the tx-approval dialog shows a
+    /// fee and a payload, which is not the same warning.
     ///
     /// Mirrors Android's `SetMasterActivity.confirmSetMaster` →
     /// `FeipHandler.masterSet` → `TxSender.carveSimpleFeip`, with two
@@ -1453,6 +1486,12 @@ public final class ActiveSession {
         guard derived == masterFid else {
             throw Failure.masterPubkeyMismatch(fid: masterFid, derived: derived)
         }
+        // The chain, not the local KeyInfo: that is written on broadcast,
+        // so it can name a master whose carve never landed.
+        let onChain = try await directory.freerByIds([mainFid], timeoutMs: timeoutMs)[mainFid]?.master
+        if let existing = onChain?.trimmingCharacters(in: .whitespaces), !existing.isEmpty {
+            throw Failure.masterAlreadySet(master: existing)
+        }
 
         var priv = try mainPrikey()
         defer { priv.resetBytes(in: 0..<priv.count) }
@@ -1466,6 +1505,10 @@ public final class ActiveSession {
             feePerByte: feePerByte, timeoutMs: timeoutMs
         )
 
+        try? pendingIdentityCarves.record(PendingIdentityCarve(
+            fid: mainFid, kind: .master, master: masterFid, txid: result.remoteTxid,
+            broadcastAt: Int64(Date().timeIntervalSince1970 * 1000)
+        ))
         // Broadcast succeeded — record it locally so the menu stops
         // saying "not set" before the next sync runs.
         if var info = setting.keyInfoMap[mainFid] {
@@ -1656,6 +1699,86 @@ public final class ActiveSession {
             opReturn: try NoticeFeeFeip.carve(satoshis: satoshis),
             feePerByte: feePerByte, timeoutMs: timeoutMs
         )
+        return result.remoteTxid
+    }
+
+    // MARK: - identity carving (FEIP CID, FEIP Home)
+
+    /// What registering `name` as the live FID's CID would produce, read
+    /// against the chain now. The FID's own `usedCids` come fresh from the
+    /// index rather than the cache: they decide the four-CID limit, and a
+    /// CID registered from another device since the last refresh counts.
+    public func previewCid(name: String, timeoutMs: Int = 10_000) async throws -> CidFeip.Preview {
+        let fid = liveFid
+        let own = try await directory.freerByIds([fid], timeoutMs: timeoutMs)[fid]
+        let directory = self.directory
+        return try await CidFeip.preview(
+            name: name, fid: fid, ownUsedCids: own?.usedCids ?? []
+        ) { cid in
+            try await directory.fidUsingCid(cid, timeoutMs: timeoutMs)
+        }
+    }
+
+    /// Carve FEIP3 `register` for `name` from the live FID. The wallet's
+    /// carve path already refuses to build one that destroys less than the
+    /// CDD the chain requires, so a too-young wallet fails here, before
+    /// paying, rather than on the parser.
+    ///
+    /// The broadcast is recorded in ``pendingIdentityCarves`` so no screen
+    /// offers the same carve again while it confirms.
+    @discardableResult
+    public func carveCidOnChain(
+        name: String,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000,
+        now: Date = Date()
+    ) async throws -> String {
+        let fid = liveFid
+        let opReturn = try CidFeip.register(name: name)
+        let priv = try livePrikey()
+        let result = try await wallet.carve(
+            fromAddress: fid, privkey: priv,
+            opReturn: opReturn,
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+        try? pendingIdentityCarves.record(PendingIdentityCarve(
+            fid: fid, kind: .cid, name: name, txid: result.remoteTxid,
+            broadcastAt: Int64(now.timeIntervalSince1970 * 1000)
+        ))
+        return result.remoteTxid
+    }
+
+    /// Carve FEIP9 `register` setting the live FID's DOCK and/or DISK.
+    ///
+    /// `register` replaces the whole map, so the map carved is the one the
+    /// chain holds now with these two laid over it — read fresh, because a
+    /// cached copy missing an entry added elsewhere would erase it. A nil
+    /// or blank value leaves that entry as it is. Throws
+    /// ``Failure/homeUnchanged`` when the chain already says this.
+    @discardableResult
+    public func carveHomeOnChain(
+        dock: String?,
+        disk: String?,
+        feePerByte: Int64 = 1,
+        timeoutMs: Int = 10_000,
+        now: Date = Date()
+    ) async throws -> String {
+        let fid = liveFid
+        let stored = try await directory.freerByIds([fid], timeoutMs: timeoutMs)[fid]?.home
+        guard let home = HomeFeip.merged(over: stored, dock: dock, disk: disk) else {
+            throw Failure.homeUnchanged
+        }
+        let opReturn = try HomeFeip.register(home: home)
+        let priv = try livePrikey()
+        let result = try await wallet.carve(
+            fromAddress: fid, privkey: priv,
+            opReturn: opReturn,
+            feePerByte: feePerByte, timeoutMs: timeoutMs
+        )
+        try? pendingIdentityCarves.record(PendingIdentityCarve(
+            fid: fid, kind: .home, home: home, txid: result.remoteTxid,
+            broadcastAt: Int64(now.timeIntervalSince1970 * 1000)
+        ))
         return result.remoteTxid
     }
 

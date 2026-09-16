@@ -78,6 +78,7 @@ struct HomeView: View {
             SetMasterSheet(session: session) { txid in
                 showSetMaster = false
                 appState.bumpIdentityRevision()
+                Task { await appState.refreshLiveFidInfo() }
                 identityNote = "Master carve broadcast — \(txid.elidingMiddle(head: 8, tail: 8)). It takes effect when the block confirms."
             } onCancel: {
                 showSetMaster = false
@@ -120,6 +121,12 @@ struct HomeView: View {
                     : "Added \(count) servants."
             } onCancel: {
                 showAddServants = false
+            }
+        }
+        .onChange(of: appState.setMasterRequested) { _, requested in
+            if requested {
+                showSetMaster = true
+                appState.consumeSetMasterRequest()
             }
         }
         .onChange(of: appState.backupPrikeyRequested) { _, requested in

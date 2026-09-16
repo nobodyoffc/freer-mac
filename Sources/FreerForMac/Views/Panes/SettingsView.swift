@@ -78,6 +78,10 @@ struct SettingsView: View {
 
     private var form: some View {
         Form {
+            // First, because the getting-started checklist sends newcomers
+            // here for exactly this.
+            IdentitySettingsSection(session: session)
+
             Section {
                 LabeledField("Host") {
                     TextField("", text: $fapiHost, prompt: Text("localhost"))

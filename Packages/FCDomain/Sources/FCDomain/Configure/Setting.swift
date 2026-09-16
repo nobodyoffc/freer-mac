@@ -76,6 +76,35 @@ public struct Setting: Codable, Equatable, Sendable {
         }
         set { settingMap[Setting.prikeyBackedUpKey] = .bool(newValue) }
     }
+
+    public static let onboardingSkippedKey = "onboardingSkipped"
+    public static let onboardingStartedKey = "onboardingStarted"
+
+    /// Getting-started steps the user chose to leave undone, stored as their
+    /// raw names joined by commas. A name this build does not know is dropped
+    /// on read rather than failing the whole set.
+    public var onboardingSkipped: Set<OnboardingStep> {
+        get {
+            guard case .string(let joined) = settingMap[Setting.onboardingSkippedKey] else { return [] }
+            return Set(joined.split(separator: ",").compactMap { OnboardingStep(rawValue: String($0)) })
+        }
+        set {
+            settingMap[Setting.onboardingSkippedKey] = .string(
+                newValue.map(\.rawValue).sorted().joined(separator: ",")
+            )
+        }
+    }
+
+    /// Whether the checklist has ever been shown here with a required step
+    /// still open. See ``Onboarding/shouldShow(started:)`` for why an identity
+    /// that was already set up never sees it.
+    public var onboardingStarted: Bool {
+        get {
+            if case .bool(let started) = settingMap[Setting.onboardingStartedKey] { return started }
+            return false
+        }
+        set { settingMap[Setting.onboardingStartedKey] = .bool(newValue) }
+    }
 }
 
 /// Tiny JSON-serializable value enum for ``Setting/settingMap``.

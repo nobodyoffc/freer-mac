@@ -219,6 +219,29 @@ public struct GroupService {
         try await search(Square.self, entity: "square", field: "name", term: term, size: size, timeoutMs: timeoutMs)
     }
 
+    /// The squares with the most members, for someone who does not know a
+    /// name to search for.
+    ///
+    /// **Members, not `tCdd`.** FEIP19's `tCdd` is a running total of every
+    /// create, join, update *and leave*, so it never falls: an emptied
+    /// square keeps it, a war over the square's name inflates it, and one
+    /// large join buys it outright. `memberNum` is who is there now, and
+    /// faking it takes a FID, aged coins and a join per head. Ties go to the
+    /// square the chain touched most recently, then to the id so the order
+    /// is stable.
+    public func popularSquares(size: Int = 20, timeoutMs: Int = 15_000) async throws -> [Square] {
+        let dict: [String: Any] = [
+            "entity": "square",
+            "sort": [
+                ["field": "memberNum", "order": "desc"],
+                ["field": "lastHeight", "order": "desc"],
+                ["field": "id", "order": "desc"],
+            ],
+            "size": String(size),
+        ]
+        return try await run(Square.self, dict, timeoutMs: timeoutMs)
+    }
+
     private func search<T: Decodable>(
         _ type: T.Type, entity: String, field: String, term: String, size: Int, timeoutMs: Int
     ) async throws -> [T] {
@@ -229,6 +252,12 @@ public struct GroupService {
             "query": ["part": ["fields": [field], "value": needle]],
             "size": String(size),
         ]
+        return try await run(T.self, dict, timeoutMs: timeoutMs)
+    }
+
+    private func run<T: Decodable>(
+        _ type: T.Type, _ dict: [String: Any], timeoutMs: Int
+    ) async throws -> [T] {
         let body = try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
         let reply = try await fapi.call(
             api: "base.search",
