@@ -134,7 +134,7 @@ struct SendPaymentView: View {
     private var watchOnlyBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "eye")
-            Text("Watch-only — this FID has no privkey. Build the transaction here, then export the unsigned document (copy / file / QR) and sign it on the machine that holds the key.")
+            Text("Watch-only — this FID has no prikey. Build the transaction here, then export the unsigned document (copy / file / QR) and sign it on the machine that holds the key.")
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(.callout)

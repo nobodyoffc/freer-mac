@@ -77,6 +77,12 @@ final class AppState {
     /// render `liveKeyInfo` read this counter to pick the change up.
     private(set) var identityRevision = 0
 
+    /// Observable mirror of the live Setting's `prikeyBackedUp` flag —
+    /// `Setting` is a struct behind a plain class, so SwiftUI cannot see it
+    /// change. Starts as `true` so the Overview nudge cannot flash on the way
+    /// into a session that has long since been backed up.
+    private(set) var prikeyBackedUp: Bool = true
+
     private(set) var liveFidInfo: LiveFidInfo?
     private(set) var liveFidInfoLoading = false
     private(set) var liveFidInfoError: String?
@@ -482,6 +488,7 @@ final class AppState {
         tearDownSshAgent()
         activeSession = nil
         liveFid = nil
+        prikeyBackedUp = true
         clearLiveFidInfo()
         configureSession?.lock()
         configureSession = nil
@@ -558,6 +565,7 @@ final class AppState {
             session.txApprover = self.txApprovals.approver()
             self.activeSession = session
             self.liveFid = session.liveFid
+            self.prikeyBackedUp = session.prikeyBackedUp
             self.route = .home
             // Before the first frame of `.home`: the theme is a
             // per-identity preference, so it can only be known now.
@@ -588,6 +596,7 @@ final class AppState {
         tearDownSshAgent()
         activeSession = nil
         liveFid = nil
+        prikeyBackedUp = true
         clearLiveFidInfo()
         applyTheme(.system)
         route = .chooseMain
@@ -834,7 +843,7 @@ final class AppState {
         do {
             priv = try session.mainPrikey()
         } catch {
-            lastError = "Couldn't read main privkey: \(error)"
+            lastError = "Couldn't read main prikey: \(error)"
             return
         }
 
@@ -1028,6 +1037,30 @@ final class AppState {
         let fid = session.liveFid
         NobodyRegistry.shared.markNobodies([fid])
         Task { @MainActor in NobodyGate.alertOwnKeyIfNeeded(fid) }
+    }
+
+    /// Set when a pane asks for the private-key backup sheet. ``HomeView`` owns
+    /// the sheet — one presented from inside a pane or a popover dies with it —
+    /// so it watches this and clears it, the same one-shot shape as
+    /// ``pendingChatMode``.
+    private(set) var backupPrikeyRequested = false
+
+    func openBackupPrikey() { backupPrikeyRequested = true }
+
+    func consumeBackupPrikeyRequest() { backupPrikeyRequested = false }
+
+    /// Record that the user has taken a copy of their private key, and stop the
+    /// nudge. Only ``BackupPrikeySheet``'s "I have my copy" calls this — the
+    /// flag is the user's assertion, not ours, so merely opening the sheet must
+    /// not set it.
+    func markPrikeyBackedUp() {
+        guard let session = activeSession else { return }
+        do {
+            try session.markPrikeyBackedUp()
+            prikeyBackedUp = true
+        } catch {
+            lastError = String(describing: error)
+        }
     }
 
     /// Tell every view rendering the live `KeyInfo` to re-read it.

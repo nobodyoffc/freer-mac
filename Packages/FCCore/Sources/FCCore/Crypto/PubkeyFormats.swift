@@ -19,7 +19,7 @@ public enum PubkeyFormats {
         public var description: String {
             switch self {
             case let .unrecognizedForm(length):
-                return "Pubkey: \(length) characters is not a recognized public key form"
+                return "Pubkey: \(length) characters is not a recognized pubkey form"
             case let .badPrefix(prefix):
                 return "Pubkey: prefix '\(prefix)' is not 02, 03 or 04"
             case .notOnCurve:

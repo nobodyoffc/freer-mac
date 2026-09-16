@@ -62,9 +62,9 @@ struct ChooseMainView: View {
             Button("Delete key and data", role: .destructive) { confirmDelete(deletingSetting: true) }
         } message: {
             Text("""
-            This vault holds the only copy of that private key. Unless you have the key written down elsewhere, deleting it means the FID — and anything it owns on chain — is gone for good. There is no undo and no export.
+            This vault holds the only copy of that prikey. Unless you have the key written down elsewhere, deleting it means the FID — and anything it owns on chain — is gone for good. There is no undo and no export.
 
-            “Delete key” leaves this identity's local data (contacts, chat, caches) on disk, so re-importing the same private key later picks it all back up. “Delete key and data” erases that folder too.
+            “Delete key” leaves this identity's local data (contacts, chat, caches) on disk, so re-importing the same prikey later picks it all back up. “Delete key and data” erases that folder too.
             """)
         }
     }
@@ -76,7 +76,7 @@ struct ChooseMainView: View {
                 .foregroundStyle(.secondary)
             Text("No identities yet")
                 .font(.title2).bold()
-            Text("Add a main FID — generate a fresh key, paste a hex/WIF privkey, or derive one from a passphrase.")
+            Text("Add a main FID — generate a fresh key, paste a hex/WIF prikey, or derive one from a passphrase.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)

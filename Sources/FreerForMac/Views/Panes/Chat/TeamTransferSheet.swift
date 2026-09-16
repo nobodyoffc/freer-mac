@@ -150,7 +150,7 @@ struct TeamTransferSheet: View {
                 )
                 _ = try? await session.courier.drainOutbox(as: session.liveFid)
                 let notice = (told?.queued.isEmpty ?? true)
-                    ? " They could not be told — they have never published a public key — so let them know yourself."
+                    ? " They could not be told — they have never published a pubkey — so let them know yourself."
                     : " They have been sent a notice."
                 await MainActor.run {
                     working = false

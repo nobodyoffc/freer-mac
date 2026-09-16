@@ -64,7 +64,7 @@ public struct FidAvatarView: View {
             }
         }
         .help(nobody
-              ? "Nobody FID — its private key is public, so anyone can act as it and spend from it."
+              ? "Nobody FID — its prikey is public, so anyone can act as it and spend from it."
               : "")
     }
 }

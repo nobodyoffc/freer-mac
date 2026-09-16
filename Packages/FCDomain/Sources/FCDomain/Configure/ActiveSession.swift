@@ -49,9 +49,9 @@ public final class ActiveSession {
             case .masterIsSelf(let fid):
                 return "ActiveSession: \(fid) cannot be its own master"
             case .masterPubkeyMismatch(let fid, let derived):
-                return "ActiveSession: that pubkey belongs to \(derived), not \(fid) — refusing to seal a private key to the wrong party"
+                return "ActiveSession: that pubkey belongs to \(derived), not \(fid) — refusing to seal a prikey to the wrong party"
             case .masterPubkeyUnknown(let fid):
-                return "ActiveSession: \(fid) has never published a pubkey, so there is nothing to encrypt the private key to"
+                return "ActiveSession: \(fid) has never published a pubkey, so there is nothing to encrypt the prikey to"
             case .multisigIncomplete:
                 return "ActiveSession: that multisig group has no address — it is missing its members or its m-of-n"
             case let .notAMultisigMember(fid, group):
@@ -318,6 +318,21 @@ public final class ActiveSession {
         if liveFid == fid { liveFid = mainFid }
         try saveSetting()
         return true
+    }
+
+    // MARK: - prikey backup
+
+    /// Whether this main FID's private key has been copied somewhere outside this
+    /// Mac. Drives the Overview nudge; see ``Setting/prikeyBackedUp``.
+    public var prikeyBackedUp: Bool { setting.prikeyBackedUp }
+
+    /// Record that the user has taken their copy. Android flips the same flag when
+    /// its backup dialog reports Done, and treats *Later* as leaving it unset so the
+    /// prompt comes back — the flag says "was offered and taken", never "was shown".
+    public func markPrikeyBackedUp() throws {
+        guard !setting.prikeyBackedUp else { return }
+        setting.prikeyBackedUp = true
+        try saveSetting()
     }
 
     // MARK: - persistence
@@ -1683,7 +1698,7 @@ public final class ActiveSession {
         public var description: String {
             switch self {
             case .recipientHasNoPubkey(let fid):
-                return "\(fid) has never published a public key, so there is nothing to encrypt a mail to. They need to spend from that FID at least once."
+                return "\(fid) has never published a pubkey, so there is nothing to encrypt a mail to. They need to spend from that FID at least once."
             case let .feeOverLimit(requested, limit):
                 return "This FID charges \(NoticeFee.coinString(satoshis: requested)) F to receive mail, over your \(NoticeFee.coinString(satoshis: limit)) F limit."
             case .noFee:

@@ -78,7 +78,7 @@ struct RateRecordSheet: View {
             return "You are the \(kind.ownerNoun) of this \(kind.label.lowercased()). The protocol ignores a rating from its own \(kind.ownerNoun), so the carve would cost the fee and change nothing."
         }
         if !session.canSign {
-            return "This identity has no private key on this Mac, so it cannot sign a rating."
+            return "This identity has no prikey on this Mac, so it cannot sign a rating."
         }
         if subjectId.isEmpty {
             return "This record has no on-chain id yet — it cannot be rated until its publish confirms."

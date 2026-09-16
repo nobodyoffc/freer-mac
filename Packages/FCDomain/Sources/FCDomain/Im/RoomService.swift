@@ -710,7 +710,7 @@ public struct RoomService {
             case .invitationOwnerMismatch(let id):
                 return "RoomService: an invitation to \(id) claims an owner the room does not have"
             case .noPrivkey:
-                return "RoomService: no privkey, so a shared room key cannot be opened"
+                return "RoomService: no prikey, so a shared room key cannot be opened"
             }
         }
     }

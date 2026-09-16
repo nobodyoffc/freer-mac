@@ -308,7 +308,7 @@ final class MailSendTests: XCTestCase {
             _ = try await session.sendMailOnChain(quote: quote, content: "hello")
             XCTFail("expected a missing-pubkey failure")
         } catch {
-            XCTAssertTrue("\(error)".contains("public key"), "\(error)")
+            XCTAssertTrue("\(error)".contains("pubkey"), "\(error)")
         }
         XCTAssertNil(broadcast.value)
     }

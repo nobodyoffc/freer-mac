@@ -195,7 +195,7 @@ struct FidDetailSheet: View {
             return "You are living as this FID — a FID cannot rate itself."
         }
         if !session.canSign {
-            return "This identity has no private key on this Mac, so it cannot sign a rating."
+            return "This identity has no prikey on this Mac, so it cannot sign a rating."
         }
         if freer == nil && !loading {
             return "This FID has no on-chain record, and a rating only applies to a FID that has one."
@@ -282,7 +282,7 @@ struct FidDetailSheet: View {
             if freer?.isNobody == true {
                 row("Nobody") {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("The private key behind this FID is public").foregroundStyle(.orange)
+                        Text("The prikey behind this FID is public").foregroundStyle(.orange)
                         caption("Anyone can spend from it. Never send value here.", warning: true)
                     }
                 }
@@ -362,7 +362,7 @@ struct FidDetailSheet: View {
     private func keyState(_ info: KeyInfo) -> (headline: String, detail: String) {
         let signable = info.hasPrivkey && info.kind.canSign
         if signable {
-            return ("Private key held",
+            return ("Prikey held",
                     isLive
                         ? "This vault can sign transactions and decrypt messages for this FID."
                         : "This vault holds the key. Switch to this identity to sign as it.")
@@ -373,9 +373,9 @@ struct FidDetailSheet: View {
                     "Spending needs signatures from the other members too — collect them in the co-sign sheet.")
         case .watched:
             return ("Watch-only",
-                    "No private key here. Transactions can be built but must be signed elsewhere.")
+                    "No prikey here. Transactions can be built but must be signed elsewhere.")
         default:
-            return ("No private key",
+            return ("No prikey",
                     "This identity can be read but not spent from on this Mac.")
         }
     }
@@ -439,7 +439,7 @@ struct FidDetailSheet: View {
                             master, head: 10, tail: 10,
                             font: .system(.caption, design: .monospaced)
                         )
-                        caption("The FID this one has published its private key to.")
+                        caption("The FID this one has published its prikey to.")
                     }
                 }
             }

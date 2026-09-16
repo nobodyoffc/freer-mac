@@ -239,7 +239,7 @@ public struct MessageCourier {
         guard let pubkey = await peerPubkey(senderId) else {
             SystemLog.shared.warning(
                 SystemSource.messages,
-                "No public key for \(senderId.middleElided()), so their message cannot be acknowledged",
+                "No pubkey for \(senderId.middleElided()), so their message cannot be acknowledged",
                 detail: "They will see it as sent rather than delivered."
             )
             return

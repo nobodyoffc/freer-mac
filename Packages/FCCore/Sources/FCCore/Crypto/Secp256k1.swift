@@ -49,8 +49,8 @@ public enum Secp256k1 {
 
         public var description: String {
             switch self {
-            case .invalidPrivateKey: return "secp256k1: invalid private key"
-            case .invalidPublicKey:  return "secp256k1: invalid public key"
+            case .invalidPrivateKey: return "secp256k1: invalid prikey"
+            case .invalidPublicKey:  return "secp256k1: invalid pubkey"
             case .invalidSignature:  return "secp256k1: invalid signature"
             }
         }

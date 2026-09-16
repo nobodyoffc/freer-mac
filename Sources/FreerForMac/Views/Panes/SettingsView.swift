@@ -248,6 +248,24 @@ struct SettingsView: View {
             }
 
             Section {
+                HStack(spacing: 12) {
+                    Button {
+                        appState.openBackupPrikey()
+                    } label: {
+                        Label("Back up prikey…", systemImage: "key.viewfinder")
+                    }
+                    if appState.prikeyBackedUp {
+                        Label("Backed up", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.callout)
+                    } else {
+                        Label("Not backed up yet", systemImage: "exclamationmark.circle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.callout)
+                    }
+                    Spacer()
+                }
+
                 Toggle("Show every transaction before signing it", isOn: $confirmBeforeSigning)
 
                 LabeledField(
@@ -261,7 +279,7 @@ struct SettingsView: View {
             } header: {
                 Text("Security")
             } footer: {
-                Text("With confirmation on, **nothing is signed until you approve it** — payments, cash merges, and the on-chain writes that panes make on your behalf (a contact, a mail, a chat key). The dialog shows the built transaction: which cashes it spends, who each output pays, the fee, and the exact bytes of any data being written. Turn it off and those all go straight to the chain.")
+                Text("The backup is the only copy of this identity that can exist off this Mac — as text you write down, or as a file sealed with your vault password. **Marking it done is your word, not ours** — it turns off the reminder, and nothing checks it.\n\nWith confirmation on, **nothing is signed until you approve it** — payments, cash merges, and the on-chain writes that panes make on your behalf (a contact, a mail, a chat key). The dialog shows the built transaction: which cashes it spends, who each output pays, the fee, and the exact bytes of any data being written. Turn it off and those all go straight to the chain.")
                     .font(.caption)
             }
 
@@ -515,7 +533,7 @@ struct SettingsView: View {
         do {
             priv = try session.mainPrikey()
         } catch {
-            testResult = .fail("Couldn't read main privkey: \(error)")
+            testResult = .fail("Couldn't read main prikey: \(error)")
             return
         }
 

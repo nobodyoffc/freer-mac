@@ -57,6 +57,25 @@ public struct Setting: Codable, Equatable, Sendable {
     }
 
     public var mainKeyInfo: KeyInfo? { keyInfoMap[mainFid] }
+
+    // MARK: - state flags
+
+    /// Whether the user has taken a copy of this main FID's private key.
+    /// Same key string Android's `BaseSetting.KEY_PRIKEY_BACKED_UP` writes, so a
+    /// Setting that ever travels between the two apps means the same thing in both.
+    ///
+    /// Unset counts as *not* backed up: a Setting written before this flag existed
+    /// belongs to someone who was never asked, and the nudge is cheap while the
+    /// silence it replaces is not.
+    public static let prikeyBackedUpKey = "prikeyBackedUp"
+
+    public var prikeyBackedUp: Bool {
+        get {
+            if case .bool(let done) = settingMap[Setting.prikeyBackedUpKey] { return done }
+            return false
+        }
+        set { settingMap[Setting.prikeyBackedUpKey] = .bool(newValue) }
+    }
 }
 
 /// Tiny JSON-serializable value enum for ``Setting/settingMap``.

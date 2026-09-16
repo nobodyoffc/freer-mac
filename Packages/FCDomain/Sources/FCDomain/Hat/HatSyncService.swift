@@ -37,7 +37,7 @@ public struct HatSyncService {
             case .noLocalBytes(let id):
                 return "HatSync: HAT \(id) has no local bytes to upload"
             case .missingPubkey:
-                return "HatSync: the live identity has no public key, so the file key cannot be sealed"
+                return "HatSync: the live identity has no pubkey, so the file key cannot be sealed"
             case let .downloadFailed(hatId, diagnostics):
                 return "HatSync: could not fetch \(hatId) — \(diagnostics)"
             case let .integrityMismatch(expected, got):

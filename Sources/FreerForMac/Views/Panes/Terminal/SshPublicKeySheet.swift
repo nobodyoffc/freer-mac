@@ -69,7 +69,7 @@ struct SshPublicKeySheet: View {
 
     private var header: some View {
         HStack {
-            Label("SSH public key", systemImage: "key")
+            Label("SSH pubkey", systemImage: "key")
                 .font(.title3.weight(.semibold))
             Spacer()
         }

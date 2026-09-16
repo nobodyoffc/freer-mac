@@ -16,7 +16,7 @@ enum NobodyConsequence {
         case .send:
             return "Anything sent to it can be taken by anyone."
         case .sendFrom:
-            return "The sender's private key is public. Anyone can spend the same cash first, so this transaction may never confirm."
+            return "The sender's prikey is public. Anyone can spend the same cash first, so this transaction may never confirm."
         case .encrypt:
             return "Anyone can decrypt what you encrypt to it."
         case .mail:
@@ -24,7 +24,7 @@ enum NobodyConsequence {
         case .multisig:
             return "Anyone can sign as this member, so the multisig needs fewer real signatures than it appears."
         case .master:
-            return "Setting a master publishes your private key encrypted to the master. Anyone can decrypt it and take this identity for good."
+            return "Setting a master publishes your prikey encrypted to the master. Anyone can decrypt it and take this identity for good."
         case .team:
             return "Anyone can read the team's messages and act as these members, including giving their consent."
         case .room:
@@ -45,14 +45,14 @@ enum NobodyConsequence {
 
 /// Lines shown under a nobody's name wherever the consequence needs saying.
 enum NobodyText {
-    static let identity = "Nobody: this identity's private key is public. Anyone can act as it."
-    static let selfIdentity = "This identity's private key is public. Anyone can spend its funds, read its messages and act as it."
-    static let receive = "This address's private key is public. Anything paid here can be taken by anyone."
-    static let sender = "The sender is a nobody: its private key is public, so anyone could have sent this."
-    static let inviter = "The inviter is a nobody: its private key is public, so anyone could have sent this invitation."
-    static let partner = "This identity is a nobody: its private key is public, so messages from it can be written by anyone and cannot be trusted."
-    static let signature = "Valid, but the signer is a nobody: its private key is public, so anyone could have signed this. It proves nothing."
-    static let consensus = "Nobody members' private keys are public: anyone can give their consent."
+    static let identity = "Nobody: this identity's prikey is public. Anyone can act as it."
+    static let selfIdentity = "This identity's prikey is public. Anyone can spend its funds, read its messages and act as it."
+    static let receive = "This address's prikey is public. Anything paid here can be taken by anyone."
+    static let sender = "The sender is a nobody: its prikey is public, so anyone could have sent this."
+    static let inviter = "The inviter is a nobody: its prikey is public, so anyone could have sent this invitation."
+    static let partner = "This identity is a nobody: its prikey is public, so messages from it can be written by anyone and cannot be trusted."
+    static let signature = "Valid, but the signer is a nobody: its prikey is public, so anyone could have signed this. It proves nothing."
+    static let consensus = "Nobody members' prikeys are public: anyone can give their consent."
     static let contentHidden = "[Content from an unverifiable (nobody) identity is not shown]"
 }
 
@@ -106,7 +106,7 @@ enum NobodyGate {
         alert.icon = badgeIcon()
         alert.messageText = "Nobody identity"
         let list = nobodies.map { "• \($0)" }.joined(separator: "\n")
-        alert.informativeText = "Private key published on chain:\n\(list)\n\n\(consequence.text)"
+        alert.informativeText = "Prikey published on chain:\n\(list)\n\n\(consequence.text)"
         // Cancel first: Return must never be the risky answer.
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Proceed Anyway")
@@ -119,8 +119,8 @@ enum NobodyGate {
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.icon = badgeIcon()
-        alert.messageText = "Your private key is public"
-        alert.informativeText = "The private key of \(fid) has been published on chain. Anyone can spend its funds, read its messages and act as it. Move your funds to a key only you hold."
+        alert.messageText = "Your prikey is public"
+        alert.informativeText = "The prikey of \(fid) has been published on chain. Anyone can spend its funds, read its messages and act as it. Move your funds to a key only you hold."
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }

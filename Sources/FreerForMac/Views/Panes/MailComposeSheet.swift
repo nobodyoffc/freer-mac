@@ -201,7 +201,7 @@ struct MailComposeSheet: View {
                 }
             case .pay:
                 panel(color: .red, icon: "key.slash") {
-                    Text("This FID has never published a public key.")
+                    Text("This FID has never published a pubkey.")
                         .font(.callout)
                     Text("A mail is encrypted to the recipient's key, so there is nothing to encrypt to. A FID publishes its key the first time it spends — ask them to send any transaction, then try again.")
                         .font(.caption)

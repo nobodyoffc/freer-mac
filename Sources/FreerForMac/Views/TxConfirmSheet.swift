@@ -159,7 +159,7 @@ struct TxConfirmSheet: View {
         if !recipients.isEmpty {
             NobodyBanner(
                 shown: true,
-                message: "Private key published on chain: "
+                message: "Prikey published on chain: "
                     + recipients.map { $0.elidingMiddle(head: 8, tail: 8) }.joined(separator: ", ")
                     + ". " + NobodyConsequence.send.text
             )

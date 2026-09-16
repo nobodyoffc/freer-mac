@@ -119,7 +119,7 @@ public struct NobodyChip: View {
                 .padding(.vertical, 1)
                 .background(Capsule().fill(NobodyMark.color))
                 .fixedSize()
-                .help("Nobody — this identity's private key is public, so anyone can act as it.")
+                .help("Nobody — this identity's prikey is public, so anyone can act as it.")
         }
     }
 }
@@ -177,7 +177,7 @@ public struct NobodyBanner: View {
             NobodyBadge(diameter: 40)
         }
         HStack { NobodyChip(fid: nil, force: true); Text("alice") }
-        NobodyBanner(shown: true, message: "This identity's private key is public. Anyone can act as it.")
+        NobodyBanner(shown: true, message: "This identity's prikey is public. Anyone can act as it.")
     }
     .padding()
     .frame(width: 420)

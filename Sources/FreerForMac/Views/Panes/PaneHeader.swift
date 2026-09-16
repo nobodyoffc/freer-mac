@@ -243,7 +243,7 @@ struct PaneHeader: View {
     private var identity: (symbol: String, tint: Color, help: String) {
         let kind = session.liveKeyInfo.kind
         if session.canSign {
-            return ("key.fill", .blue, "\(kind.rawValue) — this vault holds the private key and can sign.")
+            return ("key.fill", .blue, "\(kind.rawValue) — this vault holds the prikey and can sign.")
         }
         switch kind {
         case .multisig:
@@ -251,10 +251,10 @@ struct PaneHeader: View {
                     "Multisig — spending needs the other signers too.")
         case .watched:
             return ("eye", .orange,
-                    "Watch-only — no private key here. Transactions can be built but must be signed elsewhere.")
+                    "Watch-only — no prikey here. Transactions can be built but must be signed elsewhere.")
         default:
             return ("key.slash", .orange,
-                    "No private key for this identity — watch only.")
+                    "No prikey for this identity — watch only.")
         }
     }
 

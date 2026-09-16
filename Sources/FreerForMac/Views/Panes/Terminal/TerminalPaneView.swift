@@ -199,7 +199,7 @@ struct TerminalPaneView: View {
 
     private var watchOnlyMainBanner: some View {
         Label(
-            "This vault's main identity has no private key, so there is no Freer SSH key to derive. Servers set to use one of your own key files still work.",
+            "This vault's main identity has no prikey, so there is no Freer SSH key to derive. Servers set to use one of your own key files still work.",
             systemImage: "lock"
         )
         .font(.callout)
@@ -234,7 +234,7 @@ struct TerminalPaneView: View {
             Button {
                 showingPublicKey = true
             } label: {
-                Label("Public key", systemImage: "key")
+                Label("Pubkey", systemImage: "key")
             }
             .disabled(!mainCanDerive)
         }

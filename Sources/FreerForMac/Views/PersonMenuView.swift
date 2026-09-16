@@ -211,8 +211,8 @@ struct PersonMenuView: View {
             .foregroundStyle(livingAsMain ? Color.accentColor : .secondary)
             .disabled(!livingAsMain)
             .help(masterFid == nil
-                  ? "Name a master for this FID — publishes its private key on chain"
-                  : "Change this FID's master — publishes its private key on chain")
+                  ? "Name a master for this FID — publishes its prikey on chain"
+                  : "Change this FID's master — publishes its prikey on chain")
             .padding(.trailing, 10)
         }
     }

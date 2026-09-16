@@ -160,6 +160,25 @@ public final class ConfigureSession {
         }
     }
 
+    // MARK: - password
+
+    /// Whether `password` is this vault's password.
+    ///
+    /// Re-derives the KDF and compares the verification token, so it costs a full
+    /// Argon2id run (64 MiB) — call it off the main thread. The point is to make a
+    /// backup that a *typo* cannot seal: ``BackupPrikeySheet`` encrypts the privkey
+    /// under the password the user types, and if that were allowed to be anything
+    /// they would end up holding a cipher nobody can ever open, discovering it on
+    /// the day the original key is gone.
+    public func verifyPassword(_ password: Data) -> Bool {
+        guard !isLocked else { return false }
+        guard var derived = ConfigureCrypto.verify(password: password, against: record) else {
+            return false
+        }
+        derived.resetBytes(in: 0 ..< derived.count)
+        return true
+    }
+
     // MARK: - lock
 
     public func lock() { lockUnchecked() }

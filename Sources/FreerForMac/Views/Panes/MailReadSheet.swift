@@ -127,7 +127,7 @@ struct MailReadSheet: View {
                     .foregroundStyle(.orange)
                 Text(session.canSign
                      ? "It is sealed to a key this identity doesn't hold — most often it was addressed to another of your FIDs. Switch to that identity and it will open. The ciphertext is kept, so nothing is lost in the meantime."
-                     : "This is a watch-only identity, so there is no private key here to decrypt with.")
+                     : "This is a watch-only identity, so there is no prikey here to decrypt with.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -68,7 +68,7 @@ struct SetMasterSheet: View {
             return "No on-chain record for this FID yet, so it has no published pubkey."
         }
         if candidatePubkey == nil {
-            return "This FID has never published a pubkey — nothing has been signed from it — so there is no key to seal your private key to."
+            return "This FID has never published a pubkey — nothing has been signed from it — so there is no key to seal your prikey to."
         }
         return nil
     }
@@ -156,11 +156,11 @@ struct SetMasterSheet: View {
             }
             .foregroundStyle(.red)
 
-            Text("Setting a master publishes **your private key** on chain, encrypted to the master's public key. The record is permanent and public.")
+            Text("Setting a master publishes **your prikey** on chain, encrypted to the master's pubkey. The record is permanent and public.")
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 4) {
-                bullet("Whoever holds the master's private key can decrypt yours.")
+                bullet("Whoever holds the master's prikey can decrypt yours.")
                 bullet("From then on they can spend this FID's coins, sign as it, and read everything ever encrypted to it.")
                 bullet("It cannot be undone. Naming a different master later leaves the first record on chain, so the first master keeps your key.")
             }

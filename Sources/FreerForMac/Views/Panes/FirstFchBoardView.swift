@@ -694,7 +694,7 @@ struct FirstFchBoardView: View {
     @MainActor
     private func post() async {
         guard let privkey = try? session.livePrikey() else {
-            status = .bad("This identity has no private key, so there is nothing to seal a post with.")
+            status = .bad("This identity has no prikey, so there is nothing to seal a post with.")
             return
         }
         posting = true

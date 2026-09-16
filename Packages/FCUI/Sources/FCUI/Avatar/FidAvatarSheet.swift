@@ -67,7 +67,7 @@ public struct FidAvatarSheet: View {
                 identityLine
                 if isNobody || NobodyRegistry.shared.isNobody(fid) {
                     Label(
-                        "Nobody FID — its private key is public, so anyone can spend from it.",
+                        "Nobody FID — its prikey is public, so anyone can spend from it.",
                         systemImage: "exclamationmark.triangle.fill"
                     )
                     .font(.caption)

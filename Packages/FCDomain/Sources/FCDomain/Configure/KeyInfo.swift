@@ -169,14 +169,14 @@ public struct KeyInfo: Codable, Equatable, Hashable, Sendable {
 
         public var description: String {
             switch self {
-            case .watchOnly(let fid): return "KeyInfo: \(fid) is watch-only — no privkey to decrypt"
-            case .decryptionFailed:   return "KeyInfo: privkey decryption failed (wrong symkey?)"
+            case .watchOnly(let fid): return "KeyInfo: \(fid) is watch-only — no prikey to decrypt"
+            case .decryptionFailed:   return "KeyInfo: prikey decryption failed (wrong symkey?)"
             }
         }
     }
 
     private static func encryptPrikey(_ privkey: Data, symkey: Data) throws -> PrikeyCipher {
-        precondition(privkey.count == 32, "privkey must be 32 bytes")
+        precondition(privkey.count == 32, "prikey must be 32 bytes")
         let pubkey = try Secp256k1.publicKey(fromPrivateKey: privkey)
         let fid = try FchAddress(publicKey: pubkey).fid
         var iv = Data(count: 12)

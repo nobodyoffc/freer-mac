@@ -286,7 +286,7 @@ struct NewChatSheet: View {
                         Label("no published key", systemImage: "lock.open")
                             .font(.caption)
                             .foregroundStyle(.orange)
-                            .help("They haven't published a public key, so messages to them can't be encrypted until they do.")
+                            .help("They haven't published a pubkey, so messages to them can't be encrypted until they do.")
                     }
                     Spacer()
                 }
@@ -337,7 +337,7 @@ struct NewChatSheet: View {
                 Button {
                     pick = .many(
                         title: "Invite to this room",
-                        subtitle: "Everyone picked gets the room's key sealed to their public key, when we know it.",
+                        subtitle: "Everyone picked gets the room's key sealed to their pubkey, when we know it.",
                         confirmTitle: "Invite",
                         preselected: roomInvitees,
                         excluded: [session.liveFid]
@@ -385,7 +385,7 @@ struct NewChatSheet: View {
                 }
             }
 
-            Text("Costs nothing and asks nobody: a room exists only on the devices that hold it. Each invitation carries the room's key sealed to that person — anyone whose public key we can't find is invited without one and has to ask.")
+            Text("Costs nothing and asks nobody: a room exists only on the devices that hold it. Each invitation carries the room's key sealed to that person — anyone whose pubkey we can't find is invited without one and has to ask.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

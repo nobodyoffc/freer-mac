@@ -444,7 +444,7 @@ public struct ChatService {
             case .noSuchConversation(let id):
                 return "ChatService: no conversation \(id)"
             case .noRecipientKey(let fid):
-                return "\(fid) has never published a public key, so there is nothing to encrypt a message to. They need to spend from that FID at least once."
+                return "\(fid) has never published a pubkey, so there is nothing to encrypt a message to. They need to spend from that FID at least once."
             }
         }
     }

@@ -140,7 +140,7 @@ private struct EncryptToolView: View {
         switch mode {
         case .password: return "Password"
         case .symkey:   return "Symkey — 32 bytes in hex"
-        case .pubkey:   return "Public key — 33 bytes in hex"
+        case .pubkey:   return "Pubkey — 33 bytes in hex"
         }
     }
 
@@ -166,7 +166,7 @@ private struct EncryptToolView: View {
                 result = try TextCipher.encryptWithSymkey(plaintext, symkey: symkey)
             case .pubkey:
                 guard let pubkey = Data(fcHex: key), pubkey.count == 33 else {
-                    error = "It is not a public key (33 bytes hex)"; return
+                    error = "It is not a pubkey (33 bytes hex)"; return
                 }
                 // Anyone can open what is encrypted to a nobody's key.
                 Task {
@@ -205,10 +205,10 @@ private struct DecryptToolView: View {
             ToolTextEditor(placeholder: "Cipher (CryptoDataStr JSON)", text: $cipher)
 
             if session.canSign {
-                Toggle("Use my private key (for pubkey-encrypted ciphers)", isOn: $useMyKey)
+                Toggle("Use my prikey (for pubkey-encrypted ciphers)", isOn: $useMyKey)
             }
             if !(session.canSign && useMyKey) {
-                TextField("Password, symkey hex, or privkey hex — per the cipher's type", text: $key)
+                TextField("Password, symkey hex, or prikey hex — per the cipher's type", text: $key)
                     .fieldInputStyle()
                     .font(.system(.body, design: .monospaced))
             }
@@ -238,7 +238,7 @@ private struct DecryptToolView: View {
             switch envelope.type {
             case "Password":
                 guard !key.isEmpty, !(session.canSign && useMyKey) else {
-                    error = "This cipher needs its password — uncheck “Use my private key” and type it"
+                    error = "This cipher needs its password — uncheck “Use my prikey” and type it"
                     return
                 }
                 plaintext = try TextCipher.decrypt(envelope: envelope, password: Data(key.utf8))
@@ -255,7 +255,7 @@ private struct DecryptToolView: View {
                 } else if let parsed = Data(fcHex: key), parsed.count == 32 {
                     privkey = parsed
                 } else {
-                    error = "This cipher needs a 32-byte private key in hex"
+                    error = "This cipher needs a 32-byte prikey in hex"
                     return
                 }
                 plaintext = try AsyOneWayCipher.decrypt(cipherString: cipher, privkey: privkey)
@@ -299,7 +299,7 @@ private struct SignToolView: View {
                     .fieldInputStyle()
                     .font(.system(.body, design: .monospaced))
             } else if !session.canSign {
-                Label("Watch-only — the live FID has no private key to sign with", systemImage: "eye")
+                Label("Watch-only — the live FID has no prikey to sign with", systemImage: "eye")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }

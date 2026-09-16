@@ -26,9 +26,9 @@ public enum SignedMessage {
 
         public var description: String {
             switch self {
-            case .invalidPrivateKey: return "SignedMessage: invalid private key"
+            case .invalidPrivateKey: return "SignedMessage: invalid prikey"
             case .invalidSignature:  return "SignedMessage: signature is not 65 Base64 bytes with a valid header"
-            case .recoveryFailed:    return "SignedMessage: public key recovery failed"
+            case .recoveryFailed:    return "SignedMessage: pubkey recovery failed"
             }
         }
     }

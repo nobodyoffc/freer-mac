@@ -709,7 +709,7 @@ private struct SecretDetailSheet: View {
                             }
                             .disabled(!session.canSign)
                             .help(session.canSign
-                                  ? "Decrypt with your private key"
+                                  ? "Decrypt with your prikey"
                                   : "Watch-only identity — no key to decrypt with")
                         }
                     }

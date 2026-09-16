@@ -50,7 +50,7 @@ public struct SshEd25519Key {
         public var description: String {
             switch self {
             case let .badPrivkeyLength(n):
-                return "SshEd25519Key: expected a 32-byte private key, got \(n)"
+                return "SshEd25519Key: expected a 32-byte prikey, got \(n)"
             case .emptyFid:
                 return "SshEd25519Key: the main FID is empty"
             }

@@ -143,7 +143,7 @@ struct ChatPartyDetailSheet: View {
             return "You own this team, and the protocol ignores a rating from its own owner."
         }
         if !session.canSign {
-            return "This identity has no private key on this Mac, so it cannot sign a rating."
+            return "This identity has no prikey on this Mac, so it cannot sign a rating."
         }
         return "Rate this team 0–5, weighted by the coin-days you spend."
     }

@@ -75,7 +75,7 @@ struct RateFreerSheet: View {
             return "You are living as this FID — a FID cannot rate itself."
         }
         if !session.canSign {
-            return "This identity has no private key on this Mac, so it cannot sign a rating."
+            return "This identity has no prikey on this Mac, so it cannot sign a rating."
         }
         if loading { return nil }
         if record == nil {

@@ -275,7 +275,7 @@ struct MemberListSheet: View {
             }
             Text(style.mode == .team
                  ? "An invitation is a transaction, and it is only an invitation: they still have to join themselves. Each person invited is sent a notice so they know to look."
-                 : "They are invited straight away, and the invitation carries this room's current key sealed to them. Someone whose public key we don't have is invited without one and has to ask.")
+                 : "They are invited straight away, and the invitation carries this room's current key sealed to them. Someone whose pubkey we don't have is invited without one and has to ask.")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -428,7 +428,7 @@ struct MemberListSheet: View {
                         lines.append("\(plan.alreadyInvited.count) already invited — reminded, nothing carved.")
                     }
                     if let told, !told.unreachable.isEmpty {
-                        lines.append("\(told.unreachable.count) could not be sent a notice: no published public key.")
+                        lines.append("\(told.unreachable.count) could not be sent a notice: no published pubkey.")
                     } else if told == nil {
                         lines.append("No notice could be sent, so tell them yourself.")
                     }
@@ -482,7 +482,7 @@ struct MemberListSheet: View {
                 await MainActor.run {
                     working = false
                     note = told.queued.isEmpty
-                        ? "Nothing sent: they have never published a public key to seal a notice to."
+                        ? "Nothing sent: they have never published a pubkey to seal a notice to."
                         : "Reminder queued."
                 }
             } catch {
@@ -565,7 +565,7 @@ struct MemberListSheet: View {
             )
             try queue(keyed.outbound)
             note = keyed.outbound.isEmpty
-                ? "Nothing to send: we have no public key for them, or they publish no DOCK to leave it at."
+                ? "Nothing to send: we have no pubkey for them, or they publish no DOCK to leave it at."
                 : "Key v\(keyed.version) queued for them."
         } catch {
             self.error = String(describing: error)

@@ -496,7 +496,7 @@ struct FilesView: View {
     private func upload(_ hat: Hat, permanent: Bool) async {
         guard let id = hat.id else { return }
         guard let pubkey = session.liveKeyInfo.pubkey else {
-            banner = Banner(kind: .failure, text: "This identity has no public key, so the file key can't be sealed.")
+            banner = Banner(kind: .failure, text: "This identity has no pubkey, so the file key can't be sealed.")
             return
         }
         busy[id] = .uploading

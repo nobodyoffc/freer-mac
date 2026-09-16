@@ -131,10 +131,10 @@ private struct PrikeyConvertView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Private key formats").font(.headline)
+            Text("Prikey formats").font(.headline)
 
             Label(
-                "A private key is the whole of an identity. Anything shown here spends "
+                "A prikey is the whole of an identity. Anything shown here spends "
                     + "everything the key holds — don't paste it anywhere you don't control.",
                 systemImage: "exclamationmark.triangle"
             )
@@ -142,7 +142,7 @@ private struct PrikeyConvertView: View {
             .foregroundStyle(.orange)
             .fixedSize(horizontal: false, vertical: true)
 
-            TextField("Private key — 64 hex characters, or WIF", text: $input)
+            TextField("Prikey — 64 hex characters, or WIF", text: $input)
                 .fieldInputStyle()
                 .font(.system(.body, design: .monospaced))
 
@@ -150,7 +150,7 @@ private struct PrikeyConvertView: View {
                 Button {
                     useMyKey()
                 } label: {
-                    Label("Use my private key", systemImage: "key")
+                    Label("Use my prikey", systemImage: "key")
                 }
                 .buttonStyle(.link)
             }
@@ -210,10 +210,10 @@ private struct PubkeyConvertView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Public key formats").font(.headline)
+            Text("Pubkey formats").font(.headline)
 
             ToolTextEditor(
-                placeholder: "Public key — compressed or uncompressed hex, or Base58",
+                placeholder: "Pubkey — compressed or uncompressed hex, or Base58",
                 text: $input
             )
 
@@ -221,7 +221,7 @@ private struct PubkeyConvertView: View {
                 Button {
                     useMyKey()
                 } label: {
-                    Label("Use my public key", systemImage: "person.crop.circle")
+                    Label("Use my pubkey", systemImage: "person.crop.circle")
                 }
                 .buttonStyle(.link)
             }
@@ -241,7 +241,7 @@ private struct PubkeyConvertView: View {
     private func useMyKey() {
         error = nil
         guard let pubkey = session.liveKeyInfo.pubkey else {
-            error = "This identity has no stored public key"
+            error = "This identity has no stored pubkey"
             return
         }
         input = Hex.encode(pubkey)
@@ -280,7 +280,7 @@ private struct AddressConvertView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Addresses across chains").font(.headline)
 
-            ToolTextEditor(placeholder: "Public key, or an address", text: $input)
+            ToolTextEditor(placeholder: "Pubkey, or an address", text: $input)
 
             Button {
                 input = session.liveFid
@@ -322,8 +322,8 @@ private struct AddressConvertView: View {
                 // so from an address alone there is nothing to derive
                 // — and a plausible guess would be unspendable.
                 note = "Bitcoin is shown in its segwit form here. ETH and TRX are absent "
-                    + "by necessity: their addresses hash the public key itself, which an "
-                    + "address does not contain. Convert from the public key to see them."
+                    + "by necessity: their addresses hash the pubkey itself, which an "
+                    + "address does not contain. Convert from the pubkey to see them."
             }
         } catch {
             self.error = errorText(error)

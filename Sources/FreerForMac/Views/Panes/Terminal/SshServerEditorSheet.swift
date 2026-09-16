@@ -101,7 +101,7 @@ struct SshServerEditorSheet: View {
         case .freer:
             return "The ed25519 key derived from your main FID. After saving, put it on the server with Install Freer key in the server's menu."
         case .keyFile:
-            return "A private key you already have. Freer's agent is never started; ssh reads the file, and asks here if it has a passphrase."
+            return "A prikey you already have. Freer's agent is never started; ssh reads the file, and asks here if it has a passphrase."
         case .systemDefaults:
             return "Plain ssh: your ~/.ssh/config, your own agent, your default keys. Freer adds no options at all."
         }
@@ -292,7 +292,7 @@ struct SshServerEditorSheet: View {
         panel.allowsMultipleSelection = false
         panel.showsHiddenFiles = true
         panel.treatsFilePackagesAsDirectories = true
-        panel.message = "Pick the private key, not the .pub."
+        panel.message = "Pick the prikey, not the .pub."
         panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".ssh")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         keyFilePath = url.path

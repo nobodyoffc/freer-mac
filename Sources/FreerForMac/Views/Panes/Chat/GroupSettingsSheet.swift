@@ -369,7 +369,7 @@ struct GroupSettingsSheet: View {
     /// carve itself raises that before a fee is spent.
     private var warning: String? {
         guard session.canSign else {
-            return "This is a watch-only identity, so there is no private key here to sign a carve with."
+            return "This is a watch-only identity, so there is no prikey here to sign a carve with."
         }
         guard let original, mode == .team, !original.isTeamOwner else { return nil }
         if !original.ownerIsKnown {

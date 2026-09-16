@@ -1,40 +1,56 @@
 import SwiftUI
+import AppKit
 import FCCore
+import FCDomain
 import FCUI
 
-/// Mint a new main FID inside the unlocked Configure. Four sources:
+/// Mint or import a main FID inside the unlocked Configure. Three sources:
 ///   - **Random** — `SecRandomCopyBytes(32)`. The most defensible
 ///     choice; picked by default.
-///   - **Hex** — paste 64 hex chars.
-///   - **WIF** — paste an `L`/`K`/`5`-prefix Bitcoin/FCH-mainnet WIF
-///     (e.g. `L2bHRej6Fxxipvb4TiR5bu1rkT3tRp8yWEsUy4R1Zb8VMm2x7sd8`,
-///     the project test fixture).
+///   - **Key** — one box that takes whatever key text the user has:
+///     64 hex characters, `0x`-prefixed hex, a WIF (`L`/`K`/`5`), or a
+///     password-encrypted backup in either of the two forms Freer
+///     writes (the `{"type":"Password",…}` JSON envelope and the Base64
+///     bundle). Typed, pasted, scanned from a QR code, or read from a
+///     file — the shapes ``BackupPrikeySheet`` and Android's backup
+///     dialog produce.
 ///   - **Passphrase** — derive via Argon2id (recommended) or legacy
 ///     SHA-256 (Android-import only). Same `PhraseKey` we use for
 ///     vanity wallets.
 ///
-/// The hex and WIF boxes also take a QR code (``QrScanSheet``, camera
-/// or image files) — the shape an Android privkey backup arrives in.
-/// A scan sniffs its payload and switches **Source** to whichever of
-/// the two it actually is.
+/// **One box instead of a Hex tab and a WIF tab**, following Android's
+/// `ImportKeyActivity`: the user rarely knows which encoding they are
+/// holding, and making them classify it first turns a paste into a
+/// quiz. ``KeyInput`` classifies instead, and the verdict is shown
+/// while typing so a near miss ("looks like a WIF, checksum fails") is
+/// reported rather than guessed at — and so a watch-only pubkey or FID
+/// is never silently mistaken for restoring a wallet.
 ///
-/// Validation happens before we touch the vault; the encrypt-and-
-/// persist work runs on a background priority task.
+/// A passphrase stays its own source on purpose: *any* text could be
+/// one, so a mistyped key that happened to be treated as a phrase would
+/// quietly mint a different identity.
+///
+/// Validation happens before we touch the vault; deriving (Argon2id for
+/// a phrase or a cipher) and the encrypt-and-persist work run off the
+/// main actor, so the window keeps painting while the KDF runs.
 struct AddMainView: View {
     @Environment(AppState.self) private var appState
 
     enum Source: String, CaseIterable, Identifiable {
         case random = "Random"
-        case hex = "Hex"
-        case wif = "WIF"
+        case key = "Key"
         case passphrase = "Passphrase"
         var id: String { rawValue }
     }
 
     @State private var source: Source = .random
     @State private var label: String = ""
-    @State private var hexInput: String = ""
-    @State private var wifInput: String = ""
+    /// Whatever the user pasted: a privkey in some encoding, or a cipher.
+    @State private var keyText: String = ""
+    @State private var detected: KeyInput.Kind = .empty
+    /// The password that opens ``keyText`` when it is a cipher. Not the
+    /// vault password — the one whoever made the backup chose.
+    @State private var cipherPassword: String = ""
     @State private var phrase: String = ""
     @State private var phraseScheme: PhraseKey.Scheme = .argon2id
     @State private var working: Bool = false
@@ -62,21 +78,11 @@ struct AddMainView: View {
 
                 switch source {
                 case .random:
-                    Text("A 32-byte privkey will be generated using SecRandomCopyBytes.")
+                    Text("A 32-byte prikey will be generated using SecRandomCopyBytes.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                case .hex:
-                    HStack(spacing: 8) {
-                        TextField("64 hex characters", text: $hexInput)
-                            .font(.system(.body, design: .monospaced))
-                        scanButton
-                    }
-                case .wif:
-                    HStack(spacing: 8) {
-                        TextField("Wallet Import Format (L… / K… / 5…)", text: $wifInput)
-                            .font(.system(.body, design: .monospaced))
-                        scanButton
-                    }
+                case .key:
+                    keyBox
                 case .passphrase:
                     SecureField("Passphrase", text: $phrase)
                     Picker("KDF", selection: $phraseScheme) {
@@ -132,53 +138,168 @@ struct AddMainView: View {
         .frame(minWidth: 540, maxWidth: 620)
         .padding()
         .sheet(isPresented: $showScan) {
-            QrScanSheet(title: "Scan privkey QR") { scanned in
+            QrScanSheet(title: "Scan a key QR") { scanned in
                 showScan = false
-                adoptScanned(scanned)
+                adopt(scanned)
             } onCancel: {
                 showScan = false
             }
         }
     }
 
-    private var scanButton: some View {
-        Button {
-            showScan = true
-        } label: {
-            Image(systemName: "qrcode.viewfinder")
+    // MARK: - the one key box
+
+    @ViewBuilder
+    private var keyBox: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 8) {
+                // An axis-less TextField would clip a 300-character
+                // cipher to one line with no way to see the rest.
+                TextField("Prikey, or an encrypted backup", text: $keyText, axis: .vertical)
+                    .font(.system(.body, design: .monospaced))
+                    .lineLimit(1 ... 5)
+                VStack(spacing: 4) {
+                    Button { showScan = true } label: { Image(systemName: "qrcode.viewfinder") }
+                        .disabled(working)
+                        .help("Scan a key QR code — from the camera or an image file.")
+                    Button(action: pickFile) { Image(systemName: "folder") }
+                        .disabled(working)
+                        .help("Read the key text from a file — the cipher a backup saved.")
+                    Button(action: clear) { Image(systemName: "xmark.circle") }
+                        .disabled(working || keyText.isEmpty)
+                        .help("Clear the box.")
+                }
+                .buttonStyle(.borderless)
+            }
+
+            if detected == .cipher {
+                SecureField("Password that opens this backup", text: $cipherPassword)
+            }
+
+            if let verdict {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: verdict.icon)
+                        .foregroundStyle(verdict.tint)
+                    Text(verdict.text)
+                        .font(.caption)
+                        .foregroundStyle(verdict.usable ? .secondary : verdict.tint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
-        .disabled(working)
-        .help("Scan a privkey QR code — hex or WIF, from the camera or an image file.")
+        .onChange(of: keyText) { _, _ in
+            detected = KeyInput.detect(keyText)
+            localError = nil
+        }
     }
 
-    /// Route a scanned payload to the field that fits. A privkey QR
-    /// doesn't say which format it holds (Android backs up both hex and
-    /// WIF), so sniff it and move the Source picker rather than pasting
-    /// a WIF into the hex box.
-    private func adoptScanned(_ raw: String) {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hex = trimmed.hasPrefix("0x") || trimmed.hasPrefix("0X")
-            ? String(trimmed.dropFirst(2))
-            : trimmed
+    /// What the box says about what it is holding. Every kind gets a
+    /// sentence: silence on a key that will not import is the failure
+    /// mode this whole box exists to avoid.
+    private struct Verdict {
+        let text: String
+        let icon: String
+        let tint: Color
+        /// Whether Add identity can act on it.
+        let usable: Bool
+    }
 
-        if (try? parseHex(hex)) != nil {
-            source = .hex
-            hexInput = hex
-            localError = nil
-        } else if (try? WifPrivkey.decode(trimmed)) != nil {
-            source = .wif
-            wifInput = trimmed
-            localError = nil
-        } else {
-            localError = "That QR code isn't a privkey — expected 64 hex characters or a WIF (L… / K… / 5…)."
+    private var verdict: Verdict? {
+        switch detected {
+        case .empty:
+            return nil
+        case .prikey:
+            return Verdict(
+                text: "Prikey. This becomes a main FID that can sign and spend.",
+                icon: "checkmark.seal", tint: .green, usable: true
+            )
+        case .cipher:
+            return Verdict(
+                text: "Encrypted backup. Enter the password it was sealed with — not this vault's password, unless they are the same.",
+                icon: "lock", tint: .accentColor, usable: true
+            )
+        case .nonPasswordCipher:
+            return Verdict(
+                text: "This cipher wasn't encrypted with a password, so a password can't open it. Decrypt it where its key lives, then paste the key itself.",
+                icon: "lock.trianglebadge.exclamationmark", tint: .orange, usable: false
+            )
+        case .pubkey:
+            return Verdict(
+                text: "Pubkey — watch-only. A main FID has to be able to sign, so this can't be one. Unlock a main first, then add it under My Watched FIDs.",
+                icon: "eye", tint: .orange, usable: false
+            )
+        case .fid:
+            return Verdict(
+                text: "An FID — watch-only. A main FID has to be able to sign, so this can't be one. Unlock a main first, then add it under My Watched FIDs.",
+                icon: "eye", tint: .orange, usable: false
+            )
+        case .backup:
+            return Verdict(
+                text: "Key JSON — a backup of several entries. Importing a whole backup isn't supported here yet; paste one key, or one encrypted key, at a time.",
+                icon: "doc.text", tint: .orange, usable: false
+            )
+        case .badPrikey:
+            return Verdict(
+                text: "Shaped like a prikey, but not a valid one — a character is wrong. Check the text against the original rather than retyping it.",
+                icon: "exclamationmark.triangle", tint: .red, usable: false
+            )
+        case .badPubkey:
+            return Verdict(
+                text: "Shaped like a pubkey, but not a valid one.",
+                icon: "exclamationmark.triangle", tint: .red, usable: false
+            )
+        case .badFid:
+            return Verdict(
+                text: "Shaped like an FID, but the checksum fails — a character is wrong.",
+                icon: "exclamationmark.triangle", tint: .red, usable: false
+            )
+        case .multiple:
+            return Verdict(
+                text: "That looks like more than one item. Paste a single key.",
+                icon: "square.stack", tint: .orange, usable: false
+            )
+        case .unknown:
+            return Verdict(
+                text: "Not a key this app recognizes — expected hex, a WIF, or an encrypted backup.",
+                icon: "questionmark.circle", tint: .orange, usable: false
+            )
         }
     }
+
+    /// Scanned or opened text goes straight in the box; the detector
+    /// decides what it is, exactly as it does for a paste.
+    private func adopt(_ raw: String) {
+        keyText = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        source = .key
+    }
+
+    private func pickFile() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = "Read key"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let text = try String(contentsOf: url, encoding: .utf8)
+            adopt(text)
+        } catch {
+            localError = "Couldn't read \(url.lastPathComponent): \(error.localizedDescription)"
+        }
+    }
+
+    private func clear() {
+        keyText = ""
+        cipherPassword = ""
+        localError = nil
+    }
+
+    // MARK: - submit
 
     private var inputLooksValid: Bool {
         switch source {
         case .random:     return true
-        case .hex:        return hexInput.count == 64
-        case .wif:        return wifInput.count >= 50    // L/K WIFs ≈ 52 chars; 5-WIFs ≈ 51
+        case .key:        return detected == .prikey
+                              || (detected == .cipher && !cipherPassword.isEmpty)
         case .passphrase: return !phrase.isEmpty
         }
     }
@@ -190,9 +311,23 @@ struct AddMainView: View {
         working = true
         defer { working = false }
 
+        // Argon2id — for a phrase, and for a cipher's password — takes
+        // long enough that running it here would freeze the window.
+        let source = self.source
+        let keyText = self.keyText
+        let cipherPassword = self.cipherPassword
+        let phrase = self.phrase
+        let phraseScheme = self.phraseScheme
+
         let priv: Data
         do {
-            priv = try derivePrivkey()
+            priv = try await Task.detached(priority: .userInitiated) {
+                try Self.derivePrivkey(
+                    source: source, keyText: keyText,
+                    cipherPassword: cipherPassword,
+                    phrase: phrase, phraseScheme: phraseScheme
+                )
+            }.value
         } catch {
             localError = String(describing: error)
             return
@@ -207,12 +342,21 @@ struct AddMainView: View {
         }
         await appState.addMain(privkey: priv, label: label)
         // Wipe sensitive fields irrespective of success/error.
-        hexInput = ""
-        wifInput = ""
-        phrase = ""
+        self.keyText = ""
+        self.cipherPassword = ""
+        self.phrase = ""
+        detected = .empty
     }
 
-    private func derivePrivkey() throws -> Data {
+    /// Nonisolated so it can run off the main actor: it reads only the
+    /// values handed to it, never the view's state.
+    nonisolated private static func derivePrivkey(
+        source: Source,
+        keyText: String,
+        cipherPassword: String,
+        phrase: String,
+        phraseScheme: PhraseKey.Scheme
+    ) throws -> Data {
         switch source {
         case .random:
             var out = Data(count: 32)
@@ -225,34 +369,30 @@ struct AddMainView: View {
             }
             return out
 
-        case .hex:
-            return try parseHex(hexInput)
-
-        case .wif:
-            let (priv, _) = try WifPrivkey.decode(wifInput)
-            return priv
+        case .key:
+            if let privkey = KeyInput.prikey32(from: keyText) { return privkey }
+            var plaintext = try KeyInput.openCipher(keyText, password: Data(cipherPassword.utf8))
+            defer { plaintext.resetBytes(in: 0 ..< plaintext.count) }
+            guard let privkey = KeyInput.prikey(fromPlaintext: plaintext) else {
+                throw Failure.cipherHeldNoKey(wasJson: KeyInput.isJson(plaintext))
+            }
+            return privkey
 
         case .passphrase:
             return try PhraseKey.privateKey(fromPhrase: phrase, scheme: phraseScheme)
         }
     }
 
-    private func parseHex(_ s: String) throws -> Data {
-        guard s.count == 64 else {
-            throw NSError(domain: "AddMainView", code: 1,
-                          userInfo: [NSLocalizedDescriptionKey: "Hex must be exactly 64 chars."])
-        }
-        var data = Data(capacity: 32)
-        var idx = s.startIndex
-        while idx < s.endIndex {
-            let next = s.index(idx, offsetBy: 2)
-            guard let byte = UInt8(s[idx..<next], radix: 16) else {
-                throw NSError(domain: "AddMainView", code: 2,
-                              userInfo: [NSLocalizedDescriptionKey: "Invalid hex byte: \(s[idx..<next])"])
+    enum Failure: Error, CustomStringConvertible {
+        case cipherHeldNoKey(wasJson: Bool)
+
+        var description: String {
+            switch self {
+            case .cipherHeldNoKey(let wasJson):
+                return wasJson
+                    ? "The password opened that backup, but it holds key JSON rather than a single prikey. Importing a whole backup isn't supported here yet."
+                    : "The password opened that backup, but what's inside isn't a prikey."
             }
-            data.append(byte)
-            idx = next
         }
-        return data
     }
 }

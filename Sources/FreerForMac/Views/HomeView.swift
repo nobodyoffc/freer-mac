@@ -27,6 +27,7 @@ struct HomeView: View {
     @State private var showAddServants = false
     @State private var showCreateMultisig = false
     @State private var showAddMultisig = false
+    @State private var showBackupPrikey = false
     /// The group a co-sign sheet is open for. Identifiable-by-value so
     /// the sheet is rebuilt when the group changes.
     @State private var signingGroup: SigningGroup?
@@ -119,6 +120,21 @@ struct HomeView: View {
                     : "Added \(count) servants."
             } onCancel: {
                 showAddServants = false
+            }
+        }
+        .onChange(of: appState.backupPrikeyRequested) { _, requested in
+            if requested {
+                showBackupPrikey = true
+                appState.consumeBackupPrikeyRequest()
+            }
+        }
+        .sheet(isPresented: $showBackupPrikey) {
+            BackupPrikeySheet(session: session) {
+                showBackupPrikey = false
+                appState.markPrikeyBackedUp()
+                identityNote = "Backup recorded. The reminder stops — the copy itself is yours to keep safe."
+            } onLater: {
+                showBackupPrikey = false
             }
         }
         // One details page for every FID a pane draws. The panes and
