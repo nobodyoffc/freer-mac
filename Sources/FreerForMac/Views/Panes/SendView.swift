@@ -3,9 +3,14 @@ import FCCore
 import FCDomain
 import FCUI
 
-/// The Send pane: two tabs over one act. **Send** pays someone and makes
-/// every other decision for you; **Compose** (``CreateTxView``) hands
+/// The Send pane: one act at two depths. **Send** pays someone and makes
+/// every other decision for you; **Advanced** (``CreateTxView``) hands
 /// those decisions back — inputs, several outputs, a message, a lock.
+///
+/// **Advanced is a button beside Send, not a tab above it.** You reach
+/// for it on finding that Send's answers are wrong, and that happens
+/// while filling this form in — not before you start, which is the only
+/// moment a tab strip above the form is any use.
 struct SendView: View {
     @Environment(AppState.self) private var appState
     let session: ActiveSession
@@ -17,17 +22,9 @@ struct SendView: View {
     }
 
     var body: some View {
-        @Bindable var state = appState
         VStack(alignment: .leading, spacing: 12) {
             PaneHeader(session: session)
             Divider()
-
-            Picker("", selection: $state.sendMode) {
-                ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 200)
 
             switch appState.sendMode {
             case .send:
@@ -37,6 +34,9 @@ struct SendView: View {
             }
         }
         .padding()
+        // The minimum width belongs here, on the pane, exactly as
+        // ``SettingsView`` has it — not on the nested form view.
+        .frame(minWidth: 480)
     }
 }
 
@@ -74,10 +74,31 @@ struct SendPaymentView: View {
                 watchOnlyBanner
             }
 
-            form
-            Spacer()
+            // **The ScrollView is what keeps this pane inside the
+            // window.** Left bare, this Form lays out twice: once
+            // correctly at the 487pt it is offered, then again at its
+            // full intrinsic 1215pt, which makes the pane 1391pt inside
+            // a 715pt window. SwiftUI centres a child too big for its
+            // slot, so ~286pt — the FID bar and the top of the form —
+            // ends up above the window's top edge, with no scroller to
+            // reach it. A ScrollView clamps to the height it is offered
+            // instead, which is the one thing every pane that behaves
+            // (Overview, Convert, Tools) has in common.
+            //
+            // Do not add `.fixedSize(horizontal: false, vertical: true)`
+            // to the form. It forces that same intrinsic height back and
+            // hands the scroller the whole of it, so there is again
+            // nothing left to scroll — measured at 1738pt against a
+            // 532pt window.
+            ScrollView {
+                form
+            }
         }
-        .frame(minWidth: 480)
+        // No minimum width on this inner view: it is the one structural
+        // difference from ``SettingsView``, whose pane sits at the
+        // height it is offered. A minimum here can have the form
+        // measured at 580pt wide rather than the ~890pt it is actually
+        // given, and a narrower form is a taller one.
         .alert("Send \(formatBch(amountSatoshis ?? 0)) FCH?",
                isPresented: $showConfirm) {
             Button("Cancel", role: .cancel) {}
@@ -197,8 +218,21 @@ struct SendPaymentView: View {
             }
 
             Section {
-                HStack {
+                HStack(spacing: 10) {
                     Spacer()
+
+                    // The escape hatch, kept next to the act it widens
+                    // rather than above it: you reach for Advanced when
+                    // Send's answers are wrong, which is something you
+                    // discover while filling this form in — not a peer
+                    // view to choose between before you start.
+                    Button {
+                        appState.sendMode = .compose
+                    } label: {
+                        Text("Advanced").frame(width: 100)
+                    }
+                    .help("Compose the transaction by hand — choose the coins, pay several people at once, add a message or a time lock.")
+
                     if session.canSign {
                         Button {
                             sendError = nil

@@ -4,8 +4,8 @@ import FCCore
 import FCDomain
 import FCUI
 
-/// Compose — the Mac port of Android's `CreateTxActivity`, and the
-/// second tab of the Send pane (``SendView``).
+/// Compose — the Mac port of Android's `CreateTxActivity`, reached from
+/// the **Advanced** button on the Send pane (``SendView``).
 ///
 /// **Send is for paying someone; this is for building a transaction.**
 /// The Send tab asks two questions (who, how much) and decides
@@ -235,6 +235,16 @@ struct CreateTxView: View {
 
     private var toolbar: some View {
         HStack(spacing: 8) {
+            // The way back. Compose is entered from Send's Advanced
+            // button now rather than a tab strip, so without this there
+            // is no route to the simple form short of leaving the pane.
+            Button {
+                appState.sendMode = .send
+            } label: {
+                Label("Send", systemImage: "chevron.left")
+            }
+            .help("Back to the simple Send form")
+
             Button {
                 clearAll()
             } label: {
