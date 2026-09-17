@@ -5,8 +5,11 @@ import FCDomain
 import FCUI
 
 /// Mint or import a main FID inside the unlocked Configure. Three sources:
-///   - **Random** — `SecRandomCopyBytes(32)`. The most defensible
-///     choice; picked by default.
+///   - **Random** — `SecRandomCopyBytes(32)`, ten times over, and the
+///     user keeps the FID they like. The most defensible choice; picked
+///     by default. Choosing among ten costs nothing in entropy — each
+///     key is independently random — and an identity people will read
+///     for years is worth a glance at its avatar and characters first.
 ///   - **Key** — one box that takes whatever key text the user has:
 ///     64 hex characters, `0x`-prefixed hex, a WIF (`L`/`K`/`5`), or a
 ///     password-encrypted backup in either of the two forms Freer
@@ -56,6 +59,18 @@ struct AddMainView: View {
     @State private var working: Bool = false
     @State private var localError: String?
     @State private var showScan: Bool = false
+    /// The random keys on offer. Held only while this view is up, and
+    /// dropped on submit like every other key text here.
+    @State private var candidates: [Candidate] = []
+    @State private var chosenFid: String?
+
+    private struct Candidate: Identifiable {
+        let prikey: Data
+        let fid: String
+        var id: String { fid }
+    }
+
+    private static let candidateCount = 10
 
     var body: some View {
         Form {
@@ -78,9 +93,7 @@ struct AddMainView: View {
 
                 switch source {
                 case .random:
-                    Text("A 32-byte prikey will be generated using SecRandomCopyBytes.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    candidateList
                 case .key:
                     keyBox
                 case .passphrase:
@@ -137,6 +150,7 @@ struct AddMainView: View {
         .formStyle(.grouped)
         .frame(minWidth: 540, maxWidth: 620)
         .padding()
+        .onAppear { if candidates.isEmpty { regenerate() } }
         .sheet(isPresented: $showScan) {
             QrScanSheet(title: "Scan a key QR") { scanned in
                 showScan = false
@@ -145,6 +159,60 @@ struct AddMainView: View {
                 showScan = false
             }
         }
+    }
+
+    // MARK: - random candidates
+
+    @ViewBuilder
+    private var candidateList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("Pick the FID you like. Each has its own 32-byte prikey from SecRandomCopyBytes.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button("New set", systemImage: "arrow.clockwise", action: regenerate)
+                    .disabled(working)
+                    .help("Replace these \(Self.candidateCount) with \(Self.candidateCount) new random FIDs")
+            }
+            if candidates.isEmpty, let localError {
+                Text(localError).font(.callout).foregroundStyle(.red)
+            }
+            ForEach(candidates) { c in
+                let chosen = c.fid == chosenFid
+                HStack(spacing: 10) {
+                    Image(systemName: chosen ? "largecircle.fill.circle" : "circle")
+                        .foregroundStyle(chosen ? Color.accentColor : .secondary)
+                    FidAvatarView(fid: c.fid, size: 28)
+                    // Clicking the FID copies it; the rest of the row picks it.
+                    CopyableText(c.fid, font: .body.monospaced())
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 2)
+                .contentShape(Rectangle())
+                .onTapGesture { if !working { chosenFid = c.fid } }
+            }
+        }
+    }
+
+    private func regenerate() {
+        do {
+            candidates = try (0 ..< Self.candidateCount).map { _ in
+                let prikey = try Self.randomPrikey()
+                let fid = try FchAddress(publicKey: Secp256k1.publicKey(fromPrivateKey: prikey)).fid
+                return Candidate(prikey: prikey, fid: fid)
+            }
+            chosenFid = candidates.first?.fid
+        } catch {
+            candidates = []
+            chosenFid = nil
+            localError = "Couldn't generate random keys: \(error)"
+        }
+    }
+
+    private var chosenPrikey: Data? {
+        candidates.first { $0.fid == chosenFid }?.prikey
     }
 
     // MARK: - the one key box
@@ -297,7 +365,7 @@ struct AddMainView: View {
 
     private var inputLooksValid: Bool {
         switch source {
-        case .random:     return true
+        case .random:     return chosenPrikey != nil
         case .key:        return detected == .prikey
                               || (detected == .cipher && !cipherPassword.isEmpty)
         case .passphrase: return !phrase.isEmpty
@@ -318,12 +386,13 @@ struct AddMainView: View {
         let cipherPassword = self.cipherPassword
         let phrase = self.phrase
         let phraseScheme = self.phraseScheme
+        let randomPrikey = self.chosenPrikey
 
         let priv: Data
         do {
             priv = try await Task.detached(priority: .userInitiated) {
                 try Self.derivePrivkey(
-                    source: source, keyText: keyText,
+                    source: source, randomPrikey: randomPrikey, keyText: keyText,
                     cipherPassword: cipherPassword,
                     phrase: phrase, phraseScheme: phraseScheme
                 )
@@ -346,12 +415,16 @@ struct AddMainView: View {
         self.cipherPassword = ""
         self.phrase = ""
         detected = .empty
+        // A fresh set rather than an empty one: if adding failed the user
+        // is still here and needs something to pick.
+        regenerate()
     }
 
     /// Nonisolated so it can run off the main actor: it reads only the
     /// values handed to it, never the view's state.
     nonisolated private static func derivePrivkey(
         source: Source,
+        randomPrikey: Data?,
         keyText: String,
         cipherPassword: String,
         phrase: String,
@@ -359,15 +432,10 @@ struct AddMainView: View {
     ) throws -> Data {
         switch source {
         case .random:
-            var out = Data(count: 32)
-            let status = out.withUnsafeMutableBytes { ptr -> Int32 in
-                guard let base = ptr.baseAddress else { return -1 }
-                return SecRandomCopyBytes(kSecRandomDefault, 32, base)
-            }
-            guard status == errSecSuccess else {
-                throw NSError(domain: "SecRandom", code: Int(status))
-            }
-            return out
+            // Always one of the candidates on screen: minting a fresh key
+            // here would add an FID the user never saw.
+            guard let randomPrikey else { throw Failure.noCandidateChosen }
+            return randomPrikey
 
         case .key:
             if let privkey = KeyInput.prikey32(from: keyText) { return privkey }
@@ -383,8 +451,21 @@ struct AddMainView: View {
         }
     }
 
+    nonisolated private static func randomPrikey() throws -> Data {
+        var out = Data(count: 32)
+        let status = out.withUnsafeMutableBytes { ptr -> Int32 in
+            guard let base = ptr.baseAddress else { return -1 }
+            return SecRandomCopyBytes(kSecRandomDefault, 32, base)
+        }
+        guard status == errSecSuccess else {
+            throw NSError(domain: "SecRandom", code: Int(status))
+        }
+        return out
+    }
+
     enum Failure: Error, CustomStringConvertible {
         case cipherHeldNoKey(wasJson: Bool)
+        case noCandidateChosen
 
         var description: String {
             switch self {
@@ -392,6 +473,8 @@ struct AddMainView: View {
                 return wasJson
                     ? "The password opened that backup, but it holds key JSON rather than a single prikey. Importing a whole backup isn't supported here yet."
                     : "The password opened that backup, but what's inside isn't a prikey."
+            case .noCandidateChosen:
+                return "Pick one of the random FIDs first."
             }
         }
     }

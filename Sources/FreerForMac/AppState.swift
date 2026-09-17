@@ -590,6 +590,10 @@ final class AppState {
             self.prikeyBackedUp = session.prikeyBackedUp
             self.onboardingSkipped = session.onboardingSkipped
             self.onboardingStarted = session.onboardingStarted
+            // Every identity opens on Overview. The pane is app state, so
+            // without this a new identity landed on whatever pane the
+            // previous one was left on.
+            self.selectedPane = .overview
             self.route = .home
             // Before the first frame of `.home`: the theme is a
             // per-identity preference, so it can only be known now.
