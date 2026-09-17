@@ -29,6 +29,11 @@ struct GettingStartedCard: View {
 
     @State private var guideIsContact = false
     @State private var joinedSquare = false
+    /// This FID's request is already on the First FCH board, so there is
+    /// nothing left to do there but wait.
+    @State private var askedForFirstFch = false
+    @State private var askingForFirstFch = false
+    @State private var askError: String?
     /// Carves broadcast and not yet on the chain, from the two records
     /// that keep them: the identity carves and the group acts.
     @State private var pending: [OnboardingStep: OnboardingPending] = [:]
@@ -229,7 +234,22 @@ struct GettingStartedCard: View {
                 Button("Back up now") { appState.openBackupPrikey() }
 
             case .firstFch:
-                Button("Open Help beginners") { appState.openFirstFchBoard() }
+                // Posts straight from here: a note is optional, and making
+                // a newcomer find the board to press one button there was a
+                // detour. The board is still where the note can be added.
+                Button {
+                    Task { await askForFirstFch() }
+                } label: {
+                    if askingForFirstFch {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Text("Ask help")
+                    }
+                }
+                .disabled(askedForFirstFch || askingForFirstFch)
+                .help(askedForFirstFch
+                      ? "Your request is already on the board. Now wait for somebody to send coins to your address."
+                      : "Post your FID on the public First FCH board, where anyone can read it")
                 CopyableText.elidingMiddle(session.liveFid, font: .callout.monospaced())
 
             case .registerCid, .setHome:
@@ -269,6 +289,33 @@ struct GettingStartedCard: View {
             }
         }
         .padding(.top, 2)
+
+        if item.step == .firstFch, let askError {
+            CopyableText(askError, font: .callout, color: .red)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    @MainActor
+    private func askForFirstFch() async {
+        guard !askingForFirstFch else { return }
+        guard let privkey = try? session.livePrikey() else {
+            askError = "This identity has no prikey, so there is nothing to seal a request with."
+            return
+        }
+        askError = nil
+        askingForFirstFch = true
+        defer { askingForFirstFch = false }
+        let fid = session.liveFid
+        do {
+            _ = try await session.firstFchBoard.post(note: nil, as: fid, privkey: privkey)
+            var state = session.firstFchBoardState.get(fid: fid)
+            state.askedAt = Int64(Date().timeIntervalSince1970 * 1000)
+            try? session.firstFchBoardState.put(state, fid: fid)
+            askedForFirstFch = true
+        } catch {
+            askError = "Couldn't post your request: \(error)"
+        }
     }
 
     // MARK: - state
@@ -277,6 +324,7 @@ struct GettingStartedCard: View {
         let fid = session.liveFid
         let now = Date()
         joinedSquare = !((try? session.squares.joined(by: fid)) ?? []).isEmpty
+        askedForFirstFch = session.firstFchBoardState.get(fid: fid).hasAsked
         guideIsContact = guide.map { (try? session.contacts.get(fid: $0)) != nil } ?? false
 
         var found: [OnboardingStep: OnboardingPending] = [:]
