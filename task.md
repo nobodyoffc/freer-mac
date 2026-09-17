@@ -1,8 +1,8 @@
 Task
-[] master
-[] list default Square
+[x] master
+[x] list default Square
 [x] onboarding task list.
-[] contacts detail
+[x] contacts detail
 [x] Dock/DISK setup
 [x] introduction for newcomer
 [x] Newcomer has to expose the pubkey. register CID.

@@ -211,6 +211,11 @@ struct ContactsView: View {
                     row(c)
                         .padding(.vertical, 10)
                         .padding(.horizontal, 16)
+                        // The whole row, padding included, opens the
+                        // page about who this is. The buttons and the
+                        // copyable FID inside keep their own clicks.
+                        .contentShape(Rectangle())
+                        .onTapGesture { inspectFid(c.id) }
                     Divider()
                 }
             }
@@ -222,14 +227,7 @@ struct ContactsView: View {
     @ViewBuilder
     private func row(_ c: Contact) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            // The avatar is the row's largest target and the one thing
-            // on it that is purely about *who this is*, so it opens the
-            // page about who this is.
-            Button { inspectFid(c.id) } label: {
-                FidAvatarView(fid: c.id, size: 40)
-            }
-            .buttonStyle(.plain)
-            .help("Show this FID's details, standing and ratings")
+            FidAvatarView(fid: c.id, size: 40)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -326,7 +324,7 @@ struct ContactsView: View {
             }
             .foregroundStyle(.secondary)
         }
-        .contentShape(Rectangle())
+        .help("Show this FID's details, standing and ratings")
         .contextMenu {
             Button("Show FID details") { inspectFid(c.id) }
             Button("Copy FID") { copyToPasteboard(c.id) }
