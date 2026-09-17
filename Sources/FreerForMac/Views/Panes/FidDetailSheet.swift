@@ -19,9 +19,9 @@ import FCUI
 /// it — is the same fact somebody wants about a service's owner, a
 /// mail's sender, a code's publisher, a stranger in a square. So the
 /// FID is a parameter. Pass none and it is your own; pass any other and
-/// the local sections quietly change shape rather than lying: *This
-/// vault* only appears for an identity this Mac actually holds keys
-/// for, *In your contacts* only for one you have saved.
+/// the local parts quietly change shape rather than lying: the key
+/// state in the header only appears for an identity this Mac holds,
+/// *In your contacts* only for one you have saved.
 ///
 /// **Two sources, kept apart on purpose.** The local sections come from
 /// ``KeyInfo`` and ``Contact`` and are true offline. Everything below
@@ -75,8 +75,8 @@ struct FidDetailSheet: View {
     private var keyInfo: KeyInfo? { session.setting.keyInfoMap[fid] }
 
     /// Whether this is the identity the user is currently living as.
-    /// The one FID that may not be rated, and the one whose vault
-    /// section can speak in the present tense.
+    /// The one FID that may not be rated, and the one whose key state
+    /// can speak in the present tense.
     private var isLive: Bool { fid == session.liveFid }
 
     var body: some View {
@@ -97,18 +97,19 @@ struct FidDetailSheet: View {
                         noteBanner(rateNote)
                     }
                     identitySection
-                    if keyInfo != nil { vaultSection }
                     if contact != nil { contactSection }
                     if freer != nil {
                         balanceSection
                         standingSection
-                        recordSection
-                        homeSection
-                        otherChainsSection
                     } else if !loading {
                         noRecordSection
                     }
                     ratingsSection
+                    if freer != nil {
+                        homeSection
+                        recordSection
+                        otherChainsSection
+                    }
                     groupSection
                 }
                 .padding(20)
@@ -151,6 +152,7 @@ struct FidDetailSheet: View {
                 Text(role)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .help(keyInfo.map { keyState($0).detail } ?? "")
             }
             Spacer()
             if loading {
@@ -167,11 +169,22 @@ struct FidDetailSheet: View {
     /// it, then nothing — never the FID, which is already on the page
     /// in full one line down.
     private var displayName: String {
-        if let cid = freer?.cid ?? keyInfo?.activeCid ?? contact?.cid, !cid.isEmpty {
-            return cid
-        }
+        if let cid = currentCid { return cid }
         if let label = keyInfo?.label, !label.isEmpty { return label }
         return fid.elidingMiddle(head: 10, tail: 10)
+    }
+
+    private var currentCid: String? {
+        guard let cid = freer?.cid ?? keyInfo?.activeCid ?? contact?.cid, !cid.isEmpty else {
+            return nil
+        }
+        return cid
+    }
+
+    /// The names this FID has carried before. The chain's list includes
+    /// the current one, which the CID row already shows.
+    private var formerCids: [String] {
+        (freer?.usedCids ?? []).filter { !$0.isEmpty && $0 != currentCid }
     }
 
     /// **The one act on a read-only page.** Disabled rather than hidden
@@ -229,18 +242,31 @@ struct FidDetailSheet: View {
     /// vault that is its role; for anyone else it is the relationship,
     /// which is the honest answer — "Servant FID" would be a lie about
     /// a stranger who merely happens to have one.
+    ///
+    /// For a vault identity the key state rides along, since whether
+    /// this Mac can sign as it is the one local fact worth a glance;
+    /// the tooltip carries the longer explanation. A multisig group
+    /// skips it — "Multisig group" already says the same thing.
     private var role: String {
         if let keyInfo {
-            if fid == session.mainFid { return isLive ? "Main FID — live" : "Main FID" }
-            if let master = session.mainKeyInfo.master, master == fid { return "Master" }
-            let name: String
-            switch keyInfo.kind {
-            case .main:     name = "Main FID"
-            case .watched:  name = "Watched FID"
-            case .multisig: name = "Multisig group"
-            case .servant:  name = "Servant FID"
+            var name: String
+            if fid == session.mainFid {
+                name = "Main FID"
+            } else if let master = session.mainKeyInfo.master, master == fid {
+                name = "Master"
+            } else {
+                switch keyInfo.kind {
+                case .main:     name = "Main FID"
+                case .watched:  name = "Watched FID"
+                case .multisig: name = "Multisig group"
+                case .servant:  name = "Servant FID"
+                }
             }
-            return isLive ? "\(name) — live" : name
+            if isLive { name += " — live" }
+            if keyInfo.kind != .multisig {
+                name += " · " + keyState(keyInfo).headline.lowercased()
+            }
+            return name
         }
         if contact != nil { return "In your contacts" }
         return "Another FID"
@@ -257,19 +283,17 @@ struct FidDetailSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             row("CID") {
-                if let cid = freer?.cid ?? keyInfo?.activeCid ?? contact?.cid, !cid.isEmpty {
-                    CopyableText(cid, font: .body)
+                if let cid = currentCid {
+                    VStack(alignment: .leading, spacing: 2) {
+                        CopyableText(cid, font: .body)
+                        if !formerCids.isEmpty {
+                            caption("Formerly " + formerCids.joined(separator: ", "))
+                        }
+                    }
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("None registered").foregroundStyle(.secondary)
                         caption("A CID is a name bought on chain. Without one this FID is known by its address.")
-                    }
-                }
-            }
-            if let used = freer?.usedCids, !used.isEmpty {
-                row("Previously") {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(used, id: \.self) { CopyableText($0, font: .caption) }
                     }
                 }
             }
@@ -285,42 +309,6 @@ struct FidDetailSheet: View {
                         Text("The prikey behind this FID is public").foregroundStyle(.orange)
                         caption("Anyone can spend from it. Never send value here.", warning: true)
                     }
-                }
-            }
-            if keyInfo != nil, fid != session.mainFid {
-                row("Main FID") {
-                    CopyableText.elidingMiddle(
-                        session.mainFid, head: 10, tail: 10,
-                        font: .system(.caption, design: .monospaced)
-                    )
-                }
-            }
-        }
-    }
-
-    /// What this Mac holds, as opposed to what the chain says. Only
-    /// drawn for an identity the vault actually knows — for a stranger
-    /// there is nothing here but three dashes.
-    @ViewBuilder
-    private var vaultSection: some View {
-        if let keyInfo {
-            section("This vault") {
-                row("Label") {
-                    if keyInfo.label.isEmpty {
-                        Text(isLive ? "None — set one in the FID bar" : "None")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(keyInfo.label)
-                    }
-                }
-                row("Keys") {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(keyState(keyInfo).headline)
-                        caption(keyState(keyInfo).detail)
-                    }
-                }
-                row("Added") {
-                    Text(Self.stamp.string(from: keyInfo.savedAt)).foregroundStyle(.secondary)
                 }
             }
         }
