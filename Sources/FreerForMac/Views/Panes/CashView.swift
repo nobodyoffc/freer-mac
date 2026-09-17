@@ -34,6 +34,7 @@ import FCUI
 /// both are labelled, and neither can be ticked, because a transaction
 /// built on them would be rejected or double-spent.
 struct CashView: View {
+    @Environment(AppState.self) private var appState
     let session: ActiveSession
 
     @State private var snapshot: CashSnapshot?
@@ -527,6 +528,8 @@ struct CashView: View {
         } catch {
             loadError = describe(error)
         }
+        // The FID record is a separate index; see OverviewView.refresh().
+        await appState.refreshLiveFidInfo()
     }
 
     @MainActor

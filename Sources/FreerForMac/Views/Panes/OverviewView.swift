@@ -484,6 +484,11 @@ struct OverviewView: View {
         } catch {
             self.loadError = String(describing: error)
         }
+        // Cashes and the FID record are separate indexes. Coins that just
+        // arrived show in the first; the getting-started checklist and the
+        // bar's balance read the second, and would otherwise keep the
+        // record fetched at connect.
+        await appState.refreshLiveFidInfo()
 
         // The two feeds are a glance, not a source of truth. A server
         // that cannot answer them should leave the last known rows on

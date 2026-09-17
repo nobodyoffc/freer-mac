@@ -56,6 +56,7 @@ struct GettingStartedCard: View {
             if session.canSign && ob.shouldShow(started: appState.onboardingStarted) {
                 card(ob)
                     .onAppear { noteStarted(ob) }
+                    .task(id: ob.status(of: .firstFch) == .open) { await watchForFirstFch(ob) }
             }
         }
         .onAppear { reloadLocal(guide: ob.guide) }
@@ -294,6 +295,23 @@ struct GettingStartedCard: View {
         }
         pending = found
     }
+
+    /// A newcomer who asked for coins sits on this card waiting for them,
+    /// and nothing else re-reads the FID record when they arrive. So while
+    /// the step is open and the card is on screen, ask again now and then.
+    /// The task ends as soon as the step ticks, or the card goes away, so a
+    /// funded identity never polls.
+    private func watchForFirstFch(_ ob: Onboarding) async {
+        guard ob.status(of: .firstFch) == .open else { return }
+        while !Task.isCancelled {
+            try? await Task.sleep(for: Self.firstFchPollInterval)
+            guard !Task.isCancelled else { return }
+            await appState.refreshLiveFidInfo()
+        }
+    }
+
+    /// About one block.
+    private static let firstFchPollInterval: Duration = .seconds(60)
 
     private func isWaiting(_ status: OnboardingStatus) -> Bool {
         if case .waiting = status { return true }
