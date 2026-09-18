@@ -265,4 +265,60 @@ final class AdvancedTxBuilderTests: XCTestCase {
         XCTAssertEqual(cash.localState, .unknown)
         XCTAssertNil(Cash(slot: RawTxInfo.Slot(owner: fid, value: 1)))
     }
+
+    // MARK: - a document is input, not an invariant
+
+    /// A composed document is JSON another wallet or a signing machine
+    /// wrote, so every number in it is hostile until checked. These all
+    /// used to reach a trapping conversion or an overflowing add and
+    /// take the process down; refusing the document is the job.
+    func testAMalformedDocumentIsRefusedRatherThanTrapping() throws {
+        func refuses(_ info: RawTxInfo, _ what: String) {
+            XCTAssertThrowsError(try AdvancedTxBuilder.build(info, inputCashes: []), what)
+        }
+
+        refuses(base([input(-1)], [.output(to: other, amount: 10)]), "negative input value")
+        refuses(base([input(1_000)], [.output(to: other, amount: -5)]), "negative output value")
+        refuses(base([input(1_000, index: -1)], [.output(to: other, amount: 10)]),
+                "negative output index")
+
+        // Two inputs that individually fit and together do not.
+        refuses(
+            base(
+                [input(Int64.max, index: 0), input(Int64.max, index: 1)],
+                [.output(to: other, amount: 10)]
+            ),
+            "input total overflows"
+        )
+        refuses(
+            base(
+                [input(1_000)],
+                [.output(to: other, amount: Int64.max), .output(to: other, amount: Int64.max)]
+            ),
+            "output total overflows"
+        )
+
+        // A locktime past the 32-bit field used to wrap silently, which
+        // turns a lock in the far future into one already expired.
+        refuses(
+            base([input(1_000_000, lockTime: Int64(UInt32.max) + 1)],
+                 [.output(to: other, amount: 10_000)]),
+            "locktime too large for the field"
+        )
+    }
+
+    /// The fee rate rides in on the same document. `> 0` admits a NaN
+    /// and an infinity, and `Int64(_:)` traps on both.
+    func testAnImpossibleFeeRateMakesTheDocumentUnpriceableRatherThanTrapping() throws {
+        for rate in [Double.infinity, -Double.infinity, Double.nan, 1e300] {
+            var info = base([input(1_000_000)], [.output(to: other, amount: 10_000)])
+            info.feeRate = rate
+            // Either it prices at the default rate or it declines to
+            // price at all — what it must not do is trap.
+            let priced = TxFee.calc(info)
+            if let fee = priced.fee {
+                XCTAssertGreaterThanOrEqual(fee, 0, "rate \(rate)")
+            }
+        }
+    }
 }

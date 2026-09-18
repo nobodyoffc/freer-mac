@@ -142,6 +142,70 @@ final class CashReservationTests: XCTestCase {
         )
     }
 
+    /// **The post-send write is a read-modify-write of the same ledger
+    /// the claim guards.** It ran outside ``CashLedgerLock``, so a
+    /// send that read the snapshot before a concurrent carve's claim
+    /// landed wrote that stale copy back afterwards — erasing the
+    /// carve's reservation and leaving the wallet offering a cash that
+    /// was already in a broadcast transaction.
+    ///
+    /// **This pins the invariant, it does not reproduce the race.** The
+    /// window between the stale read and the write is a few
+    /// microseconds of in-memory work, and running the two operations
+    /// concurrently does not reliably land inside it — the unlocked
+    /// version passes this test too. It is here so that a future change
+    /// which drops reservations in the ordinary, non-racing path is
+    /// caught; the locking itself is argued from the code, not from a
+    /// red test.
+    func testAPostSendUpdateDoesNotEraseAConcurrentReservation() async throws {
+        let mock = MockFapiClient()
+        let sessions = try makeSessions(passwords: ["post-send-a", "post-send-b"], fapi: mock)
+        let alice = sessions[0]
+        let bob = sessions[1]
+        broadcastOnly(mock)
+
+        // A fresh ledger per round, with cashes the previous round
+        // cannot have touched.
+        for round in 0..<8 {
+            let cashes = try (0..<6).map {
+                try cash(
+                    owner: alice.mainFid, txidByte: UInt8(0x40 + round * 8 + $0),
+                    index: $0, value: 500_000
+                )
+            }
+            try alice.cashes.save(CashSnapshot(
+                addr: alice.mainFid, cashes: cashes,
+                bestHeight: 1_000, watermarkHeight: 1_000
+            ))
+
+            async let payment = alice.wallet.send(
+                fromAddress: alice.mainFid, privkey: try alice.mainPrikey(),
+                to: bob.mainFid, amount: 100_000, useCache: true
+            )
+            async let carve = alice.wallet.carve(
+                fromAddress: alice.mainFid, privkey: try alice.mainPrikey(),
+                opReturn: #"{"type":"FEIP","sn":"1","ver":"5"}"#, useCache: true
+            )
+            let (paid, carved) = try await (payment, carve)
+
+            let snap = try XCTUnwrap(alice.cashes.snapshot(forAddress: alice.mainFid))
+            let spent = Set(
+                (paid.plan.selected + carved.plan.selected).compactMap(\.id)
+            )
+            for id in spent {
+                let row = try XCTUnwrap(
+                    snap.cashes.first { $0.id == id },
+                    "round \(round): cash \(id) vanished from the ledger"
+                )
+                XCTAssertTrue(
+                    row.pendingSpend,
+                    "round \(round): cash \(id) is in a broadcast transaction but the "
+                        + "wallet no longer has it reserved"
+                )
+            }
+        }
+    }
+
     /// A claim is a loan, not a forfeiture: a refused transaction has
     /// to give the cash back, or the user quietly loses the use of it.
     func testARefusedTransactionReleasesItsInputs() async throws {

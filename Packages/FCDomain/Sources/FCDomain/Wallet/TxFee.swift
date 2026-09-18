@@ -90,6 +90,27 @@ public enum TxFee {
         )
     }
 
+    /// `a + b`, or nil when it will not fit.
+    private static func sum(_ a: Int64, _ b: Int64) -> Int64? {
+        let (value, overflowed) = a.addingReportingOverflow(b)
+        return overflowed ? nil : value
+    }
+
+    /// `a * b`, or nil when it will not fit — the composed-document
+    /// paths price numbers they did not choose.
+    private static func product(_ a: Int64, _ b: Int64) -> Int64? {
+        let (value, overflowed) = a.multipliedReportingOverflow(by: b)
+        return overflowed ? nil : value
+    }
+
+    /// `inputs - outputs - fee`, or nil when any step will not fit.
+    private static func remainder(_ inputs: Int64, _ outputs: Int64, _ fee: Int64) -> Int64? {
+        let (afterOutputs, o1) = inputs.subtractingReportingOverflow(outputs)
+        guard !o1 else { return nil }
+        let (left, o2) = afterOutputs.subtractingReportingOverflow(fee)
+        return o2 ? nil : left
+    }
+
     /// Size in bytes of a change output paying `fid`.
     public static func changeOutputBytes(payingTo fid: String?) -> Int64 {
         guard let fid, FchAddress.isP2sh(fid: fid) else { return changeOutputBytes }
@@ -118,8 +139,21 @@ public enum TxFee {
     /// fall back to the no-change price if adding the output would
     /// push the remainder back under.
     public static func calc(_ info: RawTxInfo) -> Result {
-        let feeRate = (info.feeRate.map { $0 > 0 ? $0 : defaultFeeRate }) ?? defaultFeeRate
-        let feeRateLong = Int64(feeRate / 1000 * Double(coinToSatoshi))
+        // **A fee rate is a number off the wire.** `info` is parsed from
+        // a document another wallet or a signing machine wrote, so the
+        // rate can be a NaN, an infinity, or 1e300. `> 0` admits all
+        // three, and `Int64(_:)` on a Double traps rather than throws
+        // for every one of them — a malformed document terminated the
+        // process. Anything that will not survive the conversion is
+        // unpriceable, which is a state this already knows how to
+        // report.
+        let rawRate = info.feeRate ?? defaultFeeRate
+        let feeRate = (rawRate.isFinite && rawRate > 0) ? rawRate : defaultFeeRate
+        let scaled = feeRate / 1000 * Double(coinToSatoshi)
+        guard scaled.isFinite, scaled >= 0, scaled < Double(Int64.max) else {
+            return .unpriceable
+        }
+        let feeRateLong = Int64(scaled)
 
         guard let inputs = info.inputs, !inputs.isEmpty else { return .unpriceable }
 
@@ -130,7 +164,8 @@ public enum TxFee {
         var totalOutputValue: Int64 = 0
 
         for output in info.outputs ?? [] {
-            totalOutputValue += output.value ?? 0
+            guard let sum = sum(totalOutputValue, output.value ?? 0) else { return .unpriceable }
+            totalOutputValue = sum
             if let redeemScript = output.redeemScript, !redeemScript.isEmpty {
                 totalOutputSize += p2shOutputBytes
                 guard let p2sh = try? P2sh(redeemScriptHex: redeemScript) else {
@@ -161,7 +196,8 @@ public enum TxFee {
         var totalInputValue: Int64 = 0
 
         for input in inputs {
-            totalInputValue += input.value ?? 0
+            guard let sum = sum(totalInputValue, input.value ?? 0) else { return .unpriceable }
+            totalInputValue = sum
             let isSpecial = info.senderMultisig != nil || input.lockTime != nil
             guard isSpecial else {
                 totalInputSize += p2pkhInputBytes
@@ -199,13 +235,20 @@ public enum TxFee {
         let changeSize = changeOutputBytes(payingTo: changeAddress)
 
         let sizeWithoutChange = baseBytes + totalInputSize + totalOutputSize + opReturnSize
-        let feeWithoutChange = feeRateLong * sizeWithoutChange
-        let potentialChange = totalInputValue - totalOutputValue - feeWithoutChange
+        // Rate times size, and the subtractions that follow it, on
+        // values this function does not get to vouch for. An overflow
+        // here used to trap; an unpriceable transaction is the honest
+        // answer.
+        guard let feeWithoutChange = product(feeRateLong, sizeWithoutChange),
+              let potentialChange = remainder(totalInputValue, totalOutputValue, feeWithoutChange)
+        else { return .unpriceable }
 
         if potentialChange > dustSatoshi {
             let sizeWithChange = sizeWithoutChange + changeSize
-            let feeWithChange = feeRateLong * sizeWithChange
-            if totalInputValue - totalOutputValue - feeWithChange > dustSatoshi {
+            guard let feeWithChange = product(feeRateLong, sizeWithChange),
+                  let changeLeft = remainder(totalInputValue, totalOutputValue, feeWithChange)
+            else { return .unpriceable }
+            if changeLeft > dustSatoshi {
                 return Result(
                     fee: feeWithChange, opReturn: opReturnBytes, p2shOutputs: p2shOutputs,
                     willHaveChange: true, estimatedSize: sizeWithChange

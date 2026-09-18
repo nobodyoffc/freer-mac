@@ -104,6 +104,71 @@ final class WalletServiceAdvancedTests: XCTestCase {
         XCTAssertEqual(mock.recorded.map(\.api), ["base.broadcastTx"])
     }
 
+    /// **The transaction and the reservation have to name the same
+    /// coins.** The builder spends the document's slots while the
+    /// claim, the preview and the optimistic update all act on
+    /// `inputCashes`, and nothing checked they agreed: a caller with
+    /// the two out of step broadcast a spend of cash A and marked cash
+    /// B as spent, leaving the wallet permanently out of step with the
+    /// chain in a way that looks locally consistent from both sides.
+    func testComposedSendRefusesCashesThatAreNotTheInputs() async throws {
+        let mock = MockFapiClient()
+        let alice = try makeSession("compose-mismatch", fapi: mock)
+        broadcastOnly(mock)
+
+        let spending = try cash(owner: alice.liveFid, txidByte: 0xC1, index: 0, value: 900_000)
+        let other = try cash(owner: alice.liveFid, txidByte: 0xC2, index: 0, value: 900_000)
+        let info = document(
+            from: alice, inputs: [spending],
+            outputs: [.output(to: payee, amount: 100_000)]
+        )
+
+        // Same count, different coin.
+        do {
+            _ = try await alice.sendAdvancedFromLive(info: info, inputCashes: [other])
+            XCTFail("a cash that is not the input must not be reserved for it")
+        } catch let error as WalletService.Failure {
+            guard case .inputCashMismatch = error else {
+                return XCTFail("wrong failure: \(error)")
+            }
+        }
+
+        // And a count that does not line up at all.
+        do {
+            _ = try await alice.sendAdvancedFromLive(
+                info: info, inputCashes: [spending, other]
+            )
+            XCTFail("two cashes cannot back one input")
+        } catch let error as WalletService.Failure {
+            guard case .inputCashMismatch = error else {
+                return XCTFail("wrong failure: \(error)")
+            }
+        }
+
+        XCTAssertTrue(mock.recorded.isEmpty, "nothing reached the network")
+
+        // Order counts too: the builder signs slot i and the cache
+        // marks cash i, so the same coins in the wrong order still
+        // reserve the wrong one.
+        let pair = try (0..<2).map {
+            try cash(owner: alice.liveFid, txidByte: UInt8(0xD0 + $0), index: $0, value: 600_000)
+        }
+        let twoInputs = document(
+            from: alice, inputs: pair,
+            outputs: [.output(to: payee, amount: 100_000)]
+        )
+        do {
+            _ = try await alice.sendAdvancedFromLive(
+                info: twoInputs, inputCashes: pair.reversed()
+            )
+            XCTFail("a reversed cash list reserves the wrong input")
+        } catch let error as WalletService.Failure {
+            guard case .inputCashMismatch = error else {
+                return XCTFail("wrong failure: \(error)")
+            }
+        }
+    }
+
     func testComposedSendCarvesTheMessageAsWell() async throws {
         let mock = MockFapiClient()
         let alice = try makeSession("compose-msg", fapi: mock)

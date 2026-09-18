@@ -33,6 +33,8 @@ public struct WalletService {
         /// selection and our attempt to reserve it. Recoverable —
         /// select again from what is left.
         case inputAlreadyClaimed(id: String)
+        case inputNoLongerHeld(id: String)
+        case inputCashMismatch(detail: String)
         case underlying(Error)
 
         public var description: String {
@@ -51,6 +53,10 @@ public struct WalletService {
                 return "WalletService: the transaction was not approved, so nothing was signed or broadcast"
             case .inputAlreadyClaimed(let id):
                 return "WalletService: cash \(id) was claimed by another transaction while this one was being prepared"
+            case .inputNoLongerHeld(let id):
+                return "WalletService: cash \(id) is no longer in this wallet — it was spent or reorganised away while this transaction was being prepared"
+            case .inputCashMismatch(let detail):
+                return "WalletService: the cashes to reserve do not match the inputs being spent — \(detail)"
             case .underlying(let e):
                 return "WalletService: \(e)"
             }
@@ -544,19 +550,28 @@ public struct WalletService {
     /// row verbatim — the row still carries its full chain coords from
     /// before the would-be spend, since the optimistic path didn't
     /// touch them. Returns `true` if a row was changed.
+    ///
+    /// **Under ``CashLedgerLock``, like every other read-modify-write of
+    /// the ledger.** Recovery reads the snapshot, clears one flag and
+    /// saves the whole thing back; a claim landing in that window was
+    /// written into a snapshot this one had already read, and the save
+    /// put it back the way it was — un-reserving a cash a live
+    /// transaction was in the middle of spending.
     @discardableResult
     public func recoverPendingSpend(cashId: String, forFid fid: String) throws -> Bool {
         guard let store = self.cashes else { return false }
-        guard var snap = try store.snapshot(forAddress: fid) else { return false }
-        guard let idx = snap.cashes.firstIndex(where: { $0.id == cashId && $0.pendingSpend }) else {
-            return false
+        return try CashLedgerLock.withLock {
+            guard var snap = try store.snapshot(forAddress: fid) else { return false }
+            guard let idx = snap.cashes.firstIndex(where: { $0.id == cashId && $0.pendingSpend }) else {
+                return false
+            }
+            var row = snap.cashes[idx]
+            row.pendingSpend = false
+            snap.cashes[idx] = row
+            snap.snapshotAt = Date()
+            try store.save(snap)
+            return true
         }
-        var row = snap.cashes[idx]
-        row.pendingSpend = false
-        snap.cashes[idx] = row
-        snap.snapshotAt = Date()
-        try store.save(snap)
-        return true
     }
 
     // MARK: - cash sync internals
@@ -1234,7 +1249,17 @@ public struct WalletService {
 
         let slots = info.inputs ?? []
         let inputCashes = withFreshCd(inputCashes, owner: fromAddress)
-        try claim(inputCashes, ownerFid: fromAddress)
+        // **The transaction and the reservation must name the same
+        // coins.** The builder spends `slots`; the claim, the preview
+        // and the optimistic cache update all act on `inputCashes`, and
+        // nothing checked the two agreed. A caller that got them out of
+        // step — a mis-indexed pick, a stale row against a re-ordered
+        // slot list — broadcast a transaction spending cash A while the
+        // wallet reserved cash B and then marked B as spent, which is a
+        // divergence from the chain that no sync can reconcile, because
+        // both halves look locally consistent.
+        try Self.requireInputsMatch(slots: slots, cashes: inputCashes)
+        try claim(inputCashes, ownerFid: fromAddress, requireAll: false)
 
         let signed: Transaction
         let txidString: String
@@ -1491,14 +1516,39 @@ public struct WalletService {
     /// conservative direction (the cash is at worst *believed* spent
     /// until Recover clears it, rather than spent twice), and the
     /// release path below covers every ordinary failure.
-    private func claim(_ inputs: [Cash], ownerFid: String) throws {
+    ///
+    /// **`requireAll` is the caller saying every input came out of this
+    /// wallet.** A coin-selected send picked its inputs from the very
+    /// snapshot this re-reads inside the lock, so a row that has gone
+    /// missing in between means the wallet changed underneath the plan
+    /// — spent from another device, or a reorg — and skipping it let
+    /// the send go on to sign and broadcast a cash it held no
+    /// reservation for. Those callers pass `true` and a missing row is
+    /// an error.
+    ///
+    /// A composed transaction cannot: its inputs are named by hand and
+    /// may be outpoints this wallet has never indexed, which is the
+    /// point of the pane. Those pass `false`, and an input that could
+    /// not be reserved is logged rather than refused — but it *is*
+    /// logged, because an unreserved input is a real divergence and
+    /// used to pass in silence.
+    private func claim(_ inputs: [Cash], ownerFid: String, requireAll: Bool) throws {
         guard let store = self.cashes, !inputs.isEmpty else { return }
         try CashLedgerLock.withLock {
             guard var snap = try store.snapshot(forAddress: ownerFid) else { return }
             // Check everything before changing anything: a partial
             // claim would strand cashes nobody is spending.
             for input in inputs {
-                guard let row = snap.row(matching: input) else { continue }
+                guard let row = snap.row(matching: input) else {
+                    let id = input.id ?? "\(input.birthTxId):\(input.birthIndex)"
+                    if requireAll { throw Failure.inputNoLongerHeld(id: id) }
+                    SystemLog.shared.info(
+                        SystemSource.wallet,
+                        "Spending an input this wallet does not hold",
+                        detail: "\(id) is not in the cash snapshot, so nothing was reserved for it"
+                    )
+                    continue
+                }
                 if row.pendingSpend {
                     throw Failure.inputAlreadyClaimed(
                         id: row.id ?? "\(row.birthTxId):\(row.birthIndex)"
@@ -1552,7 +1602,7 @@ public struct WalletService {
         for attempt in 0..<(allowReselect ? 2 : 1) {
             let plan = try makePlan(working)
             do {
-                try claim(inputsOf(plan), ownerFid: ownerFid)
+                try claim(inputsOf(plan), ownerFid: ownerFid, requireAll: true)
                 return plan
             } catch let error as Failure {
                 guard case .inputAlreadyClaimed = error else { throw error }
@@ -1601,9 +1651,9 @@ public struct WalletService {
         release(previous, ownerFid: ownerFid)
         claimed = []
         do {
-            try claim(inputsOf(plan), ownerFid: ownerFid)
+            try claim(inputsOf(plan), ownerFid: ownerFid, requireAll: true)
         } catch {
-            if (try? claim(previous, ownerFid: ownerFid)) != nil { claimed = previous }
+            if (try? claim(previous, ownerFid: ownerFid, requireAll: true)) != nil { claimed = previous }
             throw error
         }
         claimed = inputsOf(plan)
@@ -1776,64 +1826,101 @@ public struct WalletService {
         remoteTxid: String
     ) throws {
         guard let store = self.cashes else { return }
-        // A send with caller-named inputs never fetches a snapshot, so
-        // there may not be one yet. Starting an empty one is better
-        // than dropping the change on the floor — the next sync
-        // reconciles it either way, but until then the wallet would
-        // believe it had nothing.
-        var snap = try store.snapshot(forAddress: ownerFid)
-            ?? CashSnapshot(addr: ownerFid, cashes: [])
+        // **Under ``CashLedgerLock``.** This is a read-modify-write of
+        // the same snapshot ``claim`` and ``release`` guard, and it was
+        // the one that ran unguarded: a reservation made by a
+        // concurrent carve while this held a stale copy in hand was
+        // erased by the save below, and the wallet went on offering a
+        // cash another transaction was already spending.
+        try CashLedgerLock.withLock {
+            // A send with caller-named inputs never fetches a snapshot, so
+            // there may not be one yet. Starting an empty one is better
+            // than dropping the change on the floor — the next sync
+            // reconciles it either way, but until then the wallet would
+            // believe it had nothing.
+            var snap = try store.snapshot(forAddress: ownerFid)
+                ?? CashSnapshot(addr: ownerFid, cashes: [])
 
-        // How far from a confirmed block the new cashes stand: one
-        // step past the deepest input we are spending. Inputs the
-        // chain has already confirmed are at depth 0, so a normal send
-        // mints depth-1 cashes.
-        let mintedDepth = 1 + (spent.map(\.unconfirmedDepth).max() ?? 0)
+            // How far from a confirmed block the new cashes stand: one
+            // step past the deepest input we are spending. Inputs the
+            // chain has already confirmed are at depth 0, so a normal send
+            // mints depth-1 cashes.
+            let mintedDepth = 1 + (spent.map(\.unconfirmedDepth).max() ?? 0)
 
-        // Mark each spent input. Keep the row's chain coordinates so
-        // recovery can restore it verbatim.
-        for inputCash in spent {
-            if let idx = snap.cashes.firstIndex(where: { matches($0, inputCash) }) {
-                var row = snap.cashes[idx]
-                row.pendingSpend = true
-                snap.cashes[idx] = row
+            // Mark each spent input. Keep the row's chain coordinates so
+            // recovery can restore it verbatim.
+            for inputCash in spent {
+                if let idx = snap.cashes.firstIndex(where: { matches($0, inputCash) }) {
+                    var row = snap.cashes[idx]
+                    row.pendingSpend = true
+                    snap.cashes[idx] = row
+                }
+            }
+
+            // Synthesize change cashes from the signed transaction's
+            // outputs that pay back to `ownerFid`. Pre-compute the cash id
+            // from `(txidDisplay, vout)` so the row merges by id with the
+            // server's authoritative version on the next sync.
+            let ownerHash160 = (try? FchAddress(fid: ownerFid))?.hash160
+            let txidDisplay = remoteTxid.count == 64 ? remoteTxid : transaction.txidDisplay
+            let canonicalLockScript = ownerHash160.map { Cash.canonicalP2PKHLockScript(hash160: $0) }
+
+            for (i, out) in transaction.outputs.enumerated() {
+                // Heuristic: any output that locks to our address is a
+                // change cash. Recipient outputs lock to a different
+                // hash160 and are filtered out here.
+                guard let h160 = ownerHash160 else { continue }
+                let outputScriptHex = out.scriptPubKey.bytes.map { String(format: "%02x", $0) }.joined().lowercased()
+                guard outputScriptHex == Cash.canonicalP2PKHLockScript(hash160: h160) else { continue }
+
+                let id = (try? Cash.makeId(birthTxId: txidDisplay, birthIndex: i)) ?? ""
+                let change = Cash(
+                    id: id.isEmpty ? nil : id,
+                    owner: ownerFid,
+                    value: Int64(out.value),
+                    type: "P2PKH",
+                    birthTxId: txidDisplay,
+                    birthIndex: i,
+                    lockScript: canonicalLockScript,
+                    localState: .unknown,
+                    pendingSpend: false,
+                    unconfirmedDepth: mintedDepth
+                )
+                snap.upsert(change)
+            }
+
+            snap.snapshotAt = Date()
+            try store.save(snap)
+        }
+    }
+
+    /// Every slot the transaction will spend must have exactly one cash
+    /// row behind it, at the same position and naming the same outpoint.
+    ///
+    /// Position matters as well as membership: ``AdvancedTxBuilder``
+    /// signs slot *i* and the optimistic update marks cash *i*, so two
+    /// lists holding the same outpoints in a different order still
+    /// reserve the wrong thing.
+    static func requireInputsMatch(slots: [RawTxInfo.Slot], cashes: [Cash]) throws {
+        guard slots.count == cashes.count else {
+            throw Failure.inputCashMismatch(
+                detail: "\(slots.count) input(s) to spend but \(cashes.count) cash row(s) to reserve"
+            )
+        }
+        for (i, slot) in slots.enumerated() {
+            let cash = cashes[i]
+            guard let slotTxid = slot.birthTxId, !slotTxid.isEmpty else {
+                throw Failure.inputCashMismatch(detail: "input \(i) names no transaction")
+            }
+            guard slotTxid.lowercased() == cash.birthTxId.lowercased(),
+                  (slot.birthIndex ?? 0) == cash.birthIndex
+            else {
+                throw Failure.inputCashMismatch(
+                    detail: "input \(i) spends \(slotTxid):\(slot.birthIndex ?? 0) "
+                        + "but the cash to reserve is \(cash.birthTxId):\(cash.birthIndex)"
+                )
             }
         }
-
-        // Synthesize change cashes from the signed transaction's
-        // outputs that pay back to `ownerFid`. Pre-compute the cash id
-        // from `(txidDisplay, vout)` so the row merges by id with the
-        // server's authoritative version on the next sync.
-        let ownerHash160 = (try? FchAddress(fid: ownerFid))?.hash160
-        let txidDisplay = remoteTxid.count == 64 ? remoteTxid : transaction.txidDisplay
-        let canonicalLockScript = ownerHash160.map { Cash.canonicalP2PKHLockScript(hash160: $0) }
-
-        for (i, out) in transaction.outputs.enumerated() {
-            // Heuristic: any output that locks to our address is a
-            // change cash. Recipient outputs lock to a different
-            // hash160 and are filtered out here.
-            guard let h160 = ownerHash160 else { continue }
-            let outputScriptHex = out.scriptPubKey.bytes.map { String(format: "%02x", $0) }.joined().lowercased()
-            guard outputScriptHex == Cash.canonicalP2PKHLockScript(hash160: h160) else { continue }
-
-            let id = (try? Cash.makeId(birthTxId: txidDisplay, birthIndex: i)) ?? ""
-            let change = Cash(
-                id: id.isEmpty ? nil : id,
-                owner: ownerFid,
-                value: Int64(out.value),
-                type: "P2PKH",
-                birthTxId: txidDisplay,
-                birthIndex: i,
-                lockScript: canonicalLockScript,
-                localState: .unknown,
-                pendingSpend: false,
-                unconfirmedDepth: mintedDepth
-            )
-            snap.upsert(change)
-        }
-
-        snap.snapshotAt = Date()
-        try store.save(snap)
     }
 
     /// Match an in-cache cash row to a freshly-spent input. Prefer id

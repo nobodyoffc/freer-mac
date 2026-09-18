@@ -25,6 +25,8 @@ public enum AdvancedTxBuilder {
         case invalidOutput(String)
         case senderMismatch(sender: String, multisig: String)
         case lockedInput(id: String, lockTime: Int64, bestHeight: Int64)
+        case invalidAmount(detail: String)
+        case amountOverflow
 
         public var description: String {
             switch self {
@@ -44,6 +46,10 @@ public enum AdvancedTxBuilder {
                 return "Transaction: sender \(sender) is not the multisig group \(multisig)"
             case let .lockedInput(id, lockTime, bestHeight):
                 return "Transaction: input \(id) stays locked until block \(lockTime); the chain is at \(bestHeight)"
+            case .invalidAmount(let detail):
+                return "Transaction: \(detail)"
+            case .amountOverflow:
+                return "Transaction: the amounts in this document are too large to add up"
             }
         }
     }
@@ -91,6 +97,15 @@ public enum AdvancedTxBuilder {
         // to be non-final so the locktime is consulted at all. Miss
         // either and the script fails; miss the second silently.
         let maxInputLockTime = slots.compactMap(\.lockTime).max() ?? 0
+        // A locktime is a 32-bit field. `UInt32(truncatingIfNeeded:)`
+        // used to quietly wrap anything larger, which changes what the
+        // transaction means rather than refusing to build it: a lock in
+        // the far future became a lock already past.
+        guard maxInputLockTime >= 0, maxInputLockTime <= Int64(UInt32.max) else {
+            throw Failure.invalidAmount(
+                detail: "input locktime \(maxInputLockTime) does not fit the 32-bit locktime field"
+            )
+        }
 
         var txInputs: [TxInput] = []
         var totalIn: Int64 = 0
@@ -99,8 +114,21 @@ public enum AdvancedTxBuilder {
             let prevTxHash: Data
             do { prevTxHash = try TxBuilder.decodeTxid(txid) }
             catch { throw Failure.invalidTxid(txid) }
+            // A composed document is parsed from JSON a signing machine
+            // or another wallet wrote, so its numbers are input, not
+            // invariants. These conversions used to trap on a negative
+            // value — terminating the process on a malformed document
+            // instead of rejecting it.
+            let index = slot.birthIndex ?? 0
+            guard index >= 0, index <= Int(UInt32.max) else {
+                throw Failure.invalidAmount(detail: "input output-index \(index) is out of range")
+            }
+            let value = slot.value ?? 0
+            guard value >= 0 else {
+                throw Failure.invalidAmount(detail: "input value \(value) is negative")
+            }
             let outpoint = try OutPoint(
-                prevTxHash: prevTxHash, outIndex: UInt32(slot.birthIndex ?? 0)
+                prevTxHash: prevTxHash, outIndex: UInt32(index)
             )
             let sequence: UInt32 = (slot.lockTime ?? 0) > 0
                 ? 0xFFFF_FFFE
@@ -108,14 +136,21 @@ public enum AdvancedTxBuilder {
             txInputs.append(TxInput(
                 outpoint: outpoint, scriptSig: Script(Data()), sequence: sequence
             ))
-            totalIn += slot.value ?? 0
+            let (sum, overflowed) = totalIn.addingReportingOverflow(value)
+            guard !overflowed else { throw Failure.amountOverflow }
+            totalIn = sum
         }
 
         var txOutputs: [TxOutput] = []
         var totalOut: Int64 = 0
         for slot in info.outputs ?? [] {
             let value = slot.value ?? 0
-            totalOut += value
+            guard value >= 0 else {
+                throw Failure.invalidAmount(detail: "output value \(value) is negative")
+            }
+            let (sum, overflowed) = totalOut.addingReportingOverflow(value)
+            guard !overflowed else { throw Failure.amountOverflow }
+            totalOut = sum
             if let redeemScript = slot.redeemScript, !redeemScript.isEmpty {
                 guard let bytes = Hex.decodeOrNil(redeemScript) else {
                     throw Failure.invalidOutput("redeem script is not hex")
@@ -135,8 +170,10 @@ public enum AdvancedTxBuilder {
             }
         }
 
-        guard totalIn >= totalOut + fee else {
-            throw Failure.insufficientFunds(have: totalIn, need: totalOut + fee)
+        let (needed, needOverflowed) = totalOut.addingReportingOverflow(fee)
+        guard !needOverflowed else { throw Failure.amountOverflow }
+        guard totalIn >= needed else {
+            throw Failure.insufficientFunds(have: totalIn, need: needed)
         }
 
         // Change is always a plain payment back to `changeTo`, never
@@ -156,7 +193,7 @@ public enum AdvancedTxBuilder {
         // `willHaveChange` keeps fee and shape in agreement, at the
         // cost of differing from Android in exactly the window where
         // Android builds a transaction the network refuses.
-        let change = priced.willHaveChange ? totalIn - totalOut - fee : 0
+        let change = priced.willHaveChange ? totalIn - needed : 0
         if change > 0 {
             txOutputs.append(TxOutput(
                 value: UInt64(change), scriptPubKey: try outputScript(for: changeTo)
@@ -173,7 +210,7 @@ public enum AdvancedTxBuilder {
             version: TxBuilder.defaultVersion,
             inputs: txInputs,
             outputs: txOutputs,
-            locktime: maxInputLockTime > 0 ? UInt32(truncatingIfNeeded: maxInputLockTime) : 0
+            locktime: maxInputLockTime > 0 ? UInt32(maxInputLockTime) : 0
         )
 
         return Built(
