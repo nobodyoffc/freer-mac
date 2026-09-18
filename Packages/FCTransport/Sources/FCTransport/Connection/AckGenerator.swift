@@ -60,7 +60,18 @@ public final class AckGenerator: @unchecked Sendable {
                 if packetNumbers[mid] < packetNumber { lo = mid + 1 } else { hi = mid }
             }
             if lo < packetNumbers.count && packetNumbers[lo] == packetNumber {
-                receiveTimes[lo] = now   // duplicate: refresh retention
+                // **A duplicate keeps its original receive time.**
+                // Refreshing it looked like extending the retention of
+                // something still arriving, but the prune below is a
+                // front-drop that stops at the first entry newer than
+                // the cutoff — so moving an *old* entry's timestamp
+                // forward stops the prune at that entry, permanently.
+                // Replaying the lowest retained packet number then pins
+                // the whole set open, size cap included, because that
+                // check lives inside the same loop. The retention
+                // window asks how long ago we first saw a number, which
+                // a second copy does not change.
+                ()
             } else {
                 packetNumbers.insert(packetNumber, at: lo)
                 receiveTimes.insert(now, at: lo)

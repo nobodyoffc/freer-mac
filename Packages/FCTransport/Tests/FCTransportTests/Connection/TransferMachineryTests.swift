@@ -113,6 +113,45 @@ final class AckGeneratorTests: XCTestCase {
         XCTAssertEqual(Set(frame.acknowledgedPackets()), Set(0...5))
     }
 
+    /// **A repeated packet number must not extend anything's
+    /// retention.** The prune is a front-drop that stops at the first
+    /// entry newer than the cutoff, which is sound only while receive
+    /// times ascend with packet numbers. Refreshing a duplicate's
+    /// timestamp broke that: replaying the *lowest* retained number
+    /// parked a recent time at index 0, so the prune stopped there
+    /// every time — and the size cap, which is tested inside the same
+    /// loop, stopped with it. The set then grew for as long as the
+    /// replay continued.
+    func testAReplayedPacketNumberCannotPinTheRetentionPruneOpen() throws {
+        final class Clock: @unchecked Sendable {
+            let lock = NSLock()
+            var ms: Int64 = 1_000_000
+            func now() -> Int64 { lock.lock(); defer { lock.unlock() }; return ms }
+            func advance(_ by: Int64) { lock.lock(); ms += by; lock.unlock() }
+        }
+        let clock = Clock()
+        let gen = AckGenerator(nowMs: clock.now)
+
+        // A first batch, then time well past the retention window.
+        for pn: Int64 in 0..<50 { gen.onPacketReceived(pn) }
+        clock.advance(AckGenerator.ackRetainMs * 4)
+
+        // An attacker replays the oldest number over and over while
+        // ordinary traffic continues.
+        for pn: Int64 in 1_000..<1_050 {
+            gen.onPacketReceived(0)
+            gen.onPacketReceived(pn)
+        }
+
+        let frame = try XCTUnwrap(gen.generateAckFrame())
+        let acked = Set(frame.acknowledgedPackets())
+        XCTAssertFalse(
+            acked.contains(1),
+            "packet 1 aged out long ago; a replay of packet 0 must not have kept it alive"
+        )
+        XCTAssertTrue(acked.contains(1_049), "current traffic is still acknowledged")
+    }
+
     func testGappedPacketsProduceMultipleRanges() throws {
         let gen = AckGenerator()
         for pn: Int64 in [0, 1, 2, 5, 6, 9] { gen.onPacketReceived(pn) }

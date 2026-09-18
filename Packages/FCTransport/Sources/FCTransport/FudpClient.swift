@@ -683,20 +683,29 @@ public final class FudpClient: @unchecked Sendable {
             if let epoch = parsed.sessionEpoch { connection.observePeerEpoch(epoch) }
             resetReceiveStateForPeerRestart()
         case .invalidTimestamp:
+            // **Drop it; do not tear the connection down.** Both
+            // reference implementations answer this with a
+            // CONNECTION_CLOSE, and that hands anyone who can capture
+            // one genuine packet a connection reset they can replay at
+            // will: the packet authenticates because it is real, and
+            // sixty seconds later its timestamp is out of tolerance by
+            // arithmetic. FUDP4V1 allows the quieter reading — "other
+            // implementations MAY drop silently" — and a packet we will
+            // not act on is not grounds for ending a working session.
             log("dropping packet with out-of-tolerance timestamp \(parsed.timestamp ?? -1)")
             return
         case .duplicate:
-            // **Acknowledge it anyway.** A duplicate is usually the
-            // peer retransmitting something whose ACK went missing; if
-            // we drop it silently it retransmits forever. Both
-            // reference implementations re-ACK and then discard, which
-            // is what stops the loop without processing the frames a
-            // second time.
+            // **Drop it silently, and do not ACK it.** FUDP4V1 is
+            // explicit ("SHOULD NOT send any response to duplicate
+            // packets") and the reason holds on inspection: a packet
+            // number is allocated fresh on every send in all three
+            // implementations, retransmissions included, so a repeated
+            // number is never the peer retrying — it is a duplicated
+            // datagram or a replay. Answering it feeds an attacker-
+            // chosen packet number back into the ACK generator, whose
+            // retention prune assumes receive times ascend with packet
+            // numbers.
             log("dropping replayed packet \(header.packetNumber)")
-            if parsed.frames.contains(where: { if case .ack = $0 { return false } else { return true } }) {
-                transfer.ackGenerator.onPacketReceived(header.packetNumber)
-                await sendAckOnly()
-            }
             return
         }
 
