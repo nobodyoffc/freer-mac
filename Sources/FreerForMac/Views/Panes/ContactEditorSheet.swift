@@ -20,6 +20,10 @@ import FCUI
 struct ContactEditorSheet: View {
     let session: ActiveSession
     let mode: ContactsView.EditorMode
+    /// What the Titles field starts with for a new contact, e.g. "My guide"
+    /// when the getting-started checklist adds the guide. Ignored when
+    /// editing, where the contact's own titles are loaded.
+    var initialTitles: String = ""
     /// Called after a successful save. The argument is the carve
     /// txid when the user chose **Save & carve**, nil for a
     /// local-only save.
@@ -356,6 +360,7 @@ struct ContactEditorSheet: View {
     private func loadFromMode() {
         if case .createFor(let prefill) = mode {
             fid = prefill
+            titlesInput = initialTitles
         }
         if case .edit(let c) = mode {
             fid = c.id

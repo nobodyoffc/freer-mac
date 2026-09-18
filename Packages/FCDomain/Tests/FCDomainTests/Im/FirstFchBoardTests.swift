@@ -144,7 +144,7 @@ final class FirstFchBoardTests: XCTestCase {
         )
         noise.setId(fudpId: ImMessage.newFudpId())
         try noise.sealBody(privkey: Data(repeating: 0x99, count: 32), recipientPubkey: NobodyBoard.pubkey)
-        chain.store(try noise.toWireBytes(), for: [NobodyBoard.defaultNobodyFid])
+        chain.store(try noise.unsignedWireBytes(), for: [NobodyBoard.defaultNobodyFid])
 
         let result = await alice.firstFchBoard.fetch()
         XCTAssertNil(result.error)

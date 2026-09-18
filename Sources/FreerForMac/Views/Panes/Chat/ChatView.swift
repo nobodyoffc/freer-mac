@@ -313,6 +313,7 @@ struct ChatView: View {
             // tab first.
             if let requested = appState.consumePendingChatMode() { mode = requested }
             if appState.consumePendingNewChat() { showNewChat = true }
+            if appState.consumePendingTeamOffers() { showTeamOffers = true }
             reload()
             if selection[mode] == nil { selection[mode] = conversations.first?.id }
             openSelected()
@@ -320,6 +321,7 @@ struct ChatView: View {
             appState.fetchInboxNow()
             updatePriorityDock()
             retryUnreachable()
+            refreshTeamAnswers()
         }
         .onDisappear {
             appState.setChatOpen(false)
@@ -343,6 +345,7 @@ struct ChatView: View {
             if selection[mode] == nil { selection[mode] = conversations.first?.id }
             openSelected()
             updatePriorityDock()
+            refreshTeamAnswers()
         }
         .onChange(of: selection[mode]) { _, _ in
             recorder.cancel()
@@ -1284,6 +1287,18 @@ struct ChatView: View {
             return
         }
         do {
+            // A key can arrive long after the messages it opens, and for
+            // a transcript sealed before the key landed there is no
+            // later arrival to react to — the key is already in the
+            // store and no second copy is coming. So the flavours that
+            // have keys check on the way in, which is also what repairs
+            // a transcript sealed by any earlier version of this app.
+            // Costs one read of the key names when there is no key, and
+            // that is the case it returns on.
+            if mode == .team || mode == .room,
+               let targetId = try session.conversations.get(id: id)?.targetId {
+                try session.chat.openSealed(forEntity: targetId, as: session.liveFid)
+            }
             page = withInFlight(try session.chat.page(id), of: id)
             // Everyone who has spoken in this thread. A transcript is a
             // handful of people saying many things, so the set is small
@@ -1937,6 +1952,23 @@ struct ChatView: View {
         }
     }
 
+    /// Reconcile the team invitations and outstanding agreements against
+    /// the chain, then repaint the banners and badges built from them.
+    ///
+    /// Runs on opening the pane and on switching to the Team tab, not
+    /// only from Refresh: those rows are what the tab badge and the
+    /// Overview tile count, and until this was here the only thing that
+    /// could correct them was a button in this one tab. The session
+    /// throttles the chain query, so switching tabs about does not pay
+    /// for it each time.
+    private func refreshTeamAnswers() {
+        guard mode == .team else { return }
+        Task {
+            await session.refreshTeamAnswers()
+            await MainActor.run { reload() }
+        }
+    }
+
     private func syncGroups() async {
         await MainActor.run { syncing = true; syncSummary = nil }
         var parts: [String] = []
@@ -2046,7 +2078,9 @@ struct ChatView: View {
                         Text(pendingTitle(row))
                         Text(overdue
                              ? "Not on the chain after a day — the transaction may have failed or been rejected. Check it, then dismiss this."
-                             : "Waiting for the chain. It appears here once it confirms and you refresh.")
+                             : row.type == .square && row.act == .join
+                                ? "Waiting for the chain. You can read the square now, and send once the join confirms."
+                                : "Waiting for the chain. It appears here once it confirms and you refresh.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }

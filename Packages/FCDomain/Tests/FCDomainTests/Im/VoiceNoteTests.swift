@@ -121,7 +121,7 @@ final class VoiceNoteTests: XCTestCase {
         message.timestamp = 1_700_000_000_000
         message.id = "0000000000000003"
 
-        let back = try ImMessage.fromWireBytes(try message.toWireBytes())
+        let back = try ImMessage.fromWireBytes(try message.toWireBytes(signingWith: Data(fromHex: "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575")))
         XCTAssertEqual(back.data, audio)
         XCTAssertEqual(VoiceNote.meta(in: back)?.durationMs, 7_250)
         XCTAssertEqual(Conversation.preview(for: back), "[Voice]")

@@ -566,6 +566,16 @@ public final class ActiveSession {
             guard let id = room.id, room.isMember(mainFid) else { continue }
             groups.append(.init(id: id, type: .room, home: room.home))
         }
+        // A square join still waiting for the chain is read already: its
+        // thread is open, and its DOCK serves anyone who asks.
+        let now = Date()
+        for fid in Set([mainFid, liveFid]) {
+            for pending in (try? pendingGroups.all(fid: fid, type: .square)) ?? []
+            where pending.act == .join && !pending.isOverdue(now: now) {
+                guard !groups.contains(where: { $0.type == .square && $0.id == pending.groupId }) else { continue }
+                groups.append(.init(id: pending.groupId, type: .square, home: pending.home))
+            }
+        }
         await dockRegistry.refresh(ownFid: mainFid, groups: groups)
     }
 
@@ -575,6 +585,12 @@ public final class ActiveSession {
         let teams = self.teams
         let squares = self.squares
         let rooms = self.rooms
+        // The keys this device can seal with right now: the live identity's
+        // and the main's. Read once per courier, which is built per use.
+        var heldKeys: [String: Data] = [:]
+        if let key = try? mainPrikey() { heldKeys[mainFid] = key }
+        if let key = try? livePrikey() { heldKeys[liveFid] = key }
+        let prikeys = heldKeys
         return MessageCourier(
             outbox: outbox,
             messages: messages,
@@ -589,9 +605,28 @@ public final class ActiveSession {
                 if let square = try? squares.get(id: targetId)?.home { return square }
                 return try? rooms.get(id: targetId)?.home
             },
-            routeSignal: signalRoute
+            routeSignal: signalRoute,
+            squareSender: { [squareRoster, groups] sender, squareId, storedAt in
+                await squareRoster.check(sender: sender, squareId: squareId, storedAt: storedAt) { id in
+                    var square = try await groups.fetchByIds(
+                        Square.self, entity: "square", ids: [id], timeoutMs: 10_000
+                    )[id]
+                    if square?.id == nil || square?.id?.isEmpty == true { square?.id = id }
+                    return square
+                }
+            },
+            prikeyFor: { fid in prikeys[fid] },
+            seen: seenMessages
         )
     }
+
+    /// Who is in a square, for keeping only members' messages. Long-lived,
+    /// unlike the courier, so a square read from the chain is remembered
+    /// between collects.
+    public lazy var squareRoster: SquareRoster = {
+        let squares = self.squares
+        return SquareRoster(local: { id in try? squares.get(id: id) })
+    }()
 
     /// Room notifications, key shares and key requests.
     ///
@@ -660,6 +695,8 @@ public final class ActiveSession {
 
     /// Teams and squares carved for and not yet shown by the chain.
     public lazy var pendingGroups: PendingGroupsStore = PendingGroupsStore(kv: storage)
+    /// Messages already taken in, so a replayed envelope is not acted on twice.
+    public lazy var seenMessages: SeenMessagesStore = SeenMessagesStore(kv: storage)
     public lazy var pendingIdentityCarves: PendingIdentityCarvesStore = PendingIdentityCarvesStore(kv: storage)
 
     /// Record a broadcast create, join or take-over, so the list can say
@@ -667,12 +704,30 @@ public final class ActiveSession {
     /// be written costs a reassurance, not the carve.
     public func notePendingGroup(
         _ type: ImType, id: String, name: String?, act: PendingGroup.Act,
-        txid: String, now: Date = Date()
+        txid: String, home: [String: String]? = nil, now: Date = Date()
     ) {
         try? pendingGroups.record(PendingGroup(
             fid: liveFid, type: type, groupId: id, name: name, act: act, txid: txid,
-            broadcastAt: Int64(now.timeIntervalSince1970 * 1000)
+            broadcastAt: Int64(now.timeIntervalSince1970 * 1000), home: home
         ))
+    }
+
+    /// The square join this identity broadcast for `squareId` and the
+    /// chain does not show yet, if any.
+    public func pendingSquareJoin(_ squareId: String) -> PendingGroup? {
+        ((try? pendingGroups.all(fid: liveFid, type: .square)) ?? [])
+            .last { $0.groupId == squareId && $0.act == .join }
+    }
+
+    /// Open the thread of a square whose join was just broadcast, so it can
+    /// be read while the join waits for a block. Returns the conversation id.
+    ///
+    /// The square goes into the conversation list only — not the squares
+    /// store, which holds squares we are in and whose highest height the
+    /// next membership sync starts from.
+    @discardableResult
+    public func openJoiningSquare(_ square: Square) throws -> String? {
+        try groups.openJoining(square, conversations: conversations)
     }
 
     /// Things in a chat flavour that wait on this identity's answer and
@@ -806,7 +861,11 @@ public final class ActiveSession {
         case .square:
             let square = try? squares.get(id: conversation.targetId)
             facts.isMember = square?.isMember(liveFid) ?? false
-            facts.hasDock = ChatGate.declaresDock(home: square?.home)
+            let pending = facts.isMember ? nil : pendingSquareJoin(conversation.targetId)
+            facts.hasDock = ChatGate.declaresDock(home: square?.home ?? pending?.home)
+            if let pending {
+                facts.pendingJoin = pending.isOverdue(now: Date()) ? .stalled : .waiting
+            }
         }
 
         facts.hasSymkey = ChatGate.requiresSymkey(conversation.type)
@@ -2703,6 +2762,62 @@ public final class ActiveSession {
         return (queued, unreachable)
     }
 
+    /// When ``refreshTeamAnswers(now:timeoutMs:)`` last reconciled, so
+    /// bouncing between panes does not re-query the chain each time.
+    private var lastTeamAnswerRefresh: Date?
+
+    /// How long a reconcile stands before another is worth making. Long
+    /// enough that moving between Overview and the chat pane costs one
+    /// query, short enough that an invitation answered elsewhere stops
+    /// being advertised within a minute.
+    public static let teamAnswerRefreshInterval: TimeInterval = 60
+
+    /// Bring both halves of ``awaitingAnswer(type:)`` for a team back in
+    /// line with the chain.
+    ///
+    /// **Both are caches of chain state, and nothing used to refresh
+    /// them but one button.** ``teamOffers`` was reconciled only by
+    /// ``refreshTeamOffers()`` and ``consensusSignatures`` only by a team
+    /// sync, and both were reached from the Team tab's Refresh and
+    /// nowhere else — so a count shown on Overview could describe an
+    /// invitation that had since been joined, withdrawn or disbanded,
+    /// and went on describing it through every relaunch, because
+    /// relaunching re-reads the same stale rows.
+    ///
+    /// Throttled rather than run on every call: the badge is read
+    /// whenever a pane appears, and a chain query per appearance would
+    /// be paid by the user in latency for a number that changes rarely.
+    /// `force` is for the explicit Refresh, which must not be silently
+    /// skipped because something else reconciled a moment ago.
+    ///
+    /// **Best effort.** A reconcile that cannot reach the chain leaves
+    /// the cache exactly as it was: an unanswered invitation is not made
+    /// to disappear by a flaky network.
+    ///
+    /// Returns the count now awaiting an answer.
+    @discardableResult
+    public func refreshTeamAnswers(
+        force: Bool = false, now: Date = Date(), timeoutMs: Int = 15_000
+    ) async -> Int {
+        if !force, let last = lastTeamAnswerRefresh,
+           now.timeIntervalSince(last) < Self.teamAnswerRefreshInterval {
+            return awaitingAnswer(type: .team, now: now)
+        }
+        lastTeamAnswerRefresh = now
+
+        // The membership sync is what clears a signature we already gave
+        // — it refills `notAgreeMembers` from the chain, and
+        // `ConsensusSignaturesStore.reconcile` drops the row when we are
+        // no longer listed. Incremental: a team whose height has not
+        // moved cannot have changed who owes it a signature.
+        _ = try? await groups.syncTeams(
+            fid: liveFid, into: teams, conversations: conversations,
+            signatures: consensusSignatures, timeoutMs: timeoutMs
+        )
+        _ = try? await refreshTeamOffers(now: now, timeoutMs: timeoutMs)
+        return awaitingAnswer(type: .team, now: now)
+    }
+
     /// Ask the chain which teams are inviting this identity or being
     /// handed to it, and fold the answer into ``teamOffers``. Returns how
     /// many were new to this device.
@@ -2710,6 +2825,11 @@ public final class ActiveSession {
     public func refreshTeamOffers(now: Date = Date(), timeoutMs: Int = 15_000) async throws -> Int {
         let fid = liveFid
         let found = try await groups.fetchTeamOffers(fid: fid, timeoutMs: timeoutMs)
+        // Marked here rather than only in ``refreshTeamAnswers`` so the
+        // paths that reconcile directly — the Team tab's Refresh, the
+        // offers sheet — also count as freshness, and the next pane that
+        // appears does not immediately re-ask the chain.
+        lastTeamAnswerRefresh = now
         return try teamOffers.reconcile(
             invited: found.invited, transfers: found.transfers, for: fid, now: now
         )

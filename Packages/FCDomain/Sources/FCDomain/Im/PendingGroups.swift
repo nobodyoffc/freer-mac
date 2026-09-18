@@ -11,10 +11,13 @@ import FCStorage
 /// like a carve that did nothing. A row saying "waiting for the chain",
 /// with the txid, is the difference.
 ///
-/// **Not a conversation.** Nothing can be said in a group the chain does
-/// not yet list us in, so these are kept apart from ``ConversationsStore``
-/// rather than being threads with a composer that has to explain itself.
-/// A row goes away on its own once the chain shows the act landed.
+/// **Mostly not a conversation.** Nothing can be said in a group the chain
+/// does not yet list us in, so these are kept apart from
+/// ``ConversationsStore``. A square join is the exception: a square's DOCK
+/// holds its messages for anyone who asks, so the thread opens at once and
+/// can be read while the join waits, with sending held until it confirms
+/// (``ChatGate/Facts/pendingJoin``). A row goes away on its own once the
+/// chain shows the act landed.
 public struct PendingGroup: Codable, Equatable, Sendable, Identifiable {
 
     public enum Act: String, Codable, Sendable {
@@ -33,13 +36,20 @@ public struct PendingGroup: Codable, Equatable, Sendable, Identifiable {
     public var txid: String
     /// Epoch ms.
     public var broadcastAt: Int64
+    /// The group's `home` map as it was when the carve was broadcast.
+    /// Kept for a square join, so its DOCK can be read before the chain
+    /// lists us — the squares store only holds squares we are in, and its
+    /// highest height is the watermark for the next membership sync, so a
+    /// record we are not yet in does not belong there.
+    public var home: [String: String]?
 
     public var id: String { PendingGroupsStore.key(fid: fid, type: type, groupId: groupId) }
 
     public init(
         fid: String, type: ImType, groupId: String, name: String?,
-        act: Act, txid: String, broadcastAt: Int64
+        act: Act, txid: String, broadcastAt: Int64, home: [String: String]? = nil
     ) {
+        self.home = home
         self.fid = fid
         self.type = type
         self.groupId = groupId

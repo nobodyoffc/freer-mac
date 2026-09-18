@@ -209,6 +209,172 @@ final class SignalRouterTests: XCTestCase {
         XCTAssertTrue(outcome.outbound.isEmpty)
     }
 
+    private func request(
+        for entityId: String, version: Int64?, from sender: String
+    ) -> ImMessage {
+        var m = KeyExchange.request(
+            entityId: entityId, version: version, from: sender, to: me, now: t0
+        )
+        m.id = ImMessage.hexId(fudpId: 9_101)
+        return m
+    }
+
+    /// **A named version is answered with that version**, not with
+    /// whatever is current.
+    ///
+    /// This is the regression: both clients parsed the version out of
+    /// the request and then answered with `currentVersion`, so a member
+    /// who held v2..v6 and needed v1 was handed v6 — a key they already
+    /// had — however often they asked. FIMP4V3 §5.1 defines the form and
+    /// §7.4 says recovery asks for the *missing* version.
+    func testAnOldVersionCanBeAskedForByName() throws {
+        try bobsRoom()
+        let v1 = Data(repeating: 0x11, count: 32)
+        let v6 = Data(repeating: 0x66, count: 32)
+        _ = try session.symkeys.store(v1, for: roomId, version: 1, allowOverwrite: true)
+        _ = try session.symkeys.store(v6, for: roomId, version: 6, allowOverwrite: true)
+        XCTAssertEqual(try session.symkeys.currentVersion(for: roomId), 6)
+
+        let outcome = try router().route(
+            request(for: roomId, version: 1, from: carol), as: me, now: at(10)
+        )
+        let reply = try XCTUnwrap(outcome.outbound.first)
+        XCTAssertEqual(reply.symkeyVersion, 1, "the version asked for, not the current one")
+
+        let (_, cipher) = try XCTUnwrap(SymkeyShare.parse(try XCTUnwrap(reply.content)))
+        XCTAssertEqual(try AsyCipher.decrypt(cipherString: cipher, privkey: carolPriv), v1)
+    }
+
+    /// Naming no version still means "whatever you have now" — the form
+    /// a new joiner sends, and the one every older client sends.
+    func testANamelessRequestStillGetsTheCurrentVersion() throws {
+        try bobsRoom()
+        _ = try session.symkeys.store(
+            Data(repeating: 0x11, count: 32), for: roomId, version: 1, allowOverwrite: true
+        )
+        let v6 = Data(repeating: 0x66, count: 32)
+        _ = try session.symkeys.store(v6, for: roomId, version: 6, allowOverwrite: true)
+
+        let outcome = try router().route(request(for: roomId, from: carol), as: me, now: at(10))
+        XCTAssertEqual(try XCTUnwrap(outcome.outbound.first).symkeyVersion, 6)
+    }
+
+    // MARK: - SYMKEY_HISTORY
+
+    private func historyRequest(
+        for entityId: String, versions: [Int64], from sender: String
+    ) throws -> ImMessage {
+        var m = try XCTUnwrap(KeyExchange.historyRequest(
+            entityId: entityId, versions: versions, from: sender, to: me, now: t0
+        ))
+        m.id = ImMessage.hexId(fudpId: 9_200)
+        return m
+    }
+
+    /// A batch is answered with one `SYMKEY` per version held, all
+    /// carrying the request's id — FIMP4V3 §5.2.
+    func testABatchIsAnsweredOncePerVersionHeld() throws {
+        try bobsRoom()
+        let keys: [Int64: Data] = [
+            1: Data(repeating: 0x11, count: 32),
+            2: Data(repeating: 0x22, count: 32),
+            3: Data(repeating: 0x33, count: 32),
+        ]
+        for (version, key) in keys {
+            _ = try session.symkeys.store(key, for: roomId, version: version, allowOverwrite: true)
+        }
+
+        let ask = try historyRequest(for: roomId, versions: [1, 2, 3], from: carol)
+        let outcome = try router().route(ask, as: me, now: at(10))
+
+        XCTAssertEqual(outcome.outbound.count, 3)
+        XCTAssertEqual(outcome.outbound.compactMap(\.symkeyVersion).sorted(), [1, 2, 3])
+        for reply in outcome.outbound {
+            XCTAssertEqual(reply.contentType, .symkey)
+            XCTAssertEqual(reply.targetId, carol)
+            XCTAssertEqual(
+                reply.requestId, ask.id,
+                "every share in a batch carries the request's id, or the receiver drops all but the first"
+            )
+            let version = try XCTUnwrap(reply.symkeyVersion)
+            let (_, cipher) = try XCTUnwrap(SymkeyShare.parse(try XCTUnwrap(reply.content)))
+            XCTAssertEqual(try AsyCipher.decrypt(cipherString: cipher, privkey: carolPriv), keys[version])
+        }
+    }
+
+    /// Versions we do not hold are **absent from the answer**, not a
+    /// reason to refuse it: five of eight is five keys they needed.
+    func testABatchAnswersWhatItCanAndSkipsTheRest() throws {
+        try bobsRoom()
+        _ = try session.symkeys.store(
+            Data(repeating: 0x22, count: 32), for: roomId, version: 2, allowOverwrite: true
+        )
+
+        let outcome = try router().route(
+            try historyRequest(for: roomId, versions: [1, 2, 3], from: carol), as: me, now: at(10)
+        )
+        XCTAssertEqual(outcome.outbound.compactMap(\.symkeyVersion), [2])
+    }
+
+    /// Holding none of them is silence, like any other unanswerable ask.
+    func testABatchWeCanAnswerNoneOfIsSilent() throws {
+        try bobsRoom()
+        let outcome = try router().route(
+            try historyRequest(for: roomId, versions: [1, 2], from: carol), as: me, now: at(10)
+        )
+        XCTAssertTrue(outcome.outbound.isEmpty)
+        XCTAssertFalse(outcome.acted)
+    }
+
+    /// The membership check is the same one, made once for the batch —
+    /// a non-member gets nothing, however many versions they name.
+    func testANonMemberGetsNoBatch() throws {
+        try bobsRoom()
+        for version in Int64(1) ... 3 {
+            _ = try session.symkeys.store(
+                Data(repeating: 0x44, count: 32), for: roomId, version: version, allowOverwrite: true
+            )
+        }
+        let outcome = try router().route(
+            try historyRequest(for: roomId, versions: [1, 2, 3], from: mallory), as: me, now: at(10)
+        )
+        XCTAssertTrue(outcome.outbound.isEmpty)
+    }
+
+    /// A single-version answer echoes the request id too — §5.1 says so,
+    /// and Android discards a non-owner's share that matches no nonce it
+    /// is holding, so an answer without it was silently thrown away.
+    func testASingleAnswerEchoesTheRequestId() throws {
+        try bobsRoom()
+        _ = try session.symkeys.store(
+            Data(repeating: 0x5A, count: 32), for: roomId, version: 1, allowOverwrite: true
+        )
+        let ask = request(for: roomId, from: carol)
+        let outcome = try router().route(ask, as: me, now: at(10))
+        XCTAssertEqual(try XCTUnwrap(outcome.outbound.first).requestId, ask.id)
+    }
+
+    /// Asked for a version we do not hold, we say nothing — rather than
+    /// substituting the one we do have.
+    ///
+    /// Substituting is worse than silence: it looks like a successful
+    /// exchange, the asker stores a key they almost certainly already
+    /// had, and the messages they cannot read stay unreadable with
+    /// nothing to show why. Silence leaves the request outstanding for a
+    /// member who does hold it.
+    func testAskingForAVersionWeLackIsNotAnsweredWithAnother() throws {
+        try bobsRoom()
+        _ = try session.symkeys.store(
+            Data(repeating: 0x66, count: 32), for: roomId, version: 6, allowOverwrite: true
+        )
+
+        let outcome = try router().route(
+            request(for: roomId, version: 1, from: carol), as: me, now: at(10)
+        )
+        XCTAssertTrue(outcome.outbound.isEmpty, "no answer beats the wrong answer")
+        XCTAssertFalse(outcome.acted)
+    }
+
     // MARK: - room info requests
 
     private func roomInfoRequest(for roomId: String, from sender: String) -> ImMessage {

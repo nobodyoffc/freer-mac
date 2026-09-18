@@ -209,6 +209,14 @@ struct TranscriptView: View {
                         Text(ChatFormat.shortTime.string(from: Date(timeIntervalSince1970: Double(time) / 1000)))
                     }
                     if mine { statusLabel(message) }
+                    if !mine, message.status == .imported {
+                        // Live messages are signed by their author and
+                        // checked on arrival; a history file carries no
+                        // signatures, so who wrote these rests on whoever
+                        // shared the file.
+                        Label("Unverified", systemImage: "questionmark.circle")
+                            .help("Imported from shared history. History carries no signatures, so the sender shown can't be proven.")
+                    }
                 }
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
@@ -229,10 +237,16 @@ struct TranscriptView: View {
                 .font(.caption)
                 .foregroundStyle(NobodyMark.color)
         } else if message.isSealed {
+            // **Whether the key is held is a question for the store, not
+            // an assumption.** This used to say "not held here" for
+            // every unopened row, which was read as the reason and was
+            // often simply untrue: a key asked for and given still lands
+            // in ``SymkeyStore`` while the row beside it kept claiming
+            // the opposite. Sealed means "not opened"; only the store
+            // knows why.
             HStack(spacing: 4) {
                 Image(systemName: "lock.slash")
-                Text(message.symkeyVersion.map { "Sealed with key v\($0) — not held here" }
-                     ?? "Sealed to a key this identity doesn't hold")
+                Text(sealedNote(for: message))
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -250,6 +264,30 @@ struct TranscriptView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// Why a row is still locked, said only as far as we actually know.
+    ///
+    /// A group row names a symkey version, so the store can be asked
+    /// whether that version is here — and the two answers mean opposite
+    /// things to whoever is reading. Missing is a key to go and ask a
+    /// member for. Present is not: the key arrived and this row did not
+    /// open under it, which is a fault on this device, and telling the
+    /// user to ask for the key again would send them round a loop that
+    /// cannot end.
+    ///
+    /// A P2P row is sealed to a prikey rather than a symkey, so there is
+    /// no version and nothing to look up.
+    private func sealedNote(for message: ImMessage) -> String {
+        guard message.type == .team || message.type == .room,
+              let entityId = message.targetId, !entityId.isEmpty,
+              let version = message.symkeyVersion
+        else { return "Sealed — this identity holds no key that opens it" }
+
+        let held = (try? session.symkeys.key(for: entityId, version: version)) ?? nil
+        return held == nil
+            ? "Sealed with key v\(version) — not held here"
+            : "Sealed with key v\(version) — that key is here but does not open this"
     }
 
     /// A voice note: play it, and see how long it is.
@@ -347,7 +385,8 @@ struct TranscriptView: View {
             Label("Held", systemImage: "hand.raised")
                 .help("Held as a message request — it is not in a conversation yet.")
         case .imported:
-            Label("Imported", systemImage: "tray.and.arrow.down")
+            Label("Imported · unverified", systemImage: "tray.and.arrow.down")
+                .help("Imported from shared history. History carries no signatures, so it can't be proven who wrote it.")
         }
     }
 }

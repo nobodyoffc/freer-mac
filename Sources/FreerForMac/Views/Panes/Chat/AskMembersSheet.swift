@@ -63,6 +63,17 @@ struct AskMembersSheet: View {
     /// asking again is legitimate (a rotation we missed, a room whose
     /// membership drifted), so it informs rather than disables.
     @State private var alreadyHeld = false
+    /// The key versions this conversation has messages sealed under and
+    /// this device does not hold, oldest first.
+    ///
+    /// **This is what turns a request into a useful one.** A request
+    /// naming no version asks for whatever the responder has now
+    /// (FIMP4V3 §5.1), and their current version is usually the one we
+    /// already hold — so the member missing an *old* key could ask
+    /// forever and be handed the newest one every time. FIMP4V3 §7.4
+    /// says recovery asks for the missing version, and this is how we
+    /// know which that is.
+    @State private var missingVersions: [Int64] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -115,14 +126,26 @@ struct AskMembersSheet: View {
         .onAppear(perform: load)
     }
 
+    /// Which versions the request will name, when it names any. Said out
+    /// loud because "ask for the key" is ambiguous the moment a key has
+    /// been rotated, and the answer the user gets back depends entirely
+    /// on which one was asked for.
+    private var versionNote: String {
+        guard ask == .symkey, !missingVersions.isEmpty else { return "" }
+        let list = missingVersions.map { "v\($0)" }.joined(separator: ", ")
+        return missingVersions.count == 1
+            ? "This asks for **\(list)** — the version this conversation needs and this device does not hold. "
+            : "This asks for **\(list)** — the versions this conversation needs and this device does not hold, one request each. "
+    }
+
     /// Whose answer can actually be applied — the part that decides who
     /// to tick, and the part a user has no way of guessing.
     private var explanation: String {
         switch ask {
         case .symkey where style.mode == .team:
-            return "Any member who holds the team's key can send it. It arrives on a later receive and is stored sealed to this identity."
+            return "Any member who holds the team's key can send it. \(versionNote)It arrives on a later receive and is stored sealed to this identity."
         case .symkey:
-            return "Any member who holds the room's key can send it. Only the owner's copy can replace a version this device already has."
+            return "Any member who holds the room's key can send it. \(versionNote)Only the owner's copy can replace a version this device already has."
         case .roomInfo:
             return "Only the **owner's** answer can rewrite who is in this room — a member's answer still carries the name and the key, which is usually the part that was missing. The owner is ticked for you."
         case .shareRoomInfo:
@@ -206,6 +229,7 @@ struct AskMembersSheet: View {
                 members = []
             }
             alreadyHeld = (try? session.symkeys.has(entityId: conversation.targetId)) ?? false
+            missingVersions = sealedVersionsNotHeld()
             // The owner is the answer that counts most in both cases, so
             // it starts ticked; everything else is the user's call —
             // except when the owner *is* us, where the only useful tick
@@ -267,21 +291,59 @@ struct AskMembersSheet: View {
         }
     }
 
+    /// The versions this transcript needs and this device lacks.
+    ///
+    /// Read from the sealed rows themselves rather than from the
+    /// conversation's cached `symkeyVersion`, because the cache names
+    /// the newest version seen and the rows we cannot read are usually
+    /// older than that.
+    private func sealedVersionsNotHeld() -> [Int64] {
+        guard style.mode == .team || style.mode == .room else { return [] }
+        let held = Set((try? session.symkeys.versions(for: conversation.targetId)) ?? [])
+        let sealed = (try? session.messages.sealed(in: conversation.id)) ?? []
+        return Set(sealed.compactMap(\.symkeyVersion)).subtracting(held).sorted()
+    }
+
     private func send() {
         if ask == .shareRoomInfo { return share() }
         do {
-            let outbound = KeyExchange.requests(
-                entityId: conversation.targetId,
-                kind: ask.requestType,
-                from: session.liveFid,
-                to: Array(chosen)
-            )
+            // Three shapes, and which one it is depends on what is
+            // actually missing:
+            //
+            // - several versions → one `SYMKEY_HISTORY` naming them all
+            //   (FIMP4V3 §5.2). One message instead of one per version,
+            //   on somebody's DOCK, paid for by us.
+            // - exactly one → a plain `SYMKEY` naming it (§5.1).
+            // - none, because nothing is sealed → a version-less
+            //   `SYMKEY`, which asks for the current key. That is the new
+            //   joiner who holds nothing, and it is what they need.
+            var outbound: [ImMessage] = []
+            let versions = ask == .symkey ? missingVersions : []
+            if versions.count > 1 {
+                outbound = KeyExchange.historyRequests(
+                    entityId: conversation.targetId,
+                    versions: versions,
+                    from: session.liveFid,
+                    to: Array(chosen)
+                )
+            } else {
+                outbound = KeyExchange.requests(
+                    entityId: conversation.targetId,
+                    kind: ask.requestType,
+                    version: versions.first,
+                    from: session.liveFid,
+                    to: Array(chosen)
+                )
+            }
             for message in outbound {
                 guard let to = message.targetId else { continue }
                 try session.outbox.enqueue(message, in: Conversation.id(type: .p2p, targetId: to))
             }
             Task { _ = try? await session.courier.drainOutbox(as: session.liveFid) }
-            onSent("Asked \(outbound.count) member\(outbound.count == 1 ? "" : "s"). The answer arrives on a later receive.")
+            let forWhat = versions.isEmpty
+                ? ""
+                : " for key \(versions.map { "v\($0)" }.joined(separator: ", "))"
+            onSent("Asked \(chosen.count) member\(chosen.count == 1 ? "" : "s")\(forWhat). The answer arrives on a later receive.")
             onClose()
         } catch {
             self.error = String(describing: error)

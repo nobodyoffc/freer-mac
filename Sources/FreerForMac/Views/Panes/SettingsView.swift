@@ -78,8 +78,8 @@ struct SettingsView: View {
 
     private var form: some View {
         Form {
-            // First, because the getting-started checklist sends newcomers
-            // here for exactly this.
+            // First: who this FID is on the chain matters more than how
+            // this Mac reaches it.
             IdentitySettingsSection(session: session)
 
             Section {

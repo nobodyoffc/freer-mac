@@ -16,7 +16,9 @@ final class ContactPolicyTests: XCTestCase {
     private let myPriv = Data(repeating: 0x11, count: 32)
     private let theirPriv = Data(repeating: 0x22, count: 32)
     private var me = ""
-    private let stranger = "F-stranger"
+    /// A real FID, because a P2P message is only accepted from the key
+    /// its sender field names.
+    private var stranger: String { (try? FchAddress(publicKey: Secp256k1.publicKey(fromPrivateKey: theirPriv)).fid) ?? "" }
     private let friend = "F-friend"
 
     private let t0 = Date(timeIntervalSince1970: 1_755_100_000)
@@ -135,9 +137,11 @@ final class ContactPolicyTests: XCTestCase {
 
     // MARK: - the receive path
 
+    /// Sealed by the stranger to us, as it comes off a DOCK.
     private func incoming(_ text: String, from sender: String, at seconds: TimeInterval) -> ImMessage {
         var m = ImMessage.text(type: .p2p, from: sender, to: me, text, now: at(seconds))
         m.id = ImMessage.hexId(fudpId: Int64(seconds) &+ 1_000)
+        try? m.sealBody(privkey: theirPriv, recipientPubkey: Secp256k1.publicKey(fromPrivateKey: myPriv))
         return m
     }
 
@@ -147,7 +151,7 @@ final class ContactPolicyTests: XCTestCase {
     /// until someone says yes.
     func testAStrangersMessageIsHeldAndCreatesNoThread() throws {
         let received = try session.chat.receive(
-            incoming("hello?", from: stranger, at: 10), as: me, now: at(10)
+            incoming("hello?", from: stranger, at: 10), as: me, privkey: myPriv, now: at(10)
         )
         guard case .held(_, let prompt) = received else {
             return XCTFail("expected the message to be held, got \(received)")
@@ -160,7 +164,7 @@ final class ContactPolicyTests: XCTestCase {
     }
 
     func testHeldMessagesKeepTheQuarantinedStatus() throws {
-        _ = try session.chat.receive(incoming("one", from: stranger, at: 10), as: me, now: at(10))
+        _ = try session.chat.receive(incoming("one", from: stranger, at: 10), as: me, privkey: myPriv, now: at(10))
         let held = try session.messageRequests.held(from: stranger)
         XCTAssertEqual(held.count, 1)
         XCTAssertEqual(held.first?.status, .quarantined)
@@ -173,7 +177,7 @@ final class ContactPolicyTests: XCTestCase {
         for i in 0..<3 {
             _ = try session.chat.receive(
                 incoming("message \(i)", from: stranger, at: TimeInterval(10 + i)),
-                as: me, now: at(TimeInterval(10 + i))
+                as: me, privkey: myPriv, now: at(TimeInterval(10 + i))
             )
         }
         let promoted = try session.messageRequests.promote(stranger, as: me, now: at(60))
@@ -194,12 +198,12 @@ final class ContactPolicyTests: XCTestCase {
     /// Accepting them once has to be enough: the *next* message must not
     /// ask the same question again.
     func testAcceptingAndThenAllowingLetsLaterMessagesThrough() throws {
-        _ = try session.chat.receive(incoming("hi", from: stranger, at: 10), as: me, now: at(10))
+        _ = try session.chat.receive(incoming("hi", from: stranger, at: 10), as: me, privkey: myPriv, now: at(10))
         _ = try session.messageRequests.promote(stranger, as: me, now: at(20))
         try session.contactPolicy.mutate(liveFid: me) { $0.allow(stranger) }
 
         let received = try session.chat.receive(
-            incoming("again", from: stranger, at: 30), as: me, now: at(30)
+            incoming("again", from: stranger, at: 30), as: me, privkey: myPriv, now: at(30)
         )
         guard case .message = received else {
             return XCTFail("expected delivery, got \(received)")
@@ -210,7 +214,7 @@ final class ContactPolicyTests: XCTestCase {
     /// unreachable, because most of these are someone writing to the
     /// wrong FID rather than an attacker.
     func testRejectingDropsTheMessagesAndNotTheSender() throws {
-        _ = try session.chat.receive(incoming("hi", from: stranger, at: 10), as: me, now: at(10))
+        _ = try session.chat.receive(incoming("hi", from: stranger, at: 10), as: me, privkey: myPriv, now: at(10))
         XCTAssertEqual(try session.messageRequests.reject(stranger), 1)
         XCTAssertTrue(try session.messageRequests.held(from: stranger).isEmpty)
         XCTAssertTrue(try session.messageRequests.pending().isEmpty)
@@ -224,7 +228,7 @@ final class ContactPolicyTests: XCTestCase {
     func testABlockedSenderLeavesNothingBehind() throws {
         try session.contactPolicy.mutate(liveFid: me) { $0.block(stranger) }
         let received = try session.chat.receive(
-            incoming("let me in", from: stranger, at: 10), as: me, now: at(10)
+            incoming("let me in", from: stranger, at: 10), as: me, privkey: myPriv, now: at(10)
         )
         guard case .ignored = received else {
             return XCTFail("expected the message to be dropped, got \(received)")
@@ -240,7 +244,7 @@ final class ContactPolicyTests: XCTestCase {
         for i in 0..<(MessageRequests.maxHeldPerSender + 5) {
             _ = try session.chat.receive(
                 incoming("spam \(i)", from: stranger, at: TimeInterval(i)),
-                as: me, now: at(TimeInterval(i))
+                as: me, privkey: myPriv, now: at(TimeInterval(i))
             )
         }
         XCTAssertEqual(
@@ -264,7 +268,7 @@ final class ContactPolicyTests: XCTestCase {
                 type: type, from: stranger, to: targetId, "in the group", now: at(10)
             )
             m.id = ImMessage.hexId(fudpId: Int64(type.rawValue.count) &+ 7_000)
-            let received = try session.chat.receive(m, as: me, now: at(10))
+            let received = try session.chat.receive(m, as: me, privkey: myPriv, now: at(10))
             guard case .message = received else {
                 return XCTFail("\(type) should be delivered, got \(received)")
             }
@@ -273,11 +277,13 @@ final class ContactPolicyTests: XCTestCase {
     }
 
     /// Our own message coming back to us — a second device collecting
-    /// what this one sent — is not a stranger's.
+    /// what this one sent — is not a stranger's. Sealed to ourselves, the
+    /// one way our own FID may arrive.
     func testOurOwnOutgoingMessageIsNeverHeld() throws {
-        var m = ImMessage.text(type: .p2p, from: me, to: stranger, "mine", now: at(10))
+        var m = ImMessage.text(type: .p2p, from: me, to: me, "mine", now: at(10))
         m.id = ImMessage.hexId(fudpId: 4_242)
-        let received = try session.chat.receive(m, as: me, now: at(10))
+        try m.sealBody(privkey: myPriv, recipientPubkey: try Secp256k1.publicKey(fromPrivateKey: myPriv))
+        let received = try session.chat.receive(m, as: me, privkey: myPriv, now: at(10))
         guard case .message = received else {
             return XCTFail("expected delivery, got \(received)")
         }

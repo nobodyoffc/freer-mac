@@ -55,6 +55,17 @@ public struct MessageCourier {
     /// teams or keys — it only knows that something else decides, and
     /// that whatever comes back may need queueing.
     private let routeSignal: (@Sendable (ImMessage, String, Date) throws -> SignalRouter.Outcome)?
+    /// Whether a square message's sender is a member (FIMP3V2 §8). Nil
+    /// keeps every square message, which is what tests without a chain
+    /// want.
+    private let squareSender: (@Sendable (_ sender: String, _ squareId: String, _ storedAt: Int64?) async -> SquareRoster.Answer)?
+    /// The prikey of a FID this device holds: every envelope is signed with
+    /// its sender's key, and a P2P message queued in the clear is sealed
+    /// with it. Nil means no key is on hand, and nothing can be sent.
+    private let prikeyFor: (@Sendable (_ fid: String) -> Data?)?
+    /// Messages already taken in, by author and id. Nil does no replay
+    /// check, which is what tests that re-read on purpose want.
+    private let seen: SeenMessagesStore?
 
     public init(
         outbox: MessageQueue,
@@ -66,9 +77,15 @@ public struct MessageCourier {
         directory: DirectoryService,
         registry: DockRegistry,
         groupHome: (@Sendable (String) -> [String: String]?)? = nil,
-        routeSignal: (@Sendable (ImMessage, String, Date) throws -> SignalRouter.Outcome)? = nil
+        routeSignal: (@Sendable (ImMessage, String, Date) throws -> SignalRouter.Outcome)? = nil,
+        squareSender: (@Sendable (_ sender: String, _ squareId: String, _ storedAt: Int64?) async -> SquareRoster.Answer)? = nil,
+        prikeyFor: (@Sendable (_ fid: String) -> Data?)? = nil,
+        seen: SeenMessagesStore? = nil
     ) {
+        self.prikeyFor = prikeyFor
+        self.seen = seen
         self.groupHome = groupHome
+        self.squareSender = squareSender
         self.routeSignal = routeSignal
         self.outbox = outbox
         self.messages = messages
@@ -137,6 +154,22 @@ public struct MessageCourier {
         for reply in outcome.outbound {
             guard let to = reply.targetId else { continue }
             try? outbox.enqueue(reply, in: Conversation.id(type: .p2p, targetId: to))
+        }
+        // **A key that arrives is retroactive.** The rows already filed
+        // sealed under it are kept precisely so they can be opened later
+        // (``ChatService/receive(_:as:privkey:now:)``), and until this
+        // was here nothing ever went back for them: the key was stored,
+        // `learnedKeyFor` was returned, and the transcript went on
+        // saying the key was not held. Android has always done this
+        // (`ImManager.redecryptPendingMessages`).
+        if let entityId = outcome.learnedKeyFor {
+            let opened = (try? chat.openSealed(forEntity: entityId, as: liveFid)) ?? []
+            if !opened.isEmpty {
+                SystemLog.shared.info(
+                    SystemSource.messages,
+                    "Opened \(opened.count) message(s) with the key for \(entityId.middleElided())"
+                )
+            }
         }
         if let note = outcome.note {
             SystemLog.shared.info(SystemSource.dock, note)
@@ -349,9 +382,27 @@ public struct MessageCourier {
             )
         }
 
+        var outgoing = queued.message
+        switch await sealForPeer(&outgoing, targetId: targetId) {
+        case .ready:
+            break
+        case .retry(let reason):
+            return record(.retryTransient, for: id, in: queued.conversationId, error: reason, now: now)
+        case .fail(let reason):
+            return record(.failPermanent, for: id, in: queued.conversationId, error: reason, now: now)
+        }
+
+        // Every envelope is signed by its author (FIMP0V3). A message queued
+        // under an identity that is not on hand now waits for it.
+        guard let sender = outgoing.senderId, let signingKey = prikeyFor?(sender) else {
+            return record(
+                .retryTransient, for: id, in: queued.conversationId,
+                error: "no prikey on hand for \(outgoing.senderId ?? "the sender") to sign with", now: now
+            )
+        }
         let envelope: Data
         do {
-            envelope = try queued.message.toWireBytes()
+            envelope = try outgoing.toWireBytes(signingWith: signingKey)
         } catch {
             return record(
                 .failPermanent, for: id, in: queued.conversationId,
@@ -426,6 +477,51 @@ public struct MessageCourier {
             .retryTransient, for: id, in: queued.conversationId,
             error: lastError ?? "no route succeeded", now: now
         )
+    }
+
+    private enum Sealing {
+        case ready
+        case retry(String)
+        case fail(String)
+    }
+
+    /// Seal a P2P message that was queued in the clear — a key request, a
+    /// key share, a room invitation.
+    ///
+    /// **A receiver keeps only P2P messages it can tie to their sender**,
+    /// and an unsealed body ties to nobody: anyone can write any FID into
+    /// the sender field. So a clear message with something in it would be
+    /// dropped on arrival, and the control traffic that is built in the
+    /// clear is sealed here, from the sender's key to the recipient's, the
+    /// same way ``ChatService`` seals a chat line. The copy in the
+    /// transcript stays readable; only the wire copy is sealed.
+    private func sealForPeer(_ message: inout ImMessage, targetId: String) async -> Sealing {
+        guard message.type == .p2p,
+              (message.body ?? Data()).isEmpty,
+              message.content != nil || message.data != nil
+        else { return .ready }
+        guard let sender = message.senderId, let privkey = prikeyFor?(sender) else {
+            // Queued under an identity that is not the one live now.
+            return .retry("no prikey on hand for \(message.senderId ?? "the sender") to seal with")
+        }
+        let pubkey: Data
+        if sender == targetId {
+            guard let own = try? Secp256k1.publicKey(fromPrivateKey: privkey) else {
+                return .fail("could not derive our own pubkey")
+            }
+            pubkey = own
+        } else {
+            guard let theirs = await peerPubkey(targetId) else {
+                return .retry("no pubkey for \(targetId) to seal to")
+            }
+            pubkey = theirs
+        }
+        do {
+            try message.sealBody(privkey: privkey, recipientPubkey: pubkey)
+            return .ready
+        } catch {
+            return .fail("could not seal: \(error)")
+        }
     }
 
     private func succeed(
@@ -619,6 +715,36 @@ public struct MessageCourier {
                 named.dockId = item.id
                 named.deliveryMethod = .dockStored
 
+                // FIMP0V3 §3.5 step 3: the signature binds the target, but
+                // a validly signed message can still be put on a DOCK for
+                // someone it was never for. Only what is addressed to a
+                // recipient this fetch was asking about is taken in.
+                if let reason = misaddressed(named, item: item, askedFor: recipientIds) {
+                    SystemLog.shared.info(
+                        SystemSource.messages,
+                        "Dropped a message not addressed to us",
+                        detail: "From \(named.senderId?.middleElided() ?? "nobody"): \(reason)"
+                    )
+                    other += 1
+                    continue
+                }
+
+                // Step 4: a replay verifies as well as the original did.
+                let seenKey = named.senderId.flatMap { sender in named.id.map { (sender, $0) } }
+                if let (sender, messageId) = seenKey, let seen,
+                   (try? seen.hasSeen(sender: sender, id: messageId)) == true {
+                    other += 1
+                    if let dockId = item.id, isOursAlone(item, named, liveFid: liveFid) {
+                        _ = try? await dock.delete(id: dockId, timeoutMs: timeoutMs)
+                    }
+                    continue
+                }
+
+                if await !fromSquareMember(named, item: item, liveFid: liveFid) {
+                    other += 1
+                    continue
+                }
+
                 switch (try? chat.receive(named, as: liveFid, privkey: privkey, now: now)) ?? .ignored(reason: "receive failed") {
                 case .message(let stored):
                     filed += 1
@@ -635,6 +761,9 @@ public struct MessageCourier {
                     other += 1
                 case .receipt, .ignored: other += 1
                 }
+                if let (sender, messageId) = seenKey {
+                    try? seen?.markSeen(sender: sender, id: messageId, now: now)
+                }
                 if let dockId = item.id, isOursAlone(item, named, liveFid: liveFid) {
                     _ = try? await dock.delete(id: dockId, timeoutMs: timeoutMs)
                 }
@@ -649,6 +778,52 @@ public struct MessageCourier {
             guard page.items.count >= pageSize else { break }
         }
         return ReceiveReport(fetched: fetched, filed: filed, sealed: sealed, held: held, routed: routed, other: other)
+    }
+
+    /// Why `message` is not for this fetch, or nil when it is: its target
+    /// must be one of the recipients asked for and, when the DOCK says who
+    /// the item is addressed to, one of those too.
+    private func misaddressed(_ message: ImMessage, item: DockItem, askedFor recipientIds: [String]) -> String? {
+        guard let target = message.targetId, !target.isEmpty else { return "it names no target" }
+        guard recipientIds.contains(target) else { return "it is for \(target.middleElided())" }
+        if let recipients = item.recipients, !recipients.isEmpty, !recipients.contains(target) {
+            return "it is for \(target.middleElided()) but was stored for someone else"
+        }
+        return nil
+    }
+
+    /// Keep a square message only if its sender is one of the square's
+    /// members; every other kind of message passes. Our own messages always
+    /// pass — they are ours whether or not the join has confirmed.
+    ///
+    /// **A chain that cannot be asked keeps the message.** The cursor moves
+    /// past whatever is dropped, so a drop is for good, and losing a
+    /// member's message to a network blip is worse than showing one
+    /// stranger's post.
+    private func fromSquareMember(_ message: ImMessage, item: DockItem, liveFid: String) async -> Bool {
+        guard message.type == .square, let squareSender else { return true }
+        guard let sender = message.senderId, !sender.isEmpty,
+              let squareId = message.targetId, !squareId.isEmpty
+        else { return false }
+        guard sender != liveFid else { return true }
+        switch await squareSender(sender, squareId, item.createTime) {
+        case .member:
+            return true
+        case .notMember:
+            SystemLog.shared.info(
+                SystemSource.messages,
+                "Dropped a square message from \(sender.middleElided()), who is not a member",
+                detail: "Square \(squareId.middleElided())"
+            )
+            return false
+        case .unknown:
+            SystemLog.shared.warning(
+                SystemSource.messages,
+                "Couldn't check whether \(sender.middleElided()) is in square \(squareId.middleElided())",
+                detail: "The message was kept: the chain could not be asked."
+            )
+            return true
+        }
     }
 
     /// Whether an item is addressed to us and nobody else, **and was

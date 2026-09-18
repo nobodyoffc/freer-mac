@@ -17,6 +17,13 @@ final class ImMessageTests: XCTestCase {
         XCTAssertFalse(root.vectors.isEmpty)
     }
 
+    /// Signed with the key the vectors were generated with, so the bytes
+    /// are Java's exactly: the Schnorr nonce is deterministic on both sides.
+    private func wire(_ message: ImMessage) throws -> Data {
+        let hex = try XCTUnwrap(root.signingKeys[message.senderId ?? ""], "no key for \(message.senderId ?? "nil")")
+        return try message.toWireBytes(signingWith: Data(fromHex: hex))
+    }
+
     private func vector(_ label: String) throws -> DomainVectors.ImMessageCase {
         try XCTUnwrap(vectors.first { $0.label == label }, "no vector labelled \(label)")
     }
@@ -90,7 +97,7 @@ final class ImMessageTests: XCTestCase {
     func testToWireBytesMatchesJava() throws {
         for v in vectors {
             let message = try ImMessage.fromJson(v.json)
-            XCTAssertEqual(try message.toWireBytes().hex, v.wireHex, "vector \(v.label)")
+            XCTAssertEqual(try wire(message).hex, v.wireHex, "vector \(v.label)")
         }
     }
 
@@ -106,13 +113,9 @@ final class ImMessageTests: XCTestCase {
     /// into something different.
     func testWireRoundTripIsStable() throws {
         for v in vectors {
-            // Encoded here rather than taken from the vector: the vector's
-            // bytes are v1. What this asserts is unchanged — that decoding
-            // and re-encoding is a no-op — but the fixture is now the
-            // message, not the bytes.
-            let encoded = try ImMessage.fromJson(v.json).toWireBytes()
+            let encoded = try wire(ImMessage.fromJson(v.json))
             let decoded = try ImMessage.fromWireBytes(encoded)
-            XCTAssertEqual(try decoded.toWireBytes().hex, encoded.hex, "vector \(v.label)")
+            XCTAssertEqual(try wire(decoded).hex, encoded.hex, "vector \(v.label)")
         }
     }
 
@@ -127,7 +130,7 @@ final class ImMessageTests: XCTestCase {
         XCTAssertEqual(sent.roadIds, ["road-a", "road-b"])
         XCTAssertEqual(sent.sequence, 42)
 
-        let received = try ImMessage.fromWireBytes(try sent.toWireBytes())
+        let received = try ImMessage.fromWireBytes(try wire(sent))
         XCTAssertNil(received.status)
         XCTAssertNil(received.roadIds)
         XCTAssertNil(received.dockId)
@@ -158,7 +161,7 @@ final class ImMessageTests: XCTestCase {
         let sent = try ImMessage.fromJson(v.json)
         XCTAssertEqual(sent.symkeyVersion, 0x1_8000_0001)
 
-        let received = try ImMessage.fromWireBytes(try sent.toWireBytes())
+        let received = try ImMessage.fromWireBytes(try wire(sent))
         XCTAssertEqual(received.symkeyVersion, -2_147_483_647)
     }
 
@@ -167,10 +170,10 @@ final class ImMessageTests: XCTestCase {
     func testEmptyAndNilStringsAreIndistinguishableOnTheWire() throws {
         // A length-prefixed *string* field still round-trips empty as
         // empty: the flag says present, the length says zero.
-        var withEmptyThread = ImMessage(type: .p2p, senderId: "a", targetId: "b", timestamp: 1)
+        var withEmptyThread = ImMessage(type: .p2p, senderId: "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK", targetId: "b", timestamp: 1)
         withEmptyThread.content = "x"
         withEmptyThread.threadId = ""
-        let received = try ImMessage.fromWireBytes(try withEmptyThread.toWireBytes())
+        let received = try ImMessage.fromWireBytes(try wire(withEmptyThread))
         XCTAssertEqual(received.threadId, "")
 
         // The body is different, and deliberately so. Its framing records
@@ -178,18 +181,18 @@ final class ImMessageTests: XCTestCase {
         // as `""` — it comes back nil, and the encoder omits the body
         // rather than writing an all-zero framing that would not survive
         // a second encode.
-        var withEmptyContent = ImMessage(type: .p2p, senderId: "a", targetId: "b", timestamp: 1)
+        var withEmptyContent = ImMessage(type: .p2p, senderId: "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK", targetId: "b", timestamp: 1)
         withEmptyContent.content = ""
-        let encoded = try withEmptyContent.toWireBytes()
+        let encoded = try wire(withEmptyContent)
         let back = try ImMessage.fromWireBytes(encoded)
         XCTAssertNil(back.content)
         XCTAssertNil(back.data)
-        XCTAssertEqual(try back.toWireBytes(), encoded, "empty payload survives a second encode")
+        XCTAssertEqual(try wire(back), encoded, "empty payload survives a second encode")
 
-        let noContent = ImMessage(type: .p2p, senderId: "a", targetId: "b", timestamp: 1)
-        XCTAssertNil(try ImMessage.fromWireBytes(try noContent.toWireBytes()).content)
+        let noContent = ImMessage(type: .p2p, senderId: "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK", targetId: "b", timestamp: 1)
+        XCTAssertNil(try ImMessage.fromWireBytes(try wire(noContent)).content)
         XCTAssertEqual(
-            try noContent.toWireBytes(), encoded,
+            try wire(noContent), encoded,
             "an empty payload and no payload encode identically"
         )
     }
@@ -200,21 +203,62 @@ final class ImMessageTests: XCTestCase {
         let v = try vector("no-id")
         let sent = try ImMessage.fromJson(v.json)
         XCTAssertNil(sent.id)
-        XCTAssertNil(try ImMessage.fromWireBytes(try sent.toWireBytes()).id)
+        XCTAssertNil(try ImMessage.fromWireBytes(try wire(sent)).id)
     }
 
     func testTruncatedWireDataThrows() throws {
-        let full = try ImMessage.fromJson(try vector("p2p-text").json).toWireBytes()
+        let full = try wire(ImMessage.fromJson(try vector("p2p-text").json))
         XCTAssertThrowsError(try ImMessage.fromWireBytes(full.prefix(10)))
         // Long enough to clear the header check, but the flag word
         // promises a content field that is not there.
+        XCTAssertThrowsError(try ImMessage.fromWireBytes(full.prefix(full.count - 4 - ImMessage.signatureTrailerSize)))
+        // Every field present, but the signature cut short.
         XCTAssertThrowsError(try ImMessage.fromWireBytes(full.prefix(full.count - 4)))
+    }
+
+    // MARK: - signature (FIMP0V3)
+
+    /// Flip one signed byte — here the last character of the content —
+    /// and the envelope no longer verifies.
+    func testATamperedEnvelopeIsRejected() throws {
+        var bytes = try wire(ImMessage.fromJson(try vector("p2p-text").json))
+        let lastSigned = bytes.count - ImMessage.signatureTrailerSize - 1
+        bytes[lastSigned] ^= 0x01
+        XCTAssertThrowsError(try ImMessage.fromWireBytes(bytes)) { error in
+            XCTAssertEqual(error as? ImMessage.WireFailure, .badSignature)
+        }
+    }
+
+    /// A valid signature by the wrong key: B signs a message naming A.
+    func testASignatureByAnotherFidIsRejected() throws {
+        var message = try ImMessage.fromJson(try vector("p2p-text").json)
+        let other = try XCTUnwrap(root.signingKeys.first { $0.key != message.senderId })
+        let forger = message.senderId!
+        message.senderId = other.key
+        var bytes = try message.toWireBytes(signingWith: Data(fromHex: other.value))
+        // Rewrite the sender field to A's FID (same length) after signing.
+        let at = try XCTUnwrap(bytes.range(of: Data(other.key.utf8)))
+        bytes.replaceSubrange(at, with: Data(forger.utf8))
+        XCTAssertThrowsError(try ImMessage.fromWireBytes(bytes)) { error in
+            XCTAssertEqual(error as? ImMessage.WireFailure, .signerIsNotSender(signer: other.key))
+        }
+    }
+
+    func testAnUnsignedEnvelopeIsRejected() throws {
+        let unsigned = try ImMessage.fromJson(try vector("p2p-text").json).unsignedWireBytes()
+        XCTAssertThrowsError(try ImMessage.fromWireBytes(unsigned))
+    }
+
+    func testSigningSomeoneElsesMessageThrows() throws {
+        let message = try ImMessage.fromJson(try vector("p2p-text").json)
+        let other = try XCTUnwrap(root.signingKeys.first { $0.key != message.senderId })
+        XCTAssertThrowsError(try message.toWireBytes(signingWith: Data(fromHex: other.value)))
     }
 
     /// The reader indexes relative to `startIndex`, so a message carved
     /// out of a larger buffer decodes the same as a standalone one.
     func testDecodesFromASlice() throws {
-        let encoded = try ImMessage.fromJson(try vector("p2p-text").json).toWireBytes()
+        let encoded = try wire(ImMessage.fromJson(try vector("p2p-text").json))
         let padded = Data(repeating: 0xAB, count: 7) + encoded
         let slice = padded[7...]
         XCTAssertEqual(try ImMessage.fromWireBytes(slice).wireJson(),

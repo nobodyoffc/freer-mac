@@ -261,14 +261,26 @@ public struct SignalRouter {
         if requestType == .history {
             return try routeHistoryRequest(message, as: liveFid, now: now)
         }
-        guard let senderFid = message.senderId,
-              let entityId = SymkeyShare.requestedEntityId(message.content)
-        else { return .nothing }
+        guard let senderFid = message.senderId else { return .nothing }
+
+        // A batch names a comma-separated list, so it parses differently
+        // from everything else here.
+        if requestType == .symkeyHistory {
+            guard let asked = SymkeyShare.requestedHistory(message.content) else { return .nothing }
+            return try answerSymkeyHistoryRequest(
+                entityId: asked.entityId, versions: asked.versions,
+                from: senderFid, as: liveFid, answering: message.id, now: now
+            )
+        }
+
+        guard let asked = SymkeyShare.requested(message.content) else { return .nothing }
+        let entityId = asked.entityId
 
         switch requestType {
         case .symkey:
             return try answerSymkeyRequest(
-                entityId: entityId, from: senderFid, as: liveFid, now: now
+                entityId: entityId, version: asked.version,
+                from: senderFid, as: liveFid, answering: message.id, now: now
             )
         case .roomInfo:
             return try answerRoomInfoRequest(
@@ -279,8 +291,20 @@ public struct SignalRouter {
         }
     }
 
+    /// `version` is the one the requester named, or nil for "whatever
+    /// you have now" — FIMP4V3 §5.1.
+    ///
+    /// **A named version is answered with that version or not at all.**
+    /// Substituting our current key for the one asked for is worse than
+    /// silence: it looks like a successful exchange, the requester
+    /// stores a key it very likely already had, and the messages it
+    /// cannot read stay unreadable with nothing to show why. Silence at
+    /// least leaves the request outstanding for a member who does hold
+    /// it.
     private func answerSymkeyRequest(
-        entityId: String, from senderFid: String, as liveFid: String, now: Date
+        entityId: String, version wanted: Int64? = nil,
+        from senderFid: String, as liveFid: String,
+        answering requestId: String? = nil, now: Date
     ) throws -> Outcome {
         guard isMember(of: entityId, fid: liveFid), isMember(of: entityId, fid: senderFid) else {
             return Outcome(note: "key request from a non-member")
@@ -289,16 +313,64 @@ public struct SignalRouter {
             return Outcome(note: "no pubkey to seal a key to \(senderFid)")
         }
 
-        let version = try symkeys.currentVersion(for: entityId)
+        let version = try wanted ?? symkeys.currentVersion(for: entityId)
         guard version >= SymkeyStore.minimumVersion else {
             return Outcome(note: "asked for a key we do not hold")
         }
+        guard try symkeys.key(for: entityId, version: version) != nil else {
+            return Outcome(note: "asked for \(entityId) key v\(version), which we do not hold")
+        }
         guard let reply = try KeyExchange.share(
             entityId: entityId, version: version, to: senderFid,
-            recipientPubkey: pubkey, from: liveFid, symkeys: symkeys, now: now
+            recipientPubkey: pubkey, from: liveFid, symkeys: symkeys,
+            answering: requestId, now: now
         ) else { return Outcome(note: "could not seal the key") }
 
         return Outcome(outbound: [reply], note: "shared \(entityId) key v\(version)")
+    }
+
+    /// Answer a batch — one `SYMKEY` per version we hold, all carrying
+    /// the request's id (FIMP4V3 §5.2, FIMP2V3 §5.3).
+    ///
+    /// **Versions we do not hold are simply absent from the answer**, as
+    /// for a single version: a batch of eight where we hold five is five
+    /// keys the asker needs, and refusing because of the other three
+    /// would leave them with none. The asker learns what arrived by what
+    /// opens, which is the only thing they can act on anyway.
+    ///
+    /// The membership check is the same one and is made once: it is a
+    /// property of the asker, not of any version.
+    private func answerSymkeyHistoryRequest(
+        entityId: String, versions: [Int64],
+        from senderFid: String, as liveFid: String,
+        answering requestId: String?, now: Date
+    ) throws -> Outcome {
+        guard isMember(of: entityId, fid: liveFid), isMember(of: entityId, fid: senderFid) else {
+            return Outcome(note: "key history request from a non-member")
+        }
+        guard let pubkey = try pubkeys(senderFid) else {
+            return Outcome(note: "no pubkey to seal keys to \(senderFid)")
+        }
+
+        var outbound: [ImMessage] = []
+        var shared: [Int64] = []
+        for version in versions {
+            guard try symkeys.key(for: entityId, version: version) != nil else { continue }
+            guard let reply = try KeyExchange.share(
+                entityId: entityId, version: version, to: senderFid,
+                recipientPubkey: pubkey, from: liveFid, symkeys: symkeys,
+                answering: requestId, now: now
+            ) else { continue }
+            outbound.append(reply)
+            shared.append(version)
+        }
+        guard !outbound.isEmpty else {
+            return Outcome(note: "asked for \(entityId) keys we do not hold")
+        }
+        return Outcome(
+            outbound: outbound,
+            note: "shared \(entityId) keys \(shared.map { "v\($0)" }.joined(separator: ", "))"
+        )
     }
 
     /// Someone in the room asked for its details.

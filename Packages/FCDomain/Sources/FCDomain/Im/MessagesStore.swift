@@ -200,6 +200,21 @@ public struct MessagesStore {
             .compactMap { try s.get($0) }
     }
 
+    /// The rows filed sealed — a body still here and no plaintext beside
+    /// it — oldest first. What a key arriving retroactively has to go
+    /// back and open; see ``ChatService/openSealed(forEntity:as:)``.
+    ///
+    /// Sealed-ness is not visible in the key, so unlike
+    /// ``messages(in:since:before:)`` this reads the whole conversation.
+    /// That is why the caller runs it when a key actually lands rather
+    /// than on every collect.
+    public func sealed(in conversationId: String) throws -> [ImMessage] {
+        let s = store(conversationId)
+        return try s.keys()
+            .compactMap { try s.get($0) }
+            .filter(\.isSealed)
+    }
+
     /// The ids a conversation already holds, read off the keys.
     public func messageIds(in conversationId: String) throws -> Set<String> {
         Set(try store(conversationId).keys().compactMap { key in

@@ -217,6 +217,15 @@ public struct ChatService {
         // and every receipt was discarded as "matched nothing". The
         // sender's message then sat at `sent` forever. Android opens
         // before its own RECEIPT branch for exactly this reason.
+        // **A P2P message has to be from whom it says.** The group flavours
+        // cannot check this yet — a shared key or no key proves nothing
+        // about which member wrote — but a P2P envelope can, so a forged
+        // one goes no further: not into a transcript, a request list, a
+        // receipt or a key exchange.
+        if type == .p2p, let forged = message.forgedP2pSenderReason(liveFid: liveFid) {
+            return .ignored(reason: "P2P message from \(message.senderId ?? "nobody") \(forged)")
+        }
+
         var stored = message
         var opened = true
         if stored.isSealed {
@@ -290,6 +299,86 @@ public struct ChatService {
         try messages.put(stored, in: conversationId)
         try conversations.record(stored, myFid: liveFid)
         return opened ? .message(stored) : .sealed(stored, symkeyVersion: stored.symkeyVersion)
+    }
+
+    // MARK: - opening what was filed sealed
+
+    /// Open the rows of a group conversation that were filed sealed,
+    /// now that a key for the entity has arrived.
+    ///
+    /// **A key arriving is retroactive, and nothing used to act on it.**
+    /// ``receive(_:as:privkey:now:)`` files a body it cannot open as
+    /// ``Received/sealed(_:symkeyVersion:)`` and keeps the body
+    /// precisely so this can happen later — but the arrival of the key
+    /// never came back to the transcript. So a member who asked for a
+    /// key, was given it, and stored it still read "Sealed with key v1 —
+    /// not held here" over messages whose key was by then sitting in
+    /// ``SymkeyStore``. Android has done this since the beginning
+    /// (`ImManager.redecryptPendingMessages`); this is the missing half
+    /// on the Mac.
+    ///
+    /// Scoped to one entity because that is what a key tells us about,
+    /// and it is the entity id either flavour keys under: a team's and a
+    /// room's `targetId` *is* the entity, which is why the same call
+    /// opens both and why the conversation type is the only thing that
+    /// has to be guessed.
+    ///
+    /// Returns the rows that opened — empty when there was nothing
+    /// sealed, or when the key still does not fit, both of which are
+    /// ordinary. The conversation summary is rewritten only if something
+    /// changed, since the preview of a thread whose newest row was
+    /// sealed is wrong until then.
+    @discardableResult
+    public func openSealed(
+        forEntity entityId: String, as liveFid: String
+    ) throws -> [ImMessage] {
+        guard !entityId.isEmpty else { return [] }
+        // Holding no key at all is the common case for an entity we were
+        // never given one for, and it settles the question by reading
+        // key names only — no row is decrypted, and the whole-transcript
+        // scan below never starts.
+        guard !(try symkeys.versions(for: entityId)).isEmpty else { return [] }
+        var opened: [ImMessage] = []
+        // A key names an entity, not a flavour. Both ids are cheap to
+        // try — a conversation that is not there holds no messages —
+        // and asking the stores which one it is would be two reads to
+        // save nothing.
+        for type in [ImType.team, ImType.room] {
+            let conversationId = Conversation.id(type: type, targetId: entityId)
+            opened += try openSealed(in: conversationId, entityId: entityId, as: liveFid)
+        }
+        return opened
+    }
+
+    private func openSealed(
+        in conversationId: String, entityId: String, as liveFid: String
+    ) throws -> [ImMessage] {
+        var opened: [ImMessage] = []
+        for message in try messages.sealed(in: conversationId) {
+            guard let id = message.id else { continue }
+            var candidate = message
+            guard (try? symkeys.open(&candidate, for: entityId)) == true else { continue }
+            // Same rule as every other write path: once the plaintext is
+            // beside it the sealed body is redundant.
+            let updated = try messages.mutate(messageId: id, in: conversationId) { stored in
+                stored.content = candidate.content
+                stored.data = candidate.data
+                stored.body = nil
+            }
+            if let updated { opened.append(updated) }
+        }
+        // The thread's cached preview was built from a row that said
+        // nothing, so it has to be recomputed — but *not* through
+        // ``ConversationsStore/record(_:myFid:)``, which counts every
+        // incoming message as one more unread. These rows were counted
+        // when they were filed; passing them again would inflate the
+        // badge by the size of the backlog we just opened. ``rebuild``
+        // recounts unread from the messages' own flags instead, which is
+        // the only reading that stays right however often this runs.
+        if !opened.isEmpty {
+            try conversations.rebuild(id: conversationId, from: messages, myFid: liveFid)
+        }
+        return opened
     }
 
     /// Ask the policy about an inbound message, and act on the answer.

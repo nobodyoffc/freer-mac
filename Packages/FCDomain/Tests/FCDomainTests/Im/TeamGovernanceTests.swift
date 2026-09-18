@@ -362,21 +362,32 @@ final class TeamGovernanceTests: XCTestCase {
         return m
     }
 
+    /// A notice as it arrives off a DOCK: sealed by a real key to us. The
+    /// receive path only takes P2P messages whose seal names their sender.
+    private let noticePriv = Data(repeating: 0x5A, count: 32)
+    private var noticeSender: String { (try? FchAddress(publicKey: Secp256k1.publicKey(fromPrivateKey: noticePriv)).fid) ?? "" }
+
+    private func sealedNotice(_ text: String, at seconds: TimeInterval) throws -> ImMessage {
+        var m = incoming(text, from: noticeSender, at: seconds)
+        try m.sealBody(privkey: noticePriv, recipientPubkey: Secp256k1.publicKey(fromPrivateKey: try session.livePrikey()))
+        return m
+    }
+
     /// **From a stranger, and still seen.** An invitation usually comes
     /// from somebody not yet accepted; held as a message request it would
     /// be a line of protocol in the one place least likely to be read.
     func testANoticeFromAStrangerIsASignalNotAHeldMessage() throws {
         let notice = TeamNotice(kind: .invitation, teamId: teamId, teamName: "T").text
-        let received = try session.chat.receive(incoming(notice, from: alice, at: 10), as: me, now: at(10))
+        let received = try session.chat.receive(try sealedNotice(notice, at: 10), as: me, privkey: try session.livePrikey(), now: at(10))
         guard case .signal = received else { return XCTFail("expected a signal, got \(received)") }
-        XCTAssertEqual(try session.messageRequests.count(from: alice), 0)
+        XCTAssertEqual(try session.messageRequests.count(from: noticeSender), 0)
         XCTAssertTrue(try session.conversations.visible().isEmpty)
     }
 
     func testANoticeFromABlockedSenderIsDropped() throws {
-        try session.contactPolicy.mutate(liveFid: me) { $0.block(alice) }
+        try session.contactPolicy.mutate(liveFid: me) { $0.block(noticeSender) }
         let notice = TeamNotice(kind: .invitation, teamId: teamId, teamName: "T").text
-        let received = try session.chat.receive(incoming(notice, from: alice, at: 10), as: me, now: at(10))
+        let received = try session.chat.receive(try sealedNotice(notice, at: 10), as: me, privkey: try session.livePrikey(), now: at(10))
         guard case .ignored = received else { return XCTFail("expected it dropped, got \(received)") }
     }
 
@@ -462,6 +473,94 @@ final class TeamGovernanceTests: XCTestCase {
             return terms?["fields"] as? [String] ?? []
         }
         XCTAssertEqual(fields, [["invitees"], ["transferee"]])
+    }
+
+    // MARK: - the "answers due" count
+
+    /// **The count is a cache of chain state, and it has to be able to
+    /// clear itself.**
+    ///
+    /// The regression: `teamOffers` was reconciled only by
+    /// `refreshTeamOffers`, reached from the Team tab's Refresh button
+    /// and nowhere else. So an invitation that had since been joined,
+    /// withdrawn or disbanded went on being counted on Overview — and
+    /// went on being counted through every relaunch, because relaunching
+    /// re-reads the same row. Nothing the user could do short of finding
+    /// that one button corrected it.
+    func testAnOfferTheChainNoLongerListsStopsBeingCounted() async throws {
+        // The chain lists an invitation for us.
+        mock.responder = { [teamId, alice, me] call in
+            guard call.api == "base.search" else { return try makeResponse(code: 0) }
+            return try makeResponse(code: 0, data: [[
+                "id": teamId, "owner": alice, "members": [alice],
+                "invitees": [me], "active": true, "lastHeight": 10,
+            ]])
+        }
+        _ = try await session.refreshTeamOffers(now: at(0))
+        XCTAssertEqual(session.awaitingAnswer(type: .team, now: at(0)), 1)
+
+        // It is withdrawn, or we joined from another device: the chain
+        // stops listing it.
+        mock.responder = { _ in try makeResponse(code: 404) }
+        _ = await session.refreshTeamAnswers(force: true, now: at(1))
+
+        XCTAssertEqual(
+            session.awaitingAnswer(type: .team, now: at(1)), 0,
+            "a reconcile against the chain is what clears it"
+        )
+    }
+
+    /// The reconcile is throttled, so a pane appearing does not buy a
+    /// chain query every time — but `force` is never skipped, because
+    /// that is the user pressing Refresh.
+    func testTheReconcileIsThrottledButForceIsNot() async throws {
+        mock.responder = { _ in try makeResponse(code: 404) }
+
+        _ = await session.refreshTeamAnswers(now: at(0))
+        let afterFirst = mock.recorded.filter { $0.api == "base.search" }.count
+        XCTAssertGreaterThan(afterFirst, 0, "the first call reconciles")
+
+        _ = await session.refreshTeamAnswers(now: at(5))
+        XCTAssertEqual(
+            mock.recorded.filter { $0.api == "base.search" }.count, afterFirst,
+            "a second call inside the interval asks the chain nothing"
+        )
+
+        _ = await session.refreshTeamAnswers(force: true, now: at(6))
+        XCTAssertGreaterThan(
+            mock.recorded.filter { $0.api == "base.search" }.count, afterFirst,
+            "force is the explicit Refresh and must not be skipped"
+        )
+
+        _ = await session.refreshTeamAnswers(
+            now: at(ActiveSession.teamAnswerRefreshInterval + 10)
+        )
+        XCTAssertGreaterThan(
+            mock.recorded.filter { $0.api == "base.search" }.count, afterFirst + 1,
+            "past the interval it reconciles again"
+        )
+    }
+
+    /// A reconcile that cannot reach the chain leaves the row alone. An
+    /// unanswered invitation is not made to disappear by a flaky
+    /// network, and the count must not drop to zero on an error.
+    func testAFailedReconcileKeepsWhatIsAlreadyThere() async throws {
+        mock.responder = { [teamId, alice, me] call in
+            guard call.api == "base.search" else { return try makeResponse(code: 0) }
+            return try makeResponse(code: 0, data: [[
+                "id": teamId, "owner": alice, "members": [alice],
+                "invitees": [me], "active": true, "lastHeight": 10,
+            ]])
+        }
+        _ = try await session.refreshTeamOffers(now: at(0))
+        XCTAssertEqual(session.awaitingAnswer(type: .team, now: at(0)), 1)
+
+        struct Offline: Error {}
+        mock.responder = { _ in throw Offline() }
+        let count = await session.refreshTeamAnswers(force: true, now: at(1))
+
+        XCTAssertEqual(count, 1, "the offer survives a reconcile that could not run")
+        XCTAssertEqual(session.awaitingAnswer(type: .team, now: at(1)), 1)
     }
 
     // MARK: - helpers

@@ -136,6 +136,26 @@ final class AppState {
         return pendingNewChat
     }
 
+    /// Set with ``pendingChatMode`` when the Chat pane should also open
+    /// the team offers sheet.
+    ///
+    /// The Overview tile counts invitations and hand-overs that are
+    /// waiting on an answer, and landing the user on the team *list*
+    /// left them looking for the banner that leads to the answer. The
+    /// count is only cleared by answering, so the tile goes where the
+    /// answering happens.
+    private(set) var pendingTeamOffers = false
+
+    func openTeamOffers() {
+        pendingTeamOffers = true
+        openChat(mode: .team)
+    }
+
+    func consumePendingTeamOffers() -> Bool {
+        defer { pendingTeamOffers = false }
+        return pendingTeamOffers
+    }
+
     func consumePendingChatMode() -> ImType? {
         defer { pendingChatMode = nil }
         return pendingChatMode
@@ -590,6 +610,8 @@ final class AppState {
             self.prikeyBackedUp = session.prikeyBackedUp
             self.onboardingSkipped = session.onboardingSkipped
             self.onboardingStarted = session.onboardingStarted
+            // Replay records older than any DOCK can still serve are dead weight.
+            _ = try? session.seenMessages.prune()
             // Every identity opens on Overview. The pane is app state, so
             // without this a new identity landed on whatever pane the
             // previous one was left on.

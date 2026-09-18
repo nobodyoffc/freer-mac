@@ -47,13 +47,21 @@ final class ImMessageRef {
 
     private ImMessageRef() {}
 
+    // FTSP0 §2.1 shared example keys. FIMP0V3 envelopes are signed by their
+    // sender, so every sender here needs a prikey everyone can reproduce.
     private static final String FID_A = "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK";
-    private static final String FID_B = "F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM";
+    private static final String PRIKEY_A = "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575";
+    private static final String FID_B = "F86zoAvNaQxEuYyvQssV5WxEzapNaiDtTW";
+    private static final String PRIKEY_B = "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c";
     private static final String ROOM_ID = "b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065b4c9a1f2e8d73065";
 
     static JsonObject generate() {
         JsonObject root = new JsonObject();
         root.add("enum_ordinals", enumOrdinals());
+        JsonObject keys = new JsonObject();
+        keys.addProperty(FID_A, PRIKEY_A);
+        keys.addProperty(FID_B, PRIKEY_B);
+        root.add("signing_keys", keys);
         root.add("vectors", vectors());
         return root;
     }
@@ -115,7 +123,8 @@ final class ImMessageRef {
         v.addProperty("label", label);
         v.addProperty("json", JsonUtils.toJson(msg));
 
-        byte[] wire = msg.toWireBytes();
+        String prikey = FID_A.equals(msg.getSenderId()) ? PRIKEY_A : PRIKEY_B;
+        byte[] wire = msg.toWireBytes(Hex.decode(prikey));
         v.addProperty("wire_hex", Hex.toHexString(wire));
         v.addProperty("wire_decoded_json", JsonUtils.toJson(ImMessage.fromWireBytes(wire)));
         return v;

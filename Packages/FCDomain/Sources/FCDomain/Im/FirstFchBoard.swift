@@ -291,7 +291,7 @@ public struct FirstFchBoard {
         try message.sealBody(privkey: privkey, recipientPubkey: NobodyBoard.pubkey)
 
         return try await DockService(fapi: client).put(
-            try message.toWireBytes(),
+            try message.toWireBytes(signingWith: privkey),
             recipients: [NobodyBoard.defaultNobodyFid],
             // This connection *is* the board's DOCK — nothing to forward.
             targetDockUrl: nil,

@@ -95,6 +95,44 @@ public extension ImMessage {
         return (try? applyBodyFraming(framing)) != nil
     }
 
+    /// Why this P2P message cannot be from the FID it names, or nil when it
+    /// can be. Asked before the body is opened; `liveFid` is who we are.
+    ///
+    /// **The envelope is the only proof there is.** The sender field is
+    /// text anyone can write, and opening an AsyTwoWay bundle only needs
+    /// the pubkey recorded inside it — so a message sealed with Mallory's
+    /// key and naming Alice opens as cleanly as one from Alice. What Alice
+    /// alone can produce is a bundle whose recorded pubkey is hers, which
+    /// is why that pubkey has to hash to the sender's FID.
+    ///
+    /// - An **AsyTwoWay** body passes when its pubkey is the sender's.
+    /// - An **AsyOneWay** body is sealed with a throwaway key and proves
+    ///   nothing about who sealed it. It is what a message to ourselves
+    ///   uses, so it passes only as one: from us, to us.
+    /// - An **unsealed** body passes only when it says nothing — a typing
+    ///   ping has no content to forge. Every P2P message with content
+    ///   travels sealed, from this app and from Android.
+    func forgedP2pSenderReason(liveFid: String) -> String? {
+        guard let sender = senderId, !sender.isEmpty else { return "names no sender" }
+        guard let body, !body.isEmpty else {
+            return content == nil && data == nil ? nil : "has content but is not sealed"
+        }
+        guard let parsed = try? CryptoBundle.parse(body) else { return "has a body that is not an envelope" }
+        switch parsed.type {
+        case .asyTwoWay:
+            guard let pubkey = parsed.pubkeyA,
+                  let fid = try? FchAddress(publicKey: pubkey).fid
+            else { return "is sealed without a readable pubkey" }
+            return fid == sender ? nil : "is sealed by \(fid.middleElided()), not by the sender it names"
+        case .asyOneWay:
+            return sender == liveFid && targetId == liveFid
+                ? nil
+                : "is sealed with a throwaway key, which only a message to ourselves may use"
+        case .symkey, .password:
+            return "is sealed under a shared key, not to a person"
+        }
+    }
+
     /// Whether this message is still sealed to us — a body we hold but
     /// have not opened. The cue for a locked row in the transcript, and
     /// for asking the group for the key version it names.

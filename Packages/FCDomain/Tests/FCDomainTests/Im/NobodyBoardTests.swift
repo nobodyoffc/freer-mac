@@ -73,13 +73,14 @@ final class NobodyBoardTests: XCTestCase {
     /// call it empty.
     func testPostIsSealedOnTheWireAndOpensWithThePublishedKey() throws {
         let senderPriv = Data(repeating: 0x11, count: 32)
+        let bob = try FchAddress(publicKey: Secp256k1.publicKey(fromPrivateKey: senderPriv)).fid
         var message = ImMessage.text(
-            type: .p2p, from: "FBob", to: NobodyBoard.defaultNobodyFid,
-            NobodyBoard.buildRequest(from: "FBob", note: "please")
+            type: .p2p, from: bob, to: NobodyBoard.defaultNobodyFid,
+            NobodyBoard.buildRequest(from: bob, note: "please")
         )
         message.setId(fudpId: ImMessage.newFudpId())
         try message.sealBody(privkey: senderPriv, recipientPubkey: NobodyBoard.pubkey)
-        let wire = try message.toWireBytes()
+        let wire = try message.toWireBytes(signingWith: senderPriv)
 
         // Decoding alone yields nothing readable.
         let unopened = try ImMessage.fromWireBytes(wire)
@@ -89,7 +90,7 @@ final class NobodyBoardTests: XCTestCase {
         // Opening with the published key yields the request.
         let opened = try XCTUnwrap(NobodyBoard.openPost(wireBytes: wire))
         let request = try XCTUnwrap(NobodyBoard.parseRequest(opened.content, createTime: 5))
-        XCTAssertEqual(request.requesterFid, "FBob")
+        XCTAssertEqual(request.requesterFid, bob)
         XCTAssertEqual(request.note, "please")
     }
 
@@ -105,9 +106,10 @@ final class NobodyBoardTests: XCTestCase {
         let strangerPub = try Secp256k1.publicKey(
             fromPrivateKey: Data(repeating: 0x22, count: 32)
         )
-        var message = ImMessage.text(type: .p2p, from: "FBob", to: "FEve", "not for the board")
+        let bob = try FchAddress(publicKey: Secp256k1.publicKey(fromPrivateKey: senderPriv)).fid
+        var message = ImMessage.text(type: .p2p, from: bob, to: "FEve", "not for the board")
         message.setId(fudpId: ImMessage.newFudpId())
         try message.sealBody(privkey: senderPriv, recipientPubkey: strangerPub)
-        XCTAssertNil(NobodyBoard.openPost(wireBytes: try message.toWireBytes()))
+        XCTAssertNil(NobodyBoard.openPost(wireBytes: try message.toWireBytes(signingWith: senderPriv)))
     }
 }

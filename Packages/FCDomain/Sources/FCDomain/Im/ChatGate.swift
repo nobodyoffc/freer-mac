@@ -45,6 +45,9 @@ public enum ChatGate {
         /// Whether ``SymkeyStore`` holds a key for this entity. Ignored
         /// where no key is required.
         public var hasSymkey: Bool
+        /// A square join this identity broadcast and the chain does not
+        /// show yet. Only asked when ``isMember`` is false.
+        public var pendingJoin: PendingJoin
 
         public init(
             type: ImType,
@@ -53,8 +56,10 @@ public enum ChatGate {
             isOwner: Bool = false,
             leftGroup: Bool = false,
             hasDock: Bool = true,
-            hasSymkey: Bool = true
+            hasSymkey: Bool = true,
+            pendingJoin: PendingJoin = .none
         ) {
+            self.pendingJoin = pendingJoin
             self.type = type
             self.canSign = canSign
             self.isMember = isMember
@@ -63,6 +68,15 @@ public enum ChatGate {
             self.hasDock = hasDock
             self.hasSymkey = hasSymkey
         }
+    }
+
+    /// Where a square join stands before the chain lists us.
+    public enum PendingJoin: Equatable, Sendable {
+        case none
+        /// Broadcast, and still young enough to confirm.
+        case waiting
+        /// Broadcast a day or more ago and never confirmed.
+        case stalled
     }
 
     /// What the composer should do.
@@ -144,6 +158,26 @@ public enum ChatGate {
         guard facts.type != .p2p else { return .open }
 
         let noun = facts.type.rawValue.lowercased()
+
+        // **Read now, send once confirmed.** A square's messages can be
+        // fetched by anyone, so the thread opens as soon as the join is
+        // broadcast. Sending waits: receivers keep only messages from
+        // members, and until a block includes the join we are not one, so
+        // anything said now would be dropped by everyone who got it.
+        if facts.type == .square, !facts.isMember {
+            switch facts.pendingJoin {
+            case .waiting:
+                return .blocked(
+                    reason: "Joining — you can read now, and send once the next block confirms your join."
+                )
+            case .stalled:
+                return .blocked(
+                    reason: "Your join has not reached the chain after a day, so it may have failed. Check the transaction, then join again."
+                )
+            case .none:
+                break
+            }
+        }
 
         if facts.leftGroup {
             return .notMember(

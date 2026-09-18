@@ -1,4 +1,5 @@
 import Foundation
+import FCCore
 
 /// One instant message, mirroring `FC-AJDK/.../data/fcData/ImMessage.java`
 /// field for field.
@@ -492,7 +493,15 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     /// instead of rejecting it. `0xF1` cannot occur as a v1 first byte, so
     /// the rejection is deterministic in both directions.
     public static let wireMagic: UInt8 = 0xF1
-    public static let wireVersion: UInt8 = 0x02
+    public static let wireVersion: UInt8 = 0x03
+
+    /// FIMP0V3: every envelope ends with the author's 33-byte compressed
+    /// pubkey and a 64-byte Schnorr signature. Mandatory, so it has no flag.
+    public static let signatureTrailerSize = 33 + 64
+
+    /// Prefixed to the signed bytes, so a message signature is never valid
+    /// for anything else signed with the same key.
+    static let signatureTag = Data("FIMP-SIG".utf8)
 
     /// The shortest legal encoding: magic, version, the fixed header,
     /// both ids empty, no optional fields.
@@ -501,7 +510,7 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     /// The FIMP v2 envelope:
     ///
     /// ```
-    ///   magic(1)=0xF1 version(1)=0x02
+    ///   magic(1)=0xF1 version(1)=0x03
     ///   type(1) contentType(1)
     ///   senderId(u8-prefixed) targetId(u8-prefixed)
     ///   timestamp(8, big-endian)
@@ -509,7 +518,15 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     ///   [body(u32-prefixed)]
     ///   [symkeyVersion(4)] [requestType(1)]
     ///   [requestId] [replyToId] [threadId] [id]  — each u16-prefixed
+    ///   senderPubkey(33) signature(64)            — FIMP0V3 trailer
     /// ```
+    ///
+    /// **Signed, always.** The sender field is text anyone can write, and
+    /// no server a message passes through can vouch for it — a DOCK forward
+    /// re-puts it under the forwarding server's own identity. So the author
+    /// signs `SHA256(SHA256("FIMP-SIG" ‖ everything before the trailer))`
+    /// with the key of ``senderId`` (BCH-2019 Schnorr, as FTSP24), and
+    /// ``fromWireBytes(_:)`` verifies before returning anything.
     ///
     /// **One private field.** ``content`` and ``data`` are not fields here
     /// at all: they are framed together into the body (``bodyFraming()``),
@@ -531,7 +548,37 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     /// One is fixed: a length that does not fit its prefix now throws.
     /// v1's 16-bit prefix silently wrapped on Android, corrupting every
     /// field after it, which is the failure this version exists to end.
-    public func toWireBytes() throws -> Data {
+    public func toWireBytes(signingWith prikey: Data) throws -> Data {
+        let unsigned = try unsignedWireBytes()
+        let pubkey: Data
+        let signer: String
+        do {
+            pubkey = try Secp256k1.publicKey(fromPrivateKey: prikey)
+            signer = try FchAddress(publicKey: pubkey).fid
+        } catch {
+            throw WireFailure.badSigningKey
+        }
+        // Signing another FID's message would make an envelope every
+        // receiver discards; failing here names the bug where it is.
+        guard senderId == signer else { throw WireFailure.signerIsNotSender(signer: signer) }
+        let signature: Data
+        do {
+            signature = try BchSchnorr.sign(message: Self.signatureHash(unsigned), privateKey: prikey)
+        } catch {
+            throw WireFailure.badSigningKey
+        }
+        return unsigned + pubkey + signature
+    }
+
+    /// `SHA256(SHA256("FIMP-SIG" ‖ envelope before the trailer))` — FTSP24's
+    /// hashing, over bytes.
+    static func signatureHash(_ unsigned: Data) -> Data {
+        Hash.doubleSha256(signatureTag + unsigned)
+    }
+
+    /// The envelope up to, not including, the signature trailer: what the
+    /// signature covers.
+    func unsignedWireBytes() throws -> Data {
         let sender = Data((senderId ?? "").utf8)
         let target = Data((targetId ?? "").utf8)
         guard sender.count <= 0xFF, target.count <= 0xFF else {
@@ -595,8 +642,10 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         return out
     }
 
-    /// Read a v2 envelope. Everything local-only comes back nil — see the
-    /// type's note.
+    /// Read a v3 envelope and verify who wrote it. A missing trailer, a
+    /// pubkey that is not the named sender's, or a signature that does not
+    /// verify is rejected like any other malformed input. Everything
+    /// local-only comes back nil — see the type's note.
     ///
     /// A sealed body lands in ``body`` and stays sealed; ``content`` and
     /// ``data`` are populated only once something opens it (see
@@ -644,6 +693,25 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         if flags & WireFlag.replyToId != 0     { m.replyToId = try cursor.len16String() }
         if flags & WireFlag.threadId != 0      { m.threadId = try cursor.len16String() }
         if flags & WireFlag.messageId != 0     { m.id = try cursor.len16String() }
+
+        // FIMP0V3 §3.5: nothing about the message is trusted until its
+        // author is. The signature covers every byte before the trailer.
+        let signedLength = cursor.consumed
+        guard cursor.remaining == signatureTrailerSize else {
+            throw WireFailure.noSignatureTrailer(remaining: cursor.remaining)
+        }
+        let pubkey = Data(try cursor.bytes(33))
+        let signature = Data(try cursor.bytes(64))
+        guard let signer = try? FchAddress(publicKey: pubkey).fid else {
+            throw WireFailure.badSignature
+        }
+        guard m.senderId == signer else { throw WireFailure.signerIsNotSender(signer: signer) }
+        let unsigned = Data(bytes.prefix(signedLength))
+        guard (try? BchSchnorr.verify(
+            message: signatureHash(unsigned), publicKey: pubkey, signature: signature
+        )) == true else {
+            throw WireFailure.badSignature
+        }
         return m
     }
 
@@ -690,6 +758,10 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         case notFimp(magic: UInt8)
         case wrongVersion(UInt8)
         case sealedWithoutBody
+        case noSignatureTrailer(remaining: Int)
+        case signerIsNotSender(signer: String)
+        case badSignature
+        case badSigningKey
 
         public var description: String {
             switch self {
@@ -711,6 +783,14 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
                 return "ImMessage: unsupported FIMP wire version \(version)"
             case .sealedWithoutBody:
                 return "ImMessage: bodySealed flag with no body"
+            case .noSignatureTrailer(let remaining):
+                return "ImMessage: expected a \(ImMessage.signatureTrailerSize)-byte signature trailer, found \(remaining) bytes"
+            case .signerIsNotSender(let signer):
+                return "ImMessage: signed by \(signer), not by the sender it names"
+            case .badSignature:
+                return "ImMessage: the signature does not verify"
+            case .badSigningKey:
+                return "ImMessage: could not sign with that key"
             }
         }
     }
@@ -759,6 +839,10 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
             self.data = data
             self.offset = data.startIndex
         }
+
+        /// Bytes read so far.
+        var consumed: Int { offset - data.startIndex }
+        var remaining: Int { data.endIndex - offset }
 
         mutating func byte() throws -> UInt8 {
             guard offset < data.endIndex else { throw WireFailure.truncated }

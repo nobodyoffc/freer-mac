@@ -8,8 +8,8 @@ import FCUI
 /// and "this FID holds no coins" — and then left the newcomer on their own
 /// the moment both were answered. The steps after those are the ones
 /// nobody finds unaided: a CID, a DOCK and a DISK, the guide who funded
-/// them, a square to talk in. The CID and the DOCK and DISK are carved from
-/// Settings, which is where their steps send you.
+/// them, a square to talk in. The CID and the DOCK and DISK are carved in
+/// dialogs opened from their steps, using the same forms as Settings.
 ///
 /// **Order is dependency, not preference.** The backup is free and the
 /// most urgent. Everything after the first FCH is a carve, and a carve at
@@ -41,6 +41,7 @@ struct GettingStartedCard: View {
     @State private var expanded: OnboardingStep?
 
     @State private var addingGuide = false
+    @State private var carving: IdentityCarveSheet.Kind?
 
     private var onboarding: Onboarding {
         Onboarding(OnboardingFacts(
@@ -69,10 +70,21 @@ struct GettingStartedCard: View {
         .onChange(of: ob.hasRequiredStepOpen) { _, _ in noteStarted(ob) }
         // A refresh is also what clears a landed CID or home carve.
         .onChange(of: appState.knownLiveFidInfo) { _, _ in reloadLocal(guide: ob.guide) }
+        .sheet(item: $carving) { kind in
+            IdentityCarveSheet(session: session, kind: kind) {
+                carving = nil
+                // The carve is pending now; the step should say so at once
+                // rather than after the next record refresh.
+                reloadLocal(guide: ob.guide)
+            } onCancel: {
+                carving = nil
+            }
+        }
         .sheet(isPresented: $addingGuide) {
             ContactEditorSheet(
                 session: session,
                 mode: .createFor(ob.guide ?? ""),
+                initialTitles: "My guide",
                 onSaved: { _ in
                     addingGuide = false
                     reloadLocal(guide: ob.guide)
@@ -256,7 +268,11 @@ struct GettingStartedCard: View {
                 // While the coins are still aging the hourglass line says
                 // why; a button into a form that cannot carve would not.
                 if item.status.isActionable, !isWaiting(item.status) {
-                    Button("Open Settings") { appState.selectedPane = .settings }
+                    if item.step == .registerCid {
+                        Button("Register CID…") { carving = .cid }
+                    } else {
+                        Button("Set DOCK and DISK…") { carving = .home }
+                    }
                 }
 
             case .addGuide:
@@ -401,13 +417,12 @@ struct GettingStartedCard: View {
             return """
                 A CID is a name people can find you by, like Alice_VkUV. The last characters of \
                 your FID keep it unique. Registering one also puts your pubkey on the chain, and \
-                nobody can write to you until it's there. You register it in Settings.
+                nobody can write to you until it's there.
                 """
         case .setHome:
             return """
                 A DOCK holds messages for you while you're offline, and a DISK keeps your files. \
-                Until both are registered on the chain, other freers have nowhere to reach you. \
-                You choose them in Settings.
+                Until both are registered on the chain, other freers have nowhere to reach you.
                 """
         case .addGuide:
             return """

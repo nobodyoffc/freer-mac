@@ -217,6 +217,10 @@ struct OverviewView: View {
         let systemImage: String
         let tint: Color
         let open: () -> Void
+        /// Whether this counts things waiting on an answer rather than
+        /// things unread. The two clear differently, and saying "unread"
+        /// of an invitation promises that opening it is enough.
+        var awaitingAnswer: Bool = false
     }
 
     private var attentionTiles: [AttentionTile] {
@@ -263,7 +267,15 @@ struct OverviewView: View {
                 title: style.mode == .room ? "Room invitations" : "\(style.title): answers due",
                 count: count,
                 systemImage: "envelope.badge", tint: .orange,
-                open: { appState.openChat(mode: style.mode) }
+                // A team's count is cleared by answering, not by looking,
+                // so it opens the sheet where the answering happens
+                // rather than the list it is counted over.
+                open: {
+                    if style.mode == .team { appState.openTeamOffers() }
+                    else { appState.openChat(mode: style.mode) }
+                },
+                // Not unread — see ``attentionTile``.
+                awaitingAnswer: true
             ))
         }
         return tiles
@@ -293,7 +305,12 @@ struct OverviewView: View {
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
-        .help("Open \(tile.title) — \(tile.count) unread")
+        // An invitation is not an unread message: reading it changes
+        // nothing, and the count stands until it is answered. Calling it
+        // unread is what made a tile that would not clear look broken.
+        .help(tile.awaitingAnswer
+              ? "Open \(tile.title) — \(tile.count) waiting on your answer, and counted until you give one"
+              : "Open \(tile.title) — \(tile.count) unread")
     }
 
     // MARK: - recent activity
@@ -489,6 +506,16 @@ struct OverviewView: View {
         // bar's balance read the second, and would otherwise keep the
         // record fetched at connect.
         await appState.refreshLiveFidInfo()
+
+        // The attention tiles count invitations and outstanding
+        // agreements from local caches of chain state. Nothing else on
+        // this pane refreshes them, so without this the tile can go on
+        // advertising an invitation that was answered or withdrawn long
+        // ago — through every relaunch, since a relaunch re-reads the
+        // same rows. Throttled in the session, so landing here
+        // repeatedly costs one query a minute.
+        await session.refreshTeamAnswers()
+        reloadUnread()
 
         // The two feeds are a glance, not a source of truth. A server
         // that cannot answer them should leave the last known rows on

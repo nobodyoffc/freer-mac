@@ -235,6 +235,102 @@ final class SymkeyStoreTests: XCTestCase {
         XCTAssertNil(SymkeyShare.requestedEntityId(":only-a-suffix"))
     }
 
+    /// FIMP4V3 §5.1: `"<id>"` asks for the current version, `"<id>:<v>"`
+    /// for a named one. The version used to be parsed off and discarded,
+    /// which made asking for an older key impossible to express.
+    func testARequestCarriesTheVersionItNames() {
+        XCTAssertEqual(SymkeyShare.requested(room)?.entityId, room)
+        XCTAssertNil(SymkeyShare.requested(room)?.version)
+
+        XCTAssertEqual(SymkeyShare.requested("\(room):1")?.version, 1)
+        XCTAssertEqual(SymkeyShare.requested("\(room):42")?.version, 42)
+        XCTAssertEqual(SymkeyShare.requested("\(room):42")?.entityId, room)
+    }
+
+    /// Anything unparseable after the colon reads as "no version named",
+    /// not as a bad request. Android sent the literal `":latest"` for
+    /// years, and answering those with the current key is what the
+    /// protocol did before versions could be named.
+    func testAnUnreadableVersionFallsBackToTheCurrentOne() {
+        for tail in ["latest", "", "0", "-3", "1.5", "v2", "9999999999999999999999"] {
+            let asked = SymkeyShare.requested("\(room):\(tail)")
+            XCTAssertEqual(asked?.entityId, room, "entity still parses from ':\(tail)'")
+            XCTAssertNil(asked?.version, "':\(tail)' is not a version")
+        }
+        XCTAssertNil(SymkeyShare.requested(":1"), "no entity is no request")
+        XCTAssertNil(SymkeyShare.requested(nil))
+        XCTAssertNil(SymkeyShare.requested(""))
+    }
+
+    /// FIMP4V3 §5.2 / FIMP2V3 §5.3: `"<id>:<v1>,<v2>,…"`.
+    func testAHistoryRequestNamesEveryVersionItWants() {
+        XCTAssertEqual(
+            SymkeyShare.historyRequest(entityId: room, versions: [3, 1, 2]), "\(room):1,2,3",
+            "de-duplicated and sorted, so one set is one request"
+        )
+
+        let asked = SymkeyShare.requestedHistory("\(room):1,2,3")
+        XCTAssertEqual(asked?.entityId, room)
+        XCTAssertEqual(asked?.versions, [1, 2, 3])
+    }
+
+    /// A duplicate names one version, not two.
+    func testAHistoryRequestDeduplicates() {
+        XCTAssertEqual(SymkeyShare.historyRequest(entityId: room, versions: [2, 2, 1]), "\(room):1,2")
+        XCTAssertEqual(SymkeyShare.requestedHistory("\(room):2,2,1")?.versions, [1, 2])
+    }
+
+    /// One unreadable entry does not sink the request: the other seven
+    /// are still keys somebody needs.
+    func testAHistoryRequestSkipsWhatItCannotRead() {
+        let asked = SymkeyShare.requestedHistory("\(room):1,nonsense,,3, 4 ,0,-2")
+        XCTAssertEqual(asked?.versions, [1, 3, 4])
+    }
+
+    /// Nothing readable is nothing to answer.
+    func testAnEmptyHistoryRequestIsNil() {
+        XCTAssertNil(SymkeyShare.requestedHistory("\(room):nonsense,0,-1"))
+        XCTAssertNil(SymkeyShare.requestedHistory(room), "a batch has to name versions")
+        XCTAssertNil(SymkeyShare.requestedHistory(":1,2"))
+        XCTAssertNil(SymkeyShare.requestedHistory(nil))
+        XCTAssertNil(SymkeyShare.historyRequest(entityId: room, versions: []))
+        XCTAssertNil(SymkeyShare.historyRequest(entityId: room, versions: [0, -1]))
+    }
+
+    /// **The cap is a security property.** Every version named costs the
+    /// responder a seal and a message it pays to send, so an unbounded
+    /// list would be an amplifier.
+    func testAHistoryRequestIsCapped() throws {
+        let many = Array(Int64(1) ... 500)
+        let content = SymkeyShare.historyRequest(entityId: room, versions: many)
+        let asked = try XCTUnwrap(SymkeyShare.requestedHistory(content))
+        XCTAssertEqual(asked.versions.count, SymkeyShare.maxHistoryVersions)
+        XCTAssertEqual(asked.versions.first, 1, "the oldest are the ones worth keeping")
+
+        // And a request built elsewhere is capped on the way in too.
+        let overlong = room + ":" + many.map(String.init).joined(separator: ",")
+        XCTAssertEqual(
+            SymkeyShare.requestedHistory(overlong)?.versions.count,
+            SymkeyShare.maxHistoryVersions,
+            "a responder caps what it will answer, whoever built the request"
+        )
+    }
+
+    /// The form we emit is the form we read back.
+    func testRequestContentRoundTrips() {
+        XCTAssertEqual(SymkeyShare.request(entityId: room), room)
+        XCTAssertEqual(SymkeyShare.request(entityId: room, version: nil), room)
+        XCTAssertEqual(SymkeyShare.request(entityId: room, version: 7), "\(room):7")
+        // Below the minimum is not a version, so it names none.
+        XCTAssertEqual(SymkeyShare.request(entityId: room, version: 0), room)
+
+        for version in [nil, Int64(1), Int64(6)] {
+            let asked = SymkeyShare.requested(SymkeyShare.request(entityId: room, version: version))
+            XCTAssertEqual(asked?.entityId, room)
+            XCTAssertEqual(asked?.version, version)
+        }
+    }
+
     // MARK: - message bodies
 
     func testSealAndOpenARoomMessage() throws {

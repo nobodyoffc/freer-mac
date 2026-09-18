@@ -17,7 +17,9 @@ final class ChatServiceTests: XCTestCase {
     private let alicePriv = Data(repeating: 0xA1, count: 32)
     private let bobPriv = Data(repeating: 0xB2, count: 32)
     private let mallory = Data(repeating: 0xC3, count: 32)
-    private let them = "F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM"
+    /// Bob's real FID: a P2P message is only accepted from the key its
+    /// sender field names.
+    private var them: String { (try? FchAddress(publicKey: Secp256k1.publicKey(fromPrivateKey: bobPriv)).fid) ?? "" }
     private let roomId = "room_b4c9a1f2e8d73065b4c9"
     private let squareId = "8e7d6c5b0000000000000000000000000000000000000000000000000000sqr1"
 
@@ -193,6 +195,10 @@ final class ChatServiceTests: XCTestCase {
             type: type, from: from ?? them, to: target ?? me, text, now: date
         )
         m.setId(fudpId: ChatService.newMessageId())
+        // A P2P message from Bob arrives sealed by Bob, as off a DOCK.
+        if type == .p2p, from == nil {
+            try? m.sealBody(privkey: bobPriv, recipientPubkey: Secp256k1.publicKey(fromPrivateKey: alicePriv))
+        }
         return m
     }
 
@@ -212,8 +218,8 @@ final class ChatServiceTests: XCTestCase {
 
     /// A sealed body arrives, is opened, and is filed open.
     func testAnArrivingSealedP2PMessageIsOpened() throws {
-        var message = inbound("sealed hello", at: t0)
-        try message.sealBody(privkey: bobPriv, recipientPubkey: try pubkey(alicePriv))
+        let message = inbound("sealed hello", at: t0)
+        XCTAssertTrue(message.isSealed)
 
         guard case .message(let stored) = try chat.receive(message, as: me, privkey: alicePriv, now: at(1))
         else { return XCTFail("expected .message") }
@@ -246,9 +252,89 @@ final class ChatServiceTests: XCTestCase {
         XCTAssertEqual(again.content, "after the rotation")
     }
 
-    /// A receipt advances one of our own messages instead of becoming a
-    /// row in the transcript.
-    func testAnArrivingReceiptAdvancesOurMessage() throws {
+    /// A key arriving late **opens the rows already filed under it**, in
+    /// the store and not just in a local copy.
+    ///
+    /// The regression this pins: the key was stored, ``SignalRouter``
+    /// reported `learnedKeyFor`, nothing consumed it, and the transcript
+    /// went on showing a locked row over a message whose key was by then
+    /// in ``SymkeyStore``. Asking again could never help — the key was
+    /// already there.
+    func testAKeyArrivingLaterOpensTheRowsAlreadyFiled() throws {
+        try openConversation(.room, roomId)
+        let conversationId = Conversation.id(type: .room, targetId: roomId)
+
+        // Two messages sealed under a version this device does not hold.
+        let absent = try session.symkeys.rotate(for: roomId, now: t0)
+        try session.symkeys.remove(entityId: roomId, version: absent.version)
+        for (index, text) in ["first sealed", "second sealed"].enumerated() {
+            var message = inbound("\(text)", type: .room, target: roomId, at: at(Double(index)))
+            try message.sealBody(symkey: absent.key, version: absent.version)
+            guard case .sealed = try chat.receive(message, as: me, privkey: alicePriv, now: at(5)) else {
+                return XCTFail("expected .sealed while the key is missing")
+            }
+        }
+        let sealedBefore = try session.messages.sealed(in: conversationId)
+        XCTAssertEqual(sealedBefore.count, 2)
+
+        // Nothing to open with yet: the guard must not claim otherwise.
+        XCTAssertTrue(try chat.openSealed(forEntity: roomId, as: me).isEmpty)
+
+        // The key turns up, as an answered request would leave it.
+        try session.symkeys.store(
+            absent.key, for: roomId, version: absent.version, allowOverwrite: true, now: at(6)
+        )
+        let opened = try chat.openSealed(forEntity: roomId, as: me)
+
+        XCTAssertEqual(opened.count, 2)
+        XCTAssertTrue(
+            try session.messages.sealed(in: conversationId).isEmpty,
+            "the rows are opened in the store, not only in the returned copies"
+        )
+        XCTAssertEqual(
+            try session.messages.page(in: conversationId).messages.compactMap(\.content),
+            ["first sealed", "second sealed"]
+        )
+        for stored in try session.messages.page(in: conversationId).messages {
+            XCTAssertNil(stored.body, "the sealed body is redundant once the plaintext is beside it")
+        }
+
+        // Running again is a no-op rather than a second pass.
+        XCTAssertTrue(try chat.openSealed(forEntity: roomId, as: me).isEmpty)
+    }
+
+    /// Opening a backlog must not re-count it: those rows were counted
+    /// when they were filed, and the badge is about what is unread, not
+    /// about what became readable.
+    func testOpeningASealedBacklogDoesNotInflateTheUnreadCount() throws {
+        try openConversation(.room, roomId)
+        let conversationId = Conversation.id(type: .room, targetId: roomId)
+
+        let absent = try session.symkeys.rotate(for: roomId, now: t0)
+        try session.symkeys.remove(entityId: roomId, version: absent.version)
+        for index in 0 ..< 3 {
+            var message = inbound("sealed \(index)", type: .room, target: roomId, at: at(Double(index)))
+            try message.sealBody(symkey: absent.key, version: absent.version)
+            _ = try chat.receive(message, as: me, privkey: alicePriv, now: at(5))
+        }
+        let before = try XCTUnwrap(try session.conversations.get(id: conversationId)).unreadCount
+
+        try session.symkeys.store(
+            absent.key, for: roomId, version: absent.version, allowOverwrite: true, now: at(6)
+        )
+        XCTAssertEqual(try chat.openSealed(forEntity: roomId, as: me).count, 3)
+
+        let after = try XCTUnwrap(try session.conversations.get(id: conversationId))
+        XCTAssertEqual(after.unreadCount, before, "unread is recounted, not incremented again")
+        XCTAssertEqual(
+            after.lastMessageContent, "sealed 2",
+            "the preview was built from a row that said nothing and has to be rebuilt"
+        )
+    }
+
+    /// A receipt in the clear names its sender in a field anyone can
+    /// write, so it is not taken as theirs — and does not advance anything.
+    func testAClearReceiptIsNotTakenAsTheSenders() throws {
         try openConversation(.p2p, them)
         let conversationId = Conversation.id(type: .p2p, targetId: them)
         let sent = try chat.sendText(
@@ -261,11 +347,51 @@ final class ChatServiceTests: XCTestCase {
         )
         receipt.setId(fudpId: ChatService.newMessageId())
 
-        guard case .receipt(let updated) = try chat.receive(receipt, as: me, now: at(5)) else {
-            return XCTFail("expected .receipt")
+        guard case .ignored = try chat.receive(receipt, as: me, now: at(5)) else {
+            return XCTFail("expected .ignored")
         }
-        XCTAssertEqual(updated.status, .read)
-        XCTAssertEqual(try chat.page(conversationId).messages.count, 1, "the receipt is not a row")
+        XCTAssertEqual(try chat.page(conversationId).messages.first?.status, sent.status, "nothing advanced")
+    }
+
+    // MARK: - who sent it
+
+    /// **The forgery this closes.** Mallory seals with her own key and
+    /// writes Bob's FID as the sender. It opens — the envelope carries
+    /// her pubkey — so only matching that pubkey to the named FID tells.
+    func testAP2PMessageSealedByAnotherKeyIsIgnored() throws {
+        var forged = ImMessage.text(type: .p2p, from: them, to: me, "it's Bob, honest", now: t0)
+        forged.setId(fudpId: ChatService.newMessageId())
+        try forged.sealBody(privkey: mallory, recipientPubkey: try pubkey(alicePriv))
+
+        guard case .ignored(let reason) = try chat.receive(forged, as: me, privkey: alicePriv, now: at(1)) else {
+            return XCTFail("expected .ignored")
+        }
+        XCTAssertTrue(reason.contains("not by the sender it names"))
+        XCTAssertTrue(try chat.page(Conversation.id(type: .p2p, targetId: them)).messages.isEmpty)
+    }
+
+    /// A throwaway-key envelope proves nothing about who sealed it, so it
+    /// is accepted only as a message to ourselves.
+    func testAOneWayEnvelopeFromSomeoneElseIsIgnored() throws {
+        var m = ImMessage.text(type: .p2p, from: them, to: me, "from nowhere", now: t0)
+        m.setId(fudpId: ChatService.newMessageId())
+        m.body = try CryptoBundle.sealAsyOneWay(
+            plaintext: Data("x".utf8), toPubkey: try pubkey(alicePriv)
+        )
+        m.content = nil
+        guard case .ignored = try chat.receive(m, as: me, privkey: alicePriv, now: at(1)) else {
+            return XCTFail("expected .ignored")
+        }
+    }
+
+    /// A message to ourselves travels one-way and is ours.
+    func testAMessageToOurselvesIsAccepted() throws {
+        var m = ImMessage.text(type: .p2p, from: me, to: me, "note to self", now: t0)
+        m.setId(fudpId: ChatService.newMessageId())
+        try m.sealBody(privkey: alicePriv, recipientPubkey: try pubkey(alicePriv))
+        guard case .message = try chat.receive(m, as: me, privkey: alicePriv, now: at(1)) else {
+            return XCTFail("expected .message")
+        }
     }
 
     /// The same thing, but sealed — which is how a receipt actually
@@ -331,9 +457,8 @@ final class ChatServiceTests: XCTestCase {
         try openConversation(.p2p, them)
         let conversationId = Conversation.id(type: .p2p, targetId: them)
 
-        var incoming = ImMessage.text(type: .p2p, from: them, to: me, "hello", now: t0)
-        incoming.setId(fudpId: ChatService.newMessageId())
-        guard case .message(let filed) = try chat.receive(incoming, as: me, now: at(1)) else {
+        let incoming = inbound("hello", at: t0)
+        guard case .message(let filed) = try chat.receive(incoming, as: me, privkey: alicePriv, now: at(1)) else {
             return XCTFail("expected .message")
         }
 

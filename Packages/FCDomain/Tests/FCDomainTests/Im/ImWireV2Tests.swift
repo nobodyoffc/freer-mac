@@ -2,7 +2,7 @@ import XCTest
 @testable import FCDomain
 import FCCore
 
-/// The FIMP v2 envelope: the magic prefix, the single body field, the
+/// The FIMP envelope (v2 layout, v3 signed): the magic prefix, the single body field, the
 /// framing inside it, and the size rule that replaced the old constant.
 ///
 /// These do not use the golden vectors. The vectors are v1 and can only
@@ -13,6 +13,8 @@ import FCCore
 final class ImWireV2Tests: XCTestCase {
 
     private let alice = "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK"
+    /// Alice's FTSP0 example key: every envelope is signed by its sender.
+    private let alicePriv = Data(fromHex: "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575")
     private let bob = "F6vqNGkbAqZQ1YkPWLcXfNfwvJXCTGmzUM"
 
     private func text(_ body: String = "hello") -> ImMessage {
@@ -25,9 +27,9 @@ final class ImWireV2Tests: XCTestCase {
     // MARK: - magic and version
 
     func testEnvelopeOpensWithTheMagicAndVersion() throws {
-        let bytes = try text().toWireBytes()
+        let bytes = try text().toWireBytes(signingWith: alicePriv)
         XCTAssertEqual(bytes.first, 0xF1)
-        XCTAssertEqual(bytes.dropFirst().first, 0x02)
+        XCTAssertEqual(bytes.dropFirst().first, 0x03)
     }
 
     /// The reason the magic exists. A v1 envelope opens with the `ImType`
@@ -36,7 +38,7 @@ final class ImWireV2Tests: XCTestCase {
     /// than reject it. Every v1 first byte must be refused.
     func testV1EnvelopesAreRejectedNotMisparsed() throws {
         for ordinal in UInt8(0) ... UInt8(3) {
-            var v1 = try text().toWireBytes()
+            var v1 = try text().toWireBytes(signingWith: alicePriv)
             v1[v1.startIndex] = ordinal
             XCTAssertThrowsError(try ImMessage.fromWireBytes(v1)) { error in
                 guard case ImMessage.WireFailure.notFimp = error else {
@@ -47,7 +49,7 @@ final class ImWireV2Tests: XCTestCase {
     }
 
     func testAnUnknownVersionIsRejected() throws {
-        var bytes = try text().toWireBytes()
+        var bytes = try text().toWireBytes(signingWith: alicePriv)
         bytes[bytes.startIndex + 1] = 0x09
         XCTAssertThrowsError(try ImMessage.fromWireBytes(bytes)) { error in
             XCTAssertEqual(error as? ImMessage.WireFailure, .wrongVersion(9))
@@ -65,7 +67,7 @@ final class ImWireV2Tests: XCTestCase {
         m.timestamp = 1
         m.id = "0000000000000002"
 
-        let back = try ImMessage.fromWireBytes(try m.toWireBytes())
+        let back = try ImMessage.fromWireBytes(try m.toWireBytes(signingWith: alicePriv))
         XCTAssertEqual(back.content, #"{"durationMs":3400}"#)
         XCTAssertEqual(back.data, Data([0x00, 0x01, 0xFF, 0x7F]))
     }
@@ -79,7 +81,7 @@ final class ImWireV2Tests: XCTestCase {
             type: .p2p, from: alice, to: bob, metaJson: "{}", data: payload
         )
         m.timestamp = 1
-        let encoded = try m.toWireBytes()
+        let encoded = try m.toWireBytes(signingWith: alicePriv)
 
         XCTAssertEqual(try ImMessage.fromWireBytes(encoded).data, payload)
         // The raw bytes appear in the envelope; a Base64 rendering would not.
@@ -96,7 +98,7 @@ final class ImWireV2Tests: XCTestCase {
         )
         m.timestamp = 1
 
-        let back = try ImMessage.fromWireBytes(try m.toWireBytes())
+        let back = try ImMessage.fromWireBytes(try m.toWireBytes(signingWith: alicePriv))
         XCTAssertEqual(back.data?.count, 300_000)
         XCTAssertEqual(back.data, payload)
     }
@@ -111,7 +113,7 @@ final class ImWireV2Tests: XCTestCase {
         m.threadId = "thread-9"
         m.replyToId = "00000000cafebabe"
 
-        let back = try ImMessage.fromWireBytes(try m.toWireBytes())
+        let back = try ImMessage.fromWireBytes(try m.toWireBytes(signingWith: alicePriv))
         XCTAssertEqual(back.id, "00000000deadbeef")
         XCTAssertEqual(back.threadId, "thread-9")
         XCTAssertEqual(back.replyToId, "00000000cafebabe")
@@ -139,7 +141,7 @@ final class ImWireV2Tests: XCTestCase {
         XCTAssertNil(m.data, "and so is the audio")
         XCTAssertNotNil(m.body)
 
-        let encoded = try m.toWireBytes()
+        let encoded = try m.toWireBytes(signingWith: alicePriv)
         XCTAssertNil(encoded.range(of: audio), "no cleartext audio anywhere in the envelope")
         XCTAssertNil(encoded.range(of: Data("durationMs".utf8)), "nor cleartext metadata")
 
@@ -153,14 +155,14 @@ final class ImWireV2Tests: XCTestCase {
     /// The sealed flag is what a receiver reads, rather than inferring
     /// from the channel a message arrived on.
     func testSealedFlagTravelsAndAnUnsealedBodyDoesNotSetIt() throws {
-        let encodedPlain = try text().toWireBytes()
+        let encodedPlain = try text().toWireBytes(signingWith: alicePriv)
         XCTAssertEqual(Self.flags(of: encodedPlain) & ImMessage.WireFlag.body, ImMessage.WireFlag.body)
         XCTAssertEqual(Self.flags(of: encodedPlain) & ImMessage.WireFlag.bodySealed, 0)
         XCTAssertFalse(try ImMessage.fromWireBytes(encodedPlain).isSealed)
 
         var sealed = text()
         try sealed.sealBody(symkey: Data(repeating: 0x33, count: 32), version: 7)
-        let encodedSealed = try sealed.toWireBytes()
+        let encodedSealed = try sealed.toWireBytes(signingWith: alicePriv)
         XCTAssertEqual(
             Self.flags(of: encodedSealed) & ImMessage.WireFlag.bodySealed,
             ImMessage.WireFlag.bodySealed
@@ -177,7 +179,7 @@ final class ImWireV2Tests: XCTestCase {
         var sealed = text("the usual place")
         try sealed.sealBody(symkey: symkey, version: 2)
 
-        var back = try ImMessage.fromWireBytes(try sealed.toWireBytes())
+        var back = try ImMessage.fromWireBytes(try sealed.toWireBytes(signingWith: alicePriv))
         XCTAssertEqual(back.body, sealed.body, "the bundle is carried byte for byte")
         XCTAssertTrue(back.openBody(symkey: symkey))
         XCTAssertEqual(back.content, "the usual place")
@@ -193,9 +195,9 @@ final class ImWireV2Tests: XCTestCase {
     func testNoPayloadMeansNoBodyField() throws {
         var typing = ImMessage.make(type: .p2p, from: alice, to: bob, contentType: .typing)
         typing.timestamp = 1
-        let encoded = try typing.toWireBytes()
+        let encoded = try typing.toWireBytes(signingWith: alicePriv)
         XCTAssertEqual(Self.flags(of: encoded) & ImMessage.WireFlag.body, 0)
-        XCTAssertEqual(encoded.count, ImMessage.wireHeaderSize + alice.utf8.count + bob.utf8.count)
+        XCTAssertEqual(encoded.count, ImMessage.wireHeaderSize + alice.utf8.count + bob.utf8.count + ImMessage.signatureTrailerSize)
     }
 
     // MARK: - the size rule

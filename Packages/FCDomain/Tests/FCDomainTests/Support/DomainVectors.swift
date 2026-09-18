@@ -38,10 +38,15 @@ enum DomainVectors {
         /// Java constant names in declaration order — so index *is* the
         /// ordinal — keyed by enum name.
         let enumOrdinals: [String: [String]]
+        /// FID → 32-byte prikey hex (FTSP0 §2.1 example keys). Every
+        /// FIMP0V3 envelope is signed by its sender, so the vectors carry
+        /// the keys that signed them.
+        let signingKeys: [String: String]
         let vectors: [ImMessageCase]
 
         enum CodingKeys: String, CodingKey {
             case enumOrdinals = "enum_ordinals"
+            case signingKeys = "signing_keys"
             case vectors
         }
     }
@@ -51,7 +56,7 @@ enum DomainVectors {
         /// `JsonUtils.toJson(message)` — the local-storage form, which
         /// carries the local-only delivery fields too.
         let json: String
-        /// `toWireBytes()`, hex.
+        /// `toWireBytes(prikey)`, hex — signed by the sender's key.
         let wireHex: String
         /// `toJson(fromWireBytes(toWireBytes(m)))` — what survives the
         /// trip. The local-only fields are gone from this one.

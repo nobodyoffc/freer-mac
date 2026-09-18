@@ -163,3 +163,33 @@ final class ChatGateTests: XCTestCase {
         XCTAssertFalse(ChatGate.declaresDock(home: ["DISK": "https://disk.example"]))
     }
 }
+
+// MARK: - a square join waiting for the chain
+
+extension ChatGateTests {
+
+    /// Readable at once, sendable once confirmed: the composer stays, off.
+    func testAWaitingSquareJoinHoldsSendingButKeepsTheComposer() {
+        let verdict = ChatGate.decide(.init(type: .square, isMember: false, pendingJoin: .waiting))
+        XCTAssertFalse(verdict.canSend)
+        XCTAssertTrue(verdict.showsComposer)
+        XCTAssertTrue(verdict.reason?.contains("Joining") == true)
+    }
+
+    func testAStalledSquareJoinSaysItMayHaveFailed() {
+        let verdict = ChatGate.decide(.init(type: .square, isMember: false, pendingJoin: .stalled))
+        XCTAssertFalse(verdict.canSend)
+        XCTAssertTrue(verdict.reason?.contains("may have failed") == true)
+    }
+
+    /// Once the chain lists us, a leftover pending row changes nothing.
+    func testAConfirmedMemberIgnoresAPendingJoin() {
+        XCTAssertEqual(ChatGate.decide(.init(type: .square, isMember: true, pendingJoin: .waiting)), .open)
+    }
+
+    /// Only a square is joined this way; a team is not readable early.
+    func testAPendingJoinDoesNotOpenATeam() {
+        let verdict = ChatGate.decide(.init(type: .team, isMember: false, pendingJoin: .waiting))
+        XCTAssertFalse(verdict.showsComposer)
+    }
+}

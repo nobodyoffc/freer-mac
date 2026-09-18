@@ -119,6 +119,71 @@ final class MessageCourierTests: XCTestCase {
         XCTAssertEqual(try bob.conversations.get(id: bobsThread)?.unreadCount, 1)
     }
 
+    // MARK: - replay and misaddressing (FIMP0V3 §3.5)
+
+    /// Sends one text from Alice to Bob and returns the envelope as it sits
+    /// on the DOCK, signed by Alice.
+    private func aliceSendsBob(_ alice: ActiveSession, _ bob: ActiveSession, _ text: String) async throws -> Data {
+        server.homeByFid[bob.liveFid] = [ServiceName.dock: "https://dock.bob"]
+        let conversationId = Conversation.id(type: .p2p, targetId: bob.liveFid)
+        var thread = Conversation(id: conversationId, targetId: bob.liveFid, type: .p2p)
+        thread.unreadCount = 0
+        try alice.conversations.upsert(thread)
+        _ = try alice.chat.sendText(
+            text, in: conversationId, as: alice.liveFid,
+            keys: .init(privkey: alicePriv, recipientPubkey: try pubkey(bobPriv)), now: t0
+        )
+        _ = try await alice.courier.drainOutbox(as: alice.liveFid, ownDockUrl: "https://dock.alice", now: at(1))
+        return try XCTUnwrap(server.items.last).payload
+    }
+
+    /// The same signed bytes, put back on the DOCK under a new item id,
+    /// verify as well as they did the first time. They are taken in once.
+    func testAReplayedEnvelopeIsTakenInOnce() async throws {
+        let alice = try makeSession(privkey: alicePriv, label: "alice")
+        let bob = try makeSession(privkey: bobPriv, label: "bob")
+        let envelope = try await aliceSendsBob(alice, bob, "only once")
+
+        let first = try await bob.courier.collect(as: bob.liveFid, recipientIds: [bob.liveFid], privkey: bobPriv, now: at(60))
+        XCTAssertEqual(first.filed, 1)
+
+        server.items.append(.init(id: "replayed-1", recipients: [bob.liveFid], payload: envelope))
+        let again = try await bob.courier.collect(as: bob.liveFid, recipientIds: [bob.liveFid], privkey: bobPriv, now: at(120))
+        XCTAssertEqual(again.filed, 0)
+        XCTAssertEqual(again.fetched, 1)
+        let thread = Conversation.id(type: .p2p, targetId: alice.liveFid)
+        XCTAssertEqual(try bob.chat.page(thread).messages.count, 1)
+        XCTAssertTrue(server.items.isEmpty, "the replay addressed to Bob alone is cleared too")
+    }
+
+    /// Alice's message to Bob, validly signed, stored for Carol instead.
+    func testASignedMessageForSomeoneElseIsDropped() async throws {
+        let alice = try makeSession(privkey: alicePriv, label: "alice")
+        let bob = try makeSession(privkey: bobPriv, label: "bob")
+        let carolPriv = Data(repeating: 0xC3, count: 32)
+        let carol = try makeSession(privkey: carolPriv, label: "carol")
+        let envelope = try await aliceSendsBob(alice, bob, "for Bob")
+        server.items.removeAll()
+        server.items.append(.init(id: "misdirected-1", recipients: [carol.liveFid], payload: envelope))
+
+        let received = try await carol.courier.collect(as: carol.liveFid, recipientIds: [carol.liveFid], privkey: carolPriv, now: at(60))
+        XCTAssertEqual(received.fetched, 1)
+        XCTAssertEqual(received.filed + received.sealed + received.held, 0)
+        XCTAssertTrue(try carol.conversations.visible().isEmpty)
+        XCTAssertTrue(try carol.messageRequests.pending().isEmpty)
+    }
+
+    func testSeenMessagesArePrunedAfterRetention() throws {
+        let alice = try makeSession(privkey: alicePriv, label: "alice")
+        let store = alice.seenMessages
+        try store.markSeen(sender: "F-old", id: "0000000000000001", now: t0)
+        try store.markSeen(sender: "F-new", id: "0000000000000002", now: at(300 * 86_400))
+        let later = t0.addingTimeInterval(Double(SeenMessagesStore.retentionMs) / 1000 + 1)
+        XCTAssertEqual(try store.prune(now: later), 1)
+        XCTAssertFalse(try store.hasSeen(sender: "F-old", id: "0000000000000001"))
+        XCTAssertTrue(try store.hasSeen(sender: "F-new", id: "0000000000000002"))
+    }
+
     /// Taking delivery deletes the item: the sender paid for its
     /// storage, and leaving read items to expire would spend their money
     /// on nothing — as well as handing back the same message forever.
@@ -218,6 +283,91 @@ final class MessageCourierTests: XCTestCase {
         XCTAssertEqual(stored.first?.symkeyVersion, 1, "and it says which key it needs")
     }
 
+    /// **The key arrives after the message, and the message opens.**
+    ///
+    /// The whole path, with nothing stubbed: Alice sends into a room Bob
+    /// cannot read, Bob files it sealed, Bob asks for the key, Alice's
+    /// router answers, and Bob's *collect* of that answer has to go back
+    /// and open the row it already filed.
+    ///
+    /// This is the regression the user hit. Every piece worked except the
+    /// last one: the key landed in ``SymkeyStore``, ``SignalRouter``
+    /// returned `learnedKeyFor`, and ``MessageCourier`` dropped it — so
+    /// the transcript kept saying the key was not held while it sat in
+    /// the store. Asking again could not help, because the asking had
+    /// already succeeded.
+    func testAKeyArrivingAfterTheMessageOpensWhatWasFiledSealed() async throws {
+        let alice = try makeSession(privkey: alicePriv, label: "alice")
+        let bob = try makeSession(privkey: bobPriv, label: "bob")
+        server.homeByFid[alice.liveFid] = [ServiceName.dock: "https://dock.alice"]
+        server.homeByFid[bob.liveFid] = [ServiceName.dock: "https://dock.bob"]
+        // Each has to be able to seal to the other: the request and the
+        // share are both P2P, and the courier seals what it queued clear.
+        server.pubkeyByFid[alice.liveFid] = try pubkey(alicePriv).map { String(format: "%02x", $0) }.joined()
+        server.pubkeyByFid[bob.liveFid] = try pubkey(bobPriv).map { String(format: "%02x", $0) }.joined()
+        // The router seals its answer with ``ActiveSession/knownPubkey(of:)``,
+        // which reads the address book and not the chain — so Alice has
+        // to actually know Bob to be able to answer him.
+        try alice.contacts.upsert(Contact(id: bob.liveFid, pubkey: try pubkey(bobPriv)))
+
+        let roomId = "room_b4c9a1f2e8d73065b4c9"
+        server.homeByFid[roomId] = [ServiceName.dock: "https://dock.room"]
+        let room = Room(
+            owner: alice.liveFid, members: [alice.liveFid, bob.liveFid],
+            active: true, home: [ServiceName.dock: "https://dock.room"], id: roomId
+        )
+        let conversationId = Conversation.id(type: .room, targetId: roomId)
+
+        // Alice owns the room, holds its key, and says something.
+        try alice.rooms.upsert(room)
+        var thread = Conversation(id: conversationId, targetId: roomId, type: .room)
+        thread.unreadCount = 0
+        try alice.conversations.upsert(thread)
+        try alice.symkeys.rotate(for: roomId, now: t0)
+        try alice.chat.sendText("the usual place", in: conversationId, as: alice.liveFid, now: t0)
+        _ = try await alice.courier.drainOutbox(as: alice.liveFid, ownDockUrl: nil, now: at(1))
+
+        // Bob is in the room and holds no key, so it files sealed.
+        try bob.rooms.upsert(room)
+        let sealedCollect = try await bob.courier.collect(
+            as: bob.liveFid, recipientIds: [bob.liveFid, roomId], privkey: bobPriv, now: at(60)
+        )
+        XCTAssertEqual(sealedCollect.sealed, 1)
+        XCTAssertTrue(try XCTUnwrap(bob.chat.page(conversationId).messages.first).isSealed)
+
+        // Bob asks Alice for it, over the real request/answer path.
+        for ask in KeyExchange.requests(
+            entityId: roomId, kind: .symkey, from: bob.liveFid, to: [alice.liveFid]
+        ) {
+            try bob.outbox.enqueue(ask, in: Conversation.id(type: .p2p, targetId: alice.liveFid))
+        }
+        let askSent = try await bob.courier.drainOutbox(as: bob.liveFid, ownDockUrl: nil)
+        XCTAssertEqual(askSent.sent, 1)
+
+        // Alice's router answers it, and the share goes out.
+        let answered = try await alice.courier.collect(
+            as: alice.liveFid, recipientIds: [alice.liveFid], privkey: alicePriv
+        )
+        XCTAssertEqual(answered.routed, 1, "the request was answered")
+        _ = try await alice.courier.drainOutbox(as: alice.liveFid, ownDockUrl: nil)
+
+        // Bob collects the key — and the row he already filed opens.
+        _ = try await bob.courier.collect(
+            as: bob.liveFid, recipientIds: [bob.liveFid, roomId], privkey: bobPriv
+        )
+        XCTAssertNotNil(try bob.symkeys.key(for: roomId, version: 1), "the key landed")
+
+        let stored = try bob.chat.page(conversationId).messages
+        XCTAssertEqual(stored.count, 1, "opened in place, not filed a second time")
+        XCTAssertFalse(try XCTUnwrap(stored.first).isSealed)
+        XCTAssertEqual(stored.first?.content, "the usual place")
+        XCTAssertEqual(
+            try bob.conversations.get(id: conversationId)?.lastMessageContent,
+            "the usual place",
+            "and the thread's preview stops showing a row that said nothing"
+        )
+    }
+
     // MARK: - one identity, two devices
 
     /// **A→A, end to end.** Two Macs signed in as the same FID: the first
@@ -306,6 +456,7 @@ final class MessageCourierTests: XCTestCase {
         let alice = try makeSession(privkey: alicePriv, label: "alice")
         let bob = try makeSession(privkey: bobPriv, label: "bob")
         server.homeByFid[alice.liveFid] = [ServiceName.dock: "https://dock.alice"]
+        server.pubkeyByFid[alice.liveFid] = try pubkey(alicePriv).map { String(format: "%02x", $0) }.joined()
         let roomId = "room_b4c9a1f2e8d73065b4c9"
 
         let ask = KeyExchange.request(entityId: roomId, from: bob.liveFid, to: alice.liveFid)
@@ -494,6 +645,9 @@ private final class FakeDock: FapiCalling, @unchecked Sendable {
 
     var items: [Item] = []
     var homeByFid: [String: [String: String]] = [:]
+    /// Published pubkeys, hex. A clear P2P message is sealed to one on
+    /// its way out.
+    var pubkeyByFid: [String: String] = [:]
     var refusePuts = false
     var lastPut: Put?
     private var nextId = 1
@@ -529,6 +683,7 @@ private final class FakeDock: FapiCalling, @unchecked Sendable {
             for id in ids {
                 var record: [String: Any] = ["id": id]
                 if let home = homeByFid[id] { record["home"] = home }
+                if let pubkey = pubkeyByFid[id] { record["pubkey"] = pubkey }
                 out[id] = record
             }
             return reply(out.isEmpty ? nil : out)

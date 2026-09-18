@@ -539,7 +539,8 @@ struct NewChatSheet: View {
                 Button("Open") { openJoinedSquare(square) }
             } else if joiningSquareIds.contains(id) {
                 ChatChip("joining…", color: style.tint)
-                    .help("Your join is waiting for the chain. It shows in the Squares tab until it confirms.")
+                    .help("Your join is waiting for the chain. You can read the square now, and send once it confirms.")
+                Button("Open") { openJoiningSquare(square) }
             } else {
                 Button(joinId == id ? "Chosen" : "Choose") {
                     joinId = id
@@ -564,6 +565,18 @@ struct NewChatSheet: View {
                 searchingSquares = false
                 self.error = "Search failed: \(error)"
             }
+        }
+    }
+
+    /// A square whose join is still waiting for the chain: open its thread
+    /// to read.
+    private func openJoiningSquare(_ square: Square) {
+        do {
+            guard let conversationId = try session.openJoiningSquare(square) else { return }
+            Task { await session.refreshDockRegistry() }
+            onOpened(conversationId, nil)
+        } catch {
+            self.error = String(describing: error)
         }
     }
 
@@ -848,7 +861,25 @@ struct NewChatSheet: View {
                 session.notePendingGroup(.team, id: id, name: fresh.displayName, act: .join, txid: txid)
             } else {
                 txid = try await session.carveSquareJoinOnChain(squareId: id)
-                session.notePendingGroup(.square, id: id, name: pickedSquareName, act: .join, txid: txid)
+                // The record the join was chosen from, or the chain's. Its
+                // home is what lets the thread be read before the join
+                // confirms; without it the join still waits in the banner.
+                var square = await MainActor.run {
+                    (squareResults ?? []).first { $0.id == id } ?? (popularSquares ?? []).first { $0.id == id }
+                }
+                if square == nil { square = try? await session.freshSquare(id: id) }
+                session.notePendingGroup(
+                    .square, id: id, name: pickedSquareName ?? square?.displayName,
+                    act: .join, txid: txid, home: square?.home
+                )
+                if let square, let conversationId = try? session.openJoiningSquare(square) {
+                    await session.refreshDockRegistry()
+                    await MainActor.run {
+                        working = false
+                        onOpened(conversationId, nil)
+                    }
+                    return
+                }
             }
             await MainActor.run {
                 working = false

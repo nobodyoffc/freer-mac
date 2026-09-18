@@ -23,6 +23,17 @@ public enum KeyExchange {
     /// ordinary answers — a member whose pubkey has never appeared on
     /// the chain simply has to be reached another way — and neither is
     /// worth failing a whole share round over.
+    /// `answering` is the id of the request this share replies to.
+    ///
+    /// **Echoing it is not book-keeping, it is what gets the key
+    /// accepted.** FIMP4V3 §5.1 and §5.2 both say the response carries
+    /// `requestId` set to the request's id, and a receiver uses it to
+    /// tell a key it asked for from one pushed at it unsolicited:
+    /// Android keeps the nonces it has outstanding and **discards a
+    /// share from a non-owner that matches none of them**. An answer
+    /// sent without it was therefore thrown away by every Android
+    /// member answering another member — the owner's answers got
+    /// through, which is exactly why this went unnoticed.
     public static func share(
         entityId: String,
         version: Int64,
@@ -30,20 +41,23 @@ public enum KeyExchange {
         recipientPubkey: Data,
         from senderFid: String,
         symkeys: SymkeyStore,
+        answering requestId: String? = nil,
         now: Date = Date()
     ) throws -> ImMessage? {
         guard let cipher = try symkeys.shareCipher(
             for: entityId, version: version, to: recipientPubkey
         ) else { return nil }
 
-        return ImMessage.symkey(
+        var message = ImMessage.symkey(
             type: .p2p,
             from: senderFid,
             to: fid,
             symkeyData: SymkeyShare.payload(entityId: entityId, cipher: cipher),
             version: version,
             now: now
-        ).named()
+        )
+        message.requestId = requestId
+        return message.named()
     }
 
     /// **There is deliberately no "share with everyone" here.**
@@ -60,21 +74,77 @@ public enum KeyExchange {
     /// (``share(entityId:version:to:recipientPubkey:from:symkeys:now:)``,
     /// which ``SignalRouter`` calls) and ask one.
 
-    /// Ask someone for the key to `entityId`.
+    /// Ask someone for the key to `entityId`, optionally naming the
+    /// version wanted.
     ///
-    /// The content is the bare entity id, which is the form
-    /// ``SymkeyShare/requestedEntityId(_:)`` reads back and the one
-    /// Android sends.
+    /// **Naming the version is the whole point of asking.** A request
+    /// with no version means "whatever you have now" (FIMP4V3 §5.1), and
+    /// a responder answers with its current key — which is useless to
+    /// the member who is missing an *old* version, since the current one
+    /// is usually the one they already hold. FIMP4V3 §7.4 is explicit
+    /// that recovery asks for the **missing** version, so a caller that
+    /// knows which version it cannot open should say so.
     public static func request(
         entityId: String,
+        version: Int64? = nil,
         from senderFid: String,
         to fid: String,
         now: Date = Date()
     ) -> ImMessage {
         ImMessage.request(
             type: .p2p, from: senderFid, to: fid,
-            requestType: .symkey, data: entityId, now: now
+            requestType: .symkey,
+            data: SymkeyShare.request(entityId: entityId, version: version),
+            now: now
         ).named()
+    }
+
+    /// Ask someone for several versions of an entity's key at once —
+    /// FIMP4V3 §5.2, FIMP2V3 §5.3.
+    ///
+    /// **One question, not one per version.** A member recovering a
+    /// transcript that spans several rotations is missing a *run* of
+    /// versions, and asking with ``request(entityId:version:from:to:)``
+    /// once per version costs a message each, on the responder's DOCK,
+    /// paid for by us — and arrives as a burst the responder's cooldown
+    /// is entitled to throttle. The batch is one message, and the answer
+    /// is one `SYMKEY` per version the responder actually holds.
+    ///
+    /// Returns nil when `versions` names nothing worth asking for; the
+    /// caller wants the single-version form instead.
+    public static func historyRequest(
+        entityId: String,
+        versions: [Int64],
+        from senderFid: String,
+        to fid: String,
+        now: Date = Date()
+    ) -> ImMessage? {
+        guard let content = SymkeyShare.historyRequest(
+            entityId: entityId, versions: versions
+        ) else { return nil }
+        return ImMessage.request(
+            type: .p2p, from: senderFid, to: fid,
+            requestType: .symkeyHistory, data: content, now: now
+        ).named()
+    }
+
+    /// Ask several people for the same batch. Whoever answers first
+    /// wins; the rest are no-ops, as for a single version.
+    public static func historyRequests(
+        entityId: String,
+        versions: [Int64],
+        from senderFid: String,
+        to fids: [String],
+        now: Date = Date()
+    ) -> [ImMessage] {
+        var seen = Set<String>()
+        return fids.compactMap { fid in
+            guard !fid.isEmpty, seen.insert(fid).inserted else { return nil }
+            return historyRequest(
+                entityId: entityId, versions: versions,
+                from: senderFid, to: fid, now: now
+            )
+        }
     }
 
     /// Ask someone for a room's details — its name, its membership and
@@ -121,6 +191,7 @@ public enum KeyExchange {
     public static func requests(
         entityId: String,
         kind: RequestType,
+        version: Int64? = nil,
         from senderFid: String,
         to fids: [String],
         now: Date = Date()
@@ -130,7 +201,7 @@ public enum KeyExchange {
             guard !fid.isEmpty, seen.insert(fid).inserted else { return nil }
             switch kind {
             case .symkey:
-                return request(entityId: entityId, from: senderFid, to: fid, now: now)
+                return request(entityId: entityId, version: version, from: senderFid, to: fid, now: now)
             case .roomInfo:
                 return roomInfoRequest(roomId: entityId, from: senderFid, to: fid, now: now)
             default:

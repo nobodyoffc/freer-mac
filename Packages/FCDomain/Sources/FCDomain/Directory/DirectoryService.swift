@@ -341,6 +341,41 @@ public struct DirectoryService {
         )
     }
 
+    /// The service record for the server at `url` — the one this app is
+    /// connected to, typically — when that record offers every one of
+    /// `components`. Nil when no such record turns up.
+    ///
+    /// The index cannot be asked by URL: the endpoint lives in the record's
+    /// `home` map, which is not searchable. So this lists the services
+    /// offering the first component and matches the endpoint here, by
+    /// ``FudpUrl/sameEndpoint(_:_:)`` so a scheme or a default port spelled
+    /// differently is still the same server. It stops after `maxPages`,
+    /// newest first, which is far past any network this app has seen.
+    public func service(
+        at url: String,
+        offering components: [String],
+        maxPages: Int = 5,
+        timeoutMs: Int = 15_000
+    ) async throws -> Service? {
+        guard let first = components.first else { return nil }
+        var after: [String]?
+        for _ in 0 ..< maxPages {
+            let page = try await searchServices(
+                offering: first, after: after, size: 50, timeoutMs: timeoutMs
+            )
+            if let hit = page.services.first(where: { service in
+                FudpUrl.sameEndpoint(service.apiUrl, url)
+                    && components.allSatisfy(service.offers)
+                    && !service.sid.isEmpty
+            }) {
+                return hit
+            }
+            guard page.services.count == 50, let last = page.last, !last.isEmpty else { return nil }
+            after = last
+        }
+        return nil
+    }
+
     /// A SID is 64 hex characters — the same shape as a txid, which is
     /// what it is.
     public static func looksLikeSid(_ s: String) -> Bool {

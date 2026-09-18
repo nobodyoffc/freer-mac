@@ -460,6 +460,28 @@ public struct GroupService {
         return Conversation.id(type: .square, targetId: id)
     }
 
+    /// Put a square on the list whose join has been broadcast and not yet
+    /// confirmed. The thread is marked as in, so it is read and listed; the
+    /// send gate is what waits for the chain. The membership sync takes the
+    /// row over once the join lands. Returns the conversation id.
+    @discardableResult
+    public func openJoining(_ square: Square, conversations: ConversationsStore) throws -> String? {
+        guard let id = square.id, !id.isEmpty else { return nil }
+        let conversationId = Conversation.id(type: .square, targetId: id)
+        _ = try updateConversation(
+            id: conversationId,
+            type: .square, targetId: id,
+            displayName: square.displayName,
+            avatarDid: square.namers?.last,
+            memberNum: square.memberNum ?? Int64(square.members?.count ?? 0),
+            createdAt: square.birthTime,
+            belongs: true,
+            tCdd: square.tCdd, tRate: nil,
+            in: conversations
+        )
+        return conversationId
+    }
+
     private func fold(_ square: Square, id: String, fid: String, into conversations: ConversationsStore) throws -> ConversationChange {
         try updateConversation(
             id: Conversation.id(type: .square, targetId: id),

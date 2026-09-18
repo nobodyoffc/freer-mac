@@ -307,6 +307,74 @@ final class DockRegistryTests: XCTestCase {
         _ = try await alice.courier.drainOutbox(as: alice.liveFid, now: at(1))
     }
 
+    // MARK: - square membership
+
+    /// A join still waiting for the chain is read at once: its DOCK is
+    /// registered from the home the join was broadcast with, before the
+    /// squares store lists us.
+    func testAWaitingSquareJoinIsReadBeforeItConfirms() async throws {
+        let alice = try await makeSession(privkey: alicePriv, label: "alice", ownDock: aliceDock)
+        let bob = try await makeSession(privkey: bobPriv, label: "bob", ownDock: bobDock)
+        try await sendToSquare(from: alice, "welcome")
+
+        bob.notePendingGroup(
+            .square, id: squareId, name: "The Square", act: .join, txid: "tx-join",
+            home: [ServiceName.dock: squareDock], now: Date()
+        )
+        await bob.refreshDockRegistry()
+        let targets = await bob.dockRegistry.fetchTargets()
+        XCTAssertTrue(targets.map(\.dockUrl).contains("fudp://dock.square:8500"))
+
+        // Bob's store knows nothing of the square; the chain lists Alice.
+        network.squareById[squareId] = ["id": squareId, "members": [alice.liveFid]]
+        let received = try await bob.courier.collect(as: bob.liveFid, privkey: bobPriv, now: at(60))
+        XCTAssertEqual(received.filed, 1)
+
+        // And the gate lets him read but not yet send.
+        let thread = Conversation(id: Conversation.id(type: .square, targetId: squareId), targetId: squareId, type: .square)
+        let verdict = ChatGate.decide(bob.chatGateFacts(for: thread))
+        XCTAssertFalse(verdict.canSend)
+        XCTAssertTrue(verdict.showsComposer)
+        XCTAssertTrue(verdict.reason?.contains("Joining") == true)
+    }
+
+    /// The DOCK checks nobody's membership, so the receiver does: a post
+    /// from someone the chain does not list is dropped.
+    func testASquareMessageFromANonMemberIsDropped() async throws {
+        let alice = try await makeSession(privkey: alicePriv, label: "alice", ownDock: aliceDock)
+        let bob = try await makeSession(privkey: bobPriv, label: "bob", ownDock: bobDock)
+        try await sendToSquare(from: bob, "not a member yet")
+
+        try alice.squares.upsert(Square(
+            name: "The Square", members: [alice.liveFid],
+            home: [ServiceName.dock: squareDock], id: squareId
+        ))
+        network.squareById[squareId] = ["id": squareId, "members": [alice.liveFid]]
+        await alice.refreshDockRegistry()
+
+        let received = try await alice.courier.collect(as: alice.liveFid, privkey: alicePriv, now: at(60))
+        XCTAssertEqual(received.filed, 0)
+        XCTAssertTrue(try alice.chat.page(Conversation.id(type: .square, targetId: squareId)).messages.isEmpty)
+    }
+
+    /// A member the local copy has not caught up with is asked about on
+    /// the chain before anything is dropped.
+    func testASenderWhoJoinedSinceTheLastSyncIsKept() async throws {
+        let alice = try await makeSession(privkey: alicePriv, label: "alice", ownDock: aliceDock)
+        let bob = try await makeSession(privkey: bobPriv, label: "bob", ownDock: bobDock)
+        try await sendToSquare(from: bob, "just joined")
+
+        try alice.squares.upsert(Square(
+            name: "The Square", members: [alice.liveFid],
+            home: [ServiceName.dock: squareDock], id: squareId
+        ))
+        network.squareById[squareId] = ["id": squareId, "members": [alice.liveFid, bob.liveFid]]
+        await alice.refreshDockRegistry()
+
+        let received = try await alice.courier.collect(as: alice.liveFid, privkey: alicePriv, now: at(60))
+        XCTAssertEqual(received.filed, 1)
+    }
+
     private func sendToSquare(from alice: ActiveSession, _ text: String) async throws {
         let conversationId = Conversation.id(type: .square, targetId: squareId)
         if try alice.conversations.get(id: conversationId) == nil {
@@ -343,6 +411,9 @@ private final class DockNetwork: @unchecked Sendable {
     /// Every FID's `home`, answered by whichever server is asked —
     /// the chain is the same wherever you read it from.
     var homeByFid: [String: [String: String]] = [:]
+    /// Square records as the chain holds them, answered to
+    /// `base.getByIds` by whichever server is asked.
+    var squareById: [String: [String: Any]] = [:]
     /// URLs that refuse to accept a connection at all.
     var refuseConnections: Set<String> = []
     /// How many times opening a new client was *attempted* — successes
@@ -426,6 +497,14 @@ private final class DockServer: FapiCalling, @unchecked Sendable {
                 out[id] = record
             }
             return reply(out.isEmpty ? nil : out)
+
+        case "base.getByIds":
+            let body = json(fcdsl)
+            guard body["entity"] as? String == "square" else { return reply(nil, code: 404, message: "no such entity") }
+            let ids = body["ids"] as? [String] ?? []
+            var out: [String: Any] = [:]
+            for id in ids { if let record = network.squareById[id] { out[id] = record } }
+            return out.isEmpty ? reply(nil, code: 404, message: "not found") : reply(out)
 
         case "dock.put":
             let p = json(params)

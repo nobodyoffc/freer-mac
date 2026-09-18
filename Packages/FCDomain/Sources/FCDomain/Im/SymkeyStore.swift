@@ -369,9 +369,98 @@ public enum SymkeyShare {
     /// Android accepts both a bare id and an `id:…` form, so this does
     /// too.
     public static func requestedEntityId(_ content: String?) -> String? {
+        requested(content)?.entityId
+    }
+
+    /// What a `SYMKEY` request is asking for: the entity, and the
+    /// version when one is named.
+    ///
+    /// FIMP4V3 §5.1 and FIMP2V3 §5.2 define the content as
+    /// `"<entityId>"` for the current version or `"<entityId>:<version>"`
+    /// for a specific one. **Both clients used to parse the id out of
+    /// the second form and then answer with their current version
+    /// anyway**, which made the whole point of naming a version — asking
+    /// for an *old* key, so messages sealed before a rotation can be
+    /// read — impossible to express. A member who had every version but
+    /// the one they needed could ask forever and be handed the one they
+    /// already held.
+    ///
+    /// A version that is not a positive integer is treated as **absent**
+    /// rather than as a failed request: the sender may be a client that
+    /// puts something else after the colon, and answering with the
+    /// current key is what this protocol did before versions could be
+    /// named, so it is the compatible reading.
+    public static func requested(_ content: String?) -> (entityId: String, version: Int64?)? {
         guard let content, !content.isEmpty else { return nil }
-        guard let sep = content.firstIndex(of: ":") else { return content }
+        guard let sep = content.firstIndex(of: ":") else { return (content, nil) }
         let entityId = String(content[content.startIndex ..< sep])
-        return entityId.isEmpty ? nil : entityId
+        guard !entityId.isEmpty else { return nil }
+        let tail = String(content[content.index(after: sep)...])
+        guard let version = Int64(tail), version >= SymkeyStore.minimumVersion else {
+            return (entityId, nil)
+        }
+        return (entityId, version)
+    }
+
+    /// The content of a request for one entity, naming a version when
+    /// one is wanted. See ``requested(_:)``.
+    public static func request(entityId: String, version: Int64? = nil) -> String {
+        guard let version, version >= SymkeyStore.minimumVersion else { return entityId }
+        return entityId + ":" + String(version)
+    }
+
+    // MARK: - SYMKEY_HISTORY
+
+    /// The most versions one ``RequestType/symkeyHistory`` request may
+    /// ask for.
+    ///
+    /// **A bound is a security property, not tidiness.** Every version
+    /// named costs the responder one asymmetric seal and one message on
+    /// somebody's DOCK, paid for by the responder. An unbounded list is
+    /// therefore an amplifier: a single small request naming ten
+    /// thousand versions would have a member's device seal and pay to
+    /// send ten thousand replies. No real entity has been rotated this
+    /// many times, so the cap costs nothing legitimate.
+    public static let maxHistoryVersions = 64
+
+    /// The content of a batch request — FIMP4V3 §5.2, FIMP2V3 §5.3:
+    /// `"<entityId>:<v1>,<v2>,…"`.
+    ///
+    /// Versions are de-duplicated and sorted, so the same set always
+    /// produces the same request, and capped at
+    /// ``maxHistoryVersions``. Returns nil when no version is worth
+    /// asking for, since a batch request naming none has no meaning —
+    /// the caller wants ``request(entityId:version:)`` for that.
+    public static func historyRequest(entityId: String, versions: [Int64]) -> String? {
+        guard !entityId.isEmpty else { return nil }
+        let wanted = Set(versions.filter { $0 >= SymkeyStore.minimumVersion })
+            .sorted()
+            .prefix(maxHistoryVersions)
+        guard !wanted.isEmpty else { return nil }
+        return entityId + ":" + wanted.map(String.init).joined(separator: ",")
+    }
+
+    /// What a batch request is asking for.
+    ///
+    /// Unreadable entries are **skipped rather than failing the
+    /// request**: a list of eight versions with one piece of nonsense in
+    /// it is still seven keys somebody needs, and refusing the whole
+    /// thing helps nobody. A request whose every entry is unreadable
+    /// yields nil, because there is then nothing to answer.
+    public static func requestedHistory(_ content: String?) -> (entityId: String, versions: [Int64])? {
+        guard let content, !content.isEmpty else { return nil }
+        guard let sep = content.firstIndex(of: ":") else { return nil }
+        let entityId = String(content[content.startIndex ..< sep])
+        guard !entityId.isEmpty else { return nil }
+        let versions = Set(
+            content[content.index(after: sep)...]
+                .split(separator: ",")
+                .compactMap { Int64($0.trimmingCharacters(in: .whitespaces)) }
+                .filter { $0 >= SymkeyStore.minimumVersion }
+        )
+        .sorted()
+        .prefix(maxHistoryVersions)
+        guard !versions.isEmpty else { return nil }
+        return (entityId, Array(versions))
     }
 }
