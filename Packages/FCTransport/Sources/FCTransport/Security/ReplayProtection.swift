@@ -64,7 +64,15 @@ public final class ReplayProtection {
     private let lock = NSLock()
     private let lru: LruCache<Int64, PacketWindow>
 
-    public init(
+    /// Designated and non-validating; private, so every way in from
+    /// outside passes through a check.
+    private init(unchecked maxWindows: Int, toleranceMs: Int64) {
+        self.maxWindows = maxWindows
+        self.timestampToleranceMs = toleranceMs
+        self.lru = LruCache(capacity: maxWindows)
+    }
+
+    public convenience init(
         maxWindows: Int = ReplayProtection.defaultMaxWindows,
         timestampToleranceMs: Int64 = ReplayProtection.defaultTimestampToleranceMs
     ) throws {
@@ -72,9 +80,21 @@ public final class ReplayProtection {
         guard (Self.minTimestampToleranceMs...Self.maxTimestampToleranceMs).contains(timestampToleranceMs) else {
             throw Failure.invalidToleranceMs(timestampToleranceMs)
         }
-        self.maxWindows = maxWindows
-        self.timestampToleranceMs = timestampToleranceMs
-        self.lru = LruCache(capacity: maxWindows)
+        self.init(unchecked: maxWindows, toleranceMs: timestampToleranceMs)
+    }
+
+    /// The default configuration, for a caller that has no parameters to
+    /// offer and so nothing to validate.
+    ///
+    /// The two defaults are constants that satisfy the checks above by
+    /// construction, which is why this needs no `try` — and why it is
+    /// spelled as its own entry point rather than as a `try!` at the
+    /// call site, where a later edit to either constant would turn into
+    /// a crash instead of a compile error.
+    public static func withDefaults() -> ReplayProtection {
+        ReplayProtection(
+            unchecked: defaultMaxWindows, toleranceMs: defaultTimestampToleranceMs
+        )
     }
 
     /// Test/monitoring counters. Reads acquire the lock briefly.
@@ -100,7 +120,15 @@ public final class ReplayProtection {
         nowMs: Int64? = nil
     ) -> CheckResult {
         let now = nowMs ?? ReplayProtection.currentTimeMillis()
-        if abs(timestamp - now) > timestampToleranceMs {
+        // **The skew is computed without trapping.** `timestamp` is a
+        // plaintext field of an attacker-shaped packet, and both
+        // `timestamp - now` and `abs()` of the result overflow at the
+        // edges of Int64 — `abs(Int64.min)` has no representation at
+        // all. Java wraps here and merely mis-decides; Swift terminates
+        // the process. A subtraction that cannot fit is, by any useful
+        // reading, further out of tolerance than the tolerance allows.
+        let (skew, overflowed) = timestamp.subtractingReportingOverflow(now)
+        if overflowed || skew == Int64.min || abs(skew) > timestampToleranceMs {
             return .invalidTimestamp
         }
 

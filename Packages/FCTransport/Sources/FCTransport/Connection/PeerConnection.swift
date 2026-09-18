@@ -56,6 +56,7 @@ public final class PeerConnection: @unchecked Sendable {
     private var _largestSentPacketNumber: Int64 = -1
     private var _largestAckedPacketNumber: Int64 = -1
     private var _peerSessionEpoch: Int64 = 0
+    private var _remoteConnectionId: Int64?
     private var _ourEpochConfirmed: Bool = false
     private var _lastActivityMs: Int64
     private var _nextLocalStreamId: UInt64 = 0
@@ -190,15 +191,64 @@ public final class PeerConnection: @unchecked Sendable {
 
     // MARK: - session epoch
 
-    /// Update what we've seen as the peer's session epoch. Returns the
-    /// previous value (0 if this is the first epoch we've seen).
+    /// Record the peer's session epoch, **once**.
+    ///
+    /// The epoch is a random 64-bit value the peer draws at startup
+    /// (FUDP4V1 §Session Epoch), not a counter — "newer" is not a
+    /// question you can ask of two epochs. Overwriting it on every
+    /// packet therefore let a delayed or reordered packet carrying the
+    /// old epoch replace the current one, and the connection then
+    /// believed a restart it had already handled was still to come.
+    ///
+    /// The reference implementations set it only from zero
+    /// (`if (incomingEpoch != 0 && conn.getSessionEpoch() == 0)`) and
+    /// leave *detecting* a change to the replay window, which resets
+    /// the connection when it sees one. Zero is the wire's "unknown or
+    /// omitted", so it is never stored.
+    ///
+    /// Returns the epoch previously held, unchanged by this call.
     @discardableResult
     public func observePeerEpoch(_ epoch: Int64, nowMs: Int64? = nil) -> Int64 {
         lock.lock(); defer { lock.unlock() }
         let previous = _peerSessionEpoch
-        _peerSessionEpoch = epoch
+        if _peerSessionEpoch == 0, epoch != 0 { _peerSessionEpoch = epoch }
         _lastActivityMs = nowMs ?? PeerConnection.currentTimeMillis()
         return previous
+    }
+
+    /// Forget the peer's epoch so the next packet establishes a fresh
+    /// one — part of resetting state after a detected peer restart.
+    public func clearPeerEpoch() {
+        lock.lock(); defer { lock.unlock() }
+        _peerSessionEpoch = 0
+    }
+
+    /// The connection ID the peer stamps in its packet headers, or nil
+    /// until one has been seen.
+    ///
+    /// **This is the peer's identifier for its own connection state,
+    /// not ours.** FUDP1V1 makes it the primary routing key and
+    /// requires that a *change* be treated as the peer having rebuilt
+    /// its connection — fresh packet-number space, fresh streams — and
+    /// so as a reason to reset our receive state, never as a reason to
+    /// reject the packet.
+    public var remoteConnectionId: Int64? {
+        lock.lock(); defer { lock.unlock() }
+        return _remoteConnectionId
+    }
+
+    /// Bind or re-bind the peer's connection ID. Returns true when this
+    /// is a *different* id from one already bound, which is the caller's
+    /// cue to reset receive state.
+    public func observeRemoteConnectionId(_ id: Int64) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let known = _remoteConnectionId else {
+            _remoteConnectionId = id
+            return false
+        }
+        guard known != id else { return false }
+        _remoteConnectionId = id
+        return true
     }
 
     public var peerSessionEpoch: Int64 {

@@ -117,7 +117,21 @@ public final class FudpClient: @unchecked Sendable {
     /// deliver the whole message twice. Bounded FIFO.
     private var retiredStreams: Set<UInt64> = []
     private var retiredOrder: [UInt64] = []
-    private static let retiredStreamCap = 512
+    /// Matches `StreamManager.MAX_RETIRED_STREAMS` in both reference
+    /// implementations. FUDP2V1 endorses bounding the set — old
+    /// tombstones are safe to evict because retransmission of a long-
+    /// finished stream is bounded by the Max Retransmit Count — but a
+    /// cap eight times smaller than the peers' drops tombstones they
+    /// still consider live.
+    private static let retiredStreamCap = 4096
+
+    /// Replay window for this connection. FUDP4V1 requires the check;
+    /// without it a captured packet verifies exactly as well the second
+    /// time as the first.
+    private let replay = ReplayProtection.withDefaults()
+
+    /// `Max Remote Streams` from FUDP2V1's flow-control table.
+    private static let maxConcurrentInboundStreams = 100
 
     // MARK: - init
 
@@ -546,6 +560,18 @@ public final class FudpClient: @unchecked Sendable {
         case .control:
             handleControlPacket(body: body)
         case .data, .ack:
+            // **Refuse an unknown wire version before touching crypto.**
+            // Both reference implementations gate the data path on
+            // `isSupportedDataVersion` and name its absence as the F1
+            // vulnerability: without it a packet claiming a future
+            // version is parsed by today's rules, so a later format's
+            // field layout is reinterpreted under this one. Control
+            // packets stay version-agnostic — they are plaintext and
+            // are how versions get negotiated in the first place.
+            guard header.version == PacketHeader.currentVersion else {
+                log("dropping data packet with unsupported version \(header.version)")
+                return
+            }
             await handleEncryptedPacket(header: header, body: body)
         case .error:
             log("ERROR packet (ignored)")
@@ -569,17 +595,32 @@ public final class FudpClient: @unchecked Sendable {
     }
 
     private func handleEncryptedPacket(header: PacketHeader, body: Data) async {
+        // **Check who it claims to be from before doing the ECDH.**
+        // The sender's pubkey sits in the clear at a fixed offset of
+        // the bundle, and this client talks to exactly one peer, so a
+        // 33-byte comparison decides the question that `AsyTwoWay.open`
+        // used to answer only *after* deriving a shared secret. Doing
+        // the derivation first handed anyone who could reach the socket
+        // an asymmetric cost: a packet with a fresh random pubkey costs
+        // them nothing to make and costs us a full ECDH, missing the
+        // shared-secret cache every time by construction. The servers
+        // defend this with a per-source rate limiter; a client with one
+        // known peer can simply refuse to start.
+        guard let claimed = AsyTwoWay.senderPubkey(inBundle: body) else {
+            log("bundle too short to carry a sender pubkey")
+            return
+        }
+        guard claimed == connection.peerPubkey else {
+            log("sender pubkey mismatch (got \(claimed.prefix(4).hex)… expected \(connection.peerPubkey.prefix(4).hex)…)")
+            return
+        }
+
         let aad = header.encode()
         let opened: (senderPubkey: Data, plaintext: Data)
         do {
             opened = try AsyTwoWay.open(bundle: body, aad: aad, localPrivkey: localPrivkey)
         } catch {
             log("AsyTwoWay.open failed: \(error)")
-            return
-        }
-
-        guard opened.senderPubkey == connection.peerPubkey else {
-            log("sender pubkey mismatch (got \(opened.senderPubkey.prefix(4).hex)… expected \(connection.peerPubkey.prefix(4).hex)…)")
             return
         }
 
@@ -597,8 +638,66 @@ public final class FudpClient: @unchecked Sendable {
         log("payload ts=\(parsed.timestamp ?? -1) epoch=\(parsed.sessionEpoch ?? -1) frames=\(parsed.frames.count)")
 
         connection.touch()
-        if let epoch = parsed.sessionEpoch {
-            connection.observePeerEpoch(epoch)
+
+        // **The peer's connection id is a routing key, not a gate.**
+        // FUDP1V1 makes it primary for resolving a packet to a
+        // connection and requires that a *changed* id be read as the
+        // peer having rebuilt its connection — fresh packet numbers,
+        // fresh stream ids — and so as a reason to reset our receive
+        // state. Rejecting the packet instead is what the path-migration
+        // revision was written to stop: it turned a mid-transfer NAT
+        // rebind into every subsequent request timing out.
+        if connection.observeRemoteConnectionId(header.connectionId) {
+            log("peer rebuilt its connection (remote connId now \(header.connectionId)) — resetting receive state")
+            resetReceiveStateForPeerRestart()
+        }
+
+        // FUDP4V1: the epoch rides in the plaintext only until the peer
+        // has seen it acknowledged, after which the flag is cleared to
+        // save eight bytes a packet. A packet without it is not a peer
+        // claiming epoch zero — zero is the wire's "unknown" — so the
+        // established value stands in. Feeding the replay window a
+        // literal zero would read as an epoch change and reset the
+        // window on every packet after the flag goes away, which is the
+        // `incomingEpoch = conn.getSessionEpoch()` fallback in both
+        // reference implementations.
+        var incomingEpoch = parsed.sessionEpoch ?? 0
+        if incomingEpoch == 0 { incomingEpoch = connection.peerSessionEpoch }
+        if let epoch = parsed.sessionEpoch { connection.observePeerEpoch(epoch) }
+
+        switch replay.checkAndRecord(
+            connectionId: connection.connectionId,
+            packetNumber: header.packetNumber,
+            timestamp: parsed.timestamp ?? ReplayProtection.currentTimeMillis(),
+            sessionEpoch: incomingEpoch
+        ) {
+        case .ok:
+            break
+        case .peerRestart:
+            // The window has already reset itself; ours has to follow,
+            // or the restarted peer's stream ids are dropped by
+            // tombstones its previous life left behind (FUDP2V1
+            // §Stream Retirement).
+            log("peer restart detected (epoch \(incomingEpoch)) — resetting receive state")
+            connection.clearPeerEpoch()
+            if let epoch = parsed.sessionEpoch { connection.observePeerEpoch(epoch) }
+            resetReceiveStateForPeerRestart()
+        case .invalidTimestamp:
+            log("dropping packet with out-of-tolerance timestamp \(parsed.timestamp ?? -1)")
+            return
+        case .duplicate:
+            // **Acknowledge it anyway.** A duplicate is usually the
+            // peer retransmitting something whose ACK went missing; if
+            // we drop it silently it retransmits forever. Both
+            // reference implementations re-ACK and then discard, which
+            // is what stops the loop without processing the frames a
+            // second time.
+            log("dropping replayed packet \(header.packetNumber)")
+            if parsed.frames.contains(where: { if case .ack = $0 { return false } else { return true } }) {
+                transfer.ackGenerator.onPacketReceived(header.packetNumber)
+                await sendAckOnly()
+            }
+            return
         }
 
         var ackEliciting = false
@@ -607,7 +706,15 @@ public final class FudpClient: @unchecked Sendable {
             case .ack(let ack):
                 // The peer has responded → it has seen our epoch.
                 connection.markOurEpochConfirmed()
-                connection.recordPeerAck(largestAcked: Int64(ack.largestAcknowledged))
+                // The field is a 64-bit unsigned on the wire and a
+                // signed packet number here; a peer naming anything
+                // above Int64.max used to trap on the conversion. We
+                // never sent such a number, so it acknowledges nothing.
+                if let largest = Int64(exactly: ack.largestAcknowledged) {
+                    connection.recordPeerAck(largestAcked: largest)
+                } else {
+                    log("ignoring ACK for out-of-range packet number \(ack.largestAcknowledged)")
+                }
                 transfer.processAckFrame(ack)
             case .stream(let sf):
                 ackEliciting = true
@@ -642,13 +749,23 @@ public final class FudpClient: @unchecked Sendable {
 
         // Dictionary ops are locked (close() may race); the buffer
         // object itself is pump-task-confined.
-        let buffer: InboundStreamBuffer = {
+        // FUDP2V1 puts a ceiling of 100 concurrent remote streams on a
+        // connection and has the receiver drop frames that would exceed
+        // it. Without one, a peer opening a fresh stream id per packet
+        // mints a reassembly buffer per packet, each with its own
+        // interval list and possible spill file.
+        let buffer: InboundStreamBuffer? = {
             stateLock.lock(); defer { stateLock.unlock() }
             if let existing = streamBuffers[sf.streamId] { return existing }
+            guard streamBuffers.count < FudpClient.maxConcurrentInboundStreams else { return nil }
             let fresh = InboundStreamBuffer()
             streamBuffers[sf.streamId] = fresh
             return fresh
         }()
+        guard let buffer else {
+            log("refusing stream \(sf.streamId): \(FudpClient.maxConcurrentInboundStreams) already open")
+            return
+        }
 
         let newBytes: Int
         do {
@@ -684,6 +801,26 @@ public final class FudpClient: @unchecked Sendable {
         } catch {
             log("AppMessageCodec.decode failed: \(error)")
         }
+    }
+
+    /// Drop everything whose meaning depended on the peer's previous
+    /// connection: half-assembled streams and the tombstones that would
+    /// otherwise reject the stream ids it is about to reuse.
+    ///
+    /// FUDP2V1 §Stream Retirement is explicit that the retired set MUST
+    /// be cleared on peer restart — "the restarted peer's stream IDs
+    /// begin again at the lowest value, and stale tombstones would
+    /// wrongly drop its new streams." Keeping them is the failure where
+    /// a request is answered and the answer silently discarded.
+    private func resetReceiveStateForPeerRestart() {
+        stateLock.lock()
+        let orphaned = Array(streamBuffers.values)
+        streamBuffers.removeAll()
+        retiredStreams.removeAll()
+        retiredOrder.removeAll()
+        stateLock.unlock()
+        for buffer in orphaned { buffer.cleanup() }
+        replay.removeConnection(connection.connectionId)
     }
 
     private func removeStreamBuffer(_ streamId: UInt64) {

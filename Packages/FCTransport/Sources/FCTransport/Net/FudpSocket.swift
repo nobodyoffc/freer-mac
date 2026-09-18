@@ -166,12 +166,41 @@ public final class FudpSocket: @unchecked Sendable {
         if listener == nil { throw Failure.notBound }
     }
 
+    /// Ceiling on retained inbound connections. Each distinct remote
+    /// endpoint that sends us a datagram produces one, and until this
+    /// existed nothing ever removed one: a peer cycling source ports —
+    /// or a NAT doing it for them — grew the array for the life of the
+    /// process.
+    private static let maxInboundConnections = 256
+
     private func handleInbound(_ conn: NWConnection) {
         stateLock.lock()
         inboundConnections.append(conn)
+        let overflow: [NWConnection]
+        if inboundConnections.count > Self.maxInboundConnections {
+            let drop = inboundConnections.count - Self.maxInboundConnections
+            overflow = Array(inboundConnections.prefix(drop))
+            inboundConnections.removeFirst(drop)
+        } else {
+            overflow = []
+        }
         stateLock.unlock()
+        // Oldest first: a UDP "connection" here is just a remembered
+        // endpoint, so dropping the least recently accepted one costs
+        // at worst a peer that has been silent longest.
+        for old in overflow { old.cancel() }
         conn.start(queue: queue)
         receiveLoop(on: conn)
+    }
+
+    /// Forget a terminated inbound connection. Without this the receive
+    /// loop simply stopped on error and left the `NWConnection` in the
+    /// array forever.
+    private func retireInbound(_ conn: NWConnection) {
+        stateLock.lock()
+        inboundConnections.removeAll { $0 === conn }
+        stateLock.unlock()
+        conn.cancel()
     }
 
     private func receiveLoop(on conn: NWConnection) {
@@ -186,6 +215,8 @@ public final class FudpSocket: @unchecked Sendable {
             // error.
             if error == nil {
                 self.receiveLoop(on: conn)
+            } else {
+                self.retireInbound(conn)
             }
             _ = isComplete  // referenced to silence unused warning
         }

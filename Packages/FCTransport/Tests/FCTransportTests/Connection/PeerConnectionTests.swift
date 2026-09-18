@@ -107,12 +107,51 @@ final class PeerConnectionTests: XCTestCase {
 
     // MARK: - session epoch
 
-    func testObservePeerEpochReturnsPrevious() throws {
+    /// **The epoch is drawn at random, so it is set once and not
+    /// updated.** FUDP4V1 makes it a random 64-bit value the peer picks
+    /// at startup, which means a second, different epoch is not "newer"
+    /// — it is either a restart, which the replay window detects and
+    /// handles, or a delayed packet carrying the old one. Taking every
+    /// epoch as it came let the second case overwrite the first.
+    ///
+    /// Both reference implementations store it only from zero:
+    /// `if (incomingEpoch != 0 && conn.getSessionEpoch() == 0)`.
+    func testThePeerEpochIsRecordedOnceAndNotOverwritten() throws {
         let conn = try makeConnection()
         XCTAssertEqual(conn.observePeerEpoch(0xAAAA), 0)
         XCTAssertEqual(conn.peerSessionEpoch, 0xAAAA)
+
+        // A later packet carrying a different epoch still reports what
+        // we held, but does not replace it.
         XCTAssertEqual(conn.observePeerEpoch(0xBBBB), 0xAAAA)
+        XCTAssertEqual(
+            conn.peerSessionEpoch, 0xAAAA,
+            "a delayed packet's epoch must not displace the established one"
+        )
+
+        // Zero is the wire's "unknown or omitted" and is never stored.
+        XCTAssertEqual(conn.observePeerEpoch(0), 0xAAAA)
+        XCTAssertEqual(conn.peerSessionEpoch, 0xAAAA)
+
+        // A handled restart clears it, and the next packet establishes
+        // the new one.
+        conn.clearPeerEpoch()
+        XCTAssertEqual(conn.peerSessionEpoch, 0)
+        XCTAssertEqual(conn.observePeerEpoch(0xBBBB), 0)
         XCTAssertEqual(conn.peerSessionEpoch, 0xBBBB)
+    }
+
+    /// The peer's connection ID is the primary routing key (FUDP1V1),
+    /// and a *change* means the peer rebuilt its connection — a reason
+    /// to reset our receive state, never to reject the packet.
+    func testAChangedRemoteConnectionIdIsReported() throws {
+        let conn = try makeConnection()
+        XCTAssertNil(conn.remoteConnectionId)
+        XCTAssertFalse(conn.observeRemoteConnectionId(77), "the first binding is not a change")
+        XCTAssertEqual(conn.remoteConnectionId, 77)
+        XCTAssertFalse(conn.observeRemoteConnectionId(77), "the same id is not a change")
+        XCTAssertTrue(conn.observeRemoteConnectionId(78), "a different id is the peer rebuilding")
+        XCTAssertEqual(conn.remoteConnectionId, 78)
     }
 
     func testEpochConfirmationFlag() throws {

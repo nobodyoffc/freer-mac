@@ -126,6 +126,22 @@ public enum AsyTwoWay {
 
     /// Decrypt a bundle directed at `localPrivkey`. Returns the sender's
     /// identity pubkey (extracted from the bundle) plus the plaintext.
+    /// The sender's compressed pubkey, read straight out of the
+    /// bundle's cleartext prefix, or nil when the bundle is too short
+    /// to hold one.
+    ///
+    /// **This proves nothing on its own.** The field is unauthenticated
+    /// until ``open(bundle:aad:localPrivkey:)`` verifies the AEAD tag —
+    /// a forged bundle can name any pubkey it likes. It is useful only
+    /// in the other direction: a bundle naming a pubkey we are *not*
+    /// talking to can be discarded before spending an ECDH on it.
+    public static func senderPubkey(inBundle bundle: Data) -> Data? {
+        guard bundle.count >= minBundleSize else { return nil }
+        let bytes = [UInt8](bundle)
+        let start = 6 + 1
+        return Data(bytes[start..<(start + pubkeyLength)])
+    }
+
     public static func open(
         bundle: Data,
         aad: Data,
