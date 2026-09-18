@@ -373,7 +373,12 @@ public final class ActiveSession {
             throw Failure.underlying(error)
         }
         do {
-            try EncryptedFile.write(setting, to: settingUrl, key: symkey)
+            // Same binding the load used, or every save would drop the
+            // file back to authenticating under its filename alone.
+            try EncryptedFile.write(
+                setting, to: settingUrl, key: symkey,
+                aad: ConfigureSession.settingAad(fid: mainFid)
+            )
         } catch {
             throw Failure.underlying(error)
         }

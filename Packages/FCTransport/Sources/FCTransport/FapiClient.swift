@@ -162,6 +162,7 @@ public final class FapiClient: FapiCalling {
         case codec(UnifiedCodec.Failure)
         case transportStatus(code: UInt16, body: String)
         case fileTransferUnsupported(api: String)
+        case mutuallyExclusiveRequestBody(api: String)
         case underlying(Error)
 
         public var description: String {
@@ -174,6 +175,8 @@ public final class FapiClient: FapiCalling {
                 return "FapiClient: \(inner)"
             case let .transportStatus(code, body):
                 return "FapiClient: transport status \(code) — \(body)"
+            case .mutuallyExclusiveRequestBody(let api):
+                return "FapiClient: \(api) was given both fcdsl and params, which FAPI1V1 forbids"
             case .fileTransferUnsupported(let api):
                 return "FapiClient: this client cannot stream files (\(api))"
             case .underlying(let e):
@@ -223,6 +226,14 @@ public final class FapiClient: FapiCalling {
         maxCost: Int64? = nil,
         timeoutMs: Int = 5_000
     ) async throws -> Reply {
+        // FAPI1V1: "A request MUST NOT have both `fcdsl` and `params`
+        // set simultaneously; servers MUST reject such requests with
+        // code 400." Building one anyway spends a round trip to be told
+        // that, and leaves the caller reading a protocol error where
+        // the mistake was theirs.
+        if params != nil, fcdsl != nil {
+            throw Failure.mutuallyExclusiveRequestBody(api: api)
+        }
         let messageId = Int64.random(in: 1...Int64.max)
         let request = FapiRequest(
             id: FapiRequest.generateId(),
@@ -496,13 +507,21 @@ extension FapiClient {
         // Stream the binary body (possibly a file-mapped slice) into
         // the output file in bounded chunks.
         let binary = reply.binary ?? Data()
+        // **Write beside the destination, then move it into place.**
+        // Creating and truncating the destination first means a failure
+        // partway through the write leaves the caller with neither the
+        // new file nor the old one — and the old one may have been
+        // perfectly good. A rename within the same directory is atomic,
+        // so the destination either still holds what it held or holds
+        // the whole download.
+        let dir = outputURL.deletingLastPathComponent()
+        let staging = dir.appendingPathComponent(
+            ".\(outputURL.lastPathComponent).partial-\(UUID().uuidString)"
+        )
         do {
-            let dir = outputURL.deletingLastPathComponent()
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-            FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-            let out = try FileHandle(forWritingTo: outputURL)
-            defer { try? out.close() }
-            try out.truncate(atOffset: 0)
+            FileManager.default.createFile(atPath: staging.path, contents: nil)
+            let out = try FileHandle(forWritingTo: staging)
             var idx = binary.startIndex
             let step = 1 << 20
             while idx < binary.endIndex {
@@ -510,8 +529,14 @@ extension FapiClient {
                 try out.write(contentsOf: binary[idx..<end])
                 idx = end
             }
+            try out.close()
+            if FileManager.default.fileExists(atPath: outputURL.path) {
+                _ = try FileManager.default.replaceItemAt(outputURL, withItemAt: staging)
+            } else {
+                try FileManager.default.moveItem(at: staging, to: outputURL)
+            }
         } catch {
-            try? FileManager.default.removeItem(at: outputURL)
+            try? FileManager.default.removeItem(at: staging)
             throw Failure.underlying(error)
         }
 

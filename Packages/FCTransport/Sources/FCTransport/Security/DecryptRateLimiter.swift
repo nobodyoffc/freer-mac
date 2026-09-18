@@ -147,11 +147,23 @@ public final class DecryptRateLimiter<Source: Hashable> {
 
     // MARK: - private
 
+    /// Drop entries nothing has touched for longer than the TTL.
+    ///
+    /// **This used to be a comment and nothing else.** The body
+    /// explained that `LruCache` exposed no iteration and that the
+    /// capacity cap bounded memory anyway — both true, and the second
+    /// is why this was never noticed — but the class documents a TTL,
+    /// and a limiter that never expires anything holds a source's
+    /// failure history until `maxTracked` other sources push it out.
+    /// A peer penalised during a bad minute stayed penalised for as
+    /// long as the table had room for it.
+    ///
+    /// Entries are walked from the least-recently-used end, which is
+    /// where the stale ones are, so a sweep stops at the first live
+    /// entry rather than scanning the table.
     private func evictStaleLocked(now: Int64) {
-        // Walk a snapshot of keys; LruCache doesn't expose iteration so we
-        // pop entries known to be stale and re-insert fresh ones.
-        // For the typical workload (steady state, small failure populations)
-        // this is rarely entered with much to do.
-        // (LruCache also caps at `maxTracked` automatically on put().)
+        entries.evictLeastRecentlyUsed { entry in
+            now - entry.lastTouchedMs > Self.entryTtlMs
+        }
     }
 }

@@ -19,9 +19,23 @@ final class InboundMailbox<Element: Sendable>: @unchecked Sendable {
     private var waiter: (id: UInt64, continuation: CheckedContinuation<Element?, Never>)?
     private var nextWaiterId: UInt64 = 0
 
+    /// Ceiling on undelivered elements.
+    ///
+    /// These are assembled messages nobody has asked for yet: a
+    /// response whose requester timed out, or anything a peer sends
+    /// that this client never requested. The stream layer bounds how
+    /// much of one message can be in flight, but nothing bounded how
+    /// many finished ones could pile up behind a consumer that stopped
+    /// draining — and each one holds its whole payload.
+    static var capacity: Int { 256 }
+
     /// Deliver one element: hands it to the parked waiter if any,
-    /// otherwise buffers it (unbounded — the transfer protocols above
-    /// bound the in-flight volume).
+    /// otherwise buffers it.
+    ///
+    /// Past the cap the *oldest* undelivered element is dropped, not
+    /// this one. Anything still here is by definition something no
+    /// caller is waiting for, and the older it is the longer that has
+    /// been true.
     func put(_ element: Element) {
         lock.lock()
         if let parked = waiter {
@@ -31,7 +45,17 @@ final class InboundMailbox<Element: Sendable>: @unchecked Sendable {
             return
         }
         buffer.append(element)
+        var dropped = 0
+        while buffer.count > InboundMailbox.capacity {
+            buffer.removeFirst()
+            dropped += 1
+        }
         lock.unlock()
+        if dropped > 0 {
+            FileHandle.standardError.write(
+                Data("[fudp] inbound mailbox full — dropped \(dropped) undelivered message(s)\n".utf8)
+            )
+        }
     }
 
     /// Mark the channel closed. Buffered elements remain drainable;

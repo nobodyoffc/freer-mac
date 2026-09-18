@@ -144,3 +144,55 @@ final class DecryptRateLimiterTests: XCTestCase {
         XCTAssertThrowsError(try DecryptRateLimiter<String>(maxTracked: 0))
     }
 }
+
+/// The TTL the class documents, which for a long time was a comment
+/// with an empty function body under it.
+final class DecryptRateLimiterTtlTests: XCTestCase {
+
+    /// A source penalised during a bad minute stayed penalised for as
+    /// long as the table had room for it: nothing expired, so its
+    /// failure history survived until `maxTracked` other sources pushed
+    /// it out.
+    func testAnUntouchedEntryIsEvictedAfterTheTtl() throws {
+        let limiter = try DecryptRateLimiter<String>(failureThreshold: 2, cooldownMs: 1_000)
+        let t0: Int64 = 1_000_000
+
+        limiter.recordFailure(source: "a", nowMs: t0)
+        XCTAssertEqual(limiter.trackedCount, 1)
+
+        // Another source arrives long after "a" went quiet. The sweep
+        // runs on the failure path, so this is what collects it.
+        limiter.recordFailure(source: "b", nowMs: t0 + DecryptRateLimiter<String>.entryTtlMs + 1)
+        XCTAssertEqual(
+            limiter.trackedCount, 1,
+            "the stale entry should be gone, leaving only the new one"
+        )
+
+        // And the expiry really cleared the history: "a" starts over,
+        // so one failure is not yet enough to trip a threshold of two.
+        let later = t0 + DecryptRateLimiter<String>.entryTtlMs + 2
+        limiter.recordFailure(source: "a", nowMs: later)
+        XCTAssertFalse(limiter.shouldDrop(source: "a", nowMs: later))
+    }
+
+    /// A source still failing is not stale, however long ago it
+    /// started. The sweep expires what nothing has touched, not what
+    /// is merely old.
+    func testAnActiveEntrySurvivesTheSweep() throws {
+        let limiter = try DecryptRateLimiter<String>(failureThreshold: 2, cooldownMs: 10_000)
+        var now: Int64 = 500_000
+        for _ in 0..<5 {
+            limiter.recordFailure(source: "busy", nowMs: now)
+            now += DecryptRateLimiter<String>.entryTtlMs / 2
+        }
+        // Total elapsed is well past the TTL, but every failure touched
+        // the entry, so it is still tracked and still in cooldown from
+        // the most recent one.
+        XCTAssertEqual(limiter.trackedCount, 1)
+        let lastFailure = now - DecryptRateLimiter<String>.entryTtlMs / 2
+        XCTAssertTrue(
+            limiter.shouldDrop(source: "busy", nowMs: lastFailure + 1),
+            "a source that keeps failing must keep its cooldown"
+        )
+    }
+}

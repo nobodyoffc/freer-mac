@@ -336,7 +336,23 @@ final class LruCache<Key: Hashable, Value> {
         return nil
     }
 
+    /// Drop entries from the least-recently-used end for as long as
+    /// `shouldEvict` says so, and report how many went.
+    ///
+    /// Walking from the LRU end is what makes a TTL sweep cheap: the
+    /// entries that have gone stale are the ones nothing has touched,
+    /// which is where this end of the list keeps them.
     @discardableResult
+    func evictLeastRecentlyUsed(while shouldEvict: (Value) -> Bool) -> Int {
+        var removed = 0
+        while let node = head, shouldEvict(node.value) {
+            removeNode(node)
+            dict.removeValue(forKey: node.key)
+            removed += 1
+        }
+        return removed
+    }
+
     func remove(_ key: Key) -> Value? {
         guard let node = dict.removeValue(forKey: key) else { return nil }
         removeNode(node)

@@ -388,8 +388,32 @@ public final class FudpClient: @unchecked Sendable {
         next: (Int) throws -> Data?,
         progress: (@Sendable (Int64) -> Void)?
     ) async throws {
+        // A length is a caller-supplied `Int64` — a file size, a
+        // `Data.count` — and a negative one makes every comparison
+        // below nonsense before any byte is read.
+        guard totalLength >= 0 else {
+            throw Failure.sendStalled("stream \(streamId) was given a negative length \(totalLength)")
+        }
+
         var offset: UInt64 = 0
         var sent: Int64 = 0
+
+        // **An empty payload is a payload.** Nothing to chunk means the
+        // loop below breaks on its first turn and falls through to the
+        // "ended without a fin frame" error, so sending a zero-byte
+        // file failed as if the source had died. One empty frame with
+        // `fin` is the whole stream.
+        if totalLength == 0 {
+            guard await awaitCongestionWindow(bytes: FudpClient.cwndPacketOverhead) else {
+                throw Failure.sendStalled(
+                    "congestion window closed for \(FudpClient.appSendStallAbortMs) ms (no ACKs from peer)")
+            }
+            try await sendDataPacket(streamFrames: [
+                StreamFrame(streamId: streamId, offset: 0, data: Data(), fin: true)
+            ])
+            progress?(0)
+            return
+        }
 
         while true {
             let chunk: Data?
@@ -401,6 +425,17 @@ public final class FudpClient: @unchecked Sendable {
                 throw Failure.underlying(error)
             }
             guard let chunk, !chunk.isEmpty else { break }
+
+            // **The declared length is the contract.** `sent >=
+            // totalLength` made the overshooting chunk the terminating
+            // one, so a source that handed back more than it promised
+            // shipped the excess inside the frame carrying `fin` — a
+            // stream whose real length silently disagreed with the one
+            // the request announced.
+            guard sent + Int64(chunk.count) <= totalLength else {
+                throw Failure.sendStalled(
+                    "stream \(streamId) source produced more than the \(totalLength) bytes it declared")
+            }
 
             sent += Int64(chunk.count)
             let isLast = sent >= totalLength
