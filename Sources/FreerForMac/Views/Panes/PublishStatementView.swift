@@ -433,7 +433,12 @@ struct PublishStatementView: View {
             // Only Mine owns the cache — caching Discover would fill
             // this identity's store with strangers' declarations.
             if tab == .mine {
-                _ = try? session.statements.replaceChainRows(with: page.rows)
+                // Authoritative only when this page was the whole
+                // shelf; otherwise the rows we did not fetch would be
+                // pruned as if the chain had dropped them.
+                _ = try? session.statements.replaceChainRows(
+                    with: page.rows, complete: !hasMore
+                )
             }
             await resolveNames(for: page.rows)
         } catch {

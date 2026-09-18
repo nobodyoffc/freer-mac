@@ -208,6 +208,73 @@ final class MessageCourierTests: XCTestCase {
         XCTAssertEqual(try bob.chat.page(Conversation.id(type: .p2p, targetId: alice.liveFid)).messages.count, 1)
     }
 
+    /// **A message we could not store is not a message we have had.**
+    /// Filing is what earns the right to delete the DOCK's copy; when
+    /// the store refuses the write, the remote copy is the only one
+    /// left. It has to survive, stay unseen, and arrive on a later pass
+    /// once the store is writable again.
+    func testAMessageThatCannotBeStoredStaysOnTheDock() async throws {
+        let alice = try makeSession(privkey: alicePriv, label: "alice")
+        let bob = try makeSession(privkey: bobPriv, label: "bob")
+        server.homeByFid[bob.liveFid] = [ServiceName.dock: "https://dock.bob"]
+        try await send(from: alice, to: bob, "the only copy")
+        XCTAssertEqual(server.items.count, 1)
+
+        // Read-only store: the database file *and* its directory, or
+        // SQLite just writes the journal alongside it and succeeds.
+        let settingDir = bob.dataDirectory.deletingLastPathComponent()
+        let store = settingDir.appendingPathComponent("store.sqlite")
+        for sidecar in ["store.sqlite-wal", "store.sqlite-shm"] {
+            let url = settingDir.appendingPathComponent(sidecar)
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o400], ofItemAtPath: url.path
+                )
+            }
+        }
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o400], ofItemAtPath: store.path
+        )
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o500], ofItemAtPath: settingDir.path
+        )
+
+        let refused = try await bob.courier.collect(
+            as: bob.liveFid, recipientIds: [bob.liveFid], privkey: bobPriv, now: at(60)
+        )
+        XCTAssertEqual(refused.filed, 0)
+        XCTAssertEqual(
+            server.items.count, 1,
+            "the DOCK copy is the only copy left — deleting it loses the message"
+        )
+
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o700], ofItemAtPath: settingDir.path
+        )
+        for sidecar in ["store.sqlite-wal", "store.sqlite-shm"] {
+            let url = settingDir.appendingPathComponent(sidecar)
+            if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.setAttributes(
+                    [.posixPermissions: 0o600], ofItemAtPath: url.path
+                )
+            }
+        }
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: store.path
+        )
+
+        let retried = try await bob.courier.collect(
+            as: bob.liveFid, recipientIds: [bob.liveFid], privkey: bobPriv, now: at(120)
+        )
+        XCTAssertEqual(retried.filed, 1, "the message is neither seen nor skipped, so it arrives")
+        XCTAssertEqual(
+            try bob.chat.page(Conversation.id(type: .p2p, targetId: alice.liveFid))
+                .messages.map(\.content),
+            ["the only copy"]
+        )
+        XCTAssertTrue(server.items.isEmpty, "and now it is safe to delete")
+    }
+
     /// A group's messages are addressed to the group, so a fetch that
     /// asked only for our own FID would collect none of them.
     func testGroupMessagesAreCollectedUnderTheGroupId() async throws {

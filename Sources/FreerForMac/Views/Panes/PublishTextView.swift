@@ -625,7 +625,13 @@ struct PublishTextView: View {
             // with strangers' records, and caching Deleted would
             // overwrite the live rows with their complement.
             if tab == .mine {
-                _ = try? session.texts.replaceChainRows(with: kept)
+                // Authoritative only when this page was the whole
+                // shelf and nothing was second-guessed out of it —
+                // otherwise the rows we did not see would be pruned as
+                // if the chain had dropped them.
+                _ = try? session.texts.replaceChainRows(
+                    with: kept, complete: !hasMore && dropped == 0
+                )
             }
             await resolveNames(for: kept)
         } catch {

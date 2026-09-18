@@ -232,9 +232,21 @@ public struct WalletService {
             timeoutMs: timeoutMs
         )
         let resp = reply.response
-        // The server returns NOT_FOUND when an FID has zero cashes.
-        // That's a normal "empty wallet" outcome — not a sync failure.
-        if let code = resp.code, code != 0 {
+        // **Only NOT_FOUND means "no cashes".** The server returns 404
+        // when an FID has nothing spendable, and that is a normal empty
+        // wallet. Every *other* non-zero code — auth rejected, rate
+        // limited, indexer down, a plain 500 — means the server did not
+        // answer the question, and treating all of them alike replaced
+        // a good cached snapshot with an empty one: the user watched
+        // their balance go to zero because the DOCK was busy. A
+        // question that was not answered leaves the cache as it is and
+        // reports the failure.
+        if let code = resp.code, code != 0, code != 404 {
+            throw Failure.fapiNonZeroCode(
+                api: "base.cashValid", code: code, message: resp.message
+            )
+        }
+        if resp.code == 404 {
             var snapshot = CashSnapshot(
                 addr: fid, cashes: [],
                 snapshotAt: Date(),

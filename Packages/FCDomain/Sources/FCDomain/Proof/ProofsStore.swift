@@ -71,12 +71,30 @@ public struct ProofsStore {
     /// precisely to update it. Rows whose id is in `proofs` keep their
     /// original ``Proof/addedAt`` so "when did this first appear here"
     /// stays meaningful across refreshes.
+    ///
+    /// **`complete` is the caller saying it saw everything.** A refresh
+    /// that fetched only the first page has not: the rows it did not
+    /// ask for are absent from `proofs` for the same reason a deleted
+    /// row is, and pruning on that could not tell the two apart — a
+    /// shelf of three hundred records became the latest twenty-five,
+    /// every refresh. Pass `false` whenever more pages remain and the
+    /// call merges without dropping anything.
+    ///
+    /// **A broadcast-unconfirmed row is never dropped.** `onChain` nil
+    /// means the carve is paid for and waiting for a block, so the
+    /// indexer has nothing to return yet and absence proves nothing.
+    /// Pruning those meant the record the user had just published
+    /// disappeared from under them on the refresh that followed the
+    /// broadcast. Only a row the chain has confirmed and now omits is
+    /// stale enough to remove.
     @discardableResult
-    public func replaceChainRows(with proofs: [Proof]) throws -> Int {
+    public func replaceChainRows(with proofs: [Proof], complete: Bool = true) throws -> Int {
         let incoming = Dictionary(proofs.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        for existing in try all() where existing.onChain != false {
-            if incoming[existing.id] == nil {
-                try remove(id: existing.id)
+        if complete {
+            for existing in try all() where existing.onChain == true {
+                if incoming[existing.id] == nil {
+                    try remove(id: existing.id)
+                }
             }
         }
         for var proof in proofs {

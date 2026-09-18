@@ -342,6 +342,59 @@ final class PublishCarveTests: XCTestCase {
         XCTAssertNotNil(try session.texts.get(id: "T2"))
         XCTAssertNotNil(try session.texts.get(id: draft.id), "a draft survives every refresh")
     }
+
+    /// **A page is not the shelf.** A refresh that fetched only the
+    /// first page cannot tell a row it did not ask for from a row the
+    /// chain dropped, and pruning on that turned a cache of hundreds
+    /// into the latest pageful — every refresh, until nothing older
+    /// than one page survived offline.
+    func testAPartialRefreshDoesNotPruneTheRestOfTheCache() throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+
+        for i in 1...5 {
+            try session.texts.upsert(TextRecord(id: "T\(i)", title: "old \(i)", onChain: true))
+        }
+
+        // The newest two, as a first page with more behind it.
+        _ = try session.texts.replaceChainRows(
+            with: [
+                TextRecord(id: "T5", title: "new 5", onChain: true),
+                TextRecord(id: "T4", title: "new 4", onChain: true),
+            ],
+            complete: false
+        )
+
+        XCTAssertEqual(
+            Set(try session.texts.all().map(\.id)), ["T1", "T2", "T3", "T4", "T5"],
+            "the pages we did not fetch are still ours"
+        )
+        XCTAssertEqual(try session.texts.get(id: "T5")?.title, "new 5", "and the page we did fetch wins")
+    }
+
+    /// **A carve waiting for a block is paid for.** `onChain` nil means
+    /// broadcast-unconfirmed, so the indexer has nothing to return yet
+    /// and its silence proves nothing. Pruning those made the record
+    /// vanish on the refresh that followed the broadcast — the one the
+    /// pane fires immediately.
+    func testARefreshKeepsACarveTheIndexerHasNotSeenYet() throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+
+        try session.texts.upsert(TextRecord(id: "T1", title: "confirmed", onChain: true))
+        try session.texts.upsert(TextRecord(id: "TX", title: "just broadcast", onChain: nil))
+
+        // A complete refresh, from an indexer that has not caught up.
+        _ = try session.texts.replaceChainRows(
+            with: [TextRecord(id: "T1", title: "confirmed", onChain: true)],
+            complete: true
+        )
+
+        XCTAssertNotNil(
+            try session.texts.get(id: "TX"),
+            "the carve the user just paid for must not disappear under them"
+        )
+    }
 }
 
 /// The broadcast raw hex, captured out of the mock's responder. One per

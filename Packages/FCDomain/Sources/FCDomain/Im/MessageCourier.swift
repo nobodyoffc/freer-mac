@@ -691,6 +691,10 @@ public struct MessageCourier {
         var fetched = 0, filed = 0, sealed = 0, held = 0, routed = 0, other = 0
         var cursor: [String]?
         if let dockUrl { cursor = await registry.cursor(for: dockUrl) }
+        // Set when an item could not be filed locally. The cursor stops
+        // where it is and the walk ends, so the page that failed is read
+        // again next pass rather than skipped for good.
+        var localFailure = false
 
         for _ in 0..<maxPages {
             let page = try await dock.fetch(
@@ -745,7 +749,33 @@ public struct MessageCourier {
                     continue
                 }
 
-                switch (try? chat.receive(named, as: liveFid, privkey: privkey, now: now)) ?? .ignored(reason: "receive failed") {
+                // **A message we could not file is a message we still
+                // need.** Filing is the whole reason the DOCK copy is
+                // redundant; when it throws — the store is full, the
+                // vault went away underneath us, SQLite is unhappy —
+                // the remote copy is the only copy left. Swallowing
+                // that into `.ignored` and carrying on deleted the
+                // message from the DOCK, marked it seen so a refetch
+                // would be rejected as a replay, and walked the cursor
+                // past it: three independent ways to never see it
+                // again. So: leave it on the DOCK, leave it unseen, and
+                // stop the walk here so the next pass re-reads this
+                // page from the cursor we have not moved.
+                let received: ChatService.Received
+                do {
+                    received = try chat.receive(named, as: liveFid, privkey: privkey, now: now)
+                } catch {
+                    SystemLog.shared.error(
+                        SystemSource.messages,
+                        "Could not file an incoming message — leaving it on the DOCK",
+                        detail: "From \(named.senderId?.middleElided() ?? "nobody"): \(error)"
+                    )
+                    other += 1
+                    localFailure = true
+                    break
+                }
+
+                switch received {
                 case .message(let stored):
                     filed += 1
                     await acknowledgeDelivery(of: stored, as: liveFid, privkey: privkey, now: now)
@@ -768,6 +798,8 @@ public struct MessageCourier {
                     _ = try? await dock.delete(id: dockId, timeoutMs: timeoutMs)
                 }
             }
+
+            if localFailure { break }
 
             // No new cursor means there is no way to ask for the *next*
             // page — asking again with the old one would hand back the

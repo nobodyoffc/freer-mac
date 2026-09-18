@@ -213,6 +213,41 @@ final class CashSyncAnnotationTests: XCTestCase {
         XCTAssertEqual(mintedRow.localState, .unknown)
     }
 
+    /// **A server that did not answer has not said the wallet is
+    /// empty.** Every non-zero code used to mean "zero cashes", so a
+    /// rate limit or a 500 overwrote a good snapshot with an empty one
+    /// and the user watched their balance vanish. Only NOT_FOUND
+    /// carries that meaning.
+    func testAServerErrorLeavesTheCachedWalletAlone() async throws {
+        let mock = MockFapiClient()
+        let alice = try makeSessions(passwords: ["error-not-empty"], fapi: mock)[0]
+
+        let held = try cash(owner: alice.mainFid, txidByte: 0x3C, index: 0, value: 900_000)
+        try alice.cashes.save(CashSnapshot(
+            addr: alice.mainFid, cashes: [held], bestHeight: 1_000, watermarkHeight: 1_000
+        ))
+
+        for code in [1, 429, 500] {
+            mock.responder = { _ in FapiResponse(code: code, message: "not today") }
+            do {
+                _ = try await alice.wallet.bootstrapCashes(forFid: alice.mainFid)
+                XCTFail("code \(code) should surface as a failure, not an empty wallet")
+            } catch {
+                // expected
+            }
+            let cached = try XCTUnwrap(alice.cashes.snapshot(forAddress: alice.mainFid))
+            XCTAssertEqual(
+                cached.cashes.map(\.id), [held.id],
+                "code \(code) must leave the cached snapshot untouched"
+            )
+        }
+
+        // NOT_FOUND still means what it has always meant.
+        mock.responder = { _ in FapiResponse(code: 404, message: "no cash") }
+        let emptied = try await alice.wallet.bootstrapCashes(forFid: alice.mainFid)
+        XCTAssertTrue(emptied.cashes.isEmpty, "404 is a genuinely empty wallet")
+    }
+
     /// Purge is still the clean slate — that is its whole job, and
     /// merging must not quietly make it a no-op.
     func testPurgeThenBootstrapReallyStartsFromNothing() async throws {
