@@ -54,6 +54,85 @@ final class ChallengeHandlerTests: XCTestCase {
         }
     }
 
+    /// FUDP5V1 §Initiator-Side Protection: an over-cap demand earns a
+    /// cooldown, not just a refusal. Saying no instantly and
+    /// reconnecting is an invitation to be asked again immediately.
+    func testAnOverCapChallengeStartsACooldown() throws {
+        final class Clock: @unchecked Sendable {
+            let lock = NSLock(); var ms: Int64 = 0
+            func now() -> Int64 { lock.lock(); defer { lock.unlock() }; return ms }
+            func advance(_ by: Int64) { lock.lock(); ms += by; lock.unlock() }
+        }
+        let clock = Clock()
+        let handler = ChallengeHandler(
+            maxAcceptableDifficulty: 8, maxPowTimeMs: 1_000,
+            refusalCooldownMs: 60_000, nowMs: clock.now
+        )
+        let tooHard = try ChallengePayload(
+            nonce: Data(repeating: 0xab, count: 16), difficulty: 16, timestamp: 0
+        ).encode()
+        XCTAssertThrowsError(try handler.handle(challengePayload: tooHard))
+
+        // Even a perfectly reasonable challenge is refused during the
+        // cooldown — the responder has shown what it is.
+        let easy = try ChallengePayload(
+            nonce: Data(repeating: 0xcd, count: 16), difficulty: 4, timestamp: 0
+        ).encode()
+        XCTAssertThrowsError(try handler.handle(challengePayload: easy)) { e in
+            guard case ChallengeHandler.Failure.refusingResponder = e else {
+                XCTFail("wrong error: \(e)"); return
+            }
+        }
+
+        clock.advance(60_001)
+        XCTAssertNoThrow(try handler.handle(challengePayload: easy), "the cooldown ends")
+    }
+
+    /// "Max Consecutive High Difficulty — 3": a responder that keeps
+    /// asking for near-maximum work is spending our CPU two seconds at
+    /// a time, and each individual demand is within the cap, so only
+    /// the run reveals it.
+    func testARunOfNearMaximumChallengesIsTreatedAsHostile() throws {
+        let handler = ChallengeHandler(
+            maxAcceptableDifficulty: 16, maxPowTimeMs: 2_000,
+            maxConsecutiveHighDifficulty: 3
+        )
+        XCTAssertEqual(handler.highDifficultyThreshold, 12, "75% of the cap, per the spec")
+
+        // Difficulty 13 is under the cap but over the high-water mark.
+        let high = try ChallengePayload(
+            nonce: Data(repeating: 0x01, count: 16), difficulty: 13, timestamp: 0
+        ).encode()
+        for _ in 0..<3 {
+            XCTAssertNoThrow(try handler.handle(challengePayload: high))
+        }
+        XCTAssertThrowsError(try handler.handle(challengePayload: high)) { e in
+            guard case let ChallengeHandler.Failure.suspiciousResponder(run) = e else {
+                XCTFail("wrong error: \(e)"); return
+            }
+            XCTAssertEqual(run, 4)
+        }
+    }
+
+    /// The run has to be consecutive: an ordinary challenge in between
+    /// is evidence the responder is behaving, and clears the count.
+    func testAnOrdinaryChallengeClearsTheRun() throws {
+        let handler = ChallengeHandler(
+            maxAcceptableDifficulty: 16, maxPowTimeMs: 2_000,
+            maxConsecutiveHighDifficulty: 3
+        )
+        let high = try ChallengePayload(
+            nonce: Data(repeating: 0x02, count: 16), difficulty: 13, timestamp: 0
+        ).encode()
+        let ordinary = try ChallengePayload(
+            nonce: Data(repeating: 0x03, count: 16), difficulty: 4, timestamp: 0
+        ).encode()
+
+        for _ in 0..<3 { XCTAssertNoThrow(try handler.handle(challengePayload: high)) }
+        XCTAssertNoThrow(try handler.handle(challengePayload: ordinary))
+        for _ in 0..<3 { XCTAssertNoThrow(try handler.handle(challengePayload: high)) }
+    }
+
     func testHandleRejectsMalformedChallenge() throws {
         let handler = ChallengeHandler()
         XCTAssertThrowsError(try handler.handle(challengePayload: Data(repeating: 0, count: 25))) { e in

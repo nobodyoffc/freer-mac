@@ -217,10 +217,21 @@ public final class PeerConnection: @unchecked Sendable {
     }
 
     /// Forget the peer's epoch so the next packet establishes a fresh
-    /// one — part of resetting state after a detected peer restart.
+    /// one, and start announcing ours again — part of resetting state
+    /// after a detected peer restart.
+    ///
+    /// **Both halves matter.** The epoch rides in our packets only
+    /// until the peer acknowledges it, and a restarted peer has
+    /// forgotten that it ever did. Leaving `ourEpochConfirmed` set
+    /// means we never send it again, so that peer can never detect our
+    /// restart for the rest of the connection. The reference clears
+    /// both in `resetForPeerRestart` for exactly this reason
+    /// (`epochConfirmed = false; // E2: Must re-send epoch after peer
+    /// restart`).
     public func clearPeerEpoch() {
         lock.lock(); defer { lock.unlock() }
         _peerSessionEpoch = 0
+        _ourEpochConfirmed = false
     }
 
     /// The connection ID the peer stamps in its packet headers, or nil

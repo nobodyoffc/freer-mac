@@ -648,8 +648,8 @@ public final class FudpClient: @unchecked Sendable {
         // revision was written to stop: it turned a mid-transfer NAT
         // rebind into every subsequent request timing out.
         if connection.observeRemoteConnectionId(header.connectionId) {
-            log("peer rebuilt its connection (remote connId now \(header.connectionId)) — resetting receive state")
-            resetReceiveStateForPeerRestart()
+            log("peer rebuilt its connection (remote connId now \(header.connectionId)) — resetting connection state")
+            resetStateForPeerRestart()
         }
 
         // FUDP4V1: the epoch rides in the plaintext only until the peer
@@ -678,10 +678,9 @@ public final class FudpClient: @unchecked Sendable {
             // or the restarted peer's stream ids are dropped by
             // tombstones its previous life left behind (FUDP2V1
             // §Stream Retirement).
-            log("peer restart detected (epoch \(incomingEpoch)) — resetting receive state")
-            connection.clearPeerEpoch()
+            log("peer restart detected (epoch \(incomingEpoch)) — resetting connection state")
+            resetStateForPeerRestart()
             if let epoch = parsed.sessionEpoch { connection.observePeerEpoch(epoch) }
-            resetReceiveStateForPeerRestart()
         case .invalidTimestamp:
             // **Drop it; do not tear the connection down.** Both
             // reference implementations answer this with a
@@ -821,7 +820,7 @@ public final class FudpClient: @unchecked Sendable {
     /// begin again at the lowest value, and stale tombstones would
     /// wrongly drop its new streams." Keeping them is the failure where
     /// a request is answered and the answer silently discarded.
-    private func resetReceiveStateForPeerRestart() {
+    private func resetStateForPeerRestart() {
         stateLock.lock()
         let orphaned = Array(streamBuffers.values)
         streamBuffers.removeAll()
@@ -830,6 +829,16 @@ public final class FudpClient: @unchecked Sendable {
         stateLock.unlock()
         for buffer in orphaned { buffer.cleanup() }
         replay.removeConnection(connection.connectionId)
+
+        // **The send side has to forget too.** A restarted peer counts
+        // its packets from zero again, and an ACK generator still
+        // advertising the previous session's numbers tells it we
+        // received packets it never sent — which its own loss detection
+        // reads as an enormous gap. `TransferMachinery.resetForRestart`
+        // existed for this and nothing called it; the reference clears
+        // sentPackets, the ack manager and largestAcked together.
+        transfer.resetForRestart()
+        connection.clearPeerEpoch()
     }
 
     private func removeStreamBuffer(_ streamId: UInt64) {

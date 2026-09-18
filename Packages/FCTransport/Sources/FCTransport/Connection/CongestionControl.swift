@@ -66,7 +66,20 @@ public final class CongestionControl: @unchecked Sendable {
             let wMaxPkts = Double(_wMax) / CongestionControl.mss
             let k = cbrt(wMaxPkts * (1 - CongestionControl.beta) / CongestionControl.cubicC)
             let targetPkts = CongestionControl.cubicC * pow(t - k, 3) + wMaxPkts
-            let target = Int64(targetPkts * CongestionControl.mss)
+            // `t` is wall-clock seconds since the epoch began and the
+            // growth term is cubic in it, so a clock that jumps forward
+            // — NTP correcting a stale VM, a laptop waking with a
+            // resynced date — sends this past what an Int64 holds, and
+            // the conversion traps rather than saturating. The window
+            // is clamped to `maxWindow` two lines later regardless, so
+            // there is nothing to lose by saturating here.
+            let targetBytes = targetPkts * CongestionControl.mss
+            let target: Int64
+            if targetBytes.isFinite {
+                target = Int64(targetBytes.clamped(to: -9e18...9e18))
+            } else {
+                target = targetBytes > 0 ? CongestionControl.maxWindow : 0
+            }
 
             let renoIncrement = max(Int64(1),
                 Int64(CongestionControl.mss * Double(ackedBytes) / Double(max(1, _congestionWindow))))
@@ -153,5 +166,12 @@ public final class CongestionControl: @unchecked Sendable {
         _bytesInFlight = 0
         _state = .slowStart
         _epochStartMs = nowMs()
+    }
+}
+
+
+private extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        Swift.min(Swift.max(self, range.lowerBound), range.upperBound)
     }
 }
