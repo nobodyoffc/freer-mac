@@ -19,6 +19,14 @@ import Foundation
 /// The server has a sliding-window rate limiter on PUBLIC_KEY
 /// responses (see `Protocol.allowPublicKeyResponse`), so don't spam
 /// — once per user-initiated Settings click is fine.
+///
+/// **What this does not give you is authentication.** FUDP4V1 says so
+/// plainly: the plaintext exchange is open to a man in the middle, and
+/// the answer is out-of-band verification — comparing the key against
+/// the node's published identity — not anything this can do on the
+/// wire. What it does do is refuse a reply that is malformed, or that
+/// arrives with a header no discovery reply would carry, so a
+/// mis-parsed packet cannot become a peer key.
 public enum FudpDiscovery {
 
     public static let helloTypeByte: UInt8       = 0x01
@@ -32,6 +40,8 @@ public enum FudpDiscovery {
         case unexpectedPacketType(PacketHeader.PacketType)
         case unexpectedControlByte(UInt8)
         case truncated(needed: Int, got: Int)
+        case badHeader(field: String, got: String)
+        case notACompressedPoint(prefix: UInt8)
         case underlying(Error)
 
         public var description: String {
@@ -48,6 +58,10 @@ public enum FudpDiscovery {
                 return String(format: "FudpDiscovery: expected control byte 0x02 (PUBLIC_KEY), got 0x%02x", b)
             case let .truncated(needed, got):
                 return "FudpDiscovery: payload too short (need ≥ \(needed) B, got \(got))"
+            case let .badHeader(field, got):
+                return "FudpDiscovery: PUBLIC_KEY header has \(field) = \(got)"
+            case .notACompressedPoint(let prefix):
+                return String(format: "FudpDiscovery: pubkey prefix 0x%02x is not a compressed point", prefix)
             case .underlying(let e):
                 return "FudpDiscovery: \(e)"
             }
@@ -142,6 +156,19 @@ public enum FudpDiscovery {
         guard header.packetType == .control else {
             throw Failure.unexpectedPacketType(header.packetType)
         }
+        // The rest of the header is fixed for this exchange — a
+        // discovery reply is version 1, connection 0, packet 0, no
+        // flags — and checking only the type byte let anything else on
+        // the socket be read as one.
+        guard header.version == PacketHeader.currentVersion else {
+            throw Failure.badHeader(field: "version", got: "\(header.version)")
+        }
+        guard header.connectionId == 0 else {
+            throw Failure.badHeader(field: "connection id", got: "\(header.connectionId)")
+        }
+        guard header.packetNumber == 0 else {
+            throw Failure.badHeader(field: "packet number", got: "\(header.packetNumber)")
+        }
 
         let body = Data(data.dropFirst(PacketHeader.size))
         let needed = 1 + pubkeyLength
@@ -152,6 +179,15 @@ public enum FudpDiscovery {
         guard typeByte == publicKeyTypeByte else {
             throw Failure.unexpectedControlByte(typeByte)
         }
-        return Data(body.dropFirst().prefix(pubkeyLength))
+        let pubkey = Data(body.dropFirst().prefix(pubkeyLength))
+        // **Thirty-three bytes is not a public key.** This exchange is
+        // plaintext by design (FUDP4V1 §Handshake Security), so nothing
+        // here authenticates the answer — but a reply that is not even
+        // a compressed point is one we can refuse before it is written
+        // into a setting and used to encrypt to nobody.
+        guard let prefix = pubkey.first, prefix == 0x02 || prefix == 0x03 else {
+            throw Failure.notACompressedPoint(prefix: pubkey.first ?? 0)
+        }
+        return pubkey
     }
 }

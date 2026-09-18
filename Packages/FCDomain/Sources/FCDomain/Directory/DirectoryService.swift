@@ -847,6 +847,12 @@ public struct DirectoryService {
 
             var contact = (try? store.get(fid: contactFid))
                 ?? Contact(id: contactFid)
+            // The chain still carries this contact, so a delete we
+            // broadcast has either not confirmed or did not take. The
+            // row goes back to being an ordinary one rather than
+            // showing as half-gone forever; if the carve is simply slow
+            // the next sync will find it deleted and remove it then.
+            contact.deletePendingTxid = nil
             contact.titles = detail.titles
             contact.memo = detail.memo
             contact.seeStatement = detail.seeStatement

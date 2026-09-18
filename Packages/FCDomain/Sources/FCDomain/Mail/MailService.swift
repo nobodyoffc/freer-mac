@@ -49,6 +49,27 @@ public struct MailService {
         public let total: Int
         /// First few failure descriptions, for a diagnosable UI banner.
         public let failureReasons: [String]
+        /// True when the walk stopped at its page cap rather than at the
+        /// end of the mail.
+        ///
+        /// **"Not returned" is not "does not exist".** A full sync that
+        /// hits the cap leaves older mail unfetched, and a caller that
+        /// cannot tell the difference will treat the store as complete
+        /// and show an inbox that quietly ends partway.
+        public let reachedPageCap: Bool
+
+        public init(
+            merged: Int, deleted: Int, undecryptable: Int, newUnread: Int,
+            total: Int, failureReasons: [String], reachedPageCap: Bool = false
+        ) {
+            self.merged = merged
+            self.deleted = deleted
+            self.undecryptable = undecryptable
+            self.newUnread = newUnread
+            self.total = total
+            self.failureReasons = failureReasons
+            self.reachedPageCap = reachedPageCap
+        }
     }
 
     /// How far below the local watermark an incremental sync re-reads,
@@ -80,8 +101,24 @@ public struct MailService {
         maxPages: Int = 200,
         timeoutMs: Int = 15_000
     ) async throws -> [Mail] {
+        try await pagedOnChainMailRecords(
+            fid: fid, newerThanHeight: newerThanHeight,
+            pageSize: pageSize, maxPages: maxPages, timeoutMs: timeoutMs
+        ).records
+    }
+
+    /// The same walk, reporting whether it ran out of pages before it
+    /// ran out of mail.
+    func pagedOnChainMailRecords(
+        fid: String,
+        newerThanHeight: Int64? = nil,
+        pageSize: Int = 200,
+        maxPages: Int = 200,
+        timeoutMs: Int = 15_000
+    ) async throws -> (records: [Mail], reachedPageCap: Bool) {
         var all: [Mail] = []
         var after: [String]? = nil
+        var exhausted = true
         let floor = newerThanHeight.map { $0 - Self.reorgWindow }
 
         for _ in 0..<maxPages {
@@ -116,7 +153,7 @@ public struct MailService {
                     api: "base.search", code: code, message: resp.message
                 )
             }
-            guard let data = resp.data else { break }
+            guard let data = resp.data else { exhausted = false; break }
             let page: [Mail]
             do {
                 page = try JSONDecoder().decode([Mail].self, from: data)
@@ -126,12 +163,12 @@ public struct MailService {
             all.append(contentsOf: page)
 
             // Everything from here down is older than we already hold.
-            if let floor, let last = page.last?.lastHeight, last < floor { break }
-            if page.count < pageSize { break }
-            guard let next = resp.last, !next.isEmpty else { break }
+            if let floor, let last = page.last?.lastHeight, last < floor { exhausted = false; break }
+            if page.count < pageSize { exhausted = false; break }
+            guard let next = resp.last, !next.isEmpty else { exhausted = false; break }
             after = next
         }
-        return all
+        return (all, exhausted)
     }
 
     // MARK: - sync
@@ -164,9 +201,17 @@ public struct MailService {
         timeoutMs: Int = 15_000
     ) async throws -> SyncResult {
         let watermark = incremental ? (try? store.highestKnownHeight()) ?? nil : nil
-        let records = try await fetchOnChainMailRecords(
+        let (records, reachedPageCap) = try await pagedOnChainMailRecords(
             fid: fid, newerThanHeight: watermark, timeoutMs: timeoutMs
         )
+        if reachedPageCap {
+            SystemLog.shared.info(
+                SystemSource.mail,
+                "Mail sync stopped at its page limit",
+                detail: "Fetched \(records.count) record(s) and there is more behind them; "
+                    + "older mail is not in the local store yet."
+            )
+        }
 
         var seen = Set<String>()
         var merged = 0
@@ -251,7 +296,8 @@ public struct MailService {
             undecryptable: undecryptable,
             newUnread: newUnread,
             total: records.count,
-            failureReasons: failureReasons
+            failureReasons: failureReasons,
+            reachedPageCap: reachedPageCap
         )
     }
 

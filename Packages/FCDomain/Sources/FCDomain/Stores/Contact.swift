@@ -101,6 +101,17 @@ public struct Contact: Codable, Equatable, Hashable, Sendable, Identifiable {
 
     // MARK: - Mac-local extras
 
+    /// The txid of a delete carve that has been broadcast but not yet
+    /// seen on chain.
+    ///
+    /// **A broadcast is an intention, not an outcome.** Removing the
+    /// row the moment the transaction went out made the contact vanish
+    /// on a carve that might never be mined — and an exhaustive sync
+    /// would then bring it back, which reads as the app undoing a
+    /// deletion the user paid for. Flagged instead: the row stays,
+    /// shows as on its way out, and is removed when the chain agrees.
+    public var deletePendingTxid: String?
+
     public var pinnedAt: Date?
     public var addedAt: Date
     public var updatedAt: Date

@@ -497,7 +497,16 @@ struct ContactsView: View {
         defer { carving = false }
         do {
             carveTxid = try await session.carveContactDeleteOnChain(carveIds: [carveId])
-            delete(c)
+            // **Broadcast is not confirmation.** Removing the row here
+            // made the contact vanish on a transaction that had not
+            // been mined, so a carve that never confirmed left the user
+            // watching it reappear at the next exhaustive sync — the
+            // worst reading of a delete they had just paid for. The row
+            // stays, flagged, until the chain says it is gone.
+            var pending = c
+            pending.deletePendingTxid = carveTxid
+            _ = try? session.contacts.upsert(pending)
+            reload()
         } catch {
             syncError = String(describing: error)
         }

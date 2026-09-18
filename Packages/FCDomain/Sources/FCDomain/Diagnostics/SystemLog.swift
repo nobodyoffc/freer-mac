@@ -167,4 +167,5 @@ public enum SystemSource {
     public static let messages = "Messages"
     public static let groups = "Groups"
     public static let wallet = "Wallet"
+    public static let mail = "Mail"
 }
