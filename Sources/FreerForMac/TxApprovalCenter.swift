@@ -22,15 +22,21 @@ import FCDomain
 /// answered `false`, because a question nobody can answer must not
 /// become a signature.
 ///
-/// **Isolation.** The class is not `@MainActor`-annotated, because
-/// ``AppState`` — which owns it and calls ``cancelAll()`` from its own
-/// non-isolated teardown paths — is not either. Instead every mutation
-/// of the published state hops to the main actor explicitly: ``ask``
-/// is the one entry point reachable from a background task, and it
-/// enqueues inside `Task { @MainActor }`. The rest is called from
-/// SwiftUI, which is already there.
+/// **Isolation.** The whole class is on the main actor, and the
+/// compiler holds every caller to it.
+///
+/// It used to claim that by convention instead: `@unchecked Sendable`,
+/// with ``ask`` hopping inside `Task { @MainActor }` and the rest
+/// "called from SwiftUI, which is already there". ``cancelAll()`` was
+/// not — the doc comment said so itself, describing it as reached from
+/// AppState's non-isolated teardown. So a request could be enqueued by
+/// that hop *after* the teardown had emptied the queue, leaving
+/// `current` holding a continuation nobody would ever answer: not a
+/// torn read, a send that waits forever. ``ask`` stays async and
+/// suspends onto the actor like any other caller.
 @Observable
-final class TxApprovalCenter: @unchecked Sendable {
+@MainActor
+final class TxApprovalCenter {
 
     struct Request: Identifiable {
         let id = UUID()
@@ -58,15 +64,13 @@ final class TxApprovalCenter: @unchecked Sendable {
 
     func ask(_ preview: TxPreview) async -> TxDecision {
         await withCheckedContinuation { continuation in
-            Task { @MainActor in
-                let request = Request(preview: preview) { decision in
-                    continuation.resume(returning: decision)
-                }
-                if current == nil {
-                    current = request
-                } else {
-                    queue.append(request)
-                }
+            let request = Request(preview: preview) { decision in
+                continuation.resume(returning: decision)
+            }
+            if current == nil {
+                current = request
+            } else {
+                queue.append(request)
             }
         }
     }

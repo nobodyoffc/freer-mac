@@ -166,17 +166,27 @@ public struct KeyInfo: Codable, Equatable, Hashable, Sendable {
     public enum Failure: Error, CustomStringConvertible {
         case watchOnly(fid: String)
         case decryptionFailed
+        case badPrikeyLength(got: Int)
 
         public var description: String {
             switch self {
             case .watchOnly(let fid): return "KeyInfo: \(fid) is watch-only — no prikey to decrypt"
             case .decryptionFailed:   return "KeyInfo: prikey decryption failed (wrong symkey?)"
+            case .badPrikeyLength(let got):
+                return "KeyInfo: prikey must be 32 bytes, got \(got)"
             }
         }
     }
 
     private static func encryptPrikey(_ privkey: Data, symkey: Data) throws -> PrikeyCipher {
-        precondition(privkey.count == 32, "prikey must be 32 bytes")
+        // **A wrong length is bad input, not a broken invariant.** A
+        // prikey reaches here from an import field, a scanned QR, a
+        // pasted WIF — places where 31 bytes is a typo, not a bug in
+        // this process. `precondition` killed the app instead of
+        // telling the user their key was malformed.
+        guard privkey.count == 32 else {
+            throw Failure.badPrikeyLength(got: privkey.count)
+        }
         let pubkey = try Secp256k1.publicKey(fromPrivateKey: privkey)
         let fid = try FchAddress(publicKey: pubkey).fid
         var iv = Data(count: 12)

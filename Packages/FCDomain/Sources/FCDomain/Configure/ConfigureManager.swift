@@ -48,9 +48,8 @@ public final class ConfigureManager {
         try self.init(baseDirectory: ConfigureManager.defaultBaseDirectory())
     }
 
-    public init(baseDirectory: URL) throws {
-        self.baseDirectory = baseDirectory
-        self.indexUrl = baseDirectory.appendingPathComponent("configures.json")
+    public convenience init(baseDirectory: URL) throws {
+        self.init(unchecked: baseDirectory)
         do {
             try FileManager.default.createDirectory(
                 at: baseDirectory.appendingPathComponent("configures"),
@@ -59,6 +58,26 @@ public final class ConfigureManager {
         } catch {
             throw Failure.io(baseDirectory, error)
         }
+    }
+
+    /// Designated and non-preparing: records the paths without touching
+    /// the disk.
+    private init(unchecked baseDirectory: URL) {
+        self.baseDirectory = baseDirectory
+        self.indexUrl = baseDirectory.appendingPathComponent("configures.json")
+    }
+
+    /// A manager over a directory that could not be prepared.
+    ///
+    /// **This is for the case where there is nowhere to write at all.**
+    /// Every operation needing the directory will fail with its own
+    /// error, which is the point: the app draws, says why, and lets the
+    /// user act on it. The alternative — and what the app did — was to
+    /// reach for a temporary directory, fail at that too, and terminate
+    /// inside the fallback whose stated purpose was to avoid
+    /// terminating.
+    public static func unavailable(baseDirectory: URL) -> ConfigureManager {
+        ConfigureManager(unchecked: baseDirectory)
     }
 
     public static func defaultBaseDirectory() -> URL {

@@ -52,6 +52,7 @@ enum AppRoute: Equatable {
 /// changes; the wrapper reconnects at the next call, by which time the
 /// network is actually back.
 @Observable
+@MainActor
 final class AppState {
 
     let manager: ConfigureManager
@@ -276,8 +277,14 @@ final class AppState {
             // and we surface the error rather than crashing on launch.
             let tmp = FileManager.default.temporaryDirectory
                 .appendingPathComponent("fc.freer.mac.fallback-\(UUID().uuidString)")
+            // If even a temporary directory cannot be prepared there is
+            // nowhere to write, and the previous `try!` turned that into
+            // a crash inside the fallback that exists to prevent one.
+            // A manager over an unusable directory fails per operation
+            // instead, which the banner below already explains.
             resolved = (try? ConfigureManager(baseDirectory: tmp))
-                ?? (try! ConfigureManager(baseDirectory: FileManager.default.temporaryDirectory))
+                ?? (try? ConfigureManager(baseDirectory: FileManager.default.temporaryDirectory))
+                ?? ConfigureManager.unavailable(baseDirectory: tmp)
             self.manager = resolved
             self.fapiFactory = fapiFactory
             self.configures = []
@@ -424,7 +431,9 @@ final class AppState {
         stopFetchScheduler()
         let scheduler = DockFetchScheduler(
             collect: { [weak self] selection in
-                guard let session = self?.activeSession else { return .none }
+                // Re-read on the actor each pass, per the note above: the
+                // session may have been locked since the last one.
+                guard let session = await self?.activeSession else { return .none }
                 do {
                     let report = try await session.courier.collect(
                         as: session.liveFid,
@@ -442,7 +451,7 @@ final class AppState {
                 }
             },
             drain: { [weak self] in
-                guard let session = self?.activeSession else { return }
+                guard let session = await self?.activeSession else { return }
                 _ = try? await session.courier.drainOutbox(as: session.liveFid)
             },
             report: { [weak self] _ in
