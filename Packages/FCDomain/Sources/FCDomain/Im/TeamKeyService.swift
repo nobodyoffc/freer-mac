@@ -32,9 +32,16 @@ public struct TeamKeyService {
     private let teams: TeamsStore
     private let symkeys: SymkeyStore
 
-    public init(teams: TeamsStore, symkeys: SymkeyStore) {
+    /// Where the keys this service hands out are written down — FIMP
+    /// §9.7. An owner's fan-out after a rotation is how most keys in a
+    /// team ever travel, so a ledger that recorded only the answers to
+    /// requests would miss the majority of its own subject.
+    private var keyLedger: KeyLedger?
+
+    public init(teams: TeamsStore, symkeys: SymkeyStore, keyLedger: KeyLedger? = nil) {
         self.teams = teams
         self.symkeys = symkeys
+        self.keyLedger = keyLedger
     }
 
     public typealias PubkeyProvider = (String) throws -> Data?
@@ -92,7 +99,7 @@ public struct TeamKeyService {
         if existing >= SymkeyStore.minimumVersion {
             return Keyed(version: existing, created: false, outbound: [])
         }
-        let key = try symkeys.generate(for: teamId, version: SymkeyStore.minimumVersion, now: now)
+        let key = try symkeys.mint(for: teamId, now: now)
         let (outbound, skipped) = try shares(
             of: teamId, version: key.version, to: team.others(than: liveFid),
             as: liveFid, pubkeys: pubkeys, homes: homes, now: now
@@ -109,11 +116,13 @@ public struct TeamKeyService {
     /// anyone who does not get the new key — a dismissed member, most
     /// of all — and changes nothing about the past.
     ///
-    /// Rotating rather than generating also covers the owner whose
-    /// device holds no key for a team it owns:
-    /// ``SymkeyStore/rotate(for:now:)`` takes the next version up, which
-    /// is 1 when there is nothing there, and never reuses a version
-    /// number a different key may already be sealing messages under.
+    /// Minting also covers the owner whose device holds no key for a
+    /// team it owns. ``SymkeyStore/mint(for:now:)`` stamps the current
+    /// second, floored above anything this device already knows, so a
+    /// reinstalled owner does not mint a second version 1 the way
+    /// `currentVersion + 1` did from an empty store — and if two of the
+    /// owner's devices do land on one second, both keys are kept and
+    /// both are tried rather than one displacing the other.
     @discardableResult
     public func resetSymkey(
         for teamId: String,
@@ -123,7 +132,7 @@ public struct TeamKeyService {
         now: Date = Date()
     ) throws -> Keyed {
         let team = try requireOwned(teamId, by: liveFid)
-        let rotated = try symkeys.rotate(for: teamId, now: now)
+        let rotated = try symkeys.mint(for: teamId, now: now)
         let (outbound, skipped) = try shares(
             of: teamId, version: rotated.version, to: team.others(than: liveFid),
             as: liveFid, pubkeys: pubkeys, homes: homes, now: now
@@ -186,17 +195,27 @@ public struct TeamKeyService {
                 continue
             }
             guard let pubkey = try pubkeys(fid) else {
+                try? keyLedger?.record(
+                    entityId: teamId, version: version, counterparty: fid,
+                    direction: .sent, outcome: .noPubkey, solicited: false, now: now
+                )
                 skipped.append(fid)
                 continue
             }
-            guard let message = try KeyExchange.share(
+            let messages = try KeyExchange.share(
                 entityId: teamId, version: version, to: fid,
                 recipientPubkey: pubkey, from: liveFid, symkeys: symkeys, now: now
-            ) else {
+            )
+            guard !messages.isEmpty else {
                 skipped.append(fid)
                 continue
             }
-            outbound.append(message)
+            outbound.append(contentsOf: messages)
+            // Unsolicited by definition: nobody asked, the owner pushed.
+            try? keyLedger?.record(
+                entityId: teamId, version: version, counterparty: fid,
+                direction: .sent, outcome: .shared, solicited: false, now: now
+            )
         }
         return (outbound, skipped)
     }

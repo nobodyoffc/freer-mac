@@ -46,16 +46,51 @@ final class SymkeyStoreTests: XCTestCase {
         try Secp256k1.publicKey(fromPrivateKey: privkey)
     }
 
-    // MARK: - generating and rotating
+    // MARK: - minting
 
-    func testGenerateProducesAStoredThirtyTwoByteKey() throws {
-        let entry = try store.generate(for: room, version: 1)
+    func testMintProducesAStoredThirtyTwoByteKey() throws {
+        let entry = try store.mint(for: room)
         XCTAssertEqual(entry.key.count, 32)
-        XCTAssertEqual(entry.version, 1)
         XCTAssertEqual(entry.entityId, room)
-        XCTAssertEqual(try store.key(for: room, version: 1), entry.key)
+        XCTAssertEqual(try store.keys(for: room, version: entry.version), [entry.key])
         XCTAssertEqual(try store.currentKey(for: room), entry.key)
-        XCTAssertNotEqual(entry.key, try store.generate(for: team, version: 1).key)
+        XCTAssertNotEqual(entry.key, try store.mint(for: team).key)
+    }
+
+    /// A version is the second it was minted in, so a fresh key is
+    /// stamped with the clock rather than with 1.
+    func testAMintedVersionIsTheClock() throws {
+        let at = Date(timeIntervalSince1970: 1_789_813_689)
+        let entry = try store.mint(for: room, now: at)
+        XCTAssertEqual(entry.version, 1_789_813_689)
+        XCTAssertTrue(SymkeyStore.isTimestamp(entry.version))
+    }
+
+    /// **The floor, case one.** Two mints inside one second used to be a
+    /// collision waiting to happen; the floor makes it arithmetic.
+    func testTwoMintsInOneSecondGetDifferentVersions() throws {
+        let at = Date(timeIntervalSince1970: 1_789_813_689)
+        let first = try store.mint(for: room, now: at)
+        let second = try store.mint(for: room, now: at)
+
+        XCTAssertEqual(first.version, 1_789_813_689)
+        XCTAssertEqual(second.version, 1_789_813_690, "the second mint is forced past the first")
+        XCTAssertNotEqual(first.key, second.key)
+        XCTAssertEqual(try store.versions(for: room), [first.version, second.version])
+    }
+
+    /// **The floor, case two, and the dangerous one.** A clock that steps
+    /// backwards must not be able to mint a key that sorts below one we
+    /// hold: "current" would then select the retired key, so an owner who
+    /// rotated after removing a member would keep sealing under the key
+    /// that member still holds, with nothing on screen to say so.
+    func testABackwardsClockCannotMintBelowWhatWeHold() throws {
+        let late = try store.mint(for: room, now: Date(timeIntervalSince1970: 1_789_813_689))
+        let early = try store.mint(for: room, now: Date(timeIntervalSince1970: 1_000_000_000))
+
+        XCTAssertEqual(early.version, late.version + 1)
+        XCTAssertEqual(try store.currentKey(for: room), early.key)
+        XCTAssertEqual(try store.currentVersion(for: room), early.version)
     }
 
     /// An entity we hold no key for reports version 0 — Android's answer,
@@ -63,8 +98,9 @@ final class SymkeyStoreTests: XCTestCase {
     func testUnknownEntityHasNoKey() throws {
         XCTAssertEqual(try store.currentVersion(for: room), 0)
         XCTAssertNil(try store.currentKey(for: room))
-        XCTAssertNil(try store.key(for: room, version: 1))
+        XCTAssertTrue(try store.keys(for: room, version: 1).isEmpty)
         XCTAssertFalse(try store.has(entityId: room))
+        XCTAssertFalse(try store.has(entityId: room, version: 1))
         XCTAssertTrue(try store.versions(for: room).isEmpty)
     }
 
@@ -72,99 +108,172 @@ final class SymkeyStoreTests: XCTestCase {
     /// has to survive: it is the only thing that can still open what was
     /// said before the rotation.
     func testRotationKeepsTheOldKey() throws {
-        let first = try store.rotate(for: room)
-        XCTAssertEqual(first.version, 1)
-
-        let second = try store.rotate(for: room)
-        XCTAssertEqual(second.version, 2)
+        let first = try store.mint(for: room, now: Date(timeIntervalSince1970: 1_700_000_000))
+        let second = try store.mint(for: room, now: Date(timeIntervalSince1970: 1_800_000_000))
         XCTAssertNotEqual(second.key, first.key)
 
-        XCTAssertEqual(try store.currentVersion(for: room), 2)
+        XCTAssertEqual(try store.currentVersion(for: room), second.version)
         XCTAssertEqual(try store.currentKey(for: room), second.key)
-        XCTAssertEqual(try store.key(for: room, version: 1), first.key)
-        XCTAssertEqual(try store.versions(for: room), [1, 2])
+        XCTAssertEqual(try store.keys(for: room, version: first.version), [first.key])
+        XCTAssertEqual(try store.versions(for: room), [first.version, second.version])
     }
 
     /// The padded storage key is what makes version order and text order
-    /// the same thing — v10 must not sort before v9.
+    /// the same thing — v10 must not sort before v9, and a timestamp must
+    /// not sort before a pre-spec counter.
     func testVersionsSortNumericallyPastTen() throws {
-        for version in [3, 11, 9, 10, 1] as [Int64] {
-            try store.generate(for: room, version: version)
+        for version in [3, 11, 9, 10, 1, 1_789_813_689] as [Int64] {
+            try store.store(Data(repeating: UInt8(version % 251), count: 32), for: room, version: version)
         }
-        XCTAssertEqual(try store.versions(for: room), [1, 3, 9, 10, 11])
-        XCTAssertEqual(try store.currentVersion(for: room), 11)
+        XCTAssertEqual(try store.versions(for: room), [1, 3, 9, 10, 11, 1_789_813_689])
+        XCTAssertEqual(try store.currentVersion(for: room), 1_789_813_689)
     }
 
-    /// Entities do not see each other's keys, and an entity id with an
-    /// underscore in it still parses — the storage key splits on the
-    /// last one.
+    /// A store holding both a pre-spec counter and a timestamp needs no
+    /// cutover: the two cannot collide, and the timestamp is always the
+    /// newer key.
+    func testLegacyCountersAndTimestampsCoexist() throws {
+        let legacy = Data(repeating: 0x0C, count: 32)
+        try store.store(legacy, for: room, version: 3)
+        XCTAssertFalse(SymkeyStore.isTimestamp(3))
+        XCTAssertEqual(try store.currentKey(for: room), legacy)
+
+        let minted = try store.mint(for: room)
+        XCTAssertTrue(SymkeyStore.isTimestamp(minted.version))
+        XCTAssertEqual(try store.currentKey(for: room), minted.key)
+        XCTAssertEqual(try store.keys(for: room, version: 3), [legacy], "the counter's key is still there")
+    }
+
+    /// Entities do not see each other's keys, and an entity id with
+    /// underscores in it still parses — the row name is read from the end
+    /// by fixed widths, not split on a separator.
     func testEntitiesAreSeparate() throws {
         let odd = "team_with_underscores"
-        try store.generate(for: room, version: 1)
-        try store.generate(for: team, version: 7)
-        try store.generate(for: odd, version: 2)
+        try store.mint(for: room)
+        try store.mint(for: team)
+        let oddEntry = try store.mint(for: odd)
 
-        XCTAssertEqual(try store.versions(for: room), [1])
-        XCTAssertEqual(try store.versions(for: team), [7])
-        XCTAssertEqual(try store.versions(for: odd), [2])
+        XCTAssertEqual(try store.versions(for: room).count, 1)
+        XCTAssertEqual(try store.versions(for: team).count, 1)
+        XCTAssertEqual(try store.versions(for: odd), [oddEntry.version])
         XCTAssertEqual(Set(try store.entityIds()), [room, team, odd])
-        XCTAssertEqual(
-            SymkeyStore.parse(storageKey: SymkeyStore.storageKey(entityId: odd, version: 2))?.entityId,
-            odd
+
+        let rowKey = SymkeyStore.storageKey(
+            entityId: odd, version: oddEntry.version, keyId: oddEntry.keyId
         )
+        let parsed = try XCTUnwrap(SymkeyStore.parse(storageKey: rowKey))
+        XCTAssertEqual(parsed.entityId, odd)
+        XCTAssertEqual(parsed.version, oddEntry.version)
+        XCTAssertEqual(parsed.keyId, oddEntry.keyId)
+    }
+
+    // MARK: - identity
+
+    /// The id is the key's own hash, so two stores computing it from the
+    /// same key agree without exchanging anything — which is why it never
+    /// travels.
+    func testKeyIdIsTheKeysOwnHash() throws {
+        let key = Data(repeating: 0x5A, count: 32)
+        let entry = SymkeyEntry(entityId: room, version: 1, key: key)
+        XCTAssertEqual(entry.keyId, SymkeyStore.keyId(of: key))
+        XCTAssertEqual(entry.keyId.count, SymkeyStore.keyIdLength)
+        XCTAssertTrue(entry.keyId.allSatisfy(\.isHexDigit))
+        XCTAssertNotEqual(entry.keyId, SymkeyStore.keyId(of: Data(repeating: 0x5B, count: 32)))
     }
 
     // MARK: - validation
 
     /// `ImMessage.symkeyVersion` is a 64-bit field the wire carries in 32
-    /// bits and sign-extends coming back, so a peer really can name a
-    /// negative version. Storing a key there would put it where no
-    /// honest rotation could reach.
+    /// bits, so a peer really can name a version this side of zero.
+    /// Storing a key there would put it where no honest mint could reach.
     func testNonPositiveVersionsAreRefused() throws {
         for bad: Int64 in [0, -1, -2_147_483_647] {
-            XCTAssertThrowsError(try store.generate(for: room, version: bad)) { error in
-                XCTAssertEqual(error as? SymkeyStore.Failure, .badVersion(bad))
-            }
             XCTAssertThrowsError(
-                try store.store(Data(repeating: 1, count: 32), for: room, version: bad, allowOverwrite: true)
-            )
+                try store.store(Data(repeating: 1, count: 32), for: room, version: bad)
+            ) { XCTAssertEqual($0 as? SymkeyStore.Failure, .badVersion(bad)) }
         }
     }
 
     func testKeyLengthAndEntityIdAreChecked() throws {
         XCTAssertThrowsError(
-            try store.store(Data(repeating: 1, count: 16), for: room, version: 1, allowOverwrite: true)
+            try store.store(Data(repeating: 1, count: 16), for: room, version: 1)
         ) { XCTAssertEqual($0 as? SymkeyStore.Failure, .badKeyLength(16)) }
 
         XCTAssertThrowsError(
-            try store.store(Data(repeating: 1, count: 32), for: "", version: 1, allowOverwrite: true)
+            try store.store(Data(repeating: 1, count: 32), for: "", version: 1)
         ) { XCTAssertEqual($0 as? SymkeyStore.Failure, .noEntityId) }
     }
 
-    // MARK: - the overwrite rule
+    // MARK: - nothing is overwritten
 
-    /// Without this rule any member could push a bogus key for a version
-    /// everyone already holds and make the room's history unreadable.
-    func testAKeyIsNotOverwrittenUnlessTheCallerVouchesForTheSender() throws {
-        let original = try store.generate(for: room, version: 1).key
-        let impostor = Data(repeating: 0xEE, count: 32)
+    /// The rule this replaces was the only thing that could destroy
+    /// history: an owner's key at a version we held overwrote the row,
+    /// and every message sealed under the displaced key became unreadable
+    /// with no other copy anywhere. Both keys are kept now, whoever sent
+    /// the second one.
+    func testADifferentKeyAtOneVersionIsKeptBesideTheFirst() throws {
+        let original = try store.mint(for: room).key
+        let version = try store.currentVersion(for: room)
+        let other = Data(repeating: 0xEE, count: 32)
 
-        XCTAssertFalse(
-            try store.store(impostor, for: room, version: 1, allowOverwrite: false),
-            "a non-owner's key must not land on a version we already hold"
-        )
-        XCTAssertEqual(try store.key(for: room, version: 1), original)
-
-        XCTAssertTrue(try store.store(impostor, for: room, version: 1, allowOverwrite: true))
-        XCTAssertEqual(try store.key(for: room, version: 1), impostor)
+        XCTAssertTrue(try store.store(other, for: room, version: version))
+        XCTAssertEqual(Set(try store.keys(for: room, version: version)), [original, other])
+        XCTAssertEqual(try store.versions(for: room), [version], "still one version")
+        XCTAssertEqual(try store.count(for: room), 2)
     }
 
-    /// Refusing an overwrite is an ordinary outcome, not an error: two
-    /// members answering the same request is the normal case.
-    func testStoringAFreshVersionSucceedsEitherWay() throws {
+    /// Re-storing a key we already hold is a no-op rather than an error:
+    /// two members answering one request is the normal case.
+    func testTheSameKeyTwiceIsANoOp() throws {
         let key = Data(repeating: 0x11, count: 32)
-        XCTAssertTrue(try store.store(key, for: room, version: 4, allowOverwrite: false))
-        XCTAssertEqual(try store.key(for: room, version: 4), key)
+        XCTAssertTrue(try store.store(key, for: room, version: 4))
+        XCTAssertFalse(try store.store(key, for: room, version: 4))
+        XCTAssertEqual(try store.keys(for: room, version: 4), [key])
+        XCTAssertEqual(try store.count(for: room), 1)
+    }
+
+    /// A bound on a misbehaving peer. A key we already hold must not be
+    /// able to fail on a full store, since storing it changes nothing.
+    func testTheKeyCapIsEnforcedButNotAgainstANoOp() throws {
+        for i in 0 ..< SymkeyStore.maxKeysPerEntity {
+            var key = Data(repeating: 0, count: 32)
+            key[0] = UInt8(i % 256)
+            key[1] = UInt8(i / 256)
+            try store.store(key, for: room, version: 1)
+        }
+        XCTAssertEqual(try store.count(for: room), SymkeyStore.maxKeysPerEntity)
+
+        var overflow = Data(repeating: 0xFF, count: 32)
+        overflow[0] = 0xFE
+        XCTAssertThrowsError(try store.store(overflow, for: room, version: 1)) {
+            XCTAssertEqual(
+                $0 as? SymkeyStore.Failure,
+                .tooManyKeys(entityId: room, limit: SymkeyStore.maxKeysPerEntity)
+            )
+        }
+        var held = Data(repeating: 0, count: 32)
+        held[0] = 7
+        XCTAssertFalse(try store.store(held, for: room, version: 1), "a no-op, not a failure")
+    }
+
+    // MARK: - migrating
+
+    /// Pre-spec rows are named `<entityId>_<version>`. Moving them needs
+    /// no network and decides nothing: the id comes from the key already
+    /// in the row.
+    func testLegacyRowsAreMovedUnderTheirKeyId() throws {
+        let legacy = Data(repeating: 0x3C, count: 32)
+        let legacyRow = room + "_" + String(format: "%019lld", Int64(2))
+        try session.storage.put(
+            SymkeyEntry(entityId: room, version: 2, key: legacy),
+            namespace: SymkeyStore.namespace,
+            key: legacyRow
+        )
+        XCTAssertTrue(try store.keys(for: room, version: 2).isEmpty, "not visible under the old name")
+
+        XCTAssertEqual(try store.migrateLegacyRowKeys(), 1)
+        XCTAssertEqual(try store.keys(for: room, version: 2), [legacy])
+        XCTAssertEqual(try store.migrateLegacyRowKeys(), 0, "idempotent")
     }
 
     // MARK: - sharing
@@ -172,35 +281,57 @@ final class SymkeyStoreTests: XCTestCase {
     /// The joiner's round trip: Alice seals her room key to Bob's
     /// pubkey, Bob opens it with his privkey and can then read the room.
     func testShareCipherReachesTheRecipientAndNobodyElse() throws {
-        let key = try store.generate(for: room, version: 3).key
-        let cipher = try XCTUnwrap(try store.shareCipher(for: room, version: 3, to: pubkey(bob)))
+        let entry = try store.mint(for: room)
+        let ciphers = try store.shareCiphers(for: room, version: entry.version, to: pubkey(bob))
+        let cipher = try XCTUnwrap(ciphers.first)
+        XCTAssertEqual(ciphers.count, 1)
 
         // Bob's side, with his own store.
         let bobsStore = try otherStore()
         XCTAssertTrue(
             try bobsStore.receiveShared(
-                cipher: cipher, for: room, version: 3, privkey: bob, allowOverwrite: false
+                cipher: cipher, for: room, version: entry.version, privkey: bob
             )
         )
-        XCTAssertEqual(try bobsStore.key(for: room, version: 3), key)
+        XCTAssertEqual(try bobsStore.keys(for: room, version: entry.version), [entry.key])
 
         // Mallory holds the same ciphertext and gets nothing from it.
         XCTAssertFalse(
             try bobsStore.receiveShared(
-                cipher: cipher, for: team, version: 3, privkey: mallory, allowOverwrite: false
+                cipher: cipher, for: team, version: entry.version, privkey: mallory
             )
         )
-        XCTAssertNil(try bobsStore.key(for: team, version: 3))
+        XCTAssertTrue(try bobsStore.keys(for: team, version: entry.version).isEmpty)
     }
 
-    func testShareCipherIsNilForAVersionWeDoNotHold() throws {
-        XCTAssertNil(try store.shareCipher(for: room, version: 9, to: pubkey(bob)))
+    /// Sending our favourite of two keys at one version would leave the
+    /// asker exactly where they started — a key stored, nothing opened,
+    /// and no way to ask for the other one.
+    func testEveryKeyAtAVersionIsShared() throws {
+        let mine = try store.mint(for: room)
+        let other = Data(repeating: 0xEE, count: 32)
+        try store.store(other, for: room, version: mine.version)
+
+        let ciphers = try store.shareCiphers(for: room, version: mine.version, to: pubkey(bob))
+        XCTAssertEqual(ciphers.count, 2)
+
+        let bobsStore = try otherStore()
+        for cipher in ciphers {
+            try bobsStore.receiveShared(
+                cipher: cipher, for: room, version: mine.version, privkey: bob
+            )
+        }
+        XCTAssertEqual(Set(try bobsStore.keys(for: room, version: mine.version)), [mine.key, other])
+    }
+
+    func testShareCiphersIsEmptyForAVersionWeDoNotHold() throws {
+        XCTAssertTrue(try store.shareCiphers(for: room, version: 9, to: pubkey(bob)).isEmpty)
     }
 
     func testReceivingGarbageIsFalseNotAThrow() throws {
         XCTAssertFalse(
             try store.receiveShared(
-                cipher: "not an envelope", for: room, version: 1, privkey: alice, allowOverwrite: true
+                cipher: "not an envelope", for: room, version: 1, privkey: alice
             )
         )
         XCTAssertFalse(try store.has(entityId: room))
@@ -334,13 +465,13 @@ final class SymkeyStoreTests: XCTestCase {
     // MARK: - message bodies
 
     func testSealAndOpenARoomMessage() throws {
-        try store.generate(for: room, version: 1)
+        let entry = try store.mint(for: room)
         var message = ImMessage.text(type: .room, from: "F-alice", to: room, "the usual place, 8pm")
         message.id = "0000000000000001"
 
-        XCTAssertEqual(try store.seal(&message, for: room), 1)
+        XCTAssertEqual(try store.seal(&message, for: room), entry.version)
         XCTAssertNil(message.content)
-        XCTAssertEqual(message.symkeyVersion, 1)
+        XCTAssertEqual(message.symkeyVersion, entry.version)
         XCTAssertTrue(message.isSealed)
 
         XCTAssertTrue(try store.open(&message, for: room))
@@ -351,16 +482,16 @@ final class SymkeyStoreTests: XCTestCase {
     /// Opening uses the version the message names, not the current one —
     /// which is the entire reason old versions are kept.
     func testAMessageSealedBeforeARotationStillOpens() throws {
-        try store.rotate(for: room)
+        let first = try store.mint(for: room, now: Date(timeIntervalSince1970: 1_700_000_000))
         var old = ImMessage.text(type: .room, from: "F-alice", to: room, "said before the rotation")
         old.id = "0000000000000001"
         try store.seal(&old, for: room)
-        XCTAssertEqual(old.symkeyVersion, 1)
+        XCTAssertEqual(old.symkeyVersion, first.version)
 
-        try store.rotate(for: room)
+        let second = try store.mint(for: room, now: Date(timeIntervalSince1970: 1_800_000_000))
         var new = ImMessage.text(type: .room, from: "F-alice", to: room, "said after")
         new.id = "0000000000000002"
-        XCTAssertEqual(try store.seal(&new, for: room), 2)
+        XCTAssertEqual(try store.seal(&new, for: room), second.version)
 
         XCTAssertTrue(try store.open(&old, for: room))
         XCTAssertEqual(old.content, "said before the rotation")
@@ -371,7 +502,7 @@ final class SymkeyStoreTests: XCTestCase {
     /// A message we have no key for is a row to show as locked and a key
     /// to go and ask for — not an error that stops a batch.
     func testOpeningWithoutTheVersionIsFalseNotAThrow() throws {
-        try store.generate(for: room, version: 1)
+        try store.mint(for: room)
         var message = ImMessage.text(type: .room, from: "F-them", to: room, "sealed to a key we lack")
         message.id = "0000000000000001"
         try store.seal(&message, for: room)
@@ -394,7 +525,7 @@ final class SymkeyStoreTests: XCTestCase {
     }
 
     func testSealingAnEmptyBodyThrows() throws {
-        try store.generate(for: room, version: 1)
+        try store.mint(for: room)
         var message = ImMessage.make(type: .room, from: "F-alice", to: room, contentType: .text)
         XCTAssertThrowsError(try store.seal(&message, for: room)) { error in
             XCTAssertEqual(error as? ImMessage.BodyFailure, .noContent)
@@ -404,7 +535,7 @@ final class SymkeyStoreTests: XCTestCase {
     /// The wrong key does not open a body, and does not corrupt it
     /// either.
     func testAWrongKeyOpensNothing() throws {
-        try store.generate(for: room, version: 1)
+        try store.mint(for: room)
         var message = ImMessage.text(type: .room, from: "F-alice", to: room, "private")
         message.id = "0000000000000001"
         try store.seal(&message, for: room)
@@ -457,9 +588,9 @@ final class SymkeyStoreTests: XCTestCase {
     // MARK: - deleting
 
     func testRemoveAllForgetsEveryVersion() throws {
-        try store.rotate(for: room)
-        try store.rotate(for: room)
-        try store.generate(for: team, version: 1)
+        try store.mint(for: room)
+        try store.mint(for: room)
+        try store.mint(for: team)
 
         XCTAssertEqual(try store.removeAll(for: room), 2)
         XCTAssertFalse(try store.has(entityId: room))
@@ -468,11 +599,25 @@ final class SymkeyStoreTests: XCTestCase {
     }
 
     func testRemoveOneVersion() throws {
-        try store.rotate(for: room)
-        try store.rotate(for: room)
-        XCTAssertTrue(try store.remove(entityId: room, version: 1))
-        XCTAssertFalse(try store.remove(entityId: room, version: 1))
-        XCTAssertEqual(try store.versions(for: room), [2])
+        let first = try store.mint(for: room, now: Date(timeIntervalSince1970: 1_700_000_000))
+        let second = try store.mint(for: room, now: Date(timeIntervalSince1970: 1_800_000_000))
+        XCTAssertEqual(try store.remove(entityId: room, version: first.version), 1)
+        XCTAssertEqual(try store.remove(entityId: room, version: first.version), 0)
+        XCTAssertEqual(try store.versions(for: room), [second.version])
+    }
+
+    /// Removing by key id takes one of two keys sharing a version and
+    /// leaves the other.
+    func testRemoveOneKeyOfTwoAtOneVersion() throws {
+        let mine = try store.mint(for: room)
+        let other = Data(repeating: 0xEE, count: 32)
+        try store.store(other, for: room, version: mine.version)
+
+        XCTAssertEqual(
+            try store.remove(entityId: room, version: mine.version, keyId: mine.keyId), 1
+        )
+        XCTAssertEqual(try store.keys(for: room, version: mine.version), [other])
+        XCTAssertEqual(try store.versions(for: room), [mine.version])
     }
 
     // MARK: - helpers

@@ -129,6 +129,11 @@ struct ChatView: View {
     /// Answers to our own asks that could not be fetched, and have
     /// stopped retrying on their own.
     @State private var historyFailures: [ReceivedHistoryShare] = []
+    /// Symkeys this device has asked for and not been given. Persisted
+    /// state, not a toast: it is what tells a person recovery has stalled
+    /// and who they are already waiting on.
+    @State private var keyAsks: [KeyAsk] = []
+    @State private var showKeyLedger = false
     /// The ask the user pressed Share on, held until they confirm.
     @State private var confirmShareHistory: IncomingHistoryRequest?
     /// Which ask is uploading right now, so its row can say so.
@@ -277,6 +282,9 @@ struct ChatView: View {
             if !historyRequestsHere.isEmpty || !historyFailuresHere.isEmpty {
                 historyBanner
             }
+            if !keyAsksHere.isEmpty {
+                keyAsksBanner
+            }
             if syncSummary != nil {
                 statusBanner
             }
@@ -387,6 +395,17 @@ struct ChatView: View {
                     ask: ask,
                     onClose: { asking = nil },
                     onSent: { summary in syncSummary = summary }
+                )
+            }
+        }
+        .sheet(isPresented: $showKeyLedger) {
+            if let conversation = selected {
+                SymkeyLedgerSheet(
+                    session: session,
+                    style: style,
+                    conversation: conversation,
+                    names: names,
+                    onClose: { showKeyLedger = false }
                 )
             }
         }
@@ -902,6 +921,94 @@ struct ChatView: View {
         return targetId.elidingMiddle(head: 6, tail: 6)
     }
 
+    /// The symkey asks outstanding for the thread on screen.
+    ///
+    /// Scoped to the open conversation because that is the only one whose
+    /// transcript is showing locked rows: an ask for another room is not
+    /// something to answer here.
+    private var keyAsksHere: [KeyAsk] {
+        guard let conversation = selected,
+              conversation.type == .team || conversation.type == .room
+        else { return [] }
+        return keyAsks
+            .filter { $0.entityId == conversation.targetId }
+            .sorted { $0.version < $1.version }
+    }
+
+    /// **A key we asked for and have not been given.**
+    ///
+    /// The durable half of the exchange. The courier asks automatically
+    /// the moment a locked row is filed (FIMP §7.4), so by the time
+    /// anybody reads this the question has already gone out — what a
+    /// person needs is what is still outstanding, who they are waiting
+    /// on, and the two decisions only they can make: ask somebody else,
+    /// or stop.
+    private var keyAsksBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(keyAsksHere) { ask in
+                HStack(spacing: 8) {
+                    Image(systemName: "key.slash")
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(keyAskTitle(ask))
+                        Text(keyAskDetail(ask))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer()
+                    Button("Ask more members…") { asking = .symkey(version: ask.version) }
+                    Button("Give up") { giveUp(ask) }
+                        .help("Stops showing this. The messages stay, and stay locked.")
+                }
+                .font(.callout)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.10)))
+            }
+        }
+        .task(id: keyAsksHere.flatMap(\.askedFids)) {
+            names.resolve(keyAsksHere.flatMap(\.askedFids), session: session)
+        }
+    }
+
+    private func keyAskTitle(_ ask: KeyAsk) -> String {
+        let held = (try? session.symkeys.versions(for: ask.entityId)) ?? []
+        let named = SymkeyVersionText.inProse(
+            ask.version,
+            withTime: SymkeyVersionText.needsTime(ask.version, among: held + [ask.version])
+        )
+        return "Waiting for \(named)"
+    }
+
+    /// Who was asked, and how long ago — the part a person acts on.
+    ///
+    /// Named rather than counted: "asked 2 members" tells you nothing you
+    /// can do, while a name tells you who to chase in person and who not
+    /// to bother asking twice.
+    private func keyAskDetail(_ ask: KeyAsk) -> String {
+        let who = ask.askedFids.map { fid -> String in
+            fid == session.liveFid
+                ? "your other devices"
+                : (names.cid(of: fid) ?? fid.elidingMiddle(head: 6, tail: 6))
+        }
+        let asked = who.isEmpty ? "nobody yet" : who.formatted(.list(type: .and))
+        let ago = Date(timeIntervalSince1970: Double(ask.lastAskedAt) / 1000)
+            .formatted(.relative(presentation: .named))
+        return "Asked \(asked) \(ago). \(ask.attempts) request\(ask.attempts == 1 ? "" : "s") sent."
+    }
+
+    /// Stop showing one ask. The locked messages stay locked — giving up
+    /// on the question is not the same as giving up on the key, and a
+    /// later push from the owner still lands.
+    private func giveUp(_ ask: KeyAsk) {
+        do {
+            _ = try session.keyAsks.remove(entityId: ask.entityId, version: ask.version)
+            keyAsks = try session.keyAsks.all()
+        } catch {
+            syncSummary = String(describing: error)
+        }
+    }
+
     /// History asks waiting for an answer, and answers that could not be
     /// fetched. Both are about one thread each, so each row says which.
     private var historyBanner: some View {
@@ -1054,7 +1161,8 @@ struct ChatView: View {
                     player: player,
                     names: names,
                     onLoadOlder: loadOlder,
-                    onDownload: download
+                    onDownload: download,
+                    onAskForKey: { version in asking = .symkey(version: version) }
                 )
 
                 MessageComposerView(
@@ -1195,7 +1303,8 @@ struct ChatView: View {
 
             case .room:
                 Button("Members…") { showMembers = true }
-                Button("Ask for the key…") { asking = .symkey }
+                Button("Ask for the key…") { asking = .symkey(version: nil) }
+                Button("Symkey exchange…") { showKeyLedger = true }
                 Button("Ask for this room's details…") { asking = .roomInfo }
                 Button("Request history…") { showHistoryAsk = true }
                 if facts.isOwner {
@@ -1225,7 +1334,8 @@ struct ChatView: View {
                 // had it all along, behind team settings; this is the
                 // same document fetched the same way, minus the carve.
                 Button("Consensus document…") { readConsensus(conversation, team: team) }
-                Button("Ask for the key…") { asking = .symkey }
+                Button("Ask for the key…") { asking = .symkey(version: nil) }
+                Button("Symkey exchange…") { showKeyLedger = true }
                 Button("Request history…") { showHistoryAsk = true }
                 if facts.isOwner {
                     // Owner-only, as on Android's owner sub-menu. The
@@ -1323,6 +1433,7 @@ struct ChatView: View {
             refreshUnreachable()
             historyRequests = try session.historyShares.incoming()
             historyFailures = try session.historyShares.received().filter(\.waitsForRetry)
+            keyAsks = try session.keyAsks.all()
             // Every P2P thread's other party, so the list can name its
             // rows. Group targets are deliberately not asked about: a
             // room id is not a FID, and a group already carries its own
@@ -1686,8 +1797,8 @@ struct ChatView: View {
             // two resets a minute apart read identically without it, and
             // "nothing happened" is the reading it invites.
             syncSummary = outbound.isEmpty
-                ? "Key v\(version) created. No member could be sealed to — share it from the members list once their pubkeys are known."
-                : "Key v\(version) created; \(outbound.count) share(s) queued."
+                ? "A new symkey was created (\(SymkeyVersionText.inTable(version))). No member could be sealed to — share it from the members list once their pubkeys are known."
+                : "A new symkey was created (\(SymkeyVersionText.inTable(version))); \(outbound.count) share(s) queued."
                     + (skipped > 0 ? " \(skipped) member(s) skipped — no pubkey or no DOCK yet." : "")
             Task { _ = try? await session.courier.drainOutbox(as: session.liveFid) }
         } catch {
@@ -1850,8 +1961,11 @@ struct ChatView: View {
             // identity key — only *opening* a shared room key does — and
             // a read-only session must still be able to delete a room.
             if conversation.type == .room {
-                try RoomService(rooms: session.rooms, symkeys: session.symkeys)
-                    .forget(conversation.targetId)
+                try RoomService(
+                    rooms: session.rooms, symkeys: session.symkeys,
+                    keyLedger: session.keyLedger
+                )
+                .forget(conversation.targetId)
                 _ = try? session.roomInvites.remove(roomId: conversation.targetId)
             }
             _ = try session.messages.deleteConversation(conversation.id)

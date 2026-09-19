@@ -64,13 +64,13 @@ final class TeamKeyServiceTests: XCTestCase {
 
     // MARK: - minting
 
-    func testEnsureMintsVersionOneAndSharesItWithEveryMember() throws {
+    func testEnsureMintsTheClockAndSharesItWithEveryMember() throws {
         let keyed = try service.ensureSymkey(
             for: teamId, as: alice, pubkeys: pubkeys, now: t0
         )
         XCTAssertTrue(keyed.created)
-        XCTAssertEqual(keyed.version, 1)
-        XCTAssertEqual(try symkeys.currentVersion(for: teamId), 1)
+        XCTAssertEqual(keyed.version, Int64(t0.timeIntervalSince1970), "the version is the mint second")
+        XCTAssertEqual(try symkeys.currentVersion(for: teamId), keyed.version)
 
         XCTAssertEqual(Set(keyed.outbound.compactMap(\.targetId)), [bob, carol])
         for message in keyed.outbound {
@@ -78,7 +78,7 @@ final class TeamKeyServiceTests: XCTestCase {
             // Never on the team's own channel: the whole reason someone
             // needs the key is that they cannot read that channel yet.
             XCTAssertEqual(message.type, .p2p)
-            XCTAssertEqual(message.symkeyVersion, 1)
+            XCTAssertEqual(message.symkeyVersion, keyed.version)
             let payload = SymkeyShare.parse(try XCTUnwrap(message.content))
             XCTAssertEqual(payload?.entityId, teamId)
             XCTAssertNotNil(message.id, "queueable — the outbox refuses a message with no id")
@@ -92,9 +92,9 @@ final class TeamKeyServiceTests: XCTestCase {
         let again = try service.ensureSymkey(for: teamId, as: alice, pubkeys: pubkeys, now: t0)
 
         XCTAssertFalse(again.created)
-        XCTAssertEqual(again.version, 1)
+        XCTAssertEqual(again.version, Int64(t0.timeIntervalSince1970))
         XCTAssertTrue(again.outbound.isEmpty)
-        XCTAssertEqual(try symkeys.versions(for: teamId), [1])
+        XCTAssertEqual(try symkeys.versions(for: teamId), [again.version])
     }
 
     /// The one rule this type exists to enforce. If any member could
@@ -122,24 +122,31 @@ final class TeamKeyServiceTests: XCTestCase {
     /// stays, because it is the only thing that can still open what was
     /// said under it.
     func testResetAddsAVersionAndKeepsTheOldOne() throws {
-        _ = try service.ensureSymkey(for: teamId, as: alice, pubkeys: pubkeys, now: t0)
-        let first = try XCTUnwrap(try symkeys.key(for: teamId, version: 1))
+        let original = try service.ensureSymkey(for: teamId, as: alice, pubkeys: pubkeys, now: t0)
+        let first = try XCTUnwrap(try symkeys.keys(for: teamId, version: original.version).first)
 
+        // The same instant: the floor is what keeps this from colliding
+        // with the version it is replacing.
         let rotated = try service.resetSymkey(for: teamId, as: alice, pubkeys: pubkeys, now: t0)
-        XCTAssertEqual(rotated.version, 2)
-        XCTAssertEqual(try symkeys.versions(for: teamId), [1, 2])
-        XCTAssertEqual(try symkeys.key(for: teamId, version: 1), first, "v1 still opens the past")
-        XCTAssertNotEqual(try symkeys.key(for: teamId, version: 2), first)
+        XCTAssertEqual(rotated.version, original.version + 1)
+        XCTAssertEqual(try symkeys.versions(for: teamId), [original.version, rotated.version])
+        XCTAssertEqual(
+            try symkeys.keys(for: teamId, version: original.version).first, first,
+            "the old key still opens the past"
+        )
+        XCTAssertNotEqual(try symkeys.keys(for: teamId, version: rotated.version).first, first)
         XCTAssertEqual(Set(rotated.outbound.compactMap(\.targetId)), [bob, carol])
     }
 
-    /// An owner whose device holds no key for a team it owns rotates
-    /// rather than generating: `rotate` takes the next version up, so a
-    /// version number a different key may already be sealing under is
-    /// never reused.
-    func testResetOnATeamWithNoKeyStartsAtVersionOne() throws {
+    /// An owner whose device holds no key for a team it owns mints the
+    /// clock, not version 1. Minting 1 from an empty store was how a
+    /// reinstalled owner produced a second key called v1 and made the
+    /// team's history unreadable.
+    func testResetOnATeamWithNoKeyMintsTheClockNotVersionOne() throws {
         let keyed = try service.resetSymkey(for: teamId, as: alice, pubkeys: pubkeys, now: t0)
-        XCTAssertEqual(keyed.version, 1)
+        XCTAssertEqual(keyed.version, Int64(t0.timeIntervalSince1970))
+        XCTAssertNotEqual(keyed.version, SymkeyStore.minimumVersion)
+        XCTAssertTrue(SymkeyStore.isTimestamp(keyed.version))
     }
 
     // MARK: - who gets skipped
@@ -173,9 +180,9 @@ final class TeamKeyServiceTests: XCTestCase {
             of: teamId, to: [bob, dave], as: alice, pubkeys: pubkeys, now: t0
         )
         XCTAssertFalse(shared.created, "no rotation")
-        XCTAssertEqual(shared.version, 1)
+        XCTAssertEqual(shared.version, Int64(t0.timeIntervalSince1970))
         XCTAssertEqual(shared.outbound.compactMap(\.targetId), [bob], "dave is not in the team")
-        XCTAssertEqual(try symkeys.versions(for: teamId), [1])
+        XCTAssertEqual(try symkeys.versions(for: teamId), [shared.version])
     }
 
     func testShareCurrentWithNoKeyHeldIsAnError() throws {

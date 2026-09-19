@@ -67,6 +67,9 @@ public struct MessageCourier {
     /// Messages already taken in, by author and id. Nil does no replay
     /// check, which is what tests that re-read on purpose want.
     private let seen: SeenMessagesStore?
+    /// The asks this device has outstanding. Nil turns automatic asking
+    /// off, which is what a courier built for sending alone wants.
+    private let keyAsks: KeyAsksStore?
 
     /// ``outbox`` and ``messages`` must be over the same
     /// ``EncryptedKVStore``: a delivery writes to both in one
@@ -84,10 +87,12 @@ public struct MessageCourier {
         routeSignal: (@Sendable (ImMessage, String, Date) throws -> SignalRouter.Outcome)? = nil,
         squareSender: (@Sendable (_ sender: String, _ squareId: String, _ storedAt: Int64?) async -> SquareRoster.Answer)? = nil,
         prikeyFor: (@Sendable (_ fid: String) -> Data?)? = nil,
-        seen: SeenMessagesStore? = nil
+        seen: SeenMessagesStore? = nil,
+        keyAsks: KeyAsksStore? = nil
     ) {
         self.prikeyFor = prikeyFor
         self.seen = seen
+        self.keyAsks = keyAsks
         self.groupHome = groupHome
         self.squareSender = squareSender
         self.routeSignal = routeSignal
@@ -193,6 +198,66 @@ public struct MessageCourier {
             SystemLog.shared.info(SystemSource.dock, note)
         }
         return outcome.acted ? 1 : 0
+    }
+
+    /// A message we filed but could not open: ask the one member who
+    /// certainly holds the key — whoever sent it.
+    ///
+    /// **Automatic, because the alternative is that nothing happens.**
+    /// FIMP §7.4 says recovery asks for the missing version, and until
+    /// now the only thing that ever asked was a person opening a sheet
+    /// and picking members by hand. A device that files a locked row and
+    /// says nothing to anybody leaves the user to notice, guess who to
+    /// ask, and ask — for a key the sender is provably holding.
+    ///
+    /// The sender is the right first question for the same reason: every
+    /// other member *might* hold that version, while the sender sealed a
+    /// message with it. Asking more members is the escalation a person
+    /// chooses, and it is the sheet's job.
+    ///
+    /// Paced by ``KeyAsksStore/cooldown`` per person per version, so a
+    /// backlog of a hundred locked rows under three versions is three
+    /// questions, not a hundred. Enqueued rather than sent, like
+    /// everything else a collect produces.
+    private func ask(
+        for message: ImMessage, version: Int64?, as liveFid: String, now: Date
+    ) {
+        guard let keyAsks,
+              let entityId = message.targetId, !entityId.isEmpty,
+              let sender = message.senderId, !sender.isEmpty,
+              message.type == .team || message.type == .room
+        else { return }
+        // A version we cannot name is one we cannot ask for: a request
+        // naming none asks for the current key, which is the one this
+        // row is already telling us we do not need.
+        guard let version, version >= SymkeyStore.minimumVersion else { return }
+
+        let askable = (try? keyAsks.askable([sender], entityId: entityId, version: version, now: now))
+        guard let allowed = askable?.allowed, !allowed.isEmpty else { return }
+
+        let request = KeyExchange.request(
+            entityId: entityId, version: version, from: liveFid, to: sender, now: now
+        )
+        guard let requestId = request.id else { return }
+        do {
+            try outbox.enqueue(request, in: Conversation.id(type: .p2p, targetId: sender))
+            try keyAsks.record(
+                entityId: entityId, version: version, kind: .symkey,
+                sent: [(fid: sender, requestId: requestId)], now: now
+            )
+            SystemLog.shared.info(
+                SystemSource.messages,
+                "Asked \(sender.middleElided()) for the key v\(version) that \(entityId.middleElided()) needs"
+            )
+        } catch {
+            // The row is filed and locked either way; the ask is retried
+            // on the next collect that sees it.
+            SystemLog.shared.warning(
+                SystemSource.messages,
+                "Could not queue a key request for \(entityId.middleElided())",
+                detail: "\(error)"
+            )
+        }
     }
 
     public struct ReceiveReport: Equatable, Sendable {
@@ -839,7 +904,9 @@ public struct MessageCourier {
                 case .message(let stored):
                     filed += 1
                     await acknowledgeDelivery(of: stored, as: liveFid, privkey: privkey, now: now)
-                case .sealed: sealed += 1
+                case .sealed(let stored, let symkeyVersion):
+                    sealed += 1
+                    ask(for: stored, version: symkeyVersion, as: liveFid, now: now)
                 case .held: held += 1
                 case .signal(let signal):
                     // Room notifications, key shares and key requests.

@@ -27,6 +27,9 @@ struct TranscriptView: View {
 
     let onLoadOlder: () -> Void
     let onDownload: (ImMessage) -> Void
+    /// Ask the members for one symkey version. The pane owns the sheet,
+    /// so the row only names what it needs.
+    let onAskForKey: (Int64) -> Void
 
     /// The empty row pinned under the last bubble. Scrolling to a bubble
     /// would stop at the top of a tall one; scrolling here always lands
@@ -237,19 +240,7 @@ struct TranscriptView: View {
                 .font(.caption)
                 .foregroundStyle(NobodyMark.color)
         } else if message.isSealed {
-            // **Whether the key is held is a question for the store, not
-            // an assumption.** This used to say "not held here" for
-            // every unopened row, which was read as the reason and was
-            // often simply untrue: a key asked for and given still lands
-            // in ``SymkeyStore`` while the row beside it kept claiming
-            // the opposite. Sealed means "not opened"; only the store
-            // knows why.
-            HStack(spacing: 4) {
-                Image(systemName: "lock.slash")
-                Text(sealedNote(for: message))
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            sealedBubble(message)
         } else if message.contentType == .voice {
             // Before the `content` branch, because a voice note's
             // content is its metadata JSON — showing that to the user is
@@ -264,6 +255,93 @@ struct TranscriptView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// A row we could not open: which era of the conversation it belongs
+    /// to, and the one action that can change that.
+    ///
+    /// **The button is the point.** Until now this was a sentence and
+    /// nothing else, so a user who could not read a message had to notice
+    /// the key was missing, find the thread menu, pick members by hand and
+    /// know which version to name. The version is right here on the row,
+    /// so the row can ask for it.
+    ///
+    /// It is a visible button rather than a tap on the bubble: a mystery
+    /// click target beside text you cannot read is worse than a mystery,
+    /// and the copy-on-click convention belongs to FIDs and status
+    /// messages, not to bubbles.
+    @ViewBuilder
+    private func sealedBubble(_ message: ImMessage) -> some View {
+        let missing = missingVersion(of: message)
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 4) {
+                Image(systemName: "lock.slash")
+                Text(sealedNote(for: message))
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+
+            if let missing {
+                Button {
+                    onAskForKey(missing)
+                } label: {
+                    Label(askTitle(for: missing), systemImage: "questionmark.key.filled")
+                        .font(.caption)
+                }
+                .buttonStyle(.link)
+                .disabled(waiting(for: missing) != nil)
+                .help(askHelp(for: missing))
+            }
+        }
+    }
+
+    /// The version this row needs and this device does not hold, or nil
+    /// when there is nothing to ask for — a P2P row, or a key that is
+    /// here and simply does not open this body.
+    private func missingVersion(of message: ImMessage) -> Int64? {
+        guard message.type == .team || message.type == .room,
+              let entityId = message.targetId, !entityId.isEmpty,
+              let version = message.symkeyVersion,
+              version >= SymkeyStore.minimumVersion,
+              (try? session.symkeys.has(entityId: entityId, version: version)) == false
+        else { return nil }
+        return version
+    }
+
+    /// When this question may be put to anybody again, or nil when it may
+    /// be put now.
+    ///
+    /// Shown rather than enforced silently: the courier asks the sender by
+    /// itself as soon as the row is filed (FIMP §7.4), so by the time a
+    /// user reads it the question has usually *already* been asked, and a
+    /// button that quietly did nothing would read as broken. The cooldown
+    /// is per person, so this is an approximation for one row's chrome —
+    /// the sheet gates each member exactly when it sends.
+    private func waiting(for version: Int64) -> Date? {
+        guard !conversation.targetId.isEmpty,
+              let ask = try? session.keyAsks.ask(
+                  entityId: conversation.targetId, version: version
+              ),
+              !ask.askedFids.isEmpty
+        else { return nil }
+        let readyAt = Date(
+            timeIntervalSince1970: Double(ask.lastAskedAt) / 1000 + KeyAsksStore.cooldown
+        )
+        return readyAt > Date() ? readyAt : nil
+    }
+
+    private func askTitle(for version: Int64) -> String {
+        if let until = waiting(for: version) {
+            let seconds = max(1, Int(until.timeIntervalSinceNow.rounded(.up)))
+            return "Asked just now — again in \(seconds)s"
+        }
+        return "Ask for this symkey…"
+    }
+
+    private func askHelp(for version: Int64) -> String {
+        let held = (try? session.symkeys.versions(for: conversation.targetId)) ?? []
+        let withTime = SymkeyVersionText.needsTime(version, among: held + [version])
+        return "Asks the members for \(SymkeyVersionText.inProse(version, withTime: withTime))."
     }
 
     /// Why a row is still locked, said only as far as we actually know.
@@ -284,10 +362,17 @@ struct TranscriptView: View {
               let version = message.symkeyVersion
         else { return "Sealed — this identity holds no key that opens it" }
 
-        let held = (try? session.symkeys.key(for: entityId, version: version)) ?? nil
-        return held == nil
-            ? "Sealed with key v\(version) — not held here"
-            : "Sealed with key v\(version) — that key is here but does not open this"
+        // A version is a mint time, so this says *when*, not `v1789813689`.
+        // The era is what a reader can act on: it tells them who was in
+        // the conversation then, and therefore who to ask.
+        let versions = (try? session.symkeys.versions(for: entityId)) ?? []
+        let named = SymkeyVersionText.inProse(
+            version, withTime: SymkeyVersionText.needsTime(version, among: versions + [version])
+        )
+        let held = (try? session.symkeys.has(entityId: entityId, version: version)) ?? false
+        return held
+            ? "Sealed with \(named) — that key is here but does not open this"
+            : "Sealed with \(named) — not held here"
     }
 
     /// A voice note: play it, and see how long it is.

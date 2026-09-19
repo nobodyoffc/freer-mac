@@ -71,7 +71,8 @@ final class SignalRouterTests: XCTestCase {
                 case self.me: return try self.pubkey(self.alicePriv)
                 default: return nil
                 }
-            }
+            },
+            keyAsks: session.keyAsks
         )
     }
 
@@ -82,9 +83,14 @@ final class SignalRouterTests: XCTestCase {
         )
     }
 
-    /// A key share as `sender` would build it, sealed to us.
+    /// A `SYMKEY` delivery as `sender` would build it, sealed to us.
+    ///
+    /// `answering` is the request id it echoes, which is what FIMP §4.2
+    /// matches a non-owner's key against; a delivery built without one is
+    /// an unsolicited push.
     private func share(
-        _ key: Data, version: Int64, for entityId: String, from sender: String
+        _ key: Data, version: Int64, for entityId: String, from sender: String,
+        answering requestId: String? = "0000000000009001"
     ) throws -> ImMessage {
         let cipher = try AsyOneWayCipher.encrypt(
             plaintext: key, toPubkey: try pubkey(alicePriv)
@@ -95,6 +101,7 @@ final class SignalRouterTests: XCTestCase {
             version: version, now: t0
         )
         m.id = ImMessage.hexId(fudpId: 9_001)
+        m.requestId = requestId
         return m
     }
 
@@ -108,7 +115,7 @@ final class SignalRouterTests: XCTestCase {
             try share(key, version: 1, for: roomId, from: bob), as: me, now: at(10)
         )
         XCTAssertEqual(outcome.learnedKeyFor, roomId)
-        XCTAssertEqual(try session.symkeys.key(for: roomId, version: 1), key)
+        XCTAssertEqual(try session.symkeys.keys(for: roomId, version: 1).first, key)
     }
 
     /// **A key for something we are not in is not a key we want.** It
@@ -123,27 +130,113 @@ final class SignalRouterTests: XCTestCase {
         XCTAssertFalse(try session.symkeys.has(entityId: roomId))
     }
 
-    /// The rule that makes a rotation safe: only the **owner** may
-    /// replace a key at a version we already hold. Without it any member
-    /// could push a bogus v1 and make the whole history unreadable.
-    func testOnlyTheOwnerCanReplaceAVersionWeAlreadyHold() throws {
+    /// **Nobody replaces a key we hold — not even the owner.**
+    ///
+    /// The rule this replaces granted the owner an overwrite, and that
+    /// was the only thing in the app that could destroy history: the
+    /// displaced key was the sole copy of what opened the messages sealed
+    /// under it. A key that differs from one we hold at the same version
+    /// is now kept beside it, and opening tries each, so a bogus key is a
+    /// candidate that fails its AES-GCM tag rather than a loss.
+    ///
+    /// Who may push at all is the check that remains, and it admits
+    /// three senders and no fourth — see
+    /// ``SignalRouter/admits(version:for:from:as:answering:)``.
+    func testNobodyReplacesAKeyWeAlreadyHold() throws {
         try bobsRoom()
         let original = Data(repeating: 0x7E, count: 32)
-        _ = try session.symkeys.store(original, for: roomId, version: 1, allowOverwrite: true)
+        _ = try session.symkeys.store(original, for: roomId, version: 1)
 
-        // Carol is a member, not the owner.
+        // Bob owns the room, so his key is admitted unasked — and it is
+        // added beside the one we hold, not substituted for it.
+        let bobs = Data(repeating: 0xAB, count: 32)
         _ = try router().route(
-            try share(Data(repeating: 0xEE, count: 32), version: 1, for: roomId, from: carol),
+            try share(bobs, version: 1, for: roomId, from: bob), as: me, now: at(20)
+        )
+
+        XCTAssertEqual(
+            Set(try session.symkeys.keys(for: roomId, version: 1)), [original, bobs],
+            "the owner adds a key; nobody replaces one"
+        )
+        XCTAssertEqual(try session.symkeys.versions(for: roomId), [1], "still one version")
+    }
+
+    /// FIMP §4.2. A member who was not asked has no business writing to
+    /// the store that decides what this device can read — and since
+    /// nothing is overwritten, admitting them would let any member add
+    /// rows to any other member's key store indefinitely.
+    func testAnUnsolicitedKeyFromANonOwnerIsDropped() throws {
+        try bobsRoom()
+        let carols = Data(repeating: 0xEE, count: 32)
+
+        // A push carrying no request id at all.
+        let pushed = try router().route(
+            try share(carols, version: 4, for: roomId, from: carol, answering: nil),
             as: me, now: at(10)
         )
-        XCTAssertEqual(try session.symkeys.key(for: roomId, version: 1), original)
+        XCTAssertNil(pushed.learnedKeyFor)
 
-        // Bob owns it, so his answer wins.
-        let replacement = Data(repeating: 0xAB, count: 32)
-        _ = try router().route(
-            try share(replacement, version: 1, for: roomId, from: bob), as: me, now: at(20)
+        // And one carrying an id that matches no request we made. FIMP
+        // §4.2: solicitation is never inferred from the mere presence of
+        // a `requestId`.
+        let claimed = try router().route(
+            try share(carols, version: 4, for: roomId, from: carol), as: me, now: at(20)
         )
-        XCTAssertEqual(try session.symkeys.key(for: roomId, version: 1), replacement)
+        XCTAssertNil(claimed.learnedKeyFor)
+        XCTAssertFalse(try session.symkeys.has(entityId: roomId, version: 4))
+    }
+
+    /// The same key from the same member, once we asked for it. Without
+    /// this, a member's answer is indistinguishable from a push and every
+    /// recovery that did not involve the owner would fail.
+    func testTheSameKeyIsStoredOnceWeHaveAskedForIt() throws {
+        try bobsRoom()
+        let carols = Data(repeating: 0xEE, count: 32)
+        let answer = try share(carols, version: 4, for: roomId, from: carol)
+        let requestId = try XCTUnwrap(answer.requestId)
+
+        try session.keyAsks.record(
+            entityId: roomId, version: 4, kind: .symkey,
+            sent: [(fid: carol, requestId: requestId)], now: at(5)
+        )
+
+        let outcome = try router().route(answer, as: me, now: at(10))
+        XCTAssertEqual(outcome.learnedKeyFor, roomId)
+        XCTAssertEqual(try session.symkeys.keys(for: roomId, version: 4), [carols])
+        XCTAssertNil(
+            try session.keyAsks.ask(entityId: roomId, version: 4),
+            "answered, so it stops being outstanding"
+        )
+    }
+
+    /// An answer naming a version we did not ask about is not an answer.
+    /// Admitting it on the strength of a matching id would let one
+    /// request buy a member the right to write any version it liked.
+    func testAnAnswerForAVersionWeDidNotAskAboutIsDropped() throws {
+        try bobsRoom()
+        let answer = try share(Data(repeating: 0xEE, count: 32), version: 9, for: roomId, from: carol)
+        try session.keyAsks.record(
+            entityId: roomId, version: 4, kind: .symkey,
+            sent: [(fid: carol, requestId: try XCTUnwrap(answer.requestId))], now: at(5)
+        )
+
+        _ = try router().route(answer, as: me, now: at(10))
+        XCTAssertFalse(try session.symkeys.has(entityId: roomId, version: 9))
+        XCTAssertNotNil(try session.keyAsks.ask(entityId: roomId, version: 4), "still waiting")
+    }
+
+    /// Our own other device, unasked. The signature proves the sender
+    /// holds this identity's prikey, and a second Mac signed in here is
+    /// the only copy of the key a reinstalled owner has.
+    func testAKeyFromOurOwnIdentityIsAdmittedUnasked() throws {
+        try bobsRoom()
+        let key = Data(repeating: 0x5A, count: 32)
+
+        let outcome = try router().route(
+            try share(key, version: 4, for: roomId, from: me), as: me, now: at(10)
+        )
+        XCTAssertEqual(outcome.learnedKeyFor, roomId)
+        XCTAssertEqual(try session.symkeys.keys(for: roomId, version: 4), [key])
     }
 
     /// A rotation is additive, so a new version from anyone in the room
@@ -151,14 +244,14 @@ final class SignalRouterTests: XCTestCase {
     func testANewVersionIsStoredBesideTheOldOne() throws {
         try bobsRoom()
         let v1 = Data(repeating: 0x11, count: 32)
-        _ = try session.symkeys.store(v1, for: roomId, version: 1, allowOverwrite: true)
+        _ = try session.symkeys.store(v1, for: roomId, version: 1)
 
         let v2 = Data(repeating: 0x22, count: 32)
         _ = try router().route(
             try share(v2, version: 2, for: roomId, from: bob), as: me, now: at(10)
         )
-        XCTAssertEqual(try session.symkeys.key(for: roomId, version: 1), v1)
-        XCTAssertEqual(try session.symkeys.key(for: roomId, version: 2), v2)
+        XCTAssertEqual(try session.symkeys.keys(for: roomId, version: 1).first, v1)
+        XCTAssertEqual(try session.symkeys.keys(for: roomId, version: 2).first, v2)
     }
 
     // MARK: - key requests
@@ -175,7 +268,7 @@ final class SignalRouterTests: XCTestCase {
     func testAMemberAskingForAKeyIsAnswered() throws {
         try bobsRoom()
         let key = Data(repeating: 0x5A, count: 32)
-        _ = try session.symkeys.store(key, for: roomId, version: 3, allowOverwrite: true)
+        _ = try session.symkeys.store(key, for: roomId, version: 3)
 
         let outcome = try router().route(request(for: roomId, from: carol), as: me, now: at(10))
         let reply = try XCTUnwrap(outcome.outbound.first)
@@ -195,7 +288,7 @@ final class SignalRouterTests: XCTestCase {
     func testANonMemberAskingForAKeyGetsNothing() throws {
         try bobsRoom()
         _ = try session.symkeys.store(
-            Data(repeating: 0x5A, count: 32), for: roomId, version: 1, allowOverwrite: true
+            Data(repeating: 0x5A, count: 32), for: roomId, version: 1
         )
         let outcome = try router().route(request(for: roomId, from: mallory), as: me, now: at(10))
         XCTAssertTrue(outcome.outbound.isEmpty)
@@ -231,8 +324,8 @@ final class SignalRouterTests: XCTestCase {
         try bobsRoom()
         let v1 = Data(repeating: 0x11, count: 32)
         let v6 = Data(repeating: 0x66, count: 32)
-        _ = try session.symkeys.store(v1, for: roomId, version: 1, allowOverwrite: true)
-        _ = try session.symkeys.store(v6, for: roomId, version: 6, allowOverwrite: true)
+        _ = try session.symkeys.store(v1, for: roomId, version: 1)
+        _ = try session.symkeys.store(v6, for: roomId, version: 6)
         XCTAssertEqual(try session.symkeys.currentVersion(for: roomId), 6)
 
         let outcome = try router().route(
@@ -250,10 +343,10 @@ final class SignalRouterTests: XCTestCase {
     func testANamelessRequestStillGetsTheCurrentVersion() throws {
         try bobsRoom()
         _ = try session.symkeys.store(
-            Data(repeating: 0x11, count: 32), for: roomId, version: 1, allowOverwrite: true
+            Data(repeating: 0x11, count: 32), for: roomId, version: 1
         )
         let v6 = Data(repeating: 0x66, count: 32)
-        _ = try session.symkeys.store(v6, for: roomId, version: 6, allowOverwrite: true)
+        _ = try session.symkeys.store(v6, for: roomId, version: 6)
 
         let outcome = try router().route(request(for: roomId, from: carol), as: me, now: at(10))
         XCTAssertEqual(try XCTUnwrap(outcome.outbound.first).symkeyVersion, 6)
@@ -281,7 +374,7 @@ final class SignalRouterTests: XCTestCase {
             3: Data(repeating: 0x33, count: 32),
         ]
         for (version, key) in keys {
-            _ = try session.symkeys.store(key, for: roomId, version: version, allowOverwrite: true)
+            _ = try session.symkeys.store(key, for: roomId, version: version)
         }
 
         let ask = try historyRequest(for: roomId, versions: [1, 2, 3], from: carol)
@@ -307,7 +400,7 @@ final class SignalRouterTests: XCTestCase {
     func testABatchAnswersWhatItCanAndSkipsTheRest() throws {
         try bobsRoom()
         _ = try session.symkeys.store(
-            Data(repeating: 0x22, count: 32), for: roomId, version: 2, allowOverwrite: true
+            Data(repeating: 0x22, count: 32), for: roomId, version: 2
         )
 
         let outcome = try router().route(
@@ -332,7 +425,7 @@ final class SignalRouterTests: XCTestCase {
         try bobsRoom()
         for version in Int64(1) ... 3 {
             _ = try session.symkeys.store(
-                Data(repeating: 0x44, count: 32), for: roomId, version: version, allowOverwrite: true
+                Data(repeating: 0x44, count: 32), for: roomId, version: version
             )
         }
         let outcome = try router().route(
@@ -347,7 +440,7 @@ final class SignalRouterTests: XCTestCase {
     func testASingleAnswerEchoesTheRequestId() throws {
         try bobsRoom()
         _ = try session.symkeys.store(
-            Data(repeating: 0x5A, count: 32), for: roomId, version: 1, allowOverwrite: true
+            Data(repeating: 0x5A, count: 32), for: roomId, version: 1
         )
         let ask = request(for: roomId, from: carol)
         let outcome = try router().route(ask, as: me, now: at(10))
@@ -365,7 +458,7 @@ final class SignalRouterTests: XCTestCase {
     func testAskingForAVersionWeLackIsNotAnsweredWithAnother() throws {
         try bobsRoom()
         _ = try session.symkeys.store(
-            Data(repeating: 0x66, count: 32), for: roomId, version: 6, allowOverwrite: true
+            Data(repeating: 0x66, count: 32), for: roomId, version: 6
         )
 
         let outcome = try router().route(
@@ -389,7 +482,7 @@ final class SignalRouterTests: XCTestCase {
     func testAMemberAskingForRoomDetailsGetsThem() throws {
         try bobsRoom()
         _ = try session.symkeys.store(
-            Data(repeating: 0x3C, count: 32), for: roomId, version: 2, allowOverwrite: true
+            Data(repeating: 0x3C, count: 32), for: roomId, version: 2
         )
 
         let outcome = try router().route(roomInfoRequest(for: roomId, from: carol), as: me, now: at(10))
@@ -446,7 +539,7 @@ final class SignalRouterTests: XCTestCase {
             Room(owner: me, name: "Mine", members: [me, carol], id: roomId)
         )
         let key = Data(repeating: 0x6B, count: 32)
-        _ = try session.symkeys.store(key, for: roomId, version: 2, allowOverwrite: true)
+        _ = try session.symkeys.store(key, for: roomId, version: 2)
 
         let outcome = try router().route(request(for: roomId, from: me), as: me, now: at(10))
         let reply = try XCTUnwrap(outcome.outbound.first)
@@ -466,7 +559,7 @@ final class SignalRouterTests: XCTestCase {
     func testARoomInfoRequestFromOurOwnFidIsAnswered() throws {
         try bobsRoom()
         _ = try session.symkeys.store(
-            Data(repeating: 0x3C, count: 32), for: roomId, version: 4, allowOverwrite: true
+            Data(repeating: 0x3C, count: 32), for: roomId, version: 4
         )
         let outcome = try router().route(roomInfoRequest(for: roomId, from: me), as: me, now: at(10))
         let reply = try XCTUnwrap(outcome.outbound.first)
@@ -496,13 +589,13 @@ final class SignalRouterTests: XCTestCase {
     func testAShareClaimingToBeFromUsCannotOverwriteInSomeoneElsesRoom() throws {
         try bobsRoom()
         let original = Data(repeating: 0x11, count: 32)
-        _ = try session.symkeys.store(original, for: roomId, version: 1, allowOverwrite: true)
+        _ = try session.symkeys.store(original, for: roomId, version: 1)
 
         _ = try router().route(
             try share(Data(repeating: 0xEE, count: 32), version: 1, for: roomId, from: me),
             as: me, now: at(10)
         )
-        XCTAssertEqual(try session.symkeys.key(for: roomId, version: 1), original)
+        XCTAssertEqual(try session.symkeys.keys(for: roomId, version: 1).first, original)
     }
 
     // MARK: - asking several people at once

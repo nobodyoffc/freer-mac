@@ -449,6 +449,14 @@ public final class ActiveSession {
     /// Versioned team/room keys. P2P is not in here — it seals
     /// AsyTwoWay and stores nothing.
     public lazy var symkeys: SymkeyStore = SymkeyStore(kv: storage)
+    /// The key requests this device has outstanding. Read by the router
+    /// to tell an answer from an unsolicited push (FIMP §4.2), by the
+    /// courier to pace re-asking (§7.4), and by the chat UI to show that
+    /// a recovery is waiting on somebody.
+    public lazy var keyAsks: KeyAsksStore = KeyAsksStore(kv: storage)
+    /// Every symkey this device gave away or took in — FIMP §9.7. Local,
+    /// durable, and never transmitted.
+    public lazy var keyLedger: KeyLedger = KeyLedger(kv: storage)
     /// The durable outbox, and what we last observed about each peer.
     public lazy var outbox: MessageQueue = MessageQueue(kv: storage)
     public lazy var peers: PeerBook = PeerBook(kv: storage)
@@ -621,7 +629,8 @@ public final class ActiveSession {
                 }
             },
             prikeyFor: { fid in prikeys[fid] },
-            seen: seenMessages
+            seen: seenMessages,
+            keyAsks: keyAsks
         )
     }
 
@@ -659,6 +668,8 @@ public final class ActiveSession {
         let historyShares = self.historyShares
         let squares = self.squares
         let teamOffers = self.teamOffers
+        let keyAsks = self.keyAsks
+        let keyLedger = self.keyLedger
         return { message, liveFid, now in
             let router = SignalRouter(
                 rooms: rooms,
@@ -685,7 +696,9 @@ public final class ActiveSession {
                 },
                 historyShares: historyShares,
                 squares: squares,
-                teamOffers: teamOffers
+                teamOffers: teamOffers,
+                keyAsks: keyAsks,
+                keyLedger: keyLedger
             )
             return try router.route(message, as: liveFid, now: now)
         }
@@ -885,7 +898,8 @@ public final class ActiveSession {
     /// the wrong one.
     public var roomService: RoomService {
         get throws {
-            RoomService(rooms: rooms, symkeys: symkeys).withPrivkey(try livePrikey())
+            RoomService(rooms: rooms, symkeys: symkeys, keyLedger: keyLedger)
+                .withPrivkey(try livePrikey())
         }
     }
 
@@ -893,7 +907,7 @@ public final class ActiveSession {
     /// minted and sealed *outward*, and opening one that arrives is
     /// ``SignalRouter``'s job.
     public var teamKeys: TeamKeyService {
-        TeamKeyService(teams: teams, symkeys: symkeys)
+        TeamKeyService(teams: teams, symkeys: symkeys, keyLedger: keyLedger)
     }
 
     /// The bytes behind a team's `consensusId` — writing one, putting it

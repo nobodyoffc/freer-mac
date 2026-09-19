@@ -24,6 +24,9 @@ final class RoomServiceTests: XCTestCase {
 
     private let t0 = Date(timeIntervalSince1970: 1_755_100_000)
     private func at(_ seconds: TimeInterval) -> Date { t0.addingTimeInterval(seconds) }
+    /// The version a key minted at `at(seconds)` carries — a version is
+    /// the second it was minted in (FIMP0V2 §Symkey id).
+    private func v(_ seconds: TimeInterval = 0) -> Int64 { Int64(at(seconds).timeIntervalSince1970) }
 
     override func setUpWithError() throws {
         baseDir = FileManager.default.temporaryDirectory
@@ -81,7 +84,9 @@ final class RoomServiceTests: XCTestCase {
 
         // The pieces downstream that have to survive it.
         XCTAssertEqual(
-            SymkeyStore.parse(storageKey: SymkeyStore.storageKey(entityId: id, version: 3))?.entityId,
+            SymkeyStore.parse(storageKey: SymkeyStore.storageKey(
+                entityId: id, version: 3, keyId: SymkeyStore.keyId(of: Data(repeating: 9, count: 32))
+            ))?.entityId,
             id
         )
         XCTAssertEqual(Conversation.id(type: .room, targetId: id), "ROOM_\(id)")
@@ -148,8 +153,8 @@ final class RoomServiceTests: XCTestCase {
 
         XCTAssertEqual(room.members, [alice, bob, carol])
         XCTAssertEqual(room.pendingMembers, [bob, carol], "invited, not yet confirmed")
-        XCTAssertEqual(try symkeys.currentVersion(for: roomId), 1)
-        XCTAssertEqual(room.symkeyVersion, 1)
+        XCTAssertEqual(try symkeys.currentVersion(for: roomId), v())
+        XCTAssertEqual(room.symkeyVersion, v())
         XCTAssertEqual(try rooms.get(id: roomId)?.name, "The Usual Place")
 
         XCTAssertEqual(invitations.count, 2)
@@ -254,7 +259,7 @@ final class RoomServiceTests: XCTestCase {
     func testForgettingARoomTakesItsKeysWithIt() throws {
         let roomId = try XCTUnwrap(try aliceRoom(with: [bob]).id)
         _ = try service.resetSymkey(roomId, as: alice, pubkeys: pubkeys, now: at(60))
-        XCTAssertEqual(try symkeys.versions(for: roomId), [1, 2])
+        XCTAssertEqual(try symkeys.versions(for: roomId), [v(), v(60)])
 
         XCTAssertTrue(try service.forget(roomId))
         XCTAssertNil(try rooms.get(id: roomId))
@@ -317,10 +322,10 @@ final class RoomServiceTests: XCTestCase {
             bob, from: roomId, as: alice, pubkeys: pubkeys, now: at(60)
         )
         XCTAssertTrue(removed)
-        XCTAssertEqual(try symkeys.currentVersion(for: roomId), 2)
+        XCTAssertEqual(try symkeys.currentVersion(for: roomId), v(60))
         XCTAssertNotEqual(try symkeys.currentKey(for: roomId), oldKey)
         // The old key survives, so what was said before still opens.
-        XCTAssertEqual(try symkeys.key(for: roomId, version: 1), oldKey)
+        XCTAssertEqual(try symkeys.keys(for: roomId, version: v()).first, oldKey)
         XCTAssertEqual(try rooms.get(id: roomId)?.members, [alice, carol])
 
         // Bob is told he is out; Carol gets the new membership and key.
@@ -329,7 +334,7 @@ final class RoomServiceTests: XCTestCase {
         XCTAssertEqual(removedNotice.content, roomId)
         let update = try XCTUnwrap(outbound.first { $0.contentType == .roomInfo })
         XCTAssertEqual(update.targetId, carol)
-        XCTAssertEqual(try RoomInfo.fromJson(try XCTUnwrap(update.content)).symkeyVersion, 2)
+        XCTAssertEqual(try RoomInfo.fromJson(try XCTUnwrap(update.content)).symkeyVersion, v(60))
     }
 
     func testRemovingSomeoneWhoIsNotAMemberChangesNothing() throws {
@@ -339,7 +344,7 @@ final class RoomServiceTests: XCTestCase {
         )
         XCTAssertFalse(removed)
         XCTAssertTrue(outbound.isEmpty)
-        XCTAssertEqual(try symkeys.currentVersion(for: roomId), 1, "no needless rotation")
+        XCTAssertEqual(try symkeys.currentVersion(for: roomId), v(), "no needless rotation")
     }
 
     // MARK: - resetting the key
@@ -354,26 +359,27 @@ final class RoomServiceTests: XCTestCase {
         let (version, outbound) = try service.resetSymkey(
             roomId, as: alice, pubkeys: pubkeys, now: at(60)
         )
-        XCTAssertEqual(version, 2)
+        XCTAssertEqual(version, v(60))
         XCTAssertNotEqual(try symkeys.currentKey(for: roomId), oldKey)
-        // Additive as ever: what was said under v1 still opens.
-        XCTAssertEqual(try symkeys.key(for: roomId, version: 1), oldKey)
-        XCTAssertEqual(try rooms.get(id: roomId)?.symkeyVersion, 2)
+        // Additive as ever: what was said under the old key still opens.
+        XCTAssertEqual(try symkeys.keys(for: roomId, version: v()).first, oldKey)
+        XCTAssertEqual(try rooms.get(id: roomId)?.symkeyVersion, v(60))
 
         XCTAssertEqual(Set(outbound.compactMap(\.targetId)), [bob, carol])
         for message in outbound {
             XCTAssertEqual(message.contentType, .roomInfo)
             let info = try RoomInfo.fromJson(try XCTUnwrap(message.content))
-            XCTAssertEqual(info.symkeyVersion, 2)
+            XCTAssertEqual(info.symkeyVersion, v(60))
             XCTAssertNotNil(info.symkey, "the new key has to travel with it")
         }
     }
 
     /// An owner whose device lost the room's key reaches this from the
-    /// composer's key fork. It must **not** reuse the version the lost
-    /// key had: two different keys under one version is the one state
-    /// the store cannot represent.
-    func testResettingWithNoKeyHeldStillTakesTheNextVersion() throws {
+    /// composer's key fork. It must **not** mint version 1: the members
+    /// still hold a key called v1, and a second one under that name is
+    /// how a room's history used to become unreadable. The clock answers
+    /// it without needing to know what was lost.
+    func testResettingWithNoKeyHeldMintsTheClockNotVersionOne() throws {
         let roomId = try XCTUnwrap(try aliceRoom(with: [bob]).id)
         XCTAssertEqual(try symkeys.removeAll(for: roomId), 1)
         XCTAssertFalse(try symkeys.has(entityId: roomId))
@@ -381,7 +387,8 @@ final class RoomServiceTests: XCTestCase {
         let (version, _) = try service.resetSymkey(
             roomId, as: alice, pubkeys: pubkeys, now: at(60)
         )
-        XCTAssertEqual(version, 1, "nothing is held, so the next version is the first one")
+        XCTAssertEqual(version, v(60))
+        XCTAssertNotEqual(version, SymkeyStore.minimumVersion)
         XCTAssertTrue(try symkeys.has(entityId: roomId))
     }
 
@@ -392,7 +399,7 @@ final class RoomServiceTests: XCTestCase {
         XCTAssertThrowsError(
             try service.resetSymkey(roomId, as: bob, pubkeys: pubkeys, now: at(60))
         )
-        XCTAssertEqual(try symkeys.currentVersion(for: roomId), 1)
+        XCTAssertEqual(try symkeys.currentVersion(for: roomId), v())
     }
 
     // MARK: - leaving and disbanding
@@ -512,7 +519,7 @@ final class RoomServiceTests: XCTestCase {
         XCTAssertEqual(fid, bob)
         XCTAssertFalse(outbound.contains { $0.contentType == .roomRemoved }, "they know they left")
         XCTAssertEqual(outbound.map(\.targetId), [carol])
-        XCTAssertEqual(try symkeys.currentVersion(for: roomId), 2)
+        XCTAssertEqual(try symkeys.currentVersion(for: roomId), v(60))
         XCTAssertEqual(try rooms.get(id: roomId)?.members, [alice, carol])
     }
 
@@ -619,7 +626,7 @@ final class RoomServiceTests: XCTestCase {
         XCTAssertEqual(joined.id, roomId)
         XCTAssertEqual(joined.owner, alice)
         XCTAssertTrue(joined.isMember(bob))
-        XCTAssertEqual(try bobsSymkeys.key(for: roomId, version: 1), key, "same key, both ends")
+        XCTAssertEqual(try bobsSymkeys.keys(for: roomId, version: v()).first, key, "same key, both ends")
 
         let confirm = try XCTUnwrap(accept)
         XCTAssertEqual(confirm.contentType, .roomAccept)

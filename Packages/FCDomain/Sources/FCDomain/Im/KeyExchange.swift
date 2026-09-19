@@ -18,11 +18,17 @@ public enum KeyExchange {
 
     /// Push our current key for `entityId` at one member.
     ///
-    /// Returns nil when we cannot seal it: either we hold no key at that
+    /// Returns **one message per key held at that version**, and an empty
+    /// array when we cannot seal any: either we hold no key at that
     /// version, or we have no public key for the recipient. Both are
     /// ordinary answers — a member whose pubkey has never appeared on
     /// the chain simply has to be reached another way — and neither is
     /// worth failing a whole share round over.
+    ///
+    /// More than one comes back only in the case
+    /// ``SymkeyStore/shareCiphers(for:version:to:)`` describes: two of an
+    /// owner's devices minted in the same second, so the version names
+    /// two keys and we cannot know which one the asker needs.
     /// `answering` is the id of the request this share replies to.
     ///
     /// **Echoing it is not book-keeping, it is what gets the key
@@ -43,21 +49,20 @@ public enum KeyExchange {
         symkeys: SymkeyStore,
         answering requestId: String? = nil,
         now: Date = Date()
-    ) throws -> ImMessage? {
-        guard let cipher = try symkeys.shareCipher(
-            for: entityId, version: version, to: recipientPubkey
-        ) else { return nil }
-
-        var message = ImMessage.symkey(
-            type: .p2p,
-            from: senderFid,
-            to: fid,
-            symkeyData: SymkeyShare.payload(entityId: entityId, cipher: cipher),
-            version: version,
-            now: now
-        )
-        message.requestId = requestId
-        return message.named()
+    ) throws -> [ImMessage] {
+        try symkeys.shareCiphers(for: entityId, version: version, to: recipientPubkey)
+            .map { cipher in
+                var message = ImMessage.symkey(
+                    type: .p2p,
+                    from: senderFid,
+                    to: fid,
+                    symkeyData: SymkeyShare.payload(entityId: entityId, cipher: cipher),
+                    version: version,
+                    now: now
+                )
+                message.requestId = requestId
+                return message.named()
+            }
     }
 
     /// **There is deliberately no "share with everyone" here.**

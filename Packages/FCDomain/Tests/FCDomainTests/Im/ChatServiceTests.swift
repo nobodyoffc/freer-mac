@@ -115,7 +115,7 @@ final class ChatServiceTests: XCTestCase {
     /// version.
     func testRoomSendUsesTheGroupKey() throws {
         try openConversation(.room, roomId)
-        let key = try session.symkeys.rotate(for: roomId, now: t0)
+        let key = try session.symkeys.mint(for: roomId, now: t0)
 
         let sent = try chat.sendText(
             "the usual place", in: Conversation.id(type: .room, targetId: roomId), as: me, now: t0
@@ -232,7 +232,7 @@ final class ChatServiceTests: XCTestCase {
     /// each is a key to go and ask for.
     func testAnUnopenableMessageIsKeptAndReported() throws {
         try openConversation(.room, roomId)
-        let key = try session.symkeys.rotate(for: roomId, now: t0)
+        let key = try session.symkeys.mint(for: roomId, now: t0)
         var message = inbound("after the rotation", type: .room, target: roomId, at: t0)
         try message.sealBody(symkey: key.key, version: 9)
 
@@ -246,7 +246,7 @@ final class ChatServiceTests: XCTestCase {
         let conversationId = Conversation.id(type: .room, targetId: roomId)
         XCTAssertEqual(try session.messages.count(in: conversationId), 1, "kept, not dropped")
         // …and it opens later, once the key turns up.
-        try session.symkeys.store(key.key, for: roomId, version: 9, allowOverwrite: true, now: at(2))
+        try session.symkeys.store(key.key, for: roomId, version: 9, now: at(2))
         var again = try XCTUnwrap(try session.messages.get(messageId: stored.id!, in: conversationId))
         XCTAssertTrue(try session.symkeys.open(&again, for: roomId))
         XCTAssertEqual(again.content, "after the rotation")
@@ -265,7 +265,7 @@ final class ChatServiceTests: XCTestCase {
         let conversationId = Conversation.id(type: .room, targetId: roomId)
 
         // Two messages sealed under a version this device does not hold.
-        let absent = try session.symkeys.rotate(for: roomId, now: t0)
+        let absent = try session.symkeys.mint(for: roomId, now: t0)
         try session.symkeys.remove(entityId: roomId, version: absent.version)
         for (index, text) in ["first sealed", "second sealed"].enumerated() {
             var message = inbound("\(text)", type: .room, target: roomId, at: at(Double(index)))
@@ -282,7 +282,7 @@ final class ChatServiceTests: XCTestCase {
 
         // The key turns up, as an answered request would leave it.
         try session.symkeys.store(
-            absent.key, for: roomId, version: absent.version, allowOverwrite: true, now: at(6)
+            absent.key, for: roomId, version: absent.version, now: at(6)
         )
         let opened = try chat.openSealed(forEntity: roomId, as: me)
 
@@ -310,7 +310,7 @@ final class ChatServiceTests: XCTestCase {
         try openConversation(.room, roomId)
         let conversationId = Conversation.id(type: .room, targetId: roomId)
 
-        let absent = try session.symkeys.rotate(for: roomId, now: t0)
+        let absent = try session.symkeys.mint(for: roomId, now: t0)
         try session.symkeys.remove(entityId: roomId, version: absent.version)
         for index in 0 ..< 3 {
             var message = inbound("sealed \(index)", type: .room, target: roomId, at: at(Double(index)))
@@ -320,7 +320,7 @@ final class ChatServiceTests: XCTestCase {
         let before = try XCTUnwrap(try session.conversations.get(id: conversationId)).unreadCount
 
         try session.symkeys.store(
-            absent.key, for: roomId, version: absent.version, allowOverwrite: true, now: at(6)
+            absent.key, for: roomId, version: absent.version, now: at(6)
         )
         XCTAssertEqual(try chat.openSealed(forEntity: roomId, as: me).count, 3)
 

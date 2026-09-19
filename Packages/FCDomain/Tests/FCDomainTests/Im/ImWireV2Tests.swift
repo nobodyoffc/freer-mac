@@ -174,6 +174,40 @@ final class ImWireV2Tests: XCTestCase {
         XCTAssertNil(back.content)
     }
 
+    /// **A version is a mint timestamp now**, so the field carries values
+    /// the old signed reading could not represent. Sign-extending made
+    /// every key minted after January 2038 arrive negative, and a
+    /// negative version is not a version — so every key minted from then
+    /// on would have been rejected on arrival. See FIMP0V2 §Symkey id.
+    func testATimestampVersionSurvivesTheWire() throws {
+        // Now; a 2038 mint, past 2³¹, where the signed reading broke; and
+        // the last value the field can hold, in 2106.
+        for version: Int64 in [1_789_813_689, 2_200_000_000, Int64(UInt32.max)] {
+            var sealed = text()
+            try sealed.sealBody(symkey: Data(repeating: 0x33, count: 32), version: version)
+            let back = try ImMessage.fromWireBytes(
+                try sealed.toWireBytes(signingWith: alicePriv)
+            )
+            XCTAssertEqual(back.symkeyVersion, version, "\(version) must round-trip unsigned")
+            XCTAssertGreaterThan(try XCTUnwrap(back.symkeyVersion), 0)
+        }
+    }
+
+    /// Refused rather than truncated: a version is a lookup key, and
+    /// wrapping one silently produces a message naming a key that cannot
+    /// be found, with nothing to tell the sender.
+    func testAVersionTooBigForTheFieldIsRefused() throws {
+        for version: Int64 in [Int64(UInt32.max) + 1, -1, Int64.max] {
+            var sealed = text()
+            try sealed.sealBody(symkey: Data(repeating: 0x33, count: 32), version: version)
+            XCTAssertThrowsError(try sealed.toWireBytes(signingWith: alicePriv)) {
+                XCTAssertEqual(
+                    $0 as? ImMessage.WireFailure, .badSymkeyVersion(version)
+                )
+            }
+        }
+    }
+
     func testASealedBodySurvivesTheWireUnchanged() throws {
         let symkey = Data(repeating: 0x44, count: 32)
         var sealed = text("the usual place")

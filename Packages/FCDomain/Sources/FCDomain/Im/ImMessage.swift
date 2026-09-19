@@ -88,6 +88,9 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     public var body: Data?
     /// Which symkey version ``body`` was sealed with. **Long here, but
     /// only 32 bits of it survive the wire** — see ``toWireBytes()``.
+    /// Which symkey sealed ``body`` — the second it was minted in,
+    /// unsigned. See ``SymkeyStore/nextVersion(for:now:)`` and FIMP0V2
+    /// §Symkey id.
     public var symkeyVersion: Int64?
 
     public var replyToId: String?
@@ -516,7 +519,7 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     ///   timestamp(8, big-endian)
     ///   flags(2, big-endian)
     ///   [body(u32-prefixed)]
-    ///   [symkeyVersion(4)] [requestType(1)]
+    ///   [symkeyVersion(4, unsigned)] [requestType(1)]
     ///   [requestId] [replyToId] [threadId] [id]  — each u16-prefixed
     ///   senderPubkey(33) signature(64)            — FIMP0V3 trailer
     /// ```
@@ -536,18 +539,20 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     /// field the rule is "seal the body", and the half-sealed state has no
     /// encoding.
     ///
-    /// Two v1 behaviours are kept deliberately, because Android reproduces
-    /// them and the format is what has to match:
+    /// One v1 behaviour is kept deliberately, because Android reproduces
+    /// it and the format is what has to match: **a nil ``type`` or
+    /// ``contentType`` writes ordinal 0**, so it arrives as `P2P`/`TEXT`
+    /// rather than as nothing.
     ///
-    /// 1. **``symkeyVersion`` is truncated to 32 bits** (Java writes
-    ///    `putInt(intValue())` and reads back `(long) getInt()`), so a
-    ///    version past 2³¹ comes out sign-extended and negative.
-    /// 2. **A nil ``type`` or ``contentType`` writes ordinal 0**, so it
-    ///    arrives as `P2P`/`TEXT` rather than as nothing.
-    ///
-    /// One is fixed: a length that does not fit its prefix now throws.
+    /// Two are fixed. A length that does not fit its prefix now throws;
     /// v1's 16-bit prefix silently wrapped on Android, corrupting every
     /// field after it, which is the failure this version exists to end.
+    /// And ``symkeyVersion`` is written and read **unsigned** rather than
+    /// sign-extended (Java's `putInt(intValue())` / `(long) getInt()`),
+    /// because a version is now a mint timestamp: sign-extending would
+    /// make every key minted after January 2038 arrive as a negative
+    /// number and be rejected. Both clients change together; the bytes
+    /// do not.
     public func toWireBytes(signingWith prikey: Data) throws -> Data {
         let unsigned = try unsignedWireBytes()
         let pubkey: Data
@@ -632,7 +637,14 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
             out.append(wireBody)
         }
         if let symkeyVersion {
-            Self.appendBE(&out, UInt32(truncatingIfNeeded: symkeyVersion))
+            // **Refused rather than truncated.** A version is a lookup
+            // key: wrapping one silently produces a message naming a key
+            // that cannot be found, and the sender has no way to know.
+            // The range holds every mint time until 2106.
+            guard symkeyVersion >= 0, symkeyVersion <= Int64(UInt32.max) else {
+                throw WireFailure.badSymkeyVersion(symkeyVersion)
+            }
+            Self.appendBE(&out, UInt32(symkeyVersion))
         }
         if let requestType { out.append(requestType.wireOrdinal) }
         try Self.appendLen16(&out, requestId)
@@ -685,8 +697,14 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
             throw WireFailure.sealedWithoutBody
         }
         if flags & WireFlag.symkeyVersion != 0 {
-            // Sign-extend, as Java's `(long) buf.getInt()` does.
-            m.symkeyVersion = Int64(Int32(bitPattern: try cursor.u32()))
+            // **Unsigned.** Both clients used to sign-extend, as Java's
+            // `(long) buf.getInt()` does, which made every version
+            // minted after January 2038 arrive negative — and a negative
+            // version is not a version (FIMP0V2 §Symkey id), so every
+            // key minted from then on would have been rejected. Read
+            // unsigned, the field is good until 2106. No byte on the
+            // wire changes, and no message that exists today is affected.
+            m.symkeyVersion = Int64(try cursor.u32())
         }
         if flags & WireFlag.requestType != 0   { m.requestType = RequestType(wireOrdinal: try cursor.byte()) }
         if flags & WireFlag.requestId != 0     { m.requestId = try cursor.len16String() }
@@ -762,6 +780,7 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         case signerIsNotSender(signer: String)
         case badSignature
         case badSigningKey
+        case badSymkeyVersion(Int64)
 
         public var description: String {
             switch self {
@@ -789,6 +808,8 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
                 return "ImMessage: signed by \(signer), not by the sender it names"
             case .badSignature:
                 return "ImMessage: the signature does not verify"
+            case .badSymkeyVersion(let version):
+                return "ImMessage: symkeyVersion \(version) does not fit the wire's unsigned 32 bits"
             case .badSigningKey:
                 return "ImMessage: could not sign with that key"
             }

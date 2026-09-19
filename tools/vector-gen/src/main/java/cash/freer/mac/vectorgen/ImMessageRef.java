@@ -112,7 +112,8 @@ final class ImMessageRef {
         out.add(vector("receipt", receipt()));
         out.add(vector("room-info", roomInfo()));
         out.add(vector("team-cipher", teamCipher()));
-        out.add(vector("symkey-version-truncated", symkeyVersionTruncated()));
+        out.add(vector("symkey-version-timestamp", symkeyVersionTimestamp()));
+        out.add(vector("symkey-version-past-int-max", symkeyVersionPastIntMax()));
         out.add(vector("empty-strings", emptyStrings()));
         out.add(vector("full", full()));
         return out;
@@ -264,18 +265,39 @@ final class ImMessageRef {
     }
 
     /**
-     * symkeyVersion is a Long in the model but is written to the wire with
-     * {@code putInt(intValue())} and read back with {@code (long) getInt()}. A
-     * version past 2^31 therefore does not survive the trip, and a sign bit
-     * comes back negative. This vector fixes that behaviour so the Swift port
-     * reproduces it rather than "fixing" it into an incompatibility.
+     * A symkeyVersion is the second the key was minted in -- FIMP0V2 Symkey id
+     * -- so the ordinary value in this field is a Unix timestamp, not a small
+     * counter. This pins the ordinary case.
      */
-    private static ImMessage symkeyVersionTruncated() {
+    private static ImMessage symkeyVersionTimestamp() {
         ImMessage m = base(ImType.TEAM, FID_A, ROOM_ID, ContentType.TEXT);
-        m.setContent("key rotation past the int boundary");
-        m.setSymkeyVersion(0x1_8000_0001L);
+        m.setContent("sealed with the key minted at this second");
+        m.setSymkeyVersion(1789813689L);
         m.setTimestamp(1755100009000L);
         m.setId("00000000000000ff");
+        return m;
+    }
+
+    /**
+     * The value that used to break, and the reason the field is read UNSIGNED.
+     *
+     * <p>{@code (long) buf.getInt()} sign-extends, so a version past 2^31 --
+     * every mint from January 2038 onwards -- came back negative. A negative
+     * number is not a version (FIMP0V2 Symkey id), so from that date on every
+     * key would have been rejected on arrival by both clients. The four bytes
+     * are the same either way; only the reading changed, and it changed in
+     * FC-AJDK and in the Swift port together.
+     *
+     * <p>A value that does not fit the unsigned 32 bits is now REFUSED by the
+     * encoder rather than truncated, so there is no vector for one: truncating
+     * a lookup key produces a message naming a key that cannot be found.
+     */
+    private static ImMessage symkeyVersionPastIntMax() {
+        ImMessage m = base(ImType.TEAM, FID_A, ROOM_ID, ContentType.TEXT);
+        m.setContent("key rotation past the int boundary");
+        m.setSymkeyVersion(2_200_000_000L);
+        m.setTimestamp(1755100010000L);
+        m.setId("0000000000000100");
         return m;
     }
 

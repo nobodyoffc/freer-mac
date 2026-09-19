@@ -405,7 +405,7 @@ final class MessageCourierTests: XCTestCase {
             owner: alice.liveFid, members: [alice.liveFid, bob.liveFid],
             active: true, home: [ServiceName.dock: "https://dock.room"], id: roomId
         ))
-        try alice.symkeys.rotate(for: roomId, now: t0)
+        try alice.symkeys.mint(for: roomId, now: t0)
         try alice.chat.sendText("room secret", in: thread.id, as: alice.liveFid, now: t0)
         _ = try await alice.courier.drainOutbox(as: alice.liveFid, ownDockUrl: nil, now: at(1))
 
@@ -421,7 +421,10 @@ final class MessageCourierTests: XCTestCase {
         let stored = try bob.chat.page(Conversation.id(type: .room, targetId: roomId)).messages
         XCTAssertEqual(stored.count, 1, "kept, not dropped")
         XCTAssertTrue(try XCTUnwrap(stored.first).isSealed)
-        XCTAssertEqual(stored.first?.symkeyVersion, 1, "and it says which key it needs")
+        XCTAssertEqual(
+            stored.first?.symkeyVersion, Int64(t0.timeIntervalSince1970),
+            "and it says which key it needs"
+        )
     }
 
     /// **The key arrives after the message, and the message opens.**
@@ -464,7 +467,7 @@ final class MessageCourierTests: XCTestCase {
         var thread = Conversation(id: conversationId, targetId: roomId, type: .room)
         thread.unreadCount = 0
         try alice.conversations.upsert(thread)
-        try alice.symkeys.rotate(for: roomId, now: t0)
+        try alice.symkeys.mint(for: roomId, now: t0)
         try alice.chat.sendText("the usual place", in: conversationId, as: alice.liveFid, now: t0)
         _ = try await alice.courier.drainOutbox(as: alice.liveFid, ownDockUrl: nil, now: at(1))
 
@@ -476,12 +479,16 @@ final class MessageCourierTests: XCTestCase {
         XCTAssertEqual(sealedCollect.sealed, 1)
         XCTAssertTrue(try XCTUnwrap(bob.chat.page(conversationId).messages.first).isSealed)
 
-        // Bob asks Alice for it, over the real request/answer path.
-        for ask in KeyExchange.requests(
-            entityId: roomId, kind: .symkey, from: bob.liveFid, to: [alice.liveFid]
-        ) {
-            try bob.outbox.enqueue(ask, in: Conversation.id(type: .p2p, targetId: alice.liveFid))
-        }
+        // **Nobody asked for the key.** Filing the locked row queued the
+        // question by itself, addressed to the one member who provably
+        // holds that version — the sender — and recorded it so the
+        // answer can be told from an unsolicited push (FIMP §4.2, §7.4).
+        let ask = try XCTUnwrap(
+            try bob.keyAsks.ask(entityId: roomId, version: Int64(t0.timeIntervalSince1970))
+        )
+        XCTAssertEqual(ask.askedFids, [alice.liveFid])
+        XCTAssertEqual(ask.attempts, 1)
+
         let askSent = try await bob.courier.drainOutbox(as: bob.liveFid, ownDockUrl: nil)
         XCTAssertEqual(askSent.sent, 1)
 
@@ -496,12 +503,19 @@ final class MessageCourierTests: XCTestCase {
         _ = try await bob.courier.collect(
             as: bob.liveFid, recipientIds: [bob.liveFid, roomId], privkey: bobPriv
         )
-        XCTAssertNotNil(try bob.symkeys.key(for: roomId, version: 1), "the key landed")
+        XCTAssertNotNil(
+            try bob.symkeys.keys(for: roomId, version: Int64(t0.timeIntervalSince1970)).first,
+            "the key landed"
+        )
 
         let stored = try bob.chat.page(conversationId).messages
         XCTAssertEqual(stored.count, 1, "opened in place, not filed a second time")
         XCTAssertFalse(try XCTUnwrap(stored.first).isSealed)
         XCTAssertEqual(stored.first?.content, "the usual place")
+        XCTAssertNil(
+            try bob.keyAsks.ask(entityId: roomId, version: Int64(t0.timeIntervalSince1970)),
+            "the question is answered, so it stops being outstanding"
+        )
         XCTAssertEqual(
             try bob.conversations.get(id: conversationId)?.lastMessageContent,
             "the usual place",
@@ -541,7 +555,7 @@ final class MessageCourierTests: XCTestCase {
         try mac1.rooms.upsert(room)
         try mac2.rooms.upsert(room)
         let key = Data(repeating: 0x7E, count: 32)
-        _ = try mac1.symkeys.store(key, for: roomId, version: 1, allowOverwrite: true)
+        _ = try mac1.symkeys.store(key, for: roomId, version: 1)
         XCTAssertFalse(try mac2.symkeys.has(entityId: roomId))
 
         // mac2 asks its own FID.
@@ -586,7 +600,7 @@ final class MessageCourierTests: XCTestCase {
 
         // mac2 collects, and now holds the key.
         _ = try await mac2.courier.collect(as: me, recipientIds: [me], privkey: alicePriv)
-        XCTAssertEqual(try mac2.symkeys.key(for: roomId, version: 1), key)
+        XCTAssertEqual(try mac2.symkeys.keys(for: roomId, version: 1).first, key)
     }
 
     /// The delete rule still applies to everything that is not our own

@@ -29,9 +29,15 @@ public struct RoomService {
     private let rooms: RoomsStore
     private let symkeys: SymkeyStore
 
-    public init(rooms: RoomsStore, symkeys: SymkeyStore) {
+    /// Where the keys this service hands out and takes in are written
+    /// down — FIMP §8.7. Optional because a room service built to read
+    /// records alone needs none.
+    private var keyLedger: KeyLedger?
+
+    public init(rooms: RoomsStore, symkeys: SymkeyStore, keyLedger: KeyLedger? = nil) {
         self.rooms = rooms
         self.symkeys = symkeys
+        self.keyLedger = keyLedger
     }
 
     /// Looks up a member's pubkey, so a room key can be sealed to them.
@@ -103,7 +109,7 @@ public struct RoomService {
             room.addMember(fid, now: now)
             room.addPendingMember(fid)
         }
-        let key = try symkeys.generate(for: roomId, version: 1, now: now)
+        let key = try symkeys.mint(for: roomId, now: now)
         room.symkeyVersion = key.version
         try rooms.upsert(room)
 
@@ -158,8 +164,25 @@ public struct RoomService {
         var info = RoomInfo.from(room)
         let version = try symkeys.currentVersion(for: roomId)
         if version >= SymkeyStore.minimumVersion, let pubkey = try pubkeys(fid) {
-            info.symkey = try symkeys.shareCipher(for: roomId, version: version, to: pubkey)
+            // One cipher: `RoomInfo` carries a single key, and the
+            // newest at the current version is the one this room is
+            // sealing with. A second key at that version — the
+            // same-second mint in ``SymkeyStore/shareCiphers`` — travels
+            // as an ordinary SYMKEY answer if the invitee ever asks.
+            info.symkey = try symkeys
+                .shareCiphers(for: roomId, version: version, to: pubkey)
+                .first
             info.symkeyVersion = version
+            // Every room key that leaves this device leaves through
+            // here — an invitation, a membership update, a rotation,
+            // an owner sharing the room's details — so one row written
+            // here covers all of them (FIMP §8.7).
+            if info.symkey != nil {
+                try? keyLedger?.record(
+                    entityId: roomId, version: version, counterparty: fid,
+                    direction: .sent, outcome: .shared, solicited: false, now: now
+                )
+            }
         }
         // P2P: an invitation has to reach someone who is not in the room
         // yet, so it cannot travel on the room's own channel.
@@ -314,7 +337,7 @@ public struct RoomService {
         guard room.removeMember(fid, now: now) else { return (false, []) }
         try rooms.upsert(room)
 
-        let rotated = try symkeys.rotate(for: roomId, now: now)
+        let rotated = try symkeys.mint(for: roomId, now: now)
         room.symkeyVersion = rotated.version
         try rooms.upsert(room)
 
@@ -350,7 +373,7 @@ public struct RoomService {
     ) throws -> (version: Int64, outbound: [ImMessage]) {
         var room = try requireOwned(roomId, by: liveFid)
 
-        let rotated = try symkeys.rotate(for: roomId, now: now)
+        let rotated = try symkeys.mint(for: roomId, now: now)
         room.symkeyVersion = rotated.version
         room.lastUpdated = Int64(now.timeIntervalSince1970 * 1000)
         try rooms.upsert(room)
@@ -438,16 +461,23 @@ public struct RoomService {
         try rooms.upsert(room)
 
         if let symkey = info.symkey {
-            // `allowOverwrite: false` — we may already hold this
-            // version from a previous invitation, and the copy we have
-            // been decrypting with is the one to keep.
-            try symkeys.receiveShared(
+            // We may already hold this version from a previous
+            // invitation. Nothing is overwritten, so a key that differs
+            // is kept beside the one we have been decrypting with and
+            // tried when opening — see ``SymkeyStore``.
+            let version = info.symkeyVersion ?? SymkeyStore.minimumVersion
+            let stored = try symkeys.receiveShared(
                 cipher: symkey,
                 for: roomId,
-                version: info.symkeyVersion ?? SymkeyStore.minimumVersion,
+                version: version,
                 privkey: try privkeyForReceive(),
-                allowOverwrite: false,
                 now: now
+            )
+            try? keyLedger?.record(
+                entityId: roomId, version: version,
+                counterparty: info.owner ?? roomId,
+                direction: .received, outcome: stored ? .stored : .duplicate,
+                solicited: false, now: now
             )
         }
 
@@ -487,6 +517,11 @@ public struct RoomService {
     @discardableResult
     public func forget(_ roomId: String) throws -> Bool {
         try symkeys.removeAll(for: roomId)
+        // The distribution record goes with the keys. FIMP §8.7 asks for
+        // it to be kept at least as long as they are, and this is the one
+        // case that outlives them: keeping a map of who could read a
+        // conversation the user has erased would be its own disclosure.
+        try? keyLedger?.removeAll(for: roomId)
         return try rooms.remove(id: roomId)
     }
 
@@ -615,10 +650,11 @@ public struct RoomService {
     /// for one we do not.
     ///
     /// For a room we have, the sender must be a **member of the room we
-    /// already hold** — not merely someone claiming to be. The key it
-    /// carries is only allowed to overwrite a version we hold when the
-    /// sender is that room's owner, which is ``SymkeyStore``'s
-    /// `allowOverwrite` argument doing exactly the job it exists for.
+    /// already hold** — not merely someone claiming to be. Being the
+    /// owner still decides whether the update may rewrite the membership;
+    /// it no longer decides anything about the key, because
+    /// ``SymkeyStore`` overwrites nothing for anybody. A key that differs
+    /// from one we hold at that version is kept beside it.
     private func handleInfo(
         json: String, from senderFid: String, as liveFid: String, now: Date
     ) throws -> Handled {
@@ -642,13 +678,18 @@ public struct RoomService {
         try rooms.upsert(room)
 
         if let symkey = info.symkey {
-            try symkeys.receiveShared(
+            let version = info.symkeyVersion ?? SymkeyStore.minimumVersion
+            let stored = try symkeys.receiveShared(
                 cipher: symkey,
                 for: roomId,
-                version: info.symkeyVersion ?? SymkeyStore.minimumVersion,
+                version: version,
                 privkey: try privkeyForReceive(),
-                allowOverwrite: fromOwner,
                 now: now
+            )
+            try? keyLedger?.record(
+                entityId: roomId, version: version, counterparty: senderFid,
+                direction: .received, outcome: stored ? .stored : .duplicate,
+                solicited: false, now: now
             )
         }
         return .updated(room)
@@ -675,6 +716,13 @@ public struct RoomService {
     public func withPrivkey(_ privkey: Data) -> RoomService {
         var copy = self
         copy.privkey = privkey
+        return copy
+    }
+
+    /// A copy of this service that records what it hands out.
+    public func withKeyLedger(_ keyLedger: KeyLedger) -> RoomService {
+        var copy = self
+        copy.keyLedger = keyLedger
         return copy
     }
 

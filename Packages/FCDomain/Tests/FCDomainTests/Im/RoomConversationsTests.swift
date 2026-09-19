@@ -117,7 +117,7 @@ final class RoomConversationsTests: XCTestCase {
         XCTAssertNil(waiting.symkeyVersion)
 
         _ = try session.symkeys.store(
-            Data(repeating: 0x7E, count: 32), for: roomId, version: 3, allowOverwrite: true
+            Data(repeating: 0x7E, count: 32), for: roomId, version: 3
         )
         let held = try XCTUnwrap(try session.roomConversations.sync(roomId))
         XCTAssertEqual(held.hasSymkey, true)

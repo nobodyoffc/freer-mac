@@ -39,6 +39,20 @@ public struct SignalRouter {
     /// Where team invitation and transfer notices are kept. Nil drops
     /// them, as a router built for key traffic alone wants.
     private let teamOffers: TeamOffersStore?
+    /// The key requests this device has outstanding, which is how a
+    /// member's answer is told from an unsolicited push (FIMP §4.2).
+    ///
+    /// **Nil is not permissive.** A router with no ask record knows of no
+    /// request, so a non-owner's key is unsolicited and is dropped — the
+    /// same answer it would give if the record were there and empty. A
+    /// security rule that switches itself off when a dependency is
+    /// missing is a rule that is off in the one build nobody checked.
+    private let keyAsks: KeyAsksStore?
+    /// Where every key in and out is written down — FIMP §9.7. Nil keeps
+    /// no record, which only a router built for a test wants: a device
+    /// that hands out keys and remembers nothing cannot answer who can
+    /// read what.
+    private let keyLedger: KeyLedger?
 
     public init(
         rooms: RoomsStore,
@@ -51,7 +65,9 @@ public struct SignalRouter {
         pubkeys: @escaping (String) throws -> Data? = { _ in nil },
         historyShares: HistorySharesStore? = nil,
         squares: SquaresStore? = nil,
-        teamOffers: TeamOffersStore? = nil
+        teamOffers: TeamOffersStore? = nil,
+        keyAsks: KeyAsksStore? = nil,
+        keyLedger: KeyLedger? = nil
     ) {
         self.rooms = rooms
         self.teams = teams
@@ -64,6 +80,8 @@ public struct SignalRouter {
         self.historyShares = historyShares
         self.squares = squares
         self.teamOffers = teamOffers
+        self.keyAsks = keyAsks
+        self.keyLedger = keyLedger
     }
 
     /// What routing one signal produced.
@@ -173,7 +191,15 @@ public struct SignalRouter {
         case .updated(let room):
             // An update carries the current key when the owner could
             // seal one to us, so this is also how a rotation lands.
-            if let roomId = room.id { try roomConversations.sync(roomId) }
+            if let roomId = room.id {
+                try roomConversations.sync(roomId)
+                // A `ROOM_INFO` does not say which request it answers, so
+                // what settles an outstanding ask is whether the key it
+                // brought is the one we were waiting for.
+                _ = try keyAsks?.resolve(
+                    entityId: roomId, heldVersions: Set(try symkeys.versions(for: roomId))
+                )
+            }
             return Outcome(learnedKeyFor: room.id, note: "room updated")
         case .invitation(let from, let json):
             // Stored, because a collect that runs in the background is
@@ -213,11 +239,18 @@ public struct SignalRouter {
 
     /// Someone pushed us a key.
     ///
-    /// **Overwriting an existing version needs the sender to be the
-    /// entity's owner**, and that answer comes from the room or team
-    /// record we already hold — never from the message. Without the
-    /// rule, any member could push a bogus key at a version everyone
-    /// already uses and make the whole history unreadable.
+    /// **Nothing is overwritten, so there is no longer an authority to
+    /// check here.** This used to hand ``SymkeyStore`` an
+    /// `allowOverwrite` granted when the sender owned the entity, which
+    /// meant an owner's key at an existing version replaced the row and
+    /// destroyed every message sealed under the displaced key. A key
+    /// that differs from one we hold at the same version is now kept
+    /// beside it and tried when opening, so a bogus key is a candidate
+    /// that fails its tag rather than a loss.
+    ///
+    /// **Who may push at all is the check that remains**, and it is
+    /// ``admits(version:for:from:answering:)``: the entity's owner, one
+    /// of our own devices, or an answer to a request we actually made.
     private func routeSymkeyShare(
         _ message: ImMessage, as liveFid: String, now: Date
     ) throws -> Outcome {
@@ -234,17 +267,122 @@ public struct SignalRouter {
             return Outcome(note: "symkey for an entity we are not in")
         }
 
+        let version = message.symkeyVersion ?? SymkeyStore.minimumVersion
+        let solicited = try keyAsks?.isSolicited(
+            entityId: entityId, version: version, requestId: message.requestId
+        ) ?? false
+        guard try admits(
+            version: version, for: entityId, from: senderFid,
+            as: liveFid, answering: message.requestId
+        ) else {
+            try note(
+                entityId: entityId, version: version, counterparty: senderFid,
+                direction: .received, outcome: .refused, solicited: false,
+                requestId: message.requestId, now: now
+            )
+            return Outcome(note: "unsolicited key from \(senderFid) for \(entityId) — dropped")
+        }
+
+        // Whether we already held it has to be asked before storing, or
+        // the two answers are indistinguishable afterwards: `store`
+        // returns false both for a duplicate and for a cipher that would
+        // not open, and those mean opposite things to whoever reads this
+        // row — one is a second member answering, the other is a key we
+        // were handed and cannot use.
+        let heldBefore = try symkeys.has(entityId: entityId, version: version)
+            ? Set(try symkeys.keys(for: entityId, version: version))
+            : []
         let stored = try symkeys.receiveShared(
             cipher: cipher,
             for: entityId,
-            version: message.symkeyVersion ?? SymkeyStore.minimumVersion,
+            version: version,
             privkey: privkey,
-            allowOverwrite: isOwner(of: entityId, fid: senderFid),
             now: now
         )
-        return stored
-            ? Outcome(learnedKeyFor: entityId, note: "key received for \(entityId)")
-            : Outcome(note: "key not stored (already held, or would not open)")
+        guard stored else {
+            let held = Set(try symkeys.keys(for: entityId, version: version))
+            try note(
+                entityId: entityId, version: version, counterparty: senderFid,
+                direction: .received,
+                outcome: held == heldBefore && !held.isEmpty ? .duplicate : .unreadable,
+                solicited: solicited, requestId: message.requestId, now: now
+            )
+            return Outcome(note: "key not stored (already held, or would not open)")
+        }
+        try note(
+            entityId: entityId, version: version, counterparty: senderFid,
+            direction: .received, outcome: .stored, solicited: solicited,
+            requestId: message.requestId, now: now
+        )
+        // The question this answers is over. Resolving on a *stored* key
+        // rather than on arrival is deliberate: a cipher that would not
+        // open left us no better off, and the ask has to stay outstanding
+        // for whoever else was asked.
+        _ = try keyAsks?.resolve(entityId: entityId, version: version)
+        return Outcome(learnedKeyFor: entityId, note: "key received for \(entityId)")
+    }
+
+    /// Write one key event down — FIMP §9.7. A ledger that is not there
+    /// keeps nothing, and that is never a reason to fail the exchange:
+    /// the record exists to be read later, and losing a row must not cost
+    /// somebody the key.
+    private func note(
+        entityId: String,
+        version: Int64,
+        counterparty: String,
+        direction: KeyLedgerEntry.Direction,
+        outcome: KeyLedgerEntry.Outcome,
+        solicited: Bool,
+        requestId: String?,
+        now: Date
+    ) throws {
+        guard let keyLedger else { return }
+        do {
+            try keyLedger.record(
+                entityId: entityId, version: version, counterparty: counterparty,
+                direction: direction, outcome: outcome, solicited: solicited,
+                requestId: requestId, now: now
+            )
+        } catch {
+            SystemLog.shared.warning(
+                SystemSource.messages,
+                "Could not record a key exchange with \(counterparty.middleElided())",
+                detail: "\(error)"
+            )
+        }
+    }
+
+    /// Whether a delivered key may be stored at all — FIMP §4.2.
+    ///
+    /// Three ways in, and no fourth:
+    ///
+    /// 1. **The owner.** The one party whose unsolicited key is expected,
+    ///    because pushing after a rotation is their job.
+    /// 2. **Ourselves.** A message signed by our own key came from a
+    ///    device holding our prikey, which is this identity by
+    ///    definition — and a second Mac signed in here, holding keys
+    ///    this one lost, is the only copy a reinstalled owner has. The
+    ///    signature is the proof; nothing else is taken on trust.
+    /// 3. **An answer we asked for**, matched by `requestId` against
+    ///    ``KeyAsksStore``.
+    ///
+    /// Everything else is dropped rather than stored. A member who was
+    /// not asked has no business writing to the store that decides what
+    /// this device can read, and since ``SymkeyStore`` overwrites
+    /// nothing, admitting them would let any member add rows to any
+    /// other member's key store indefinitely.
+    private func admits(
+        version: Int64,
+        for entityId: String,
+        from senderFid: String,
+        as liveFid: String,
+        answering requestId: String?
+    ) throws -> Bool {
+        if isOwner(of: entityId, fid: senderFid) { return true }
+        if senderFid == liveFid { return true }
+        return try keyAsks?.isSolicited(
+            entityId: entityId, version: version, requestId: requestId
+        ) ?? false
     }
 
     /// Someone asked us for a key.
@@ -307,26 +445,46 @@ public struct SignalRouter {
         answering requestId: String? = nil, now: Date
     ) throws -> Outcome {
         guard isMember(of: entityId, fid: liveFid), isMember(of: entityId, fid: senderFid) else {
+            try note(
+                entityId: entityId, version: wanted ?? KeyAsksStore.currentVersion,
+                counterparty: senderFid, direction: .sent, outcome: .notAMember,
+                solicited: true, requestId: requestId, now: now
+            )
             return Outcome(note: "key request from a non-member")
         }
         guard let pubkey = try pubkeys(senderFid) else {
+            try note(
+                entityId: entityId, version: wanted ?? KeyAsksStore.currentVersion,
+                counterparty: senderFid, direction: .sent, outcome: .noPubkey,
+                solicited: true, requestId: requestId, now: now
+            )
             return Outcome(note: "no pubkey to seal a key to \(senderFid)")
         }
 
         let version = try wanted ?? symkeys.currentVersion(for: entityId)
-        guard version >= SymkeyStore.minimumVersion else {
-            return Outcome(note: "asked for a key we do not hold")
-        }
-        guard try symkeys.key(for: entityId, version: version) != nil else {
+        guard version >= SymkeyStore.minimumVersion,
+              try symkeys.has(entityId: entityId, version: version)
+        else {
+            try note(
+                entityId: entityId, version: version, counterparty: senderFid,
+                direction: .sent, outcome: .notHeld, solicited: true,
+                requestId: requestId, now: now
+            )
             return Outcome(note: "asked for \(entityId) key v\(version), which we do not hold")
         }
-        guard let reply = try KeyExchange.share(
+        let replies = try KeyExchange.share(
             entityId: entityId, version: version, to: senderFid,
             recipientPubkey: pubkey, from: liveFid, symkeys: symkeys,
             answering: requestId, now: now
-        ) else { return Outcome(note: "could not seal the key") }
+        )
+        guard !replies.isEmpty else { return Outcome(note: "could not seal the key") }
 
-        return Outcome(outbound: [reply], note: "shared \(entityId) key v\(version)")
+        try note(
+            entityId: entityId, version: version, counterparty: senderFid,
+            direction: .sent, outcome: .shared, solicited: true,
+            requestId: requestId, now: now
+        )
+        return Outcome(outbound: replies, note: "shared \(entityId) key v\(version)")
     }
 
     /// Answer a batch — one `SYMKEY` per version we hold, all carrying
@@ -346,23 +504,49 @@ public struct SignalRouter {
         answering requestId: String?, now: Date
     ) throws -> Outcome {
         guard isMember(of: entityId, fid: liveFid), isMember(of: entityId, fid: senderFid) else {
+            try note(
+                entityId: entityId, version: KeyAsksStore.currentVersion,
+                counterparty: senderFid, direction: .sent, outcome: .notAMember,
+                solicited: true, requestId: requestId, now: now
+            )
             return Outcome(note: "key history request from a non-member")
         }
         guard let pubkey = try pubkeys(senderFid) else {
+            try note(
+                entityId: entityId, version: KeyAsksStore.currentVersion,
+                counterparty: senderFid, direction: .sent, outcome: .noPubkey,
+                solicited: true, requestId: requestId, now: now
+            )
             return Outcome(note: "no pubkey to seal keys to \(senderFid)")
         }
 
         var outbound: [ImMessage] = []
         var shared: [Int64] = []
         for version in versions {
-            guard try symkeys.key(for: entityId, version: version) != nil else { continue }
-            guard let reply = try KeyExchange.share(
+            guard try symkeys.has(entityId: entityId, version: version) else {
+                // A row per version asked for and not held: a member
+                // asking repeatedly for a version nobody has is a stalled
+                // recovery somebody can act on.
+                try note(
+                    entityId: entityId, version: version, counterparty: senderFid,
+                    direction: .sent, outcome: .notHeld, solicited: true,
+                    requestId: requestId, now: now
+                )
+                continue
+            }
+            let replies = try KeyExchange.share(
                 entityId: entityId, version: version, to: senderFid,
                 recipientPubkey: pubkey, from: liveFid, symkeys: symkeys,
                 answering: requestId, now: now
-            ) else { continue }
-            outbound.append(reply)
+            )
+            guard !replies.isEmpty else { continue }
+            outbound.append(contentsOf: replies)
             shared.append(version)
+            try note(
+                entityId: entityId, version: version, counterparty: senderFid,
+                direction: .sent, outcome: .shared, solicited: true,
+                requestId: requestId, now: now
+            )
         }
         guard !outbound.isEmpty else {
             return Outcome(note: "asked for \(entityId) keys we do not hold")
