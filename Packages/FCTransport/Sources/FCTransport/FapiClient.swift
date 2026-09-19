@@ -162,7 +162,6 @@ public final class FapiClient: FapiCalling {
         case codec(UnifiedCodec.Failure)
         case transportStatus(code: UInt16, body: String)
         case fileTransferUnsupported(api: String)
-        case mutuallyExclusiveRequestBody(api: String)
         case underlying(Error)
 
         public var description: String {
@@ -175,8 +174,6 @@ public final class FapiClient: FapiCalling {
                 return "FapiClient: \(inner)"
             case let .transportStatus(code, body):
                 return "FapiClient: transport status \(code) — \(body)"
-            case .mutuallyExclusiveRequestBody(let api):
-                return "FapiClient: \(api) was given both fcdsl and params, which FAPI1V1 forbids"
             case .fileTransferUnsupported(let api):
                 return "FapiClient: this client cannot stream files (\(api))"
             case .underlying(let e):
@@ -207,8 +204,10 @@ public final class FapiClient: FapiCalling {
     ///
     /// - parameters:
     ///   - api: e.g. `"base.search"`, `"disk.put"`. Required by the server.
-    ///   - params: opaque JSON for non-query endpoints. Mutually exclusive
-    ///     with `fcdsl` per the protocol; nothing here enforces it.
+    ///   - params: opaque JSON for non-query endpoints. FAPI1V1 calls
+    ///     this mutually exclusive with `fcdsl`; component specs
+    ///     override that for their own methods, so nothing here
+    ///     enforces it — see the note in the body.
     ///   - fcdsl: opaque JSON for query endpoints.
     ///   - binary: optional binary blob appended after the JSON header.
     ///     `dataSize` is auto-set when `binary` is non-nil.
@@ -226,14 +225,23 @@ public final class FapiClient: FapiCalling {
         maxCost: Int64? = nil,
         timeoutMs: Int = 5_000
     ) async throws -> Reply {
-        // FAPI1V1: "A request MUST NOT have both `fcdsl` and `params`
-        // set simultaneously; servers MUST reject such requests with
-        // code 400." Building one anyway spends a round trip to be told
-        // that, and leaves the caller reading a protocol error where
-        // the mistake was theirs.
-        if params != nil, fcdsl != nil {
-            throw Failure.mutuallyExclusiveRequestBody(api: api)
-        }
+        // **`params` and `fcdsl` together are not this layer's to
+        // refuse.** FAPI1V1 §4 says a request "MUST NOT have both
+        // `fcdsl` and `params` set simultaneously", and a guard here
+        // once rejected the pair before it could reach the wire. But
+        // the component specifications above it define methods that
+        // take exactly that pair: FAPI13V1 §4.3 `dock.fetch` addresses
+        // its mailboxes in `params.recipientIds` and pages them with
+        // `fcdsl.sort` / `size` / `after`, request example included,
+        // and the real servers answer it — as does Android, whose
+        // `FapiClient.dockFetch` sets both. Enforcing the general rule
+        // therefore silenced every incoming message in the app while
+        // sending, which needs only `params`, went on working.
+        //
+        // An api-by-api allow-list would be the same bet placed again:
+        // this client cannot know which component spec governs a name
+        // it is merely passing through. The server validates its own
+        // requests, and a 400 is the honest place to learn of one.
         let messageId = Int64.random(in: 1...Int64.max)
         let request = FapiRequest(
             id: FapiRequest.generateId(),
