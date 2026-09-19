@@ -274,7 +274,8 @@ struct SettingsView: View {
 
                 LabeledField(
                     "Auto-lock after (minutes)",
-                    hint: "Blank = never auto-lock."
+                    hint: "Blank = never auto-lock. Locking closes the vault, "
+                        + "and with it any open terminals and the SSH agent."
                 ) {
                     TextField("", text: $autoLockMinutes, prompt: Text("e.g. 10"))
                         .fieldInputStyle()
@@ -478,6 +479,9 @@ struct SettingsView: View {
             // The session caches one of these (the signing gate), so
             // tell it the row moved under its feet.
             session.reloadPreferences()
+            // And the shell holds the inactivity clock, which has just
+            // been given a new length — or turned off.
+            appState.applyAutoLockSetting(for: session)
             // Repainting is the only way to see this one worked.
             appState.applyTheme(theme)
             // Persist succeeded — now (re)build the live FAPI client

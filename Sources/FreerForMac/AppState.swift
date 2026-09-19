@@ -194,6 +194,24 @@ final class AppState {
     var route: AppRoute
     var lastError: String?
 
+    /// Why the password screen is on screen, when it is there because
+    /// the app put it there. Not an error — the control did what it was
+    /// told — so it is not shown as one, and a manual lock sets nothing.
+    var lockNotice: String?
+
+    /// The inactivity clock behind the Auto-lock setting. Armed from the
+    /// live identity's preferences at unlock; off until one says
+    /// otherwise.
+    @ObservationIgnored private var autoLock = AutoLock()
+
+    /// Sleeps out what is left of the idle window, then locks. Nil
+    /// whenever auto-lock is off, so a setting nobody turned on costs
+    /// nothing at all.
+    @ObservationIgnored private var autoLockTask: Task<Void, Never>?
+
+    /// The local event monitor that notices the user is here.
+    @ObservationIgnored private var activityMonitor: Any?
+
     /// Owned FAPI client (and, inside it, the UDP transport) kept here
     /// so the lock-vault / switch-identity / save-new-settings paths
     /// can close it, and so the wake / network-change observers can
@@ -320,6 +338,7 @@ final class AppState {
             self.route = .password
             self.lastError = "Couldn't open vault storage: \(error). Data won't persist."
             self.installConnectivityObservers()
+            self.installActivityMonitor()
             return
         }
         self.manager = resolved
@@ -335,6 +354,7 @@ final class AppState {
         self.configures = (try? resolved.listConfigures()) ?? []
         self.route = .password
         self.installConnectivityObservers()
+        self.installActivityMonitor()
     }
 
     deinit {
@@ -343,6 +363,9 @@ final class AppState {
         }
         for observer in activationObservers {
             NotificationCenter.default.removeObserver(observer)
+        }
+        if let activityMonitor {
+            NSEvent.removeMonitor(activityMonitor)
         }
         pathMonitor?.cancel()
     }
@@ -361,7 +384,16 @@ final class AppState {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.markTransportsStale()
+            // Registered on the main queue, so this already *is* the
+            // main actor — saying so costs the two calls below neither a
+            // hop nor a concurrency warning each.
+            MainActor.assumeIsolated {
+                self?.markTransportsStale()
+                // A Mac that slept through its timeout is locked the
+                // moment it comes back, rather than whenever the
+                // countdown's own sleep is next rescheduled.
+                self?.checkAutoLockNow()
+            }
         }
 
         let monitor = NWPathMonitor()
@@ -532,6 +564,7 @@ final class AppState {
         kdfKind: KdfKind = .argon2id
     ) async {
         lastError = nil
+        lockNotice = nil
         let passwordName = ConfigureCrypto.passwordName(from: password)
         let manager = self.manager
 
@@ -578,6 +611,8 @@ final class AppState {
         // moved when it comes back, and drops what it was carrying
         // instead of restoring a vault the user has closed.
         retireSession()
+        stopAutoLock()
+        lockNotice = nil
         // Anything parked on a confirmation dialog is answered "no"
         // first: the session is about to disappear, and a question
         // nobody can answer must not turn into a signature.
@@ -597,6 +632,115 @@ final class AppState {
         // The theme belonged to the identity we just put away.
         applyTheme(.system)
         route = .password
+    }
+
+    // MARK: - auto-lock
+
+    /// Watch for the user being here.
+    ///
+    /// **Local, not global.** A global monitor sees events aimed at every
+    /// other app and needs the Accessibility permission to do it — a
+    /// prompt asking to observe all of someone's typing, to implement a
+    /// timeout. What it would add is the time spent in other apps, and
+    /// for this purpose that is not activity: a vault left open behind
+    /// somebody else's window is exactly the case being timed.
+    ///
+    /// Installed once, for the life of the process. The handler is on
+    /// the hot path of every key and every click, so it stamps one
+    /// instant and gets out of the way.
+    private func installActivityMonitor() {
+        let interesting: NSEvent.EventTypeMask = [
+            .keyDown, .flagsChanged, .scrollWheel,
+            .leftMouseDown, .rightMouseDown, .otherMouseDown,
+            .leftMouseDragged, .mouseMoved
+        ]
+        activityMonitor = NSEvent.addLocalMonitorForEvents(matching: interesting) { [weak self] event in
+            // The handler runs on the main thread as part of event
+            // dispatch, so the state it touches is already this actor's
+            // — and a hop per keystroke, to write one timestamp, would
+            // be a strange thing to pay for.
+            MainActor.assumeIsolated {
+                self?.noteUserActivity()
+            }
+            return event
+        }
+    }
+
+    private func noteUserActivity() {
+        guard autoLock.isArmed else { return }
+        autoLock.noteActivity()
+    }
+
+    /// Arm — or disarm — the clock from the live identity's setting.
+    ///
+    /// Called at unlock and again whenever Settings is saved, because
+    /// the timeout is a per-identity preference: it cannot be known
+    /// before a session is open, and it changes underneath one.
+    func applyAutoLockSetting(for session: ActiveSession) {
+        autoLock.setTimeout(seconds: (try? session.preferences.load())?.autoLockSeconds)
+        restartAutoLockCountdown()
+    }
+
+    /// Sleep out what is left of the idle window, then lock.
+    ///
+    /// A countdown rather than a poll: the clock knows exactly how long
+    /// it has, so there is nothing to ask every few seconds. Activity
+    /// during the sleep only means the next lap has further to go, and
+    /// someone working steadily wakes this once per timeout. The sleep
+    /// is on the same continuous clock ``AutoLock`` measures with, so
+    /// time the machine spends asleep is counted by both.
+    private func restartAutoLockCountdown() {
+        autoLockTask?.cancel()
+        guard autoLock.isArmed else {
+            autoLockTask = nil
+            return
+        }
+        autoLockTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                guard let self, let remaining = self.autoLock.remaining() else { return }
+                guard remaining > .zero else {
+                    self.lockForInactivity()
+                    return
+                }
+                do { try await Task.sleep(for: remaining) } catch { return }
+            }
+        }
+    }
+
+    /// Close the vault because nobody is here, and say so.
+    ///
+    /// The notice matters more than it looks: without it the app has
+    /// silently thrown away a session, several terminals and the ssh
+    /// agent, and the only thing on screen is a password field that
+    /// looks like a crash or a relaunch.
+    private func lockForInactivity() {
+        let minutes = autoLock.timeout.map { max(1, Int($0.components.seconds) / 60) }
+        lockAll()
+        if let minutes {
+            lockNotice = "Locked after \(minutes) minute\(minutes == 1 ? "" : "s") without activity."
+        }
+    }
+
+    /// Lock now if the idle window elapsed while nothing was watching.
+    ///
+    /// The countdown is a sleeping task, and a machine that suspends
+    /// takes the task with it. ``AutoLock`` counts that time — it
+    /// measures on a continuous clock, and refuses to accept activity
+    /// that arrives after the deadline — but somebody has to ask, and
+    /// waking up is the moment to.
+    private func checkAutoLockNow() {
+        guard autoLock.hasExpired() else { return }
+        lockForInactivity()
+    }
+
+    /// Put the clock away. Only a lock does this — a vault left open at
+    /// the identity chooser is the same vault, and the same reason to
+    /// close it, so ``returnToChooseMain()`` deliberately leaves the
+    /// countdown running.
+    private func stopAutoLock() {
+        autoLockTask?.cancel()
+        autoLockTask = nil
+        autoLock.setTimeout(seconds: nil)
     }
 
     // MARK: - main FID flow
@@ -690,8 +834,10 @@ final class AppState {
             self.selectedPane = .overview
             self.route = .home
             // Before the first frame of `.home`: the theme is a
-            // per-identity preference, so it can only be known now.
+            // per-identity preference, so it can only be known now. The
+            // same is true of the inactivity timeout.
             applyStoredTheme(for: session)
+            applyAutoLockSetting(for: session)
             // Show whatever the last session cached before the network
             // is even up — the bar should never start blank.
             self.loadCachedLiveFidInfo()

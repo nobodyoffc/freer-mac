@@ -49,6 +49,14 @@ struct PasswordView: View {
                         .foregroundStyle(.red)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 400)
+                } else if let notice = appState.lockNotice {
+                    // Not red: the app did what the setting told it to,
+                    // and nothing has gone wrong.
+                    Text(notice)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 400)
                 }
 
                 HStack(spacing: 12) {
