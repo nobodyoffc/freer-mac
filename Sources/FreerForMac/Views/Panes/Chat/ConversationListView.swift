@@ -107,6 +107,15 @@ struct ConversationListView: View {
         return ChatFormat.title(of: conversation)
     }
 
+    /// Whether the second line has an id worth printing.
+    ///
+    /// A thread with no name of its own is *already* titled by its
+    /// elided id — printing it again underneath would be the same
+    /// string twice, one size down.
+    private func showsId(_ conversation: Conversation) -> Bool {
+        title(of: conversation) != conversation.targetId.elidingMiddle(head: 8, tail: 6)
+    }
+
     private func row(_ conversation: Conversation) -> some View {
         HStack(alignment: .top, spacing: 8) {
             if let checked {
@@ -136,22 +145,48 @@ struct ConversationListView: View {
             }
 
             VStack(alignment: .leading, spacing: 2) {
+                // **The name is the loudest thing in the row**, and it
+                // gets the whole first line. A thread list is scanned,
+                // not read: the eye is looking for one name among
+                // twenty, and sharing the line with an id and two flags
+                // left it a third of the row to truncate into.
                 HStack(spacing: 4) {
                     if conversation.type == .p2p {
                         NobodyChip(fid: conversation.targetId)
                     }
-                    // **The name is the loudest thing in the row.** A
-                    // thread list is scanned, not read: the eye is
-                    // looking for one name among twenty, and it was
-                    // competing with a preview line of the same weight
-                    // one size down. So the name goes up a size, gains
-                    // the flavour's colour where the flavour has one to
-                    // give, and the preview drops back to being the
-                    // quiet second line it always meant to be.
                     Text(title(of: conversation))
                         .font(.body.weight(.bold))
                         .foregroundStyle(nameColor)
                         .lineLimit(1)
+                    // The time belongs to the first line and only to
+                    // the first line. Standing in a column beside all
+                    // three, it was narrowing the id and the preview by
+                    // its own width — and a long date is wide.
+                    Spacer(minLength: 8)
+                    if let time = conversation.lastActiveAt {
+                        Text(ChatFormat.shortTime.string(from: Date(timeIntervalSince1970: Double(time) / 1000)))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .fixedSize()
+                    }
+                }
+                // The id and the flags share the second line. The id is
+                // what you compare against a link someone sent you, so
+                // it is elided in the middle and copies whole on a
+                // click; the flags are short enough to sit beside it.
+                HStack(spacing: 4) {
+                    if showsId(conversation) {
+                        CopyableText.elidingMiddle(
+                            conversation.targetId,
+                            head: 8,
+                            tail: 6,
+                            font: .caption2.monospaced(),
+                            color: .secondary,
+                            help: conversation.type == .p2p
+                                ? "Copy this Freer's FID"
+                                : "Copy this \(style.noun)'s id"
+                        )
+                    }
                     if conversation.leftGroup == true {
                         // A room ends the same way whether its owner
                         // closed it, removed us, or we left: nobody here
@@ -168,27 +203,24 @@ struct ConversationListView: View {
                         ChatChip("public", color: style.tint)
                     }
                 }
-                Text(conversation.lastMessageContent ?? "No messages yet")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer(minLength: 0)
-
-            VStack(alignment: .trailing, spacing: 4) {
-                if let time = conversation.lastActiveAt {
-                    Text(ChatFormat.shortTime.string(from: Date(timeIntervalSince1970: Double(time) / 1000)))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-                if let unread = conversation.unreadCount, unread > 0 {
-                    Text("\(unread)")
-                        .font(.caption2.bold())
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(style.tint))
-                        .foregroundStyle(.white)
+                // The unread count rides the last line, where it is
+                // out of the name's way and still on the edge the eye
+                // runs down.
+                HStack(spacing: 4) {
+                    Text(conversation.lastMessageContent ?? "No messages yet")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    if let unread = conversation.unreadCount, unread > 0 {
+                        Text("\(unread)")
+                            .font(.caption2.bold())
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Capsule().fill(style.tint))
+                            .foregroundStyle(.white)
+                            .fixedSize()
+                    }
                 }
             }
         }
@@ -208,6 +240,12 @@ struct ChatChip: View {
     var body: some View {
         Text(text)
             .font(.caption2.bold())
+            // A chip is a label, not a paragraph. Left compressible it
+            // breaks mid-word into a two-letter column — "DO CK do wn" —
+            // the moment the row it sits in runs short of width. It keeps
+            // its natural size instead, and the name beside it truncates.
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, 5)
             .padding(.vertical, 1)
             .background(Capsule().fill(color.opacity(0.15)))
