@@ -358,25 +358,151 @@ public struct TeamConsensus {
         )
     }
 
-    /// The document as text — ``fetch(consensusId:diskSids:progress:)``
-    /// plus a UTF-8 decode.
+    /// A consensus document as it came back: the verified bytes, and
+    /// the prose if prose is what they are.
+    ///
+    /// **``text`` being nil is an answer, not a failure.** FEIP18 says
+    /// nothing at all about what a `consensusId` points at; that it is
+    /// the hash of the document is this client family's convention, and
+    /// even that convention says nothing about the document being
+    /// written rather than typeset. Owners on other clients carve PDFs
+    /// and word-processor files. A reader that could only report an
+    /// encoding error would be withholding a document it has already
+    /// fetched, verified against the id, and stored — which is every
+    /// part of the job except the last one.
+    public struct Document: Sendable {
+        /// This device's copy of the verified bytes. Named by the id,
+        /// so it carries no file extension.
+        public let url: URL
+        public let byteCount: Int64
+        /// The document as prose, or nil when the bytes are not text.
+        public let text: String?
+        /// What the bytes look like, from the first few of them. Nil
+        /// when nothing recognises them — also an answer.
+        public let kind: FileKind?
+    }
+
+    /// A guess at what a document that is not prose actually is.
+    ///
+    /// Enough to name it on screen and to propose a filename the Finder
+    /// will hand to the right app. It is never used to decide whether
+    /// bytes are acceptable: the hash already did that, and a document
+    /// this client cannot name is still the document the team carved.
+    public struct FileKind: Sendable, Equatable {
+        /// A noun phrase with its article — "a PDF" — because every
+        /// sentence this appears in is of the form "the document is …".
+        public let label: String
+        public let fileExtension: String
+
+        public init(label: String, fileExtension: String) {
+            self.label = label
+            self.fileExtension = fileExtension
+        }
+    }
+
+    /// Fetch the document and say what it is —
+    /// ``fetch(consensusId:diskSids:progress:)`` plus a decode that is
+    /// allowed to come back empty-handed.
     ///
     /// The decode is deliberately outside the retry: bytes that arrived
     /// and hashed correctly are a final answer, and asking a second
     /// server for the same id can only return the same bytes.
+    public func read(
+        consensusId: String,
+        diskSids: [String],
+        progress: (@Sendable (Int64) -> Void)? = nil
+    ) async throws -> Document {
+        let url = try await fetch(consensusId: consensusId, diskSids: diskSids, progress: progress)
+        guard let data = try? Data(contentsOf: url) else {
+            throw Failure.unreachable(consensusId: consensusId, diagnostics: "local read failed")
+        }
+        return Document(
+            url: url,
+            byteCount: Int64(data.count),
+            text: Self.decodeText(data),
+            kind: Self.sniff(data)
+        )
+    }
+
+    /// The document as text, or ``Failure/notUtf8(consensusId:)``.
+    ///
+    /// For callers that have nothing to offer but prose. Anything with
+    /// a user in front of it should call ``read(consensusId:diskSids:progress:)``
+    /// instead and hand over the file.
     public func readText(
         consensusId: String,
         diskSids: [String],
         progress: (@Sendable (Int64) -> Void)? = nil
     ) async throws -> String {
-        let url = try await fetch(consensusId: consensusId, diskSids: diskSids, progress: progress)
-        guard let data = try? Data(contentsOf: url) else {
-            throw Failure.unreachable(consensusId: consensusId, diagnostics: "local read failed")
-        }
-        guard let text = String(data: data, encoding: .utf8) else {
+        let document = try await read(
+            consensusId: consensusId, diskSids: diskSids, progress: progress
+        )
+        guard let text = document.text else {
             throw Failure.notUtf8(consensusId: consensusId)
         }
         return text
+    }
+
+    /// The bytes as prose, or nil when they are not prose.
+    ///
+    /// UTF-8, or UTF-16 when a byte-order mark says so outright. **No
+    /// further guessing**, and that restraint is the point: the legacy
+    /// encodings decode almost any byte sequence into *something*, so a
+    /// decoder that kept trying would turn a PDF into a page of
+    /// mojibake and present it as the team's consensus. Better to say
+    /// the document is not text and hand over the file.
+    public static func decodeText(_ data: Data) -> String? {
+        if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]) {
+            return String(data: data, encoding: .utf16)
+        }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// What a document looks like, from its leading bytes.
+    public static func sniff(_ data: Data) -> FileKind? {
+        if data.starts(with: Array("%PDF".utf8)) {
+            return FileKind(label: "a PDF", fileExtension: "pdf")
+        }
+        // The OLE2 compound-file header, which is every pre-2007 Office
+        // document. Which one it is lives inside the container, and
+        // .doc is the only one anybody carves as a consensus.
+        if data.starts(with: [0xD0, 0xCF, 0x11, 0xE0]) {
+            return FileKind(label: "an older Word document", fileExtension: "doc")
+        }
+        if data.starts(with: Array("{\\rtf".utf8)) {
+            return FileKind(label: "an RTF document", fileExtension: "rtf")
+        }
+        if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) {
+            return FileKind(label: "a PNG image", fileExtension: "png")
+        }
+        if data.starts(with: [0xFF, 0xD8, 0xFF]) {
+            return FileKind(label: "a JPEG image", fileExtension: "jpg")
+        }
+        if data.starts(with: Array("GIF8".utf8)) {
+            return FileKind(label: "a GIF image", fileExtension: "gif")
+        }
+        if data.starts(with: [0x50, 0x4B, 0x03, 0x04]) {
+            return zipKind(data)
+        }
+        return nil
+    }
+
+    /// Which flavour of zip. The modern office formats are all zips,
+    /// and they are told apart by the directory names inside — read out
+    /// of the first few kilobytes rather than by unpacking, because
+    /// this is a label on a screen and not a parse.
+    private static func zipKind(_ data: Data) -> FileKind {
+        let head = data.prefix(4096)
+        func names(_ needle: String) -> Bool {
+            head.range(of: Data(needle.utf8)) != nil
+        }
+        if names("word/") { return FileKind(label: "a Word document", fileExtension: "docx") }
+        if names("xl/") { return FileKind(label: "an Excel workbook", fileExtension: "xlsx") }
+        if names("ppt/") { return FileKind(label: "a PowerPoint deck", fileExtension: "pptx") }
+        if names("opendocument.text") {
+            return FileKind(label: "an OpenDocument text document", fileExtension: "odt")
+        }
+        return FileKind(label: "a zip archive", fileExtension: "zip")
     }
 
     // MARK: - internals

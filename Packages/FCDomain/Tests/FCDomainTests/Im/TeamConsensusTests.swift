@@ -167,6 +167,100 @@ final class TeamConsensusTests: XCTestCase {
         XCTAssertEqual(text, TeamConsensus.template)
     }
 
+    // MARK: - a consensus that is not prose
+
+    /// The defect this section exists for: an owner on another client
+    /// carves a PDF, and the Mac reported "not UTF-8 text" about bytes
+    /// it had already fetched, verified and stored. Nothing on the
+    /// chain promises prose, so a read has to come back with the file.
+    func testAConsensusThatIsAPdfComesBackAsAFileRatherThanAnError() async throws {
+        let bytes = pdfBytes
+        let id = try registerLocalDocument(bytes, named: "consensus.pdf")
+
+        let document = try await session.teamConsensus.read(consensusId: id, diskSids: [])
+
+        XCTAssertNil(document.text, "a PDF is not prose and must not be decoded into any")
+        XCTAssertEqual(document.kind?.fileExtension, "pdf")
+        XCTAssertEqual(document.kind?.label, "a PDF")
+        XCTAssertEqual(document.byteCount, Int64(bytes.count))
+        XCTAssertEqual(try Data(contentsOf: document.url), bytes)
+    }
+
+    /// Unrecognised bytes are still a document. Failing to name a file
+    /// is not a reason to withhold it.
+    func testBytesNothingRecognisesStillComeBackAsAFile() async throws {
+        let bytes = Data([0x00, 0x01, 0x02, 0xFF, 0xFD, 0x7F, 0x00])
+        let id = try registerLocalDocument(bytes, named: "consensus.bin")
+
+        let document = try await session.teamConsensus.read(consensusId: id, diskSids: [])
+
+        XCTAssertNil(document.text)
+        XCTAssertNil(document.kind, "nothing should be guessed from bytes nothing recognises")
+    }
+
+    /// `readText` keeps its contract for the callers that have nothing
+    /// to offer but prose.
+    func testReadTextStillRefusesBytesThatAreNotText() async throws {
+        let id = try registerLocalDocument(pdfBytes, named: "consensus.pdf")
+        do {
+            _ = try await session.teamConsensus.readText(consensusId: id, diskSids: [])
+            XCTFail("expected a throw")
+        } catch let failure as TeamConsensus.Failure {
+            guard case .notUtf8 = failure else {
+                return XCTFail("expected .notUtf8, got \(failure)")
+            }
+        }
+    }
+
+    /// The office formats are zips, and which one is read out of the
+    /// entry names rather than by unpacking.
+    func testTheZipOfficeFormatsAreToldApartByTheirEntryNames() {
+        var docx = Data([0x50, 0x4B, 0x03, 0x04])
+        docx.append(Data("[Content_Types].xml……word/document.xml".utf8))
+        XCTAssertEqual(TeamConsensus.sniff(docx)?.fileExtension, "docx")
+
+        var plain = Data([0x50, 0x4B, 0x03, 0x04])
+        plain.append(Data("readme.txt".utf8))
+        XCTAssertEqual(TeamConsensus.sniff(plain)?.fileExtension, "zip")
+    }
+
+    /// **No encoding guessing.** Every legacy decoder turns arbitrary
+    /// bytes into something, and something is worse than nothing when
+    /// the screen it lands on says "this is what your team agreed to".
+    func testADecodeNeverGuessesPastUtf8AndAMarkedUtf16() {
+        XCTAssertEqual(TeamConsensus.decodeText(Data("héllo".utf8)), "héllo")
+        // GB18030 bytes for 共识 — decodable by a guesser, and not text
+        // this client is willing to invent.
+        XCTAssertNil(TeamConsensus.decodeText(Data([0xB9, 0xB2, 0xCA, 0xB6])))
+        var utf16 = Data([0xFF, 0xFE])
+        utf16.append(Data("ok".utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] }))
+        XCTAssertEqual(TeamConsensus.decodeText(utf16), "ok")
+    }
+
+    /// A PDF's first two lines: the version, then the binary comment
+    /// every writer emits so that transports stop treating the file as
+    /// text. Those four high bytes are *not* valid UTF-8 — which is the
+    /// whole reason this file needs a fixture rather than a string.
+    private var pdfBytes: Data {
+        var bytes = Data("%PDF-1.7\n%".utf8)
+        bytes.append(contentsOf: [0xE2, 0xE3, 0xCF, 0xD3, 0x0A])
+        bytes.append(Data("1 0 obj".utf8))
+        return bytes
+    }
+
+    /// Store bytes on this device under their own hash, the way a
+    /// finished download is adopted, and hand back the id.
+    private func registerLocalDocument(_ bytes: Data, named name: String) throws -> String {
+        let id = Hex.encode(Hash.doubleSha256(bytes))
+        try FileManager.default.createDirectory(
+            at: session.files.dataDirectory, withIntermediateDirectories: true
+        )
+        let url = session.files.defaultLocalURL(did: id)
+        try bytes.write(to: url, options: .atomic)
+        _ = try session.files.registerFile(at: url, name: name)
+        return id
+    }
+
     /// The template's newlines are its bytes. Android's build collapsed
     /// them into spaces and flattened the document without anyone
     /// noticing until it was carved.

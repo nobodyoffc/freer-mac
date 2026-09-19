@@ -96,6 +96,12 @@ struct ChatView: View {
     /// from the chain by the group sync — see ``ConsensusSignatureSheet``.
     @State private var consensusDue: [ConsensusSignatureRequest] = []
     @State private var showConsensus = false
+    /// A team's consensus document, opened for reading from that team's
+    /// menu. A request rather than a Bool because the sheet cannot work
+    /// out for itself *which* document or where to fetch it from, and
+    /// both are read off the team record at the moment the item is
+    /// pressed — not later, when the selection may have moved on.
+    @State private var readingConsensus: ConsensusRead?
     /// Teams inviting this identity in or being handed to it, not yet
     /// answered. Teams tab only — see ``TeamOffersSheet``.
     @State private var teamOffers: [TeamOffer] = []
@@ -531,6 +537,17 @@ struct ChatView: View {
                 session: session,
                 onClose: { showConsensus = false },
                 onChanged: { reload() }
+            )
+        }
+        .sheet(item: $readingConsensus) { request in
+            ConsensusDocumentSheet(
+                session: session,
+                title: request.title,
+                consensusId: request.consensusId,
+                diskSids: request.diskSids,
+                editable: false,
+                onSaved: { _ in readingConsensus = nil },
+                onClose: { readingConsensus = nil }
             )
         }
         .sheet(isPresented: $showRequests) {
@@ -1193,12 +1210,21 @@ struct ChatView: View {
                 Button("Delete…", role: .destructive) { confirmDelete = conversation }
 
             case .team:
-                let isManager = ((try? session.teams.get(id: conversation.targetId)) ?? nil)
-                    .map { TeamGovernance.canManage($0, session.liveFid) } ?? false
+                let team = (try? session.teams.get(id: conversation.targetId)) ?? nil
+                let isManager = team.map { TeamGovernance.canManage($0, session.liveFid) } ?? false
                 // Managers invite, withdraw and dismiss; the owner also
                 // appoints. All of it lives on the member list, row by
                 // row, which is where a person is being acted on.
                 Button(isManager ? "Members & invitations…" : "Members…") { showMembers = true }
+                // Offered to every member, not just the owner. The
+                // consensus is the one part of a team a member is on
+                // chain as having *agreed* to, and until now the only
+                // ways back to the text were an invitation and a change
+                // waiting to be signed — both of which stop being
+                // offered the moment they are answered. The owner has
+                // had it all along, behind team settings; this is the
+                // same document fetched the same way, minus the carve.
+                Button("Consensus document…") { readConsensus(conversation, team: team) }
                 Button("Ask for the key…") { asking = .symkey }
                 Button("Request history…") { showHistoryAsk = true }
                 if facts.isOwner {
@@ -1670,6 +1696,34 @@ struct ChatView: View {
     }
 
     // MARK: - menu actions
+
+    /// Which consensus document to read, and where to look for it.
+    private struct ConsensusRead: Identifiable {
+        let id = UUID()
+        /// What the sheet is about — the team's name, not the
+        /// document's. A consensus document has no title of its own.
+        let title: String
+        let consensusId: String
+        let diskSids: [String]
+    }
+
+    /// Open a team's consensus document, read-only.
+    ///
+    /// Read-only for the owner too: replacing the text is a carve, and
+    /// carving is what ``GroupSettingsSheet`` is for. The DISK comes
+    /// from the team's `home` map rather than from anything typed here,
+    /// which is the whole distribution mechanism — a member who can
+    /// resolve the team can fetch the bytes and check them against the
+    /// id without being told anything out of band. An empty list is not
+    /// a failure to look: it means the team publishes no DISK, and the
+    /// sheet says so rather than blaming the network.
+    private func readConsensus(_ conversation: Conversation, team: Team?) {
+        readingConsensus = ConsensusRead(
+            title: "\(ChatFormat.title(of: conversation))'s consensus",
+            consensusId: team?.consensusId ?? "",
+            diskSids: [TeamConsensus.diskSid(of: team)].compactMap { $0 }
+        )
+    }
 
     /// Close a room we own. The keys are **kept**: this ends the
     /// conversation, it does not burn the transcript.
