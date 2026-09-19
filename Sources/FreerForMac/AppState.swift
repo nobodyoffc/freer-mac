@@ -425,9 +425,13 @@ final class AppState {
         ] {
             activationObservers.append(
                 center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                    guard let self else { return }
-                    self.appIsActive = active
-                    self.applyFetchLayer()
+                    // Registered on the main queue, so this already *is*
+                    // the main actor.
+                    MainActor.assumeIsolated {
+                        guard let self else { return }
+                        self.appIsActive = active
+                        self.applyFetchLayer()
+                    }
                 }
             )
         }
@@ -893,10 +897,11 @@ final class AppState {
     /// in `NSHostingView` reaching for SwiftUI's view-graph lock. The
     /// main thread takes those two in the opposite order whenever it
     /// lays out — it holds the view graph and asks AppKit for the
-    /// effective appearance. Called off-main (``unlockMain(fid:)`` is
-    /// not main-actor isolated, so it runs on a cooperative thread)
-    /// the two orders meet and the app hangs with no CPU burned and
-    /// nothing on screen. Hence the hop.
+    /// effective appearance. Called off-main the two orders meet and
+    /// the app hangs with no CPU burned and nothing on screen. That
+    /// is now the actor's guarantee rather than a runtime check:
+    /// ``AppState`` is `@MainActor`, so there is no caller that could
+    /// arrive here from anywhere else.
     func applyTheme(_ theme: Preferences.Theme) {
         let appearance: NSAppearance?
         switch theme {
@@ -907,16 +912,8 @@ final class AppState {
         // SwiftTerm samples the effective appearance once, when the
         // view is built, so a terminal that is already open keeps the
         // old palette unless it is told to look again.
-        let terminals = terminalSessions.map(\.view)
-        let apply = {
-            NSApp.appearance = appearance
-            for view in terminals { view.configureNativeColors() }
-        }
-        if Thread.isMainThread {
-            apply()
-        } else {
-            DispatchQueue.main.async(execute: apply)
-        }
+        NSApp.appearance = appearance
+        for session in terminalSessions { session.view.configureNativeColors() }
     }
 
     /// Apply the theme stored in a just-unlocked identity's
