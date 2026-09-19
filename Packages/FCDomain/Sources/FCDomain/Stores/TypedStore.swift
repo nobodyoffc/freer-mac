@@ -42,6 +42,27 @@ public struct TypedStore<Value: Codable> {
         try kv.listKeys(namespace: namespace)
     }
 
+    /// Read-modify-write one row inside a single transaction — see
+    /// ``EncryptedKVStore/mutate(_:namespace:key:_:)``, whose warning
+    /// about not touching the store from inside `change` applies here
+    /// too.
+    @discardableResult
+    public func mutate(_ key: String, _ change: (Value?) throws -> Value?) throws -> Value? {
+        try kv.mutate(Value.self, namespace: namespace, key: key, change)
+    }
+
+    /// This store's ``put(_:key:)``, as a change to be committed with
+    /// others — see ``EncryptedKVStore/write(_:)``.
+    public func change(putting value: Value, key: String) -> EncryptedKVStore.Change {
+        .put(namespace: namespace, key: key, value: value)
+    }
+
+    /// This store's ``delete(_:)``, as a change to be committed with
+    /// others.
+    public func change(deleting key: String) -> EncryptedKVStore.Change {
+        .delete(namespace: namespace, key: key)
+    }
+
     /// Eagerly load every row in the namespace. Fine for small,
     /// human-scale collections (contacts, pinned services). Don't use
     /// for unbounded sets like message history — page those manually.

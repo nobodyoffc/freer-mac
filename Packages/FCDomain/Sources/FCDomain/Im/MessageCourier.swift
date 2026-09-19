@@ -1,5 +1,6 @@
 import Foundation
 import FCCore
+import FCStorage
 import FCTransport
 
 /// The thing that actually moves messages: drains the outbox onto a
@@ -67,6 +68,9 @@ public struct MessageCourier {
     /// check, which is what tests that re-read on purpose want.
     private let seen: SeenMessagesStore?
 
+    /// ``outbox`` and ``messages`` must be over the same
+    /// ``EncryptedKVStore``: a delivery writes to both in one
+    /// transaction. Every session builds them from its one store.
     public init(
         outbox: MessageQueue,
         messages: MessagesStore,
@@ -102,6 +106,20 @@ public struct MessageCourier {
         public let sent: Int
         public let retrying: Int
         public let failed: Int
+        /// Due, but claimed by a drain that was already under way. Not a
+        /// failure of any kind — it is the count of envelopes that were
+        /// not sent twice.
+        public let skipped: Int
+
+        public init(
+            attempted: Int, sent: Int, retrying: Int, failed: Int, skipped: Int = 0
+        ) {
+            self.attempted = attempted
+            self.sent = sent
+            self.retrying = retrying
+            self.failed = failed
+            self.skipped = skipped
+        }
     }
 
     /// Which of the registered DOCKs a collect should touch.
@@ -231,13 +249,24 @@ public struct MessageCourier {
         timeoutMs: Int = 15_000
     ) async throws -> SendReport {
         let due = try outbox.due(now: now)
-        var sent = 0, retrying = 0, failed = 0
+        var sent = 0, retrying = 0, failed = 0, skipped = 0
         var ownDock = ownDockUrl
         if ownDock == nil { ownDock = await registry.ownDockUrl }
 
         for queued in due {
+            // **Claimed, not just read.** This pass is one of several —
+            // a thirty-second timer, and every screen that sends
+            // something — and the gap between listing what is due and
+            // attempting it is wide enough for another drain to walk
+            // through. The one that loses the claim skips the message
+            // rather than putting a second copy of it on the recipient's
+            // DOCK.
+            guard let claimed = try? outbox.claim(id: queued.id, now: now) else {
+                skipped += 1
+                continue
+            }
             let outcome = await deliver(
-                queued, as: liveFid, ownDockUrl: ownDock, now: now, timeoutMs: timeoutMs
+                claimed, as: liveFid, ownDockUrl: ownDock, now: now, timeoutMs: timeoutMs
             )
             switch outcome {
             case .sent: sent += 1
@@ -246,7 +275,10 @@ public struct MessageCourier {
             case .unknown: break
             }
         }
-        return SendReport(attempted: due.count, sent: sent, retrying: retrying, failed: failed)
+        return SendReport(
+            attempted: due.count - skipped, sent: sent, retrying: retrying,
+            failed: failed, skipped: skipped
+        )
     }
 
     /// Tell the sender their message arrived.
@@ -532,15 +564,43 @@ public struct MessageCourier {
         now: Date
     ) async -> MessageQueue.Outcome {
         guard let id = queued.message.id else { return .unknown }
-        try? messages.mutate(messageId: id, in: queued.conversationId) { message in
-            message.status = .sent
-            message.deliveryMethod = route.deliveryMethod
-            message.dockId = dockId
+
+        // **One transaction, because these are one fact.** The message
+        // is delivered and its outbox entry is spent. A build where only
+        // the first lands shows the message as sent and sends it again
+        // on the next drain; one where only the second lands leaves it
+        // saying "sending" for ever, with nothing left that would ever
+        // correct it. Both were reachable while these were two `try?`s
+        // in a row.
+        do {
+            var changes: [EncryptedKVStore.Change] = []
+            if let stamped = try messages.change(messageId: id, in: queued.conversationId, {
+                $0.status = .sent
+                $0.deliveryMethod = route.deliveryMethod
+                $0.dockId = dockId
+            }) {
+                changes.append(stamped)
+            }
+            changes.append(outbox.change(removing: id))
+            try messages.kv.write(changes)
+        } catch {
+            // Neither row moved, so the message is still queued and will
+            // be attempted again. The recipient drops the second copy as
+            // a replay — it carries the same id — which is the cheaper
+            // of the two ways this can be wrong.
+            SystemLog.shared.error(
+                SystemSource.messages,
+                "Delivered a message but could not record it",
+                detail: "\(error)\nIt stays in the outbox and will be sent again."
+            )
+            return .unknown
         }
         // A DOCK delivery is evidence the peer was *not* reachable, so
-        // `PeerBook` deliberately does not treat it as a sighting.
+        // `PeerBook` deliberately does not treat it as a sighting. Kept
+        // out of the transaction above: a sighting is a hint, and losing
+        // one must not undo a delivery.
         try? peers.delivered(to: targetId, via: route.deliveryMethod, now: now)
-        return (try? outbox.record(.success, for: id, now: now)) ?? .unknown
+        return .sent
     }
 
     @discardableResult

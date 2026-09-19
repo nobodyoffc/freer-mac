@@ -257,6 +257,38 @@ final class ContactPolicyTests: XCTestCase {
         )
     }
 
+    /// **The cap counts messages held, not arrivals.** The store is
+    /// keyed by message id, so a sender repeating one overwrites their
+    /// own held copy — and counting the repeat spends a slot that
+    /// nothing occupies. Twenty repeats used to fill a queue holding a
+    /// single message, leaving the index claiming twenty where
+    /// ``MessageRequests/held(from:)`` could find one.
+    func testARepeatedMessageDoesNotSpendTheQuotaTwice() throws {
+        for _ in 0..<(MessageRequests.maxHeldPerSender + 5) {
+            _ = try session.chat.receive(
+                incoming("say that again", from: stranger, at: 10),
+                as: me, privkey: myPriv, now: at(10)
+            )
+        }
+        XCTAssertEqual(try session.messageRequests.count(from: stranger), 1)
+        XCTAssertEqual(try session.messageRequests.held(from: stranger).count, 1)
+    }
+
+    /// The index and the messages it counts are written together, so the
+    /// number in the pane is the number that is actually there.
+    func testTheRequestCountMatchesWhatIsHeld() throws {
+        for i in 0..<5 {
+            _ = try session.chat.receive(
+                incoming("hello \(i)", from: stranger, at: TimeInterval(i)),
+                as: me, privkey: myPriv, now: at(TimeInterval(i))
+            )
+        }
+        XCTAssertEqual(
+            try session.messageRequests.count(from: stranger),
+            try session.messageRequests.held(from: stranger).count
+        )
+    }
+
     /// **Group traffic is exempt.** A square is open by definition and
     /// being in a team or a room already means the conversation was
     /// accepted; running group messages through a per-sender gate would

@@ -85,20 +85,38 @@ public struct MessageRequests {
     public func hold(
         _ message: ImMessage, from sender: String, now: Date = Date()
     ) throws -> Bool {
+        guard let id = message.id, !id.isEmpty else { throw MessagesStore.Failure.messageHasNoId }
+        let conversationId = Self.conversationId(for: sender)
         var row = try requests.get(fid: sender) ?? MessageRequest(fid: sender)
-        guard row.count < Self.maxHeldPerSender else { return false }
+
+        // **The cap counts messages held, not arrivals.** The store is
+        // keyed by message id, so a sender who repeats one overwrites
+        // their own copy — and counting the repeat would spend a slot
+        // that nothing occupies. Twenty repeats of one message used to
+        // fill a queue that was holding a single message, leaving a row
+        // claiming twenty where ``held(from:)`` could find one.
+        let isRepeat = try messages.get(messageId: id, in: conversationId) != nil
+        guard isRepeat || row.count < Self.maxHeldPerSender else { return false }
 
         var held = message
         held.status = .quarantined
         held.unread = true
-        try messages.put(held, in: Self.conversationId(for: sender))
 
         let stamp = message.timestamp ?? Int64(now.timeIntervalSince1970 * 1000)
-        row.count += 1
+        if !isRepeat { row.count += 1 }
         row.lastPreview = Conversation.preview(for: held)
         row.lastAt = stamp
         if row.firstSeenAt == 0 { row.firstSeenAt = stamp }
-        try requests.upsert(row)
+
+        // **One transaction**: the held message and the row that counts
+        // it say the same thing. A message stored without its row is
+        // held where nothing can show it or let it through — invisible
+        // to the pane and to the cap both — and a row without its
+        // message is a request that opens on nothing.
+        try messages.kv.write(
+            try messages.changes(putting: held, in: conversationId)
+                + [requests.change(upserting: row)]
+        )
         return true
     }
 
@@ -204,6 +222,12 @@ public struct MessageRequestsStore {
 
     public func upsert(_ request: MessageRequest) throws {
         try inner.put(request, key: request.fid)
+    }
+
+    /// ``upsert(_:)`` as a change, for committing with the message the
+    /// row is counting — see ``MessageRequests/hold(_:from:now:)``.
+    public func change(upserting request: MessageRequest) -> EncryptedKVStore.Change {
+        inner.change(putting: request, key: request.fid)
     }
 
     /// Newest first: the one that just arrived is the one being asked

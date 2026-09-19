@@ -67,6 +67,16 @@ public enum Receipt {
 
         var applied = false
         let updated = try messages.mutate(messageId: subjectId, in: conversationId) { message in
+            // **A receipt speaks only for a message we sent to whoever
+            // sent the receipt.** The thread it names also holds their
+            // own messages to us, and a peer advancing the status of
+            // those is not reporting a delivery — it is writing in our
+            // half of the transcript. The envelope check in
+            // ``ChatService`` proves who the receipt is from; this is
+            // what that proof is for.
+            guard message.senderId == receipt.targetId,
+                  message.targetId == receipt.senderId
+            else { return }
             guard advances(from: message.status, to: kind.status) else { return }
             message.status = kind.status
             switch kind {

@@ -65,6 +65,89 @@ final class EncryptedKVStoreTests: XCTestCase {
         XCTAssertFalse(try store.exists(namespace: "x", key: "k"))
     }
 
+    // MARK: - transactions
+
+    /// A batch is one transaction across namespaces: the two rows that
+    /// state one fact land together or not at all.
+    func testWriteAppliesEveryChange() throws {
+        let store = try makeStore()
+        try store.put(Sample(name: "stale", count: 1, tags: []), namespace: "outbox", key: "m1")
+
+        try store.write([
+            .put(namespace: "messages", key: "m1", value: Sample(name: "sent", count: 2, tags: [])),
+            .delete(namespace: "outbox", key: "m1"),
+        ])
+
+        XCTAssertEqual(try store.get(Sample.self, namespace: "messages", key: "m1")?.name, "sent")
+        XCTAssertNil(try store.get(Sample.self, namespace: "outbox", key: "m1"))
+    }
+
+    /// A value that cannot be encoded fails the batch before the
+    /// transaction opens, so nothing at all is written.
+    func testWriteThatCannotEncodeChangesNothing() throws {
+        struct Unencodable: Encodable {
+            struct Nope: Error {}
+            func encode(to encoder: Encoder) throws { throw Nope() }
+        }
+        let store = try makeStore()
+        try store.put(Sample(name: "keep", count: 1, tags: []), namespace: "outbox", key: "m1")
+
+        XCTAssertThrowsError(try store.write([
+            .put(namespace: "messages", key: "m1", value: Unencodable()),
+            .delete(namespace: "outbox", key: "m1"),
+        ]))
+
+        XCTAssertEqual(
+            try store.get(Sample.self, namespace: "outbox", key: "m1")?.name, "keep",
+            "the delete did not happen either"
+        )
+    }
+
+    func testWriteOfNothingIsHarmless() throws {
+        let store = try makeStore()
+        XCTAssertNoThrow(try store.write([]))
+    }
+
+    /// Read, change and write in one step — what a claim needs, and what
+    /// a `get` followed by a `put` cannot promise.
+    func testMutateReadsAndWritesInOneStep() throws {
+        let store = try makeStore()
+        try store.put(Sample(name: "a", count: 1, tags: []), namespace: "x", key: "k")
+
+        let written = try store.mutate(Sample.self, namespace: "x", key: "k") { current in
+            XCTAssertEqual(current?.count, 1)
+            return Sample(name: "a", count: (current?.count ?? 0) + 1, tags: [])
+        }
+
+        XCTAssertEqual(written?.count, 2)
+        XCTAssertEqual(try store.get(Sample.self, namespace: "x", key: "k")?.count, 2)
+    }
+
+    /// Returning nil is how a caller says "not mine" — the row is left
+    /// exactly as it was, which is the losing half of a claim.
+    func testMutateReturningNilLeavesTheRowAlone() throws {
+        let store = try makeStore()
+        try store.put(Sample(name: "a", count: 1, tags: []), namespace: "x", key: "k")
+
+        let written = try store.mutate(Sample.self, namespace: "x", key: "k") { _ in nil }
+
+        XCTAssertNil(written)
+        XCTAssertEqual(try store.get(Sample.self, namespace: "x", key: "k")?.count, 1)
+    }
+
+    /// An absent row is an ordinary answer, not an error: the closure
+    /// sees nil and may create the row or decline to.
+    func testMutateOnAMissingRow() throws {
+        let store = try makeStore()
+
+        XCTAssertNil(try store.mutate(Sample.self, namespace: "x", key: "gone") { _ in nil })
+        let created = try store.mutate(Sample.self, namespace: "x", key: "new") { current in
+            XCTAssertNil(current)
+            return Sample(name: "fresh", count: 0, tags: [])
+        }
+        XCTAssertEqual(created?.name, "fresh")
+    }
+
     func testListKeys() throws {
         let store = try makeStore()
         try store.put(Sample(name: "a", count: 0, tags: []), namespace: "ns1", key: "alpha")

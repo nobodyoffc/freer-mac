@@ -113,6 +113,111 @@ public final class EncryptedKVStore {
         }
     }
 
+    /// One step of a ``write(_:)``.
+    public enum Change {
+        case put(namespace: String, key: String, value: any Encodable)
+        case delete(namespace: String, key: String)
+    }
+
+    /// Apply several changes as one transaction: all of them land, or
+    /// none does.
+    ///
+    /// **Rows that state one fact belong in one of these.** The stores
+    /// above this are separate types over separate namespaces, but some
+    /// of what they hold is joint — a message marked delivered and the
+    /// outbox entry saying it still needs delivering are two halves of
+    /// one statement, and a failure between two `put`s leaves the pair
+    /// contradicting each other in a way no later pass can detect or
+    /// repair. SQLite has the mechanism already; this hands it to
+    /// callers without handing them the database.
+    ///
+    /// Encoding and encryption happen before the transaction opens, so a
+    /// value that cannot be encoded fails having written nothing, and
+    /// the writer lock is held for the writes alone.
+    public func write(_ changes: [Change]) throws {
+        guard !changes.isEmpty else { return }
+        var rows: [(namespace: String, key: String, blob: Data?)] = []
+        rows.reserveCapacity(changes.count)
+        for change in changes {
+            switch change {
+            case let .put(namespace, key, value):
+                let plaintext = try JSONEncoder().encode(value)
+                let blob = try encrypt(plaintext: plaintext, namespace: namespace, key: key)
+                rows.append((namespace, key, blob))
+            case let .delete(namespace, key):
+                rows.append((namespace, key, nil))
+            }
+        }
+        do {
+            try dbQueue.write { db in
+                for row in rows {
+                    if let blob = row.blob {
+                        try db.execute(
+                            sql: "INSERT OR REPLACE INTO kv (namespace, key, ciphertext) VALUES (?, ?, ?)",
+                            arguments: [row.namespace, row.key, blob]
+                        )
+                    } else {
+                        try db.execute(
+                            sql: "DELETE FROM kv WHERE namespace = ? AND key = ?",
+                            arguments: [row.namespace, row.key]
+                        )
+                    }
+                }
+            }
+        } catch {
+            throw Failure.underlying(error)
+        }
+    }
+
+    /// Read one row, transform it, and write the result — all inside one
+    /// transaction.
+    ///
+    /// A `get` followed by a `put` cannot do this: two callers can read
+    /// the same row before either writes, and both then act on a value
+    /// neither of them still holds. The outbox needs exactly that
+    /// guarantee to hand one queued message to one delivery attempt —
+    /// see ``MessageQueue/claim(id:now:leaseMs:)``.
+    ///
+    /// `change` is given the current value, or nil when the row is
+    /// absent, and returns what to store — or nil to leave the row
+    /// exactly as it was. What was written comes back, or nil when
+    /// nothing was.
+    ///
+    /// **`change` must not touch this store.** It runs with the writer
+    /// held, on the one queue every access goes through, so a read from
+    /// inside it deadlocks rather than returning.
+    @discardableResult
+    public func mutate<T: Codable>(
+        _ type: T.Type,
+        namespace: String,
+        key: String,
+        _ change: (T?) throws -> T?
+    ) throws -> T? {
+        do {
+            return try dbQueue.write { db -> T? in
+                let blob = try Data.fetchOne(
+                    db,
+                    sql: "SELECT ciphertext FROM kv WHERE namespace = ? AND key = ?",
+                    arguments: [namespace, key]
+                )
+                let current: T? = try blob.map { blob in
+                    let plaintext = try decrypt(blob: blob, namespace: namespace, key: key)
+                    return try JSONDecoder().decode(type, from: plaintext)
+                }
+                guard let updated = try change(current) else { return nil }
+                let plaintext = try JSONEncoder().encode(updated)
+                let fresh = try encrypt(plaintext: plaintext, namespace: namespace, key: key)
+                try db.execute(
+                    sql: "INSERT OR REPLACE INTO kv (namespace, key, ciphertext) VALUES (?, ?, ?)",
+                    arguments: [namespace, key, fresh]
+                )
+                return updated
+            }
+        } catch {
+            throw Failure.underlying(error)
+        }
+    }
+
     public func get<T: Decodable>(_ type: T.Type, namespace: String, key: String) throws -> T? {
         let blob: Data?
         do {

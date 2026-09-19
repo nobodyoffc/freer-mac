@@ -119,6 +119,80 @@ final class MessageCourierTests: XCTestCase {
         XCTAssertEqual(try bob.conversations.get(id: bobsThread)?.unreadCount, 1)
     }
 
+    /// **A message another drain is already attempting is left alone.**
+    /// Several things call `drainOutbox` — a thirty-second timer, and
+    /// every screen that sends something — and without a claim both
+    /// passes put the same envelope on the recipient's DOCK.
+    func testAMessageAnotherDrainHasClaimedIsNotSentAgain() async throws {
+        let alice = try makeSession(privkey: alicePriv, label: "alice")
+        let bob = try makeSession(privkey: bobPriv, label: "bob")
+        server.homeByFid[bob.liveFid] = [ServiceName.dock: "https://dock.bob"]
+
+        let conversationId = Conversation.id(type: .p2p, targetId: bob.liveFid)
+        try alice.conversations.upsert(
+            Conversation(id: conversationId, targetId: bob.liveFid, type: .p2p)
+        )
+        let sent = try alice.chat.sendText(
+            "only once", in: conversationId, as: alice.liveFid,
+            keys: .init(privkey: alicePriv, recipientPubkey: try pubkey(bobPriv)), now: t0
+        )
+
+        let id = try XCTUnwrap(sent.id)
+
+        // What a second drain would see while the first is on the wire:
+        // the message claimed, and so not due to be attempted again.
+        let outbox = alice.outbox
+        var dueDuringTheAttempt: [String]?
+        var claimDuringTheAttempt: QueuedMessage??
+        server.onPut = {
+            dueDuringTheAttempt = try? outbox.due(now: self.at(1)).map(\.id)
+            claimDuringTheAttempt = try? outbox.claim(id: id, now: self.at(1))
+        }
+
+        _ = try await alice.courier.drainOutbox(
+            as: alice.liveFid, ownDockUrl: "https://dock.alice", now: at(1)
+        )
+
+        XCTAssertEqual(dueDuringTheAttempt, [], "claimed, so no longer up for attempt")
+        XCTAssertEqual(claimDuringTheAttempt, .some(.none), "and a second claim loses")
+        XCTAssertEqual(server.items.count, 1, "the envelope went once")
+    }
+
+    /// A delivery writes two rows — the message's new status and the
+    /// removal of its outbox entry — and they are one fact. Either half
+    /// alone is a bug with no way back: a message shown as sent that is
+    /// still queued goes out twice, and one taken off the queue while it
+    /// still says "sending" says that for ever.
+    func testDeliveryMovesTheMessageAndTheOutboxTogether() async throws {
+        let alice = try makeSession(privkey: alicePriv, label: "alice")
+        let bob = try makeSession(privkey: bobPriv, label: "bob")
+        server.homeByFid[bob.liveFid] = [ServiceName.dock: "https://dock.bob"]
+
+        let conversationId = Conversation.id(type: .p2p, targetId: bob.liveFid)
+        try alice.conversations.upsert(
+            Conversation(id: conversationId, targetId: bob.liveFid, type: .p2p)
+        )
+        let sent = try alice.chat.sendText(
+            "together or not at all", in: conversationId, as: alice.liveFid,
+            keys: .init(privkey: alicePriv, recipientPubkey: try pubkey(bobPriv)), now: t0
+        )
+        let id = try XCTUnwrap(sent.id)
+
+        _ = try await alice.courier.drainOutbox(
+            as: alice.liveFid, ownDockUrl: "https://dock.alice", now: at(1)
+        )
+
+        XCTAssertEqual(try alice.messages.get(messageId: id, in: conversationId)?.status, .sent)
+        XCTAssertNil(try alice.outbox.get(id: id))
+        // And a second drain finds nothing left to do, so nothing is
+        // delivered twice.
+        let again = try await alice.courier.drainOutbox(
+            as: alice.liveFid, ownDockUrl: "https://dock.alice", now: at(2)
+        )
+        XCTAssertEqual(again.attempted, 0)
+        XCTAssertEqual(server.items.count, 1)
+    }
+
     // MARK: - replay and misaddressing (FIMP0V3 §3.5)
 
     /// Sends one text from Alice to Bob and returns the envelope as it sits
@@ -717,6 +791,9 @@ private final class FakeDock: FapiCalling, @unchecked Sendable {
     var pubkeyByFid: [String: String] = [:]
     var refusePuts = false
     var lastPut: Put?
+    /// Run at the start of `dock.put`, so a test can see the state of
+    /// things *while* a delivery is on the wire.
+    var onPut: (() -> Void)?
     private var nextId = 1
 
     func call(
@@ -756,6 +833,7 @@ private final class FakeDock: FapiCalling, @unchecked Sendable {
             return reply(out.isEmpty ? nil : out)
 
         case "dock.put":
+            onPut?()
             let p = json(params)
             lastPut = Put(params: p, payload: binary ?? Data(), dataHash: dataHash)
             if refusePuts { return reply(nil, code: 500, message: "dock is full") }

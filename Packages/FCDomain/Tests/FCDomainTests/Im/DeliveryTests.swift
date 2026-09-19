@@ -90,6 +90,58 @@ final class DeliveryTests: XCTestCase {
         XCTAssertEqual(try queue.record(.success, for: "0000000000000001", now: t0), .unknown)
     }
 
+    // MARK: - claiming
+
+    /// **Two drains, one envelope.** A thirty-second timer and every
+    /// screen that sends something all call `drainOutbox`, and listing
+    /// what is due is a separate step from attempting it. Without a
+    /// claim both passes deliver the same message.
+    func testOnlyOneAttemptCanClaimAMessage() throws {
+        try queue.enqueue(outgoing(), in: conversationId, now: t0)
+
+        let mine = try queue.claim(id: "0000000000000001", now: t0)
+        XCTAssertEqual(mine?.id, "0000000000000001")
+        XCTAssertNil(try queue.claim(id: "0000000000000001", now: t0), "the second attempt loses")
+    }
+
+    /// A claimed message is invisible to the next drain's `due` list,
+    /// which is how the loser never sees it in the first place.
+    func testAClaimedMessageIsNotDue() throws {
+        try queue.enqueue(outgoing(), in: conversationId, now: t0)
+        _ = try queue.claim(id: "0000000000000001", now: t0)
+
+        XCTAssertTrue(try queue.due(now: at(1)).isEmpty)
+        XCTAssertEqual(try queue.count(), 1, "still queued, just not up for attempt")
+    }
+
+    /// The lease is a retry schedule, not a lock: an attempt that never
+    /// finishes — the app was killed mid-send — leaves the message due
+    /// again rather than stuck for ever.
+    func testAnAbandonedClaimExpires() throws {
+        try queue.enqueue(outgoing(), in: conversationId, now: t0)
+        _ = try queue.claim(id: "0000000000000001", now: t0)
+
+        let lease = TimeInterval(MessageQueue.claimLeaseMs) / 1000
+        XCTAssertTrue(try queue.due(now: at(lease - 1)).isEmpty)
+        XCTAssertEqual(try queue.due(now: at(lease)).map(\.id), ["0000000000000001"])
+        XCTAssertNotNil(try queue.claim(id: "0000000000000001", now: at(lease)))
+    }
+
+    /// An outcome writes over the lease rather than being delayed by it:
+    /// the first retry waits its own five seconds, not two minutes.
+    func testAnOutcomeReplacesTheLease() throws {
+        try queue.enqueue(outgoing(), in: conversationId, now: t0)
+        _ = try queue.claim(id: "0000000000000001", now: t0)
+
+        let outcome = try queue.record(.retryTransient, for: "0000000000000001", now: t0)
+        XCTAssertEqual(outcome, .retrying(attempt: 1, at: ms(5)))
+        XCTAssertEqual(try queue.due(now: at(5)).count, 1)
+    }
+
+    func testClaimingSomethingThatIsGoneReturnsNil() throws {
+        XCTAssertNil(try queue.claim(id: "0000000000000001", now: t0))
+    }
+
     /// A malformed message must not be retried every fifteen minutes
     /// forever; that is the whole reason the result is a three-way
     /// classification and not a Bool.

@@ -39,7 +39,11 @@ public struct MessagesStore {
     /// Namespaces are `"\(namespacePrefix)\(conversationId)"`.
     public static let namespacePrefix = "im.messages.v1."
 
-    private let kv: EncryptedKVStore
+    /// Exposed because some of what this store holds is one fact with
+    /// a row in another store — a delivered message and the outbox
+    /// entry that is now spent — and committing those together needs
+    /// the store they share. See ``EncryptedKVStore/write(_:)``.
+    public let kv: EncryptedKVStore
 
     public init(kv: EncryptedKVStore) {
         self.kv = kv
@@ -82,6 +86,20 @@ public struct MessagesStore {
     /// this store made up would not be findable by the receipt that
     /// names it.
     public func put(_ message: ImMessage, in conversationId: String) throws {
+        try kv.write(changes(putting: message, in: conversationId))
+    }
+
+    /// The changes ``put(_:in:)`` makes, for a caller that must commit
+    /// them together with something else.
+    ///
+    /// Two of them when the message is already here under a different
+    /// key. They go in one transaction rather than a delete followed by
+    /// a put, because a failure between those two leaves a message that
+    /// was here a moment ago and is now nowhere — and the copy that was
+    /// deleted was the good one.
+    public func changes(
+        putting message: ImMessage, in conversationId: String
+    ) throws -> [EncryptedKVStore.Change] {
         guard let id = message.id, !id.isEmpty else { throw Failure.messageHasNoId }
 
         var stored = message
@@ -89,10 +107,11 @@ public struct MessagesStore {
 
         let s = store(conversationId)
         let newKey = Self.key(timestamp: stored.timestamp, id: id)
+        var changes = [s.change(putting: stored, key: newKey)]
         if let existing = try key(forMessageId: id, in: conversationId), existing != newKey {
-            try s.delete(existing)
+            changes.append(s.change(deleting: existing))
         }
-        try s.put(stored, key: newKey)
+        return changes
     }
 
     /// Read-modify-write one message. Returns the updated message, or
@@ -118,6 +137,24 @@ public struct MessagesStore {
         // timestamp field.
         try s.put(message, key: key)
         return message
+    }
+
+    /// The change ``mutate(messageId:in:_:)`` would make, or nil when
+    /// there is no such message here. For a caller committing it
+    /// alongside a row in another store.
+    public func change(
+        messageId: String,
+        in conversationId: String,
+        _ change: (inout ImMessage) -> Void
+    ) throws -> EncryptedKVStore.Change? {
+        let s = store(conversationId)
+        guard let key = try key(forMessageId: messageId, in: conversationId),
+              var message = try s.get(key)
+        else { return nil }
+        change(&message)
+        // The original key, for the reason ``mutate`` gives: a mutation
+        // must not move a message in the transcript.
+        return s.change(putting: message, key: key)
     }
 
     /// Marks one message read. Returns false when it was already read or

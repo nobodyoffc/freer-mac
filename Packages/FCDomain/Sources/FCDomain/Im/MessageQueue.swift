@@ -85,11 +85,24 @@ public struct MessageQueue {
     /// a moment of bad signal.
     public static let retryDelaysMs: [Int64] = [5_000, 15_000, 60_000, 300_000, 900_000]
 
+    /// How long a claimed message stays invisible to other drains.
+    ///
+    /// Long enough to cover the slowest attempt — a delivery walks two
+    /// routes at fifteen seconds each and may look a peer's key up on
+    /// the way — and short enough that a process killed mid-send costs
+    /// one delay rather than an outbox that never moves again.
+    public static let claimLeaseMs: Int64 = 120_000
+
     private let inner: TypedStore<QueuedMessage>
 
     public init(kv: EncryptedKVStore) {
         self.inner = TypedStore(kv: kv, namespace: Self.namespace)
     }
+
+    /// The store this queue shares with the rest of the session, for
+    /// committing a delivery's two rows at once — see
+    /// ``EncryptedKVStore/write(_:)``.
+    public var kv: EncryptedKVStore { inner.kv }
 
     // MARK: - enqueueing
 
@@ -135,6 +148,45 @@ public struct MessageQueue {
 
     public func count() throws -> Int {
         try inner.keys().count
+    }
+
+    // MARK: - claiming
+
+    /// Take one queued message for one delivery attempt. Nil when it is
+    /// gone, or when another attempt already holds it.
+    ///
+    /// **``due(now:)`` and the attempt that follows it are two steps**,
+    /// and there is more than one drain: a thirty-second timer, and
+    /// every screen that sends something. Two of them can read the same
+    /// message before either has done anything with it, and both then
+    /// put the same envelope on the recipient's DOCK. This is the atomic
+    /// step that makes one of them lose — it pushes `nextRetryAt` past
+    /// the lease inside a single transaction, so the row the loser reads
+    /// is already claimed.
+    ///
+    /// **The lease is a retry schedule, not a lock**, which is why
+    /// nothing releases it. An attempt that finishes writes its own
+    /// outcome over it: success deletes the row, a transient failure
+    /// replaces the lease with the backoff. An attempt that never
+    /// finishes leaves the message due again once the lease expires,
+    /// which is the behaviour a crash mid-send should have.
+    @discardableResult
+    public func claim(
+        id: String, now: Date = Date(), leaseMs: Int64 = claimLeaseMs
+    ) throws -> QueuedMessage? {
+        let stamp = Int64(now.timeIntervalSince1970 * 1000)
+        return try inner.mutate(id) { current in
+            guard var queued = current, queued.nextRetryAt <= stamp else { return nil }
+            queued.nextRetryAt = stamp + leaseMs
+            return queued
+        }
+    }
+
+    /// The change that takes a delivered message out of the queue, for
+    /// committing with the message's own new status — see
+    /// ``MessageCourier``, where those two are one fact.
+    public func change(removing id: String) -> EncryptedKVStore.Change {
+        inner.change(deleting: id)
     }
 
     // MARK: - outcomes

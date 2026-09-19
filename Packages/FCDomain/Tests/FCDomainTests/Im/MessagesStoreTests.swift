@@ -208,6 +208,24 @@ final class MessagesStoreTests: XCTestCase {
         XCTAssertEqual(try store.latest(in: conversationId)?.content, "corrected")
     }
 
+    /// And it is **one transaction**, not a delete followed by a put:
+    /// the copy being deleted is the only copy there is, so a failure
+    /// between the two loses the message outright.
+    func testRestoringWithACorrectedTimestampIsOneTransaction() throws {
+        let stored = try send("first try", at: 1_000, id: "0000000000000001")
+        var corrected = stored
+        corrected.timestamp = 8_000
+
+        XCTAssertEqual(
+            try store.changes(putting: corrected, in: conversationId).count, 2,
+            "the new row and the removal of the old key, committed together"
+        )
+        XCTAssertEqual(
+            try store.changes(putting: stored, in: conversationId).count, 1,
+            "and nothing to remove when the key has not moved"
+        )
+    }
+
     // MARK: - mutation
 
     /// A mutation must not move a message in the transcript, whatever it
