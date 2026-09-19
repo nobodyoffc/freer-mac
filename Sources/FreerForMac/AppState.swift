@@ -60,6 +60,35 @@ final class AppState {
     private(set) var activeSession: ActiveSession?
     private(set) var configures: [ConfigureRecord]
 
+    /// Bumped every time the active session changes hands — an unlock, a
+    /// lock, a return to the chooser.
+    ///
+    /// **Work that starts under one session and finishes under another
+    /// is the shape of every lifecycle bug on this screen.** An unlock
+    /// that lands after a lock puts the vault back that the user just
+    /// closed; a FAPI connect that returns after teardown publishes a
+    /// live transport into a locked vault; a poller built for one
+    /// identity goes on polling under the next. Re-reading
+    /// ``activeSession`` after an await catches only the first of those,
+    /// because it says *a* session is live, not *which*. So anything
+    /// that suspends captures this number first and checks it after, and
+    /// drops whatever it was carrying when the number has moved.
+    @ObservationIgnored private(set) var sessionGeneration = 0
+
+    /// Retire every operation in flight for the session being put away.
+    /// Called *before* the teardown it belongs to, so that work coming
+    /// back from an await finds the number already moved.
+    private func retireSession() {
+        sessionGeneration &+= 1
+    }
+
+    /// The live session, but only while it is still the one the caller's
+    /// work was started under. Nil once that generation has passed.
+    private func sessionIfCurrent(_ generation: Int) -> ActiveSession? {
+        guard generation == sessionGeneration else { return nil }
+        return activeSession
+    }
+
     /// Observable mirror of `activeSession?.liveFid`. `ActiveSession`
     /// is a plain class SwiftUI can't track, so every live-FID switch
     /// goes through ``switchLive(fid:)`` which updates this — views
@@ -420,20 +449,27 @@ final class AppState {
         Task { await fetchScheduler.setLayer(layer) }
     }
 
-    /// Build and start the poller for `session`.
+    /// Build and start the poller for the session of `generation`.
     ///
-    /// The collect closure is the only thing that reaches back into the
-    /// session, and it deliberately re-reads `activeSession` each pass
-    /// rather than capturing it: a scheduler holding a session the user
-    /// has since locked would keep decrypting into a store nobody is
-    /// looking at.
-    private func startFetchScheduler(for session: ActiveSession) {
+    /// The closures are the only thing that reaches back into the
+    /// session, and they deliberately re-read it each pass rather than
+    /// capturing it: a scheduler holding a session the user has since
+    /// locked would keep decrypting into a store nobody is looking at,
+    /// and would keep that session's keys alive for as long as it ran.
+    ///
+    /// **But re-reading alone says only that *a* session is live.** The
+    /// generation says it is still *this* one. Without it a scheduler
+    /// that outlived its own identity picks up the next one and polls it
+    /// with the previous one's dock set, cursors and fast lane — the
+    /// cross-session pass that ``sessionGeneration`` exists to make
+    /// impossible.
+    private func startFetchScheduler(for session: ActiveSession, generation: Int) {
         stopFetchScheduler()
         let scheduler = DockFetchScheduler(
             collect: { [weak self] selection in
                 // Re-read on the actor each pass, per the note above: the
                 // session may have been locked since the last one.
-                guard let session = await self?.activeSession else { return .none }
+                guard let session = await self?.sessionIfCurrent(generation) else { return .none }
                 do {
                     let report = try await session.courier.collect(
                         as: session.liveFid,
@@ -451,13 +487,14 @@ final class AppState {
                 }
             },
             drain: { [weak self] in
-                guard let session = await self?.activeSession else { return }
+                guard let session = await self?.sessionIfCurrent(generation) else { return }
                 _ = try? await session.courier.drainOutbox(as: session.liveFid)
             },
             report: { [weak self] _ in
                 Task { @MainActor in
-                    self?.inboxRevision += 1
-                    self?.noticeNewInvitations()
+                    guard let self, self.sessionGeneration == generation else { return }
+                    self.inboxRevision += 1
+                    self.noticeNewInvitations()
                 }
             }
         )
@@ -466,10 +503,18 @@ final class AppState {
         Task { await scheduler.start() }
     }
 
+    /// Put the current poller away, completely, before this line
+    /// returns.
+    ///
+    /// ``DockFetchScheduler/stop()`` is actor-isolated and could only be
+    /// launched from here, which left the old scheduler polling while
+    /// ``startFetchScheduler(for:generation:)`` was already building its
+    /// replacement on the next line. ``shutdown()`` is the synchronous
+    /// half of the same operation.
     private func stopFetchScheduler() {
         guard let fetchScheduler else { return }
         self.fetchScheduler = nil
-        Task { await fetchScheduler.stop() }
+        fetchScheduler.shutdown()
     }
 
     // MARK: - password flow
@@ -528,6 +573,11 @@ final class AppState {
     /// the user back to the password screen. Closes the live FUDP
     /// transport (if any) so its UDP socket is released.
     func lockAll() {
+        // First of all, so that an unlock, a FAPI connect or a fetch
+        // pass still in flight for this session finds the generation
+        // moved when it comes back, and drops what it was carrying
+        // instead of restoring a vault the user has closed.
+        retireSession()
         // Anything parked on a confirmation dialog is answered "no"
         // first: the session is about to disappear, and a question
         // nobody can answer must not turn into a signature.
@@ -609,10 +659,23 @@ final class AppState {
         }
         lastError = nil
         let factory = self.fapiFactory
+        let generation = sessionGeneration
         do {
             let session = try await Task.detached(priority: .userInitiated) {
                 try cs.unlockMain(fid: fid, fapi: factory(fid))
             }.value
+            // **The unlock crossed a suspension, and a lock fits inside
+            // one.** "Lock vault" is a menu command with a keyboard
+            // shortcut, enabled on every screen the moment a Configure is
+            // open, and opening a main takes an Argon2id-shaped pause. A
+            // session assigned after that would put the vault back on
+            // screen that the user had just closed — and leave
+            // ``route`` on `.home` behind the password field. Dropping
+            // the session is the whole cleanup: it holds the stub client,
+            // so there is no socket to close, and nothing else has seen
+            // it yet.
+            guard generation == sessionGeneration else { return }
+            retireSession()
             session.txApprover = self.txApprovals.approver()
             self.activeSession = session
             self.liveFid = session.liveFid
@@ -647,6 +710,10 @@ final class AppState {
     /// live FUDP transport is torn down (different main → different
     /// keypair → different AsyTwoWay session anyway).
     func returnToChooseMain() {
+        // As in ``lockAll()``: retire the outgoing session's in-flight
+        // work before anything else, so none of it lands on the next
+        // identity's session.
+        retireSession()
         txApprovals.cancelAll()
         tearDownLiveFapi()
         // A different main FID derives a different SSH key, so the
@@ -872,6 +939,10 @@ final class AppState {
     /// live transport. Failure leaves the session on the stub
     /// client and surfaces the error via `lastError`.
     func applyFapiSettings(for session: ActiveSession) async {
+        // Captured before the first await, and checked after the connect
+        // — which is a network round trip, and the longest window in the
+        // app in which a vault can be locked underneath a caller.
+        let generation = sessionGeneration
         let prefs: Preferences
         do {
             prefs = try session.preferences.load()
@@ -952,6 +1023,17 @@ final class AppState {
             // Connect eagerly so a bad host/port/pubkey is reported
             // now, in Settings, rather than at the next chain sync.
             let fudp = try await factory()
+            // **Nothing below may run for a session that has gone.** The
+            // connect above holds a live UDP flow keyed to the main's
+            // prikey; publishing it into a vault that was locked while it
+            // was being opened leaves exactly the socket that
+            // ``tearDownLiveFapi()`` exists to release, on a session the
+            // user believes is closed. Close it and say nothing — the
+            // lock is not an error to report.
+            guard isCurrent(session, generation) else {
+                fudp.close()
+                return
+            }
             // Swap atomically: close old → assign new → publish.
             liveFapi?.close()
             let client = ReconnectingFapiClient(factory: factory, initial: fudp)
@@ -964,10 +1046,20 @@ final class AppState {
                 ownDockUrl: "\(host):\(port)", ownClient: client, connect: connect
             )
             await session.refreshDockRegistry()
+            // The registry work suspends too, so the same question again
+            // before starting anything on a timer. What is closed here is
+            // the client this call built, never whatever ``liveFapi``
+            // holds now — by this point that may already belong to the
+            // identity that replaced us.
+            guard isCurrent(session, generation) else {
+                client.close()
+                if liveFapi === client { liveFapi = nil }
+                return
+            }
             // Only now: a poller started before the registry knows where
             // anything lives would spend its first passes fetching from
             // nowhere.
-            startFetchScheduler(for: session)
+            startFetchScheduler(for: session, generation: generation)
             // First moment the bar can actually get real numbers: the
             // cached row went up at unlock, this replaces it.
             Task { await refreshLiveFidInfo() }
@@ -978,6 +1070,10 @@ final class AppState {
                 SystemSource.fapi, "Connected to \(host):\(port)"
             )
         } catch {
+            // A failure that belongs to a session which has since gone
+            // is not news for the one on screen now, and tearing down
+            // "the" live transport here would tear down *its* one.
+            guard isCurrent(session, generation) else { return }
             lastError = "FAPI connect failed: \(error)"
             SystemLog.shared.error(
                 SystemSource.fapi,
@@ -986,6 +1082,15 @@ final class AppState {
             )
             tearDownLiveFapi()
         }
+    }
+
+    /// Whether the session a suspended operation was started for is
+    /// still the one the app is running — both that no lock or switch
+    /// has happened since (the generation), and that this is the object
+    /// the session is (the identity check, for a swap that somehow left
+    /// the count alone).
+    private func isCurrent(_ session: ActiveSession, _ generation: Int) -> Bool {
+        generation == sessionGeneration && session === activeSession
     }
 
     /// Retire the live transport: the next FAPI call opens a fresh

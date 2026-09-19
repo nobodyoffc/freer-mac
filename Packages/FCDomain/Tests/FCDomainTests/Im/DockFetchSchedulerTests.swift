@@ -73,6 +73,73 @@ final class DockFetchSchedulerTests: XCTestCase {
         XCTAssertEqual(spy.selections.count, settled, "no passes after stop")
     }
 
+    /// **The stop that matters is the one that has already happened
+    /// when the next line runs.** The app's teardown paths — a vault
+    /// lock, a change of identity — are main-actor paths that cannot
+    /// await an actor, and they build the replacement scheduler
+    /// immediately afterwards. A stop they could only schedule left the
+    /// old poller collecting under the new session.
+    func testShuttingDownTakesEffectWithoutAwaitingTheActor() async {
+        let spy = SchedulerSpy()
+        let scheduler = makeScheduler(spy: spy) { _ in
+            try? await Task.sleep(for: .milliseconds(20))
+            return .init(fetched: 0, filed: 0, sealed: 0, other: 0)
+        }
+        await scheduler.start()
+        await eventually("polling underway") { spy.selections.count >= 1 }
+
+        // Deliberately not `await scheduler.stop()`: this is the call
+        // the teardown paths can actually make.
+        scheduler.shutdown()
+        let settled = spy.selections.count
+
+        try? await Task.sleep(for: .milliseconds(120))
+        XCTAssertEqual(
+            spy.selections.count, settled,
+            "no pass begins after shutdown() has returned"
+        )
+    }
+
+    /// The outbox lane stops with the rest of it. A drain signs and
+    /// sends under the session's keys, so a lane still running after the
+    /// vault is locked is the same defect wearing different clothes.
+    func testShuttingDownStopsTheOutboxLaneToo() async {
+        let spy = SchedulerSpy()
+        let drains = Counter()
+        let scheduler = DockFetchScheduler(
+            collect: { _ in .none },
+            drain: { drains.increment() },
+            sleep: { duration in
+                spy.record(sleep: duration)
+                try await Task.sleep(for: .milliseconds(2))
+            }
+        )
+        await scheduler.start()
+        await eventually("the outbox lane running") { drains.value >= 1 }
+
+        scheduler.shutdown()
+        let settled = drains.value
+
+        try? await Task.sleep(for: .milliseconds(120))
+        XCTAssertEqual(drains.value, settled, "no drain after shutdown() has returned")
+    }
+
+    /// A stopped scheduler stays stopped. Starting one again would mean
+    /// a task belonging to the session being torn down could revive the
+    /// poller that teardown existed to end.
+    func testAStoppedSchedulerCannotBeStartedAgain() async {
+        let spy = SchedulerSpy()
+        let scheduler = makeScheduler(spy: spy)
+        scheduler.shutdown()
+
+        await scheduler.start()
+        let running = await scheduler.isRunning
+        XCTAssertFalse(running, "start() is refused after a shutdown")
+
+        try? await Task.sleep(for: .milliseconds(60))
+        XCTAssertTrue(spy.selections.isEmpty, "and nothing is polled")
+    }
+
     // MARK: - layers
 
     /// Each layer asks at its own rate, and the rates are Android's.

@@ -92,6 +92,9 @@ public actor DockFetchScheduler {
     private var layer: Layer = .normal
     private var priorityDocks: Set<String> = []
     private var running = false
+    /// The same fact as ``running``, kept where a caller that cannot
+    /// await can set it — see ``shutdown()``.
+    private let stopped = StopFlag()
 
     private var normalLoop: Task<Void, Never>?
     private var priorityLoop: Task<Void, Never>?
@@ -128,7 +131,7 @@ public actor DockFetchScheduler {
     /// before the first fetch reads as "receiving is broken" — which is
     /// exactly the impression this was written to remove.
     public func start() {
-        guard !running else { return }
+        guard !stopped.isStopped, !running else { return }
         running = true
         fetchNow()
         restartNormalLoop()
@@ -138,7 +141,13 @@ public actor DockFetchScheduler {
 
     /// Stop polling and drop the priority lane. Safe to call twice, and
     /// safe to call on a scheduler that never started.
+    ///
+    /// **One-way.** A stopped scheduler cannot be started again — build
+    /// a new one. Anything that could clear the flag would be a task
+    /// belonging to the lifecycle being torn down, reviving the poller
+    /// that teardown existed to end.
     public func stop() {
+        stopped.stop()
         running = false
         normalLoop?.cancel()
         normalLoop = nil
@@ -147,6 +156,21 @@ public actor DockFetchScheduler {
         drainLoop?.cancel()
         drainLoop = nil
         priorityDocks.removeAll()
+    }
+
+    /// Stop **now**, from a caller that cannot await.
+    ///
+    /// ``stop()`` is actor-isolated, so the app's teardown paths — a
+    /// vault lock, a change of identity — can only launch it and carry
+    /// on. Between dropping the reference and that task running, the old
+    /// scheduler is still polling and its replacement is already up: two
+    /// schedulers over one session, each holding the other's dock set and
+    /// cursors. Marking it stopped takes effect at the moment of the
+    /// call, so no further pass touches the session; the actor hop that
+    /// follows only cancels the sleeping loops.
+    public nonisolated func shutdown() {
+        stopped.stop()
+        Task { await self.stop() }
     }
 
     public var isRunning: Bool { running }
@@ -251,7 +275,7 @@ public actor DockFetchScheduler {
     /// collect touch different servers and there is no reason to make
     /// either wait for the other.
     private func runDrain() async {
-        guard running, !draining, let drain else { return }
+        guard !stopped.isStopped, running, !draining, let drain else { return }
         draining = true
         defer { draining = false }
         await drain()
@@ -279,7 +303,7 @@ public actor DockFetchScheduler {
     /// One pass, skipped rather than queued if another is still in
     /// flight.
     private func runPass(_ selection: MessageCourier.DockSelection) async {
-        guard running, !fetching, !selection.isEmptySelection else { return }
+        guard !stopped.isStopped, running, !fetching, !selection.isEmptySelection else { return }
         fetching = true
         defer { fetching = false }
 
@@ -288,7 +312,29 @@ public actor DockFetchScheduler {
         // the session was locked has still filed into a store nobody is
         // looking at, and waking the UI for it would redraw a screen
         // that is on its way out.
-        guard running, result.filed > 0 || result.sealed > 0 else { return }
+        guard !stopped.isStopped, running, result.filed > 0 || result.sealed > 0 else { return }
         report?(result)
+    }
+}
+
+/// Whether the scheduler has been stopped, readable and writable
+/// without awaiting the actor.
+///
+/// The same shape, and for the same reason, as the flags behind
+/// `ReconnectingFapiClient`: the moments that end a scheduler's life are
+/// main-actor moments — a lock, a switch of identity — and a fact they
+/// can only *schedule* is a fact that is not yet true when the next line
+/// runs.
+private final class StopFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _stopped = false
+
+    var isStopped: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return _stopped
+    }
+
+    func stop() {
+        lock.lock(); _stopped = true; lock.unlock()
     }
 }
