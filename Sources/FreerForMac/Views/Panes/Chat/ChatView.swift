@@ -271,6 +271,9 @@ struct ChatView: View {
             if !historyRequestsHere.isEmpty || !historyFailuresHere.isEmpty {
                 historyBanner
             }
+            if syncSummary != nil {
+                statusBanner
+            }
 
             if let err = loadError {
                 card {
@@ -979,9 +982,36 @@ struct ChatView: View {
                  : "Start one with the button above.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
-            if let summary = syncSummary {
-                Text(summary).font(.caption).foregroundStyle(.tertiary)
+        }
+    }
+
+    /// What the last action did — the one place it is said.
+    ///
+    /// It used to live on ``emptyCard``, which is drawn *only* when the
+    /// flavour has no threads at all. So every result reported this way
+    /// — a key reset, a leave, an ask, a sync — was written to a view
+    /// that by definition was not on screen at the time: you cannot
+    /// reset a team's key without having a team open, and having one
+    /// open is exactly what replaces that card with the list. The
+    /// action worked and said so into nothing.
+    ///
+    /// Above the list rather than inside the transcript, because not
+    /// every one of these is about the open thread: a refresh summary
+    /// and a leave are about the flavour.
+    @ViewBuilder
+    private var statusBanner: some View {
+        if let summary = syncSummary {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle").foregroundStyle(style.tint)
+                CopyableText(summary, font: .callout)
+                Spacer()
+                Button("Dismiss") { syncSummary = nil }
+                    .buttonStyle(.borderless)
+                    .font(.caption)
             }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(style.tint.opacity(0.08)))
         }
     }
 
@@ -1580,26 +1610,36 @@ struct ChatView: View {
         sendError = nil
         do {
             let outbound: [ImMessage]
+            let version: Int64
+            let skipped: Int
             switch conversation.type {
             case .room:
                 let service = try session.roomService
-                outbound = try service.resetSymkey(
+                let keyed = try service.resetSymkey(
                     conversation.targetId,
                     as: session.liveFid,
                     pubkeys: { fid in try session.knownPubkey(of: fid) }
-                ).outbound
+                )
+                outbound = keyed.outbound
+                version = keyed.version
+                // A room's membership is the owner's own copy and every
+                // row of it is invited, so there is nothing to skip.
+                skipped = 0
 
             case .team:
                 // Through the service, not straight at the store: the
                 // owner-only rule is the whole security of a group key,
                 // and a rule enforced by whether a menu item was drawn
                 // is not enforced at all.
-                outbound = try session.teamKeys.resetSymkey(
+                let keyed = try session.teamKeys.resetSymkey(
                     for: conversation.targetId,
                     as: session.liveFid,
                     pubkeys: { fid in try session.knownPubkey(of: fid) },
                     homes: { fid in try session.knownHome(of: fid) }
-                ).outbound
+                )
+                outbound = keyed.outbound
+                version = keyed.version
+                skipped = keyed.skipped.count
 
             case .p2p, .square:
                 // Neither has a group key: a P2P body is sealed to the
@@ -1616,9 +1656,13 @@ struct ChatView: View {
             }
             reload()
             openSelected()
+            // The version is in the line because a reset is repeatable:
+            // two resets a minute apart read identically without it, and
+            // "nothing happened" is the reading it invites.
             syncSummary = outbound.isEmpty
-                ? "Key created. No member could be sealed to — share it from the members list once their pubkeys are known."
-                : "Key created; \(outbound.count) share(s) queued."
+                ? "Key v\(version) created. No member could be sealed to — share it from the members list once their pubkeys are known."
+                : "Key v\(version) created; \(outbound.count) share(s) queued."
+                    + (skipped > 0 ? " \(skipped) member(s) skipped — no pubkey or no DOCK yet." : "")
             Task { _ = try? await session.courier.drainOutbox(as: session.liveFid) }
         } catch {
             sendError = String(describing: error)
