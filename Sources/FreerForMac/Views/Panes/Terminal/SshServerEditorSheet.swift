@@ -31,6 +31,15 @@ struct SshServerEditorSheet: View {
     @State private var memo: String = ""
     @State private var saveError: String?
 
+    /// The pasted `ssh` line, and what came of reading it. Held only
+    /// while the sheet is open — what is saved is the fields it filled,
+    /// so anything the line said that this cannot store is gone the
+    /// moment the sheet closes, which is why ``commandNote`` says so
+    /// out loud.
+    @State private var command: String = ""
+    @State private var commandError: String?
+    @State private var commandNote: String?
+
     @State private var identityKind: IdentityKind = .freer
     @State private var keyFilePath: String = ""
 
@@ -120,6 +129,10 @@ struct SshServerEditorSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    commandField
+
+                    Divider()
+
                     LabeledField("Label", hint: "Optional. Falls back to user@host.") {
                         TextField("prod web", text: $label).fieldInputStyle()
                     }
@@ -192,8 +205,87 @@ struct SshServerEditorSheet: View {
             }
             .padding(16)
         }
-        .frame(width: 580, height: 680)
+        .frame(width: 580, height: 720)
         .onAppear(perform: load)
+    }
+
+    /// The shortcut in: the line the server arrived as.
+    ///
+    /// **It fills the fields, it does not save anything.** A provider's
+    /// console, a colleague's message and a project README all hand out
+    /// a server as `ssh -p 50227 -i ~/.ssh/box user@host`, and retyping
+    /// that into four fields is four chances to drop a digit off a port
+    /// that then fails as a timeout with nothing to read. Everything
+    /// stays editable afterwards, and nothing is executed — the line is
+    /// read, and ``SshLaunch`` builds its own argument vector from the
+    /// saved fields as it always did.
+    private var commandField: some View {
+        LabeledField(
+            "From an ssh command",
+            hint: commandError ?? commandNote ?? "Optional. Paste the line you were given — host, user, port, -i key and -L forwards are read out of it. Nothing is run.",
+            hintIsError: commandError != nil
+        ) {
+            HStack(spacing: 8) {
+                TextField("ssh -p 50227 -i ~/.ssh/box armx@154.38.169.146", text: $command)
+                    .fieldInputStyle()
+                    .autocorrectionDisabled()
+                    .font(.system(.callout, design: .monospaced))
+                    .onSubmit(fillFromCommand)
+                // One button, doing whichever half is left: with an
+                // empty field the line is still on the clipboard, and
+                // asking for a paste before a fill would be two clicks
+                // for one gesture.
+                Button(command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Paste" : "Fill") {
+                    if command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        command = NSPasteboard.general.string(forType: .string) ?? ""
+                    }
+                    fillFromCommand()
+                }
+            }
+        }
+    }
+
+    /// Read the line into the fields, and say what could not come with
+    /// it.
+    ///
+    /// **A field the line did not mention is left alone.** `ssh` with
+    /// no `-p` means "whatever the port already is", so overwriting the
+    /// port with 22 would quietly move an edited server off the port it
+    /// was reached on.
+    private func fillFromCommand() {
+        let text = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            commandError = nil
+            commandNote = nil
+            return
+        }
+        do {
+            let parsed = try SshCommandParser.parse(text)
+            host = parsed.host
+            if let parsedUser = parsed.user { user = parsedUser }
+            if let parsedPort = parsed.port { port = String(parsedPort) }
+            if let key = parsed.identityFile {
+                identityKind = .keyFile
+                keyFilePath = key
+            }
+            if !parsed.forwards.isEmpty {
+                forwards = parsed.forwards.map {
+                    ForwardDraft(
+                        id: $0.id,
+                        localPort: String($0.localPort),
+                        remoteHost: $0.remoteHost,
+                        remotePort: String($0.remotePort)
+                    )
+                }
+            }
+            commandError = nil
+            commandNote = parsed.ignored.isEmpty
+                ? "Filled in below. Check them before saving."
+                : "Filled in below. Not stored: \(parsed.ignored.joined(separator: ", "))."
+        } catch {
+            commandError = "\(error)"
+            commandNote = nil
+        }
     }
 
     private var forwardsField: some View {
