@@ -154,7 +154,24 @@ public struct NobodyBanner: View {
                     .font(.callout)
                     .foregroundStyle(NobodyMark.color)
                     .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // **`minWidth` is what keeps this banner from
+                    // resizing the window.** `fixedSize(vertical:)`
+                    // reports the height the text needs at whatever
+                    // width it is offered, and SwiftUI offers a width of
+                    // nearly nothing when it asks a view for its
+                    // *minimum* size. These sentences at a few points
+                    // wide are forty-odd lines, so the banner's minimum
+                    // height came out around 1300 points — and the app
+                    // window is sized `.contentSize`, which turns any
+                    // pane's minimum into the window's minimum. A pane
+                    // inside a `ScrollView` absorbs that and never
+                    // shows it; the SSH pane, which must fill rather
+                    // than scroll, came up with its top and bottom cut
+                    // off the screen. A floor on the width bounds the
+                    // wrapping, and costs nothing at any real size:
+                    // every one of these messages already wants more
+                    // than 240 points on one line.
+                    .frame(minWidth: 240, maxWidth: .infinity, alignment: .leading)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)

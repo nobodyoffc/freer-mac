@@ -46,6 +46,28 @@ struct TerminalPaneView: View {
     /// lockout warning.
     @State private var confirmingKeyRemoval: SshServer?
 
+    /// How wide the server list is, dragged by the divider beside it.
+    ///
+    /// **Not `HSplitView`, and this is not a style preference.** AppKit's
+    /// split view tells SwiftUI nothing usable about its own height: it
+    /// squeezes both sides down to about a hundred points at the bottom
+    /// of the pane, and if anything above it in this `VStack` sizes
+    /// itself with `fixedSize(horizontal:vertical:)` the layout goes
+    /// invalid and the *whole window* — this pane, the toolbar, and the
+    /// app's own sidebar — draws nothing at all. `PaneHeader` does
+    /// exactly that whenever the live FID is a nobody, so for those
+    /// identities the SSH pane came up blank while every other pane was
+    /// fine. A plain `HStack` lays out correctly and is what the chat
+    /// pane already uses; the divider below keeps the drag that
+    /// `HSplitView` was here for.
+    @State private var serverListWidth: CGFloat = 260
+    /// The width the current drag started from. `DragGesture` reports
+    /// its translation from the start of the drag, not since the last
+    /// callback, so without this the resize accelerates away.
+    @State private var splitterDragOrigin: CGFloat?
+
+    private static let serverListWidthRange: ClosedRange<CGFloat> = 220...380
+
     /// Files picked or dropped, waiting for a destination.
     ///
     /// **Both ways in open the same sheet.** Where the files go is the
@@ -110,11 +132,12 @@ struct TerminalPaneView: View {
                     .foregroundStyle(.orange)
             }
 
-            HSplitView {
+            HStack(spacing: 0) {
                 serverList
-                    .frame(minWidth: 220, idealWidth: 260, maxWidth: 380)
+                    .frame(width: serverListWidth)
+                splitter
                 detail
-                    .frame(minWidth: 420)
+                    .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .sheet(item: $pendingUpload) { upload in
@@ -258,6 +281,30 @@ struct TerminalPaneView: View {
                 )
             }
         }
+    }
+
+    /// The draggable edge between the list and the terminal. Padded out
+    /// to a grabbable width — a one-point hairline is a target nobody
+    /// can hit — and it carries the resize cursor so it reads as one.
+    private var splitter: some View {
+        Divider()
+            .padding(.horizontal, 3)
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+            }
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        let origin = splitterDragOrigin ?? serverListWidth
+                        splitterDragOrigin = origin
+                        serverListWidth = min(
+                            Self.serverListWidthRange.upperBound,
+                            max(Self.serverListWidthRange.lowerBound, origin + value.translation.width)
+                        )
+                    }
+                    .onEnded { _ in splitterDragOrigin = nil }
+            )
     }
 
     private func row(_ server: SshServer) -> some View {
