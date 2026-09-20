@@ -61,7 +61,14 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
     /// SSH, with an ed25519 key derived from the main FID. Sits under
     /// Tools rather than System because it is a workbench you point at
     /// something, not a setting.
-    case terminal
+    ///
+    /// **Called SSH in the sidebar, not Terminal.** What you pick it
+    /// for is a server you keep somewhere, and the terminal is only how
+    /// you end up talking to it — "Terminal" next to Crypto and
+    /// Converter reads as the Mac's own Terminal.app, which this is
+    /// not. The pane's type keeps the old name for a reason of its own,
+    /// spelled out in ``TerminalPaneView``.
+    case ssh
 
     // System
     case logs
@@ -93,7 +100,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case construct = "Construct"
         /// Workbenches: you point them at something rather than
         /// browsing what the chain holds. Crypto and Converter act on
-        /// whatever you paste in and keep nothing; Terminal is the one
+        /// whatever you paste in and keep nothing; SSH is the one
         /// that saves records of its own — the servers you connect to.
         case tools = "Tools"
         /// The app itself. Last, because it is about the app rather
@@ -117,7 +124,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
             return .publish
         case .protocols, .services, .codes, .apps:
             return .construct
-        case .crypto, .convert, .terminal:
+        case .crypto, .convert, .ssh:
             return .tools
         case .logs, .settings:
             return .system
@@ -155,7 +162,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .apps:         return "Apps"
         case .crypto:       return "Crypto"
         case .convert:      return "Converter"
-        case .terminal:     return "Terminal"
+        case .ssh:          return "SSH"
         case .logs:         return "Logs"
         case .settings:     return "Settings"
         }
@@ -202,12 +209,12 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
     /// `canSign` one by one. Closing those would be the odd result of
     /// showing a watched FID's coins in Wallet while hiding its tokens.
     ///
-    /// **Terminal is the case that proves the rule.** It plainly needs
+    /// **SSH is the case that proves the rule.** It plainly needs
     /// a private key — it cannot authenticate without one — and it is
     /// still not here, because the key it needs is the **main** FID's,
     /// derived through `ActiveSession.sshIdentity()`, and that is
     /// available whenever the vault is unlocked. `needsKey` asks about
-    /// the *live* identity, so putting Terminal here would close your
+    /// the *live* identity, so putting SSH here would close your
     /// servers the moment you switched to a watched FID to look at a
     /// balance. The pane raises its own banner in the one case that
     /// really does close it: a main FID with no privkey.
@@ -219,7 +226,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
              .contacts, .news, .helpBeginners, .proofs, .tokens, .files,
              .publishText, .publishStatement, .publishImage, .publishSound, .publishVideo,
              .protocols, .services, .codes, .apps,
-             .crypto, .convert, .terminal, .logs, .settings:
+             .crypto, .convert, .ssh, .logs, .settings:
             return false
         }
     }
@@ -263,7 +270,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .apps:         return "app.badge"
         case .crypto:       return "wrench.and.screwdriver"
         case .convert:      return "arrow.left.arrow.right"
-        case .terminal:     return "terminal"
+        case .ssh:          return "terminal"
         case .logs:         return "exclamationmark.bubble"
         case .settings:     return "gearshape"
         }

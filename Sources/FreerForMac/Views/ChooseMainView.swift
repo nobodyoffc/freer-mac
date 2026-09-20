@@ -34,9 +34,14 @@ struct ChooseMainView: View {
                 } label: {
                     Label("Add", systemImage: "plus")
                 }
-                Button("Lock vault") {
+                // **"Switch vault" here, "Lock vault" everywhere
+                // else**, for the same `lockAll()`: no identity is open
+                // on this screen, so what the button is for is leaving
+                // this vault to open another.
+                Button("Switch vault") {
                     appState.lockAll()
                 }
+                .help("Locks this vault and goes back to the password screen, where another password opens another vault.")
             }
             .padding(.horizontal)
 
