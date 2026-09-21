@@ -759,13 +759,42 @@ final class AppState {
         }
         lastError = nil
         do {
-            _ = try await Task.detached(priority: .userInitiated) {
+            let added = try await Task.detached(priority: .userInitiated) {
                 try cs.addMain(privkey: privkey, label: label)
             }.value
-            // Refresh views — list of mains comes from cs.listMains().
-            self.route = .chooseMain
+            await openAdded([added.fid])
         } catch {
             lastError = String(describing: error)
+        }
+    }
+
+    /// Add several main FIDs at once — the keys of an imported backup.
+    /// Stops at the first failure, leaving the ones before it added, and
+    /// only leaves this screen when every key went in.
+    func addMains(_ keys: [(privkey: Data, label: String)]) async {
+        guard let cs = configureSession else {
+            lastError = "No unlocked Configure."
+            return
+        }
+        lastError = nil
+        do {
+            let added = try await Task.detached(priority: .userInitiated) {
+                try keys.map { try cs.addMain(privkey: $0.privkey, label: $0.label).fid }
+            }.value
+            await openAdded(added)
+        } catch {
+            lastError = String(describing: error)
+        }
+    }
+
+    /// After adding mains: a single new identity is the one the user
+    /// meant to use, so open it straight away; several go back to the
+    /// chooser to pick from. The chooser is the route either way first,
+    /// so a failed open leaves its error there, next to the new row.
+    private func openAdded(_ fids: [String]) async {
+        self.route = .chooseMain
+        if fids.count == 1 {
+            await unlockMain(fid: fids[0])
         }
     }
 

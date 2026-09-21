@@ -16,7 +16,9 @@ import FCUI
 ///     writes (the `{"type":"Password",…}` JSON envelope and the Base64
 ///     bundle). Typed, pasted, scanned from a QR code, or read from a
 ///     file — the shapes ``BackupPrikeySheet`` and Android's backup
-///     dialog produce.
+///     dialog produce. It also takes a whole key export from Android
+///     Safe's Export Keys (or Backup Keys): the box lists the keys it
+///     holds, and each one ticked becomes a main FID.
 ///   - **Passphrase** — derive via Argon2id (recommended) or legacy
 ///     SHA-256 (Android-import only). Same `PhraseKey` we use for
 ///     vanity wallets.
@@ -63,6 +65,10 @@ struct AddMainView: View {
     /// dropped on submit like every other key text here.
     @State private var candidates: [Candidate] = []
     @State private var chosenFid: String?
+    /// The export in the box, when ``detected`` is ``KeyInput/Kind/backup``.
+    @State private var backup: KeyBackup?
+    /// Which of ``backup``'s entries to add, by ``KeyBackup/Entry/id``.
+    @State private var backupPicks: Set<Int> = []
 
     private struct Candidate: Identifiable {
         let prikey: Data
@@ -223,7 +229,7 @@ struct AddMainView: View {
             HStack(alignment: .top, spacing: 8) {
                 // An axis-less TextField would clip a 300-character
                 // cipher to one line with no way to see the rest.
-                TextField("Prikey, or an encrypted backup", text: $keyText, axis: .vertical)
+                TextField("Prikey, an encrypted backup, or exported keys", text: $keyText, axis: .vertical)
                     .font(.system(.body, design: .monospaced))
                     .lineLimit(1 ... 5)
                 VStack(spacing: 4) {
@@ -240,7 +246,7 @@ struct AddMainView: View {
                 .buttonStyle(.borderless)
             }
 
-            if detected == .cipher {
+            if detected == .cipher || (backup?.needsPassword == true && backup?.password == nil) {
                 SecureField("Password that opens this backup", text: $cipherPassword)
             }
 
@@ -254,10 +260,75 @@ struct AddMainView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+
+            if let backup {
+                backupList(backup)
+            }
         }
         .onChange(of: keyText) { _, _ in
             detected = KeyInput.detect(keyText)
+            backup = detected == .backup ? KeyBackup.parse(keyText) : nil
+            backupPicks = Set(backup?.entries.filter { isAddable($0) }.map(\.id) ?? [])
             localError = nil
+        }
+    }
+
+    // MARK: - exported keys
+
+    private var existingMainFids: Set<String> {
+        Set(appState.configureSession?.listMains().map(\.fid) ?? [])
+    }
+
+    private func isAddable(_ entry: KeyBackup.Entry) -> Bool {
+        entry.canSign && !(entry.fid.map(existingMainFids.contains) ?? false)
+    }
+
+    @ViewBuilder
+    private func backupList(_ backup: KeyBackup) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(backup.entries) { entry in
+                let addable = isAddable(entry)
+                let picked = backupPicks.contains(entry.id)
+                HStack(spacing: 10) {
+                    Image(systemName: picked ? "checkmark.square.fill" : "square")
+                        .foregroundStyle(picked ? Color.accentColor : .secondary)
+                    if let fid = entry.fid {
+                        FidAvatarView(fid: fid, size: 24)
+                        CopyableText(fid, font: .body.monospaced())
+                    } else {
+                        Text("FID shown once opened")
+                            .foregroundStyle(.secondary)
+                    }
+                    if let label = entry.label {
+                        Text(label).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    if let note = note(for: entry) {
+                        Text(note).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .opacity(addable ? 1 : 0.5)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard addable, !working else { return }
+                    if picked { backupPicks.remove(entry.id) } else { backupPicks.insert(entry.id) }
+                }
+            }
+            Text("Each key keeps the label it was exported with; the Label above is used for keys that have none.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// Why a row can't be ticked, or how it is sealed.
+    private func note(for entry: KeyBackup.Entry) -> String? {
+        if let fid = entry.fid, existingMainFids.contains(fid) { return "Already added" }
+        switch entry.content {
+        case .watchOnly:    return "Watch-only"
+        case .unopenable:   return "Not password-encrypted"
+        case .prikey:       return "Unencrypted"
+        case .prikeyCipher, .sealedKeyInfo: return nil
         }
     }
 
@@ -302,9 +373,36 @@ struct AddMainView: View {
                 icon: "eye", tint: .orange, usable: false
             )
         case .backup:
+            guard let backup else {
+                return Verdict(
+                    text: "Key JSON, but no key entries in it.",
+                    icon: "doc.text", tint: .orange, usable: false
+                )
+            }
+            if backup.itemClass.map({ $0 != "KeyInfo" }) == true {
+                return Verdict(
+                    text: "This is a \(backup.itemClass!) backup, not exported keys.",
+                    icon: "doc.text", tint: .orange, usable: false
+                )
+            }
+            let signable = backup.entries.filter(\.canSign).count
+            guard signable > 0 else {
+                return Verdict(
+                    text: "Exported keys, but none of them has a prikey — they are watch-only, and a main FID has to be able to sign.",
+                    icon: "eye", tint: .orange, usable: false
+                )
+            }
+            let sealing: String
+            if !backup.needsPassword {
+                sealing = "They are not encrypted."
+            } else if backup.password != nil {
+                sealing = "The export carries its own random password, so there is none to type."
+            } else {
+                sealing = "Enter the password they were sealed with — the exporting app's password, not this vault's, unless they are the same."
+            }
             return Verdict(
-                text: "Key JSON — a backup of several entries. Importing a whole backup isn't supported here yet; paste one key, or one encrypted key, at a time.",
-                icon: "doc.text", tint: .orange, usable: false
+                text: "Exported keys — \(signable) that can sign. Tick the ones to add as main FIDs. " + sealing,
+                icon: "tray.and.arrow.down", tint: .accentColor, usable: true
             )
         case .badPrikey:
             return Verdict(
@@ -358,6 +456,8 @@ struct AddMainView: View {
     private func clear() {
         keyText = ""
         cipherPassword = ""
+        backup = nil
+        backupPicks = []
         localError = nil
     }
 
@@ -368,13 +468,24 @@ struct AddMainView: View {
         case .random:     return chosenPrikey != nil
         case .key:        return detected == .prikey
                               || (detected == .cipher && !cipherPassword.isEmpty)
+                              || (detected == .backup && backupReady)
         case .passphrase: return !phrase.isEmpty
         }
+    }
+
+    private var backupReady: Bool {
+        guard let backup, !backupPicks.isEmpty else { return false }
+        let picked = backup.entries.filter { backupPicks.contains($0.id) }
+        return !picked.contains(where: \.needsPassword) || backup.password != nil || !cipherPassword.isEmpty
     }
 
     @MainActor
     private func submit() async {
         guard inputLooksValid, !working else { return }
+        if source == .key, detected == .backup, let backup {
+            await submitBackup(backup)
+            return
+        }
         localError = nil
         working = true
         defer { working = false }
@@ -420,6 +531,49 @@ struct AddMainView: View {
         regenerate()
     }
 
+    /// Opens every ticked entry — one Argon2id each — then adds them all.
+    @MainActor
+    private func submitBackup(_ backup: KeyBackup) async {
+        localError = nil
+        working = true
+        defer { working = false }
+
+        let picked = backup.entries.filter { backupPicks.contains($0.id) }
+        let password = (backup.password ?? cipherPassword).isEmpty
+            ? nil : Data((backup.password ?? cipherPassword).utf8)
+        let fallbackLabel = label
+
+        let keys: [(privkey: Data, label: String, fid: String)]
+        do {
+            keys = try await Task.detached(priority: .userInitiated) {
+                try picked.map { entry in
+                    let prikey = try backup.open(entry, password: password)
+                    let fid = try FchAddress(publicKey: Secp256k1.publicKey(fromPrivateKey: prikey)).fid
+                    return (prikey, entry.label ?? fallbackLabel, fid)
+                }
+            }.value
+        } catch {
+            localError = "Couldn't open the exported keys: \(error)"
+            return
+        }
+
+        let existing = existingMainFids
+        let fresh = keys.filter { !existing.contains($0.fid) }
+        guard !fresh.isEmpty else {
+            localError = "Every ticked key is already a main FID here."
+            return
+        }
+        guard await NobodyGate.confirm(fresh.map(\.fid), .importKey, session: appState.activeSession) else { return }
+        for key in fresh { _ = NobodyRegistry.shared.claimOwnKeyAlert(key.fid) }
+
+        await appState.addMains(fresh.map { ($0.privkey, $0.label) })
+        self.keyText = ""
+        self.cipherPassword = ""
+        self.backup = nil
+        backupPicks = []
+        detected = .empty
+    }
+
     /// Nonisolated so it can run off the main actor: it reads only the
     /// values handed to it, never the view's state.
     nonisolated private static func derivePrivkey(
@@ -441,10 +595,16 @@ struct AddMainView: View {
             if let privkey = KeyInput.prikey32(from: keyText) { return privkey }
             var plaintext = try KeyInput.openCipher(keyText, password: Data(cipherPassword.utf8))
             defer { plaintext.resetBytes(in: 0 ..< plaintext.count) }
-            guard let privkey = KeyInput.prikey(fromPlaintext: plaintext) else {
-                throw Failure.cipherHeldNoKey(wasJson: KeyInput.isJson(plaintext))
+            if let privkey = KeyInput.prikey(fromPlaintext: plaintext) { return privkey }
+            // A sealed KeyInfo JSON: take its key when it holds exactly one.
+            if let json = String(data: plaintext, encoding: .utf8),
+               let inner = KeyBackup.parse(json) {
+                let signable = inner.entries.filter(\.canSign)
+                if signable.count == 1 {
+                    return try inner.open(signable[0], password: Data(cipherPassword.utf8))
+                }
             }
-            return privkey
+            throw Failure.cipherHeldNoKey(wasJson: KeyInput.isJson(plaintext))
 
         case .passphrase:
             return try PhraseKey.privateKey(fromPhrase: phrase, scheme: phraseScheme)
@@ -471,7 +631,7 @@ struct AddMainView: View {
             switch self {
             case .cipherHeldNoKey(let wasJson):
                 return wasJson
-                    ? "The password opened that backup, but it holds key JSON rather than a single prikey. Importing a whole backup isn't supported here yet."
+                    ? "The password opened that backup, but the key JSON inside doesn't hold exactly one prikey. Paste the opened JSON into the box to pick from its keys."
                     : "The password opened that backup, but what's inside isn't a prikey."
             case .noCandidateChosen:
                 return "Pick one of the random FIDs first."
