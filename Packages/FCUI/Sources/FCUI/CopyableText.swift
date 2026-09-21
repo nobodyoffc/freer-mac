@@ -99,13 +99,7 @@ public struct CopyableText: View {
             .foregroundStyle(copied ? Color.green : color)
             .contentShape(Rectangle())
             .onTapGesture { copy() }
-            .onHover { hovering in
-                if hovering {
-                    NSCursor.pointingHand.push()
-                } else {
-                    NSCursor.pop()
-                }
-            }
+            .pointingHand()
             .help(copied ? "Copied!" : (help ?? "Click to copy"))
             .overlay(alignment: .trailing) {
                 if copied {
@@ -126,6 +120,20 @@ public struct CopyableText: View {
         Task {
             try? await Task.sleep(nanoseconds: 1_200_000_000)
             await MainActor.run { copied = false }
+        }
+    }
+}
+
+/// The pointing-hand cursor on hover — the signal that something is
+/// clickable when it does not look like a button.
+///
+/// Push/pop rather than `NSCursor.set()`: a cursor set on enter and
+/// never popped outlives the view under it, and the user is left with
+/// a hand over the whole window.
+public extension View {
+    func pointingHand() -> some View {
+        onHover { hovering in
+            if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
     }
 }

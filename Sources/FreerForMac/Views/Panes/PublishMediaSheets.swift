@@ -574,10 +574,13 @@ struct MediaViewerSheet: View {
 
             HStack {
                 if localURL != nil {
-                    Button("Save a copy…") { saveCopy() }
-                    Button("Reveal in Finder") {
-                        if let url = localURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    // Open rather than reveal: the fetched file is
+                    // named by its DID and has no extension, so the
+                    // Finder can neither type it nor say what it is.
+                    Button("Open") {
+                        if let url = localURL { FileOpening.open(url, named: suggestedName) }
                     }
+                    Button("Save a copy…") { saveCopy() }
                 }
                 Button {
                     rating = true
@@ -748,7 +751,7 @@ struct MediaViewerSheet: View {
             Label("Fetched, but not something macOS can show", systemImage: "questionmark.square")
                 .font(.callout)
                 .foregroundStyle(.orange)
-            Text("The bytes hash to the carved document ID, so this is the right file — it is simply not \(kind == .image ? "an image" : "a \(kind.noun)") this Mac can decode. Save a copy and open it elsewhere.")
+            Text("The bytes hash to the carved document ID, so this is the right file — it is simply not \(kind == .image ? "an image" : "a \(kind.noun)") this Mac can decode. Open it to hand it to another app.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -779,17 +782,26 @@ struct MediaViewerSheet: View {
         }
     }
 
-    private func saveCopy() {
-        guard let source = localURL else { return }
+    /// What this media should be called outside the app: the carved
+    /// title, with an extension the record's kind implies. The stored
+    /// file is the bare DID, so both halves have to be supplied here —
+    /// the extension is what decides which app opens it.
+    private var suggestedName: String {
         let fallback: String
         switch kind {
         case .image: fallback = "png"
         case .sound: fallback = "m4a"
         case .video: fallback = "mp4"
         }
+        let stem = record.title?.isEmpty == false ? record.title! : kind.noun
+        let ext = (localURL?.pathExtension).flatMap { $0.isEmpty ? nil : $0 } ?? fallback
+        return "\(stem).\(ext)"
+    }
+
+    private func saveCopy() {
+        guard let source = localURL else { return }
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = (record.title?.isEmpty == false ? record.title! : kind.noun)
-            + "." + (source.pathExtension.isEmpty ? fallback : source.pathExtension)
+        panel.nameFieldStringValue = suggestedName
         guard panel.runModal() == .OK, let target = panel.url else { return }
         try? FileManager.default.removeItem(at: target)
         try? FileManager.default.copyItem(at: source, to: target)

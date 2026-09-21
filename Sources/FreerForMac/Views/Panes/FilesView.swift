@@ -471,7 +471,7 @@ struct FilesView: View {
     private func open(_ hat: Hat) async {
         guard let id = hat.id else { return }
         if let url = try? session.files.localURL(hatId: id) {
-            NSWorkspace.shared.open(url)
+            FileOpening.open(url, named: hat.displayName)
             return
         }
         // Remote-only: fetch first, then open — Android's HatFileOpener
@@ -481,7 +481,7 @@ struct FilesView: View {
         defer { busy[id] = nil; progressText[id] = nil }
         do {
             let url = try await performDownload(hat)
-            NSWorkspace.shared.open(url)
+            FileOpening.open(url, named: hat.displayName)
             reload()
         } catch {
             banner = Banner(kind: .failure, text: "Couldn't open \(hat.displayName): \(describe(error))")
@@ -490,7 +490,10 @@ struct FilesView: View {
 
     private func revealInFinder(_ hat: Hat) {
         guard let id = hat.id, let url = try? session.files.localURL(hatId: id) else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([url])
+        // An app-managed copy is stored under its DID, so reveal the
+        // named staging copy instead — a Finder window selecting 64
+        // hex characters tells the user nothing about which file it is.
+        FileOpening.reveal(url, named: hat.displayName)
     }
 
     private func upload(_ hat: Hat, permanent: Bool) async {

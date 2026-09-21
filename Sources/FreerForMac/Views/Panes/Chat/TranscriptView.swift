@@ -41,6 +41,9 @@ struct TranscriptView: View {
     /// down to it in front of the user.
     @State private var settled = false
 
+    /// The file record the ⓘ is showing, if any.
+    @State private var inspecting: Hat?
+
     /// The speaker's circle, and the gutter every bubble in their run
     /// is indented by. One constant so the two cannot drift apart and
     /// leave a run stepping sideways at its second message.
@@ -84,6 +87,9 @@ struct TranscriptView: View {
         }
         .background(Color(NSColor.textBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+        .sheet(item: $inspecting) { hat in
+            HatDetailSheet(session: session, hat: hat) { inspecting = nil }
+        }
     }
 
     /// What the user thinks of as "the latest message" — a new one sent
@@ -415,36 +421,67 @@ struct TranscriptView: View {
     }
 
     /// A shared file: what it is, and the one action that applies.
+    ///
+    /// The bubble itself is the action — click it to open the file, or
+    /// to fetch it first if it isn't here yet. That is what every chat
+    /// app trains the hand to do, and it leaves the row with one
+    /// obvious thing to click instead of a label and a button
+    /// competing for the same meaning.
+    ///
+    /// The ⓘ carries everything the row deliberately does not say: the
+    /// DID, where the bytes are, what the sender described it as.
     private func fileBubble(_ offer: FileShareService.Offer, message: ImMessage) -> some View {
         HStack(spacing: 8) {
-            Image(systemName: offer.isDownloaded ? "doc.fill" : "doc")
-                .font(.title3)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(offer.name).lineLimit(1)
-                HStack(spacing: 6) {
-                    if let size = offer.size {
-                        Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
-                    }
-                    if !offer.hasKey {
-                        Text("no key — only fetchable if public")
+            Button {
+                if let url = offer.localURL {
+                    FileOpening.open(url, named: offer.name)
+                } else {
+                    onDownload(message)
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: offer.isDownloaded ? "doc.fill" : "arrow.down.doc")
+                        .font(.title3)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(offer.name).lineLimit(1).truncationMode(.middle)
+                        HStack(spacing: 6) {
+                            if let size = offer.size {
+                                Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                            }
+                            Text(offer.isDownloaded ? "Click to open" : "Click to download")
+                            if !offer.hasKey {
+                                Text("no key — only fetchable if public")
+                            }
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                     }
                 }
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+                // Without this the gaps between icon and text are dead
+                // space, and half the bubble would not answer a click.
+                .contentShape(Rectangle())
             }
-            if offer.isDownloaded {
-                Button("Reveal") {
-                    if let url = offer.localURL {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
-                    }
+            .buttonStyle(.plain)
+            .pointingHand()
+            .help(offer.isDownloaded
+                  ? "Open \(offer.name) in the app that reads it"
+                  : "Fetch \(offer.name) to this Mac")
+            .contextMenu {
+                if let url = offer.localURL {
+                    Button("Show in Finder") { FileOpening.reveal(url, named: offer.name) }
                 }
-                .buttonStyle(.borderless)
-                .font(.caption)
-            } else {
-                Button("Download") { onDownload(message) }
-                    .buttonStyle(.borderless)
-                    .font(.caption)
+                Button("Copy data id") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(offer.hatId, forType: .string)
+                }
             }
+
+            Button { inspecting = offer.hat } label: {
+                Image(systemName: "info.circle")
+            }
+            .buttonStyle(.borderless)
+            .pointingHand()
+            .help("What this file record says — its data id, size and where the bytes are")
         }
     }
 

@@ -187,7 +187,7 @@ struct ConsensusDocumentSheet: View {
                  ?? "This consensus is not text.")
                 .font(.headline)
                 .multilineTextAlignment(.center)
-            Text("It downloaded and its bytes hash to the id above, so this is the document the team carved — \(ByteCountFormatter.string(fromByteCount: file.byteCount, countStyle: .file)) of it. Open it in something that reads \(file.kind?.fileExtension.uppercased() ?? "this kind of file").")
+            Text("It downloaded and its bytes hash to the id above, so this is the document the team carved — \(ByteCountFormatter.string(fromByteCount: file.byteCount, countStyle: .file)) of it. Opening it hands it to whichever app on this Mac reads \(file.kind?.fileExtension.uppercased() ?? "this kind of file").")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -195,24 +195,25 @@ struct ConsensusDocumentSheet: View {
                 .padding(.horizontal, 24)
 
             HStack(spacing: 8) {
+                // Opening is the prominent action. The stored copy is
+                // named by the document's id and carries no extension,
+                // so `FileOpening` stages it under a name that does
+                // and lets Launch Services pick the app — the user
+                // does not have to go through a save panel first.
+                Button {
+                    FileOpening.open(file.url, named: openName(file))
+                } label: {
+                    Label("Open", systemImage: "arrow.up.forward.app")
+                }
+                .buttonStyle(.borderedProminent)
+                .help("Open it in whichever app on this Mac reads \(file.kind?.fileExtension.uppercased() ?? "this kind of file")")
+
                 Button {
                     saveCopy(file)
                 } label: {
                     Label("Save a copy…", systemImage: "square.and.arrow.down")
                 }
-                .buttonStyle(.borderedProminent)
-                // Saving is the prominent action rather than opening
-                // because this Mac's copy is named by the hash and has
-                // no extension: the Finder has nothing to go on, and
-                // the save panel is where the name gets fixed.
-                .help("Write the bytes out under a name the Finder can open")
-
-                Button {
-                    NSWorkspace.shared.activateFileViewerSelecting([file.url])
-                } label: {
-                    Label("Show this Mac's copy", systemImage: "folder")
-                }
-                .help("The stored copy is named by the document's id, so it carries no file extension")
+                .help("Write the bytes out somewhere of your own, under a name you choose")
             }
 
             if editable {
@@ -238,6 +239,13 @@ struct ConsensusDocumentSheet: View {
         )
     }
 
+    /// The name this document should open under. The stored file is
+    /// the bare id, so the extension is the whole point: it is what
+    /// decides which app macOS hands it to.
+    private func openName(_ file: FetchedFile) -> String {
+        "team-consensus.\(file.kind?.fileExtension ?? "bin")"
+    }
+
     /// Write the bytes out where the user can open them.
     ///
     /// A copy rather than a move or a reveal: the stored file is
@@ -245,7 +253,7 @@ struct ConsensusDocumentSheet: View {
     /// there under its own hash.
     private func saveCopy(_ file: FetchedFile) {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "team-consensus.\(file.kind?.fileExtension ?? "bin")"
+        panel.nameFieldStringValue = openName(file)
         panel.canCreateDirectories = true
         guard panel.runModal() == .OK, let destination = panel.url else { return }
         do {

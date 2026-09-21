@@ -158,7 +158,8 @@ public struct FileShareService {
             name: hat.name ?? id,
             size: hat.size,
             localURL: local,
-            hasKey: !(hat.key ?? "").isEmpty
+            hasKey: !(hat.key ?? "").isEmpty,
+            hat: hat
         )
     }
 
@@ -172,6 +173,11 @@ public struct FileShareService {
         /// only be fetched if it happens to be public and
         /// content-addressed.
         public let hasKey: Bool
+        /// The record as it arrived, for a pane that wants to show
+        /// what the sender actually said about the file — its
+        /// locations, its description, where it came from. Parsing the
+        /// message JSON is this service's job, not a view's.
+        public let hat: Hat
 
         public var isDownloaded: Bool { localURL != nil }
     }
