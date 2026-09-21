@@ -41,6 +41,8 @@ public enum OnboardingStep: String, CaseIterable, Codable, Sendable {
     ///
     /// A master is deliberately not a step: it names another FID of your
     /// own, which a beginner does not have. It lives in Settings › Identity.
+    /// Setting one does tick ``backupPrikey`` off, because the carve puts
+    /// the prikey on the chain — see ``Onboarding/backupMaster``.
     public var isSkippable: Bool {
         switch self {
         case .addGuide, .joinSquare: return true
@@ -111,7 +113,8 @@ public struct OnboardingFacts: Sendable {
     public var joinedSquare: Bool
     public var skipped: Set<OnboardingStep>
     /// Carves broadcast for ``OnboardingStep/registerCid``, ``OnboardingStep/setHome``
-    /// and ``OnboardingStep/joinSquare`` that the chain does not show yet.
+    /// and ``OnboardingStep/joinSquare`` that the chain does not show yet, and
+    /// for ``OnboardingStep/backupPrikey`` a master carve on its way there.
     public var pending: [OnboardingStep: OnboardingPending]
 
     public init(
@@ -134,9 +137,10 @@ public struct OnboardingFacts: Sendable {
 /// The getting-started checklist, decided.
 ///
 /// **Every tick comes from state, never from the user ticking it.** A
-/// backup is the user's word because nothing else can know; everything
-/// else is on the chain or on this Mac, so a step done from another device,
-/// or before this checklist existed, shows as done without being told.
+/// backup is the user's word when nothing else can know — and the chain
+/// can know, if a master carve has put the key there; everything else is
+/// on the chain or on this Mac, so a step done from another device, or
+/// before this checklist existed, shows as done without being told.
 public struct Onboarding: Equatable, Sendable {
 
     public struct Item: Equatable, Sendable, Identifiable {
@@ -155,9 +159,22 @@ public struct Onboarding: Equatable, Sendable {
     /// Whether a carve from this FID would be read now.
     public let canCarve: Bool
 
+    /// The master the chain holds for this FID, when it has one.
+    ///
+    /// A master carve publishes this FID's prikey sealed to the master's
+    /// pubkey, so the key then exists somewhere this Mac is not — which is
+    /// what ``OnboardingStep/backupPrikey`` asks for, and why a master ticks
+    /// it. The card names the master rather than drawing a bare tick: that
+    /// copy is only recoverable by whoever holds *that* FID's prikey, which
+    /// is a different promise from a copy in the user's own hands.
+    public let backupMaster: String?
+
     public init(_ facts: OnboardingFacts) {
         let chain = facts.chain
         guide = chain?.guide.flatMap { $0.isEmpty ? nil : $0 }
+        backupMaster = chain?.master
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .flatMap { $0.isEmpty ? nil : $0 }
 
         let funded = chain.map { ($0.balance ?? 0) > 0 || $0.guide?.isEmpty == false }
         let cdWait = chain.flatMap(Self.coinDayWait)
@@ -180,7 +197,23 @@ public struct Onboarding: Equatable, Sendable {
         }
 
         var items: [Item] = []
-        items.append(Item(step: .backupPrikey, status: facts.prikeyBackedUp ? .done : .open))
+        // The chain can settle this one too: a master holds the prikey,
+        // sealed to it, in a record that outlives this Mac. A master carve
+        // that has only been broadcast is **pending, not done** — it can
+        // still be dropped, or confirmed and ignored — and the card keeps
+        // the step's button through it, because a copy of your own is free
+        // and the one time it is most worth having is while the other copy
+        // is still a maybe.
+        let backupStatus: OnboardingStatus
+        if facts.prikeyBackedUp || backupMaster != nil {
+            backupStatus = .done
+        } else if let pending = facts.pending[.backupPrikey] {
+            backupStatus = pending.overdue
+                ? .stalled(txid: pending.txid) : .pending(txid: pending.txid)
+        } else {
+            backupStatus = .open
+        }
+        items.append(Item(step: .backupPrikey, status: backupStatus))
         items.append(Item(step: .firstFch, status: funded.map { $0 ? .done : .open } ?? .unknown))
 
         let cid = chain?.cid?.trimmingCharacters(in: .whitespaces) ?? ""

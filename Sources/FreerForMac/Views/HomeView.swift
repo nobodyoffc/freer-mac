@@ -28,6 +28,10 @@ struct HomeView: View {
     @State private var showCreateMultisig = false
     @State private var showAddMultisig = false
     @State private var showBackupPrikey = false
+    /// The backup sheet asked for the master carve. Two sheets hang off this
+    /// same view, so the second is opened from the first's `onDismiss` —
+    /// asking for it while the backup sheet is still on screen drops it.
+    @State private var setMasterAfterBackup = false
     /// The group a co-sign sheet is open for. Identifiable-by-value so
     /// the sheet is rebuilt when the group changes.
     @State private var signingGroup: SigningGroup?
@@ -135,12 +139,23 @@ struct HomeView: View {
                 appState.consumeBackupPrikeyRequest()
             }
         }
-        .sheet(isPresented: $showBackupPrikey) {
+        .sheet(isPresented: $showBackupPrikey, onDismiss: {
+            if setMasterAfterBackup {
+                setMasterAfterBackup = false
+                appState.openSetMaster()
+            }
+        }) {
             BackupPrikeySheet(session: session) {
                 showBackupPrikey = false
                 appState.markPrikeyBackedUp()
                 identityNote = "Backup recorded. The reminder stops — the copy itself is yours to keep safe."
             } onLater: {
+                showBackupPrikey = false
+            } onSetMaster: {
+                // Nothing is recorded as backed up: the master is only a
+                // backup once the chain confirms the carve, and the checklist
+                // reads that from the record itself.
+                setMasterAfterBackup = true
                 showBackupPrikey = false
             }
         }

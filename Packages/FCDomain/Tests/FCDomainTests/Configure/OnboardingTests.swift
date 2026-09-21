@@ -48,6 +48,51 @@ final class OnboardingTests: XCTestCase {
         XCTAssertFalse(ob.canCarve)
     }
 
+    func testAMasterOnChainBacksThePrikeyUp() {
+        var info = funded()
+        info.master = "FMasterFid11111111111111111111111"
+        let ob = Onboarding(OnboardingFacts(prikeyBackedUp: false, chain: info))
+
+        XCTAssertEqual(ob.status(of: .backupPrikey), .done, "the master holds the key, sealed to it, on the chain")
+        XCTAssertEqual(ob.backupMaster, "FMasterFid11111111111111111111111", "the card names who can open that copy")
+    }
+
+    func testABlankMasterFieldBacksNothingUp() {
+        var info = funded()
+        info.master = "   "
+        let ob = Onboarding(OnboardingFacts(prikeyBackedUp: false, chain: info))
+
+        XCTAssertEqual(ob.status(of: .backupPrikey), .open)
+        XCTAssertNil(ob.backupMaster)
+    }
+
+    func testAMasterCarveOnItsWayLeavesTheBackupWaitingForTheChain() {
+        // Broadcast is not done — the carve can still be dropped — but the step
+        // has to say something is in flight rather than sit there unchanged.
+        let facts = OnboardingFacts(
+            prikeyBackedUp: false, chain: funded(),
+            pending: [.backupPrikey: OnboardingPending(txid: "tx1", overdue: false)]
+        )
+        XCTAssertEqual(status(facts, .backupPrikey), .pending(txid: "tx1"))
+        XCTAssertNil(Onboarding(facts).backupMaster)
+    }
+
+    func testAMasterCarveOverADayOldStallsTheBackup() {
+        let facts = OnboardingFacts(
+            prikeyBackedUp: false, chain: funded(),
+            pending: [.backupPrikey: OnboardingPending(txid: "tx1", overdue: true)]
+        )
+        XCTAssertEqual(status(facts, .backupPrikey), .stalled(txid: "tx1"))
+    }
+
+    func testACopyOfYourOwnStillSettlesTheBackupWhileTheMasterCarveConfirms() {
+        let facts = OnboardingFacts(
+            prikeyBackedUp: true, chain: funded(),
+            pending: [.backupPrikey: OnboardingPending(txid: "tx1", overdue: false)]
+        )
+        XCTAssertEqual(status(facts, .backupPrikey), .done)
+    }
+
     func testUnknownChainStateIsNeitherDoneNorOpen() {
         let ob = Onboarding(OnboardingFacts(prikeyBackedUp: true, chain: nil))
         XCTAssertEqual(ob.status(of: .firstFch), .unknown)

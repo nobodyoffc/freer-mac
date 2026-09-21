@@ -137,7 +137,7 @@ struct GettingStartedCard: View {
                         .foregroundStyle(item.status.isSettled ? .secondary : .primary)
                         .strikethrough(item.status == .skipped)
                     Spacer(minLength: 8)
-                    if !isOpen, let line = statusLine(item.status) {
+                    if !isOpen, let line = statusLine(item, ob: ob) {
                         Text(line)
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -154,6 +154,18 @@ struct GettingStartedCard: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
+                    // A master ticked this step, so say whose key opens the
+                    // copy — the FID itself, copyable, because "recoverable"
+                    // means nothing without knowing by whom.
+                    if item.step == .backupPrikey, item.status == .done,
+                       let master = ob.backupMaster {
+                        HStack(spacing: 6) {
+                            Text("On the chain, sealed to")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                            CopyableText.elidingMiddle(master, font: .callout.monospaced())
+                        }
+                    }
                     switch item.status {
                     case .waiting:
                         if let line = statusLine(item.status) {
@@ -163,7 +175,9 @@ struct GettingStartedCard: View {
                         }
                     case .pending(let txid):
                         carveNote(
-                            "Carved. Waiting for the chain to confirm it; this ticks itself once it does.",
+                            item.step == .backupPrikey
+                            ? "Your master carve is on its way to the chain. It ticks this off once a block confirms it — until then nothing is backed up, so a copy of your own is still worth taking."
+                            : "Carved. Waiting for the chain to confirm it; this ticks itself once it does.",
                             txid: txid, color: .secondary
                         )
                     case .stalled(let txid):
@@ -174,7 +188,11 @@ struct GettingStartedCard: View {
                     default:
                         EmptyView()
                     }
-                    if item.status.isActionable {
+                    // A copy of your own is free, so a master carve still
+                    // confirming must not take the backup button away — it is
+                    // the one thing that works if that carve fails.
+                    if item.status.isActionable
+                        || (item.step == .backupPrikey && !item.status.isSettled) {
                         actions(item, ob: ob)
                     }
                 }
@@ -218,6 +236,16 @@ struct GettingStartedCard: View {
             )
             .foregroundStyle(.secondary)
         }
+    }
+
+    /// The trailing line on a collapsed row. A backup ticked by a master
+    /// says so: a bare tick would claim the user has a copy, when what
+    /// exists is a copy only the master can open.
+    private func statusLine(_ item: Onboarding.Item, ob: Onboarding) -> String? {
+        if item.step == .backupPrikey, item.status == .done, let master = ob.backupMaster {
+            return "Backed up to master " + master.elidingMiddle(head: 8, tail: 8)
+        }
+        return statusLine(item.status)
     }
 
     private func statusLine(_ status: OnboardingStatus) -> String? {
@@ -344,7 +372,13 @@ struct GettingStartedCard: View {
         guideIsContact = guide.map { (try? session.contacts.get(fid: $0)) != nil } ?? false
 
         var found: [OnboardingStep: OnboardingPending] = [:]
-        for (step, kind) in [(OnboardingStep.registerCid, PendingIdentityCarve.Kind.cid), (.setHome, .home)] {
+        // A master carve is a backup on its way: the step says so while it
+        // confirms, and ticks itself off the chain record once it lands.
+        for (step, kind) in [
+            (OnboardingStep.registerCid, PendingIdentityCarve.Kind.cid),
+            (.setHome, .home),
+            (.backupPrikey, .master),
+        ] {
             if let carve = try? session.pendingIdentityCarves.get(fid: fid, kind: kind) {
                 found[step] = OnboardingPending(txid: carve.txid, overdue: carve.isOverdue(now: now))
             }

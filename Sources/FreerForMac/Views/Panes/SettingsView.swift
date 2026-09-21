@@ -17,6 +17,18 @@ struct SettingsView: View {
     @Environment(AppState.self) private var appState
     let session: ActiveSession
 
+    /// The master the chain holds for the main FID, if any: the one thing
+    /// besides the user's word that can settle the backup. Same rule as
+    /// ``IdentitySettingsSection`` — the live record, and only while living
+    /// as the main FID.
+    private var backupMaster: String? {
+        guard session.liveFid == session.mainFid,
+              let master = appState.knownLiveFidInfo?.master?
+                  .trimmingCharacters(in: .whitespaces),
+              !master.isEmpty else { return nil }
+        return master
+    }
+
     @State private var fapiHost: String = ""
     @State private var fapiPort: String = ""
     @State private var fapiPubkeyHex: String = ""
@@ -258,7 +270,19 @@ struct SettingsView: View {
                     } label: {
                         Label("Back up prikey…", systemImage: "key.viewfinder")
                     }
-                    if appState.prikeyBackedUp {
+                    if let master = backupMaster {
+                        // A master carve put the key on the chain, sealed to
+                        // that FID. The checklist counts it; saying "not
+                        // backed up" here would contradict it — and the FID
+                        // is the part worth naming, since only its prikey
+                        // opens that copy.
+                        HStack(spacing: 4) {
+                            Label("Backed up to master", systemImage: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.callout)
+                            CopyableText.elidingMiddle(master, font: .callout.monospaced())
+                        }
+                    } else if appState.prikeyBackedUp {
                         Label("Backed up", systemImage: "checkmark.circle.fill")
                             .foregroundStyle(.green)
                             .font(.callout)

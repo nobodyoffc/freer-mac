@@ -18,6 +18,15 @@ import FCUI
 ///   - **An unencrypted QR code**, behind its own toggle, because a QR code of a
 ///     bare private key hands the wallet to anything that can see the screen.
 ///
+/// A fourth way out is named but not taken here: **setting a master** carves
+/// this key onto the chain sealed to another FID's pubkey, which is a copy
+/// that outlives this Mac. It is a pointer to ``SetMasterSheet`` and not a
+/// button beside "Encrypt", because it is permanent, costs a fee, needs coins
+/// this FID may not have yet, and hands that FID every right this identity
+/// has — that sheet exists to slow the user down, and reaching it in the same
+/// stride as copying a cipher would undo it. Once the chain holds a master the
+/// section says so instead: there is nothing left to offer.
+///
 /// **The password must be the vault's.** Verifying it costs a second Argon2id run
 /// that the encryption does not need, and it is the point: a typo would otherwise
 /// produce a backup nobody can open, discovered on the day the original is gone.
@@ -28,6 +37,9 @@ struct BackupPrikeySheet: View {
     let onDone: () -> Void
     /// Dismiss without claiming anything; the nudge comes back.
     let onLater: () -> Void
+    /// Close this sheet and open ``SetMasterSheet``. A sheet cannot present
+    /// the next one itself, so the handoff belongs to whoever presents this.
+    let onSetMaster: () -> Void
 
     enum Format: String, CaseIterable, Identifiable {
         case wif = "WIF"
@@ -95,6 +107,7 @@ struct BackupPrikeySheet: View {
                         encryptedSection
                         if !qrImages.isEmpty { qrSection }
                         warning
+                        masterSection
                     }
                 }
                 .padding(20)
@@ -363,6 +376,80 @@ struct BackupPrikeySheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.orange.opacity(0.10))
         .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    // MARK: - master
+
+    /// The master the chain holds for the main FID, or nil.
+    ///
+    /// Read from the live record and only while living as the main FID, the
+    /// same rule ``IdentitySettingsSection`` follows: the local ``KeyInfo``
+    /// is written on broadcast, so it can name a master whose carve never
+    /// landed — and this section's whole claim is that the copy is *there*.
+    private var chainMaster: String? {
+        guard session.liveFid == session.mainFid,
+              let master = session.cachedLiveFidInfo().master?
+                  .trimmingCharacters(in: .whitespaces),
+              !master.isEmpty else { return nil }
+        return master
+    }
+
+    /// A master carve broadcast within the last day. FEIP6 is write-once, so
+    /// a second carve while one is in flight pays for a record the parser
+    /// ignores.
+    private var pendingMaster: PendingIdentityCarve? {
+        try? session.pendingIdentityCarves.get(fid: session.mainFid, kind: .master)
+    }
+
+    @ViewBuilder
+    private var masterSection: some View {
+        // Only the main FID can have a master, so for anyone else there is
+        // nothing here to say.
+        if session.liveFid == session.mainFid {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Or hand the key to a master").font(.headline)
+
+                if let master = chainMaster {
+                    Text("This key is already on the chain, sealed to your master. Whoever holds that FID's prikey can recover it — which is a copy that survives this Mac, but not one only you can open. A copy of your own is still worth taking.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+                        Text("Master").font(.caption).foregroundStyle(.secondary)
+                        CopyableText.elidingMiddle(master, font: .caption.monospaced())
+                    }
+                } else if let pending = pendingMaster, !pending.isOverdue(now: Date()) {
+                    Text("A master carve is on its way to the chain. Until a block confirms it, nothing has been backed up — take a copy above meanwhile.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    CopyableText(
+                        display: "tx " + pending.txid.elidingMiddle(head: 8, tail: 8),
+                        copy: pending.txid,
+                        font: .caption.monospaced()
+                    )
+                    .foregroundStyle(.secondary)
+                } else {
+                    Text("Setting a master carves this key onto the chain, sealed to another FID's pubkey, so that FID can recover it. It is permanent, it costs a fee, and it gives that FID every right this identity has — set one only to a FID of your own that you trust completely.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let blocker = IdentityCarve.blocker(
+                        session: session, info: session.cachedLiveFidInfo()
+                    ) {
+                        CarveBlockerLabel(text: blocker)
+                            .font(.caption)
+                    } else {
+                        Button("Set master…") { onSetMaster() }
+                            .help("Close this and open the master carve, which carries its own warnings.")
+                    }
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
     }
 
     // MARK: - data
