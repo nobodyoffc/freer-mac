@@ -138,19 +138,18 @@ struct ChooseMainView: View {
             FidAvatarView(fid: info.fid, size: 44)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
-                    Text(info.activeCid
-                         ?? (info.label.isEmpty ? "Main FID" : info.label))
-                        .font(.headline)
+                    // The CID when the FID has bought one, else the FID
+                    // itself: a generic "Main FID" on every row gave a
+                    // vault of several identities nothing to tell apart.
+                    Text(info.activeCid ?? info.fid)
+                        .font(info.activeCid == nil ? .headline.monospaced() : .headline)
                         .lineLimit(1)
                         .truncationMode(.middle)
 
-                    // With a CID heading the row, the local label
-                    // still earns its place beside it: the CID is
-                    // what the chain calls this identity, the
-                    // label is what *you* call it, and a vault
-                    // holding several identities is exactly where
-                    // the two need telling apart.
-                    if info.activeCid != nil, !info.label.isEmpty {
+                    // The local label rides beside whichever heads the
+                    // row: the CID or FID is what the chain calls this
+                    // identity, the label is what *you* call it.
+                    if !info.label.isEmpty {
                         HStack(spacing: 3) {
                             Image(systemName: "tag.fill")
                             Text(info.label)
@@ -161,11 +160,14 @@ struct ChooseMainView: View {
                         .truncationMode(.tail)
                     }
                 }
-                Text(info.fid)
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                // Under a CID only — without one the FID is the heading.
+                if info.activeCid != nil {
+                    Text(info.fid)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
             }
             Spacer()
             if working == info.fid {
