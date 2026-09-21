@@ -93,7 +93,7 @@ public struct HistoryShareService {
         do {
             try outbox.enqueue(message, in: Conversation.id(type: .p2p, targetId: fid), now: now)
         } catch {
-            try? shares.removeAsk(nonce: nonce)
+            _ = try? shares.removeAsk(nonce: nonce)
             throw error
         }
         return ask
@@ -223,7 +223,7 @@ public struct HistoryShareService {
             guard !share.waitsForRetry || share.nonce == retrying else { continue }
             do {
                 let count = try await fetchAndImport(share, as: liveFid)
-                try? shares.removeReceived(nonce: share.nonce)
+                _ = try? shares.removeReceived(nonce: share.nonce)
                 results.append(.init(
                     nonce: share.nonce, from: share.from,
                     conversationId: share.conversationId, imported: count, error: nil

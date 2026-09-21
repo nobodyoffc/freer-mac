@@ -1089,7 +1089,7 @@ public final class ActiveSession {
         }
         if let bestHeight { updated.bestHeight = bestHeight }
         // A CID or home carve the chain now shows has nothing left to wait for.
-        try? pendingIdentityCarves.reconcile(fid: fid, info: updated)
+        _ = try? pendingIdentityCarves.reconcile(fid: fid, info: updated)
         try liveFidInfoCache.upsert(updated)
         // A CID is the one value from that reply worth writing back into
         // the KeyInfo. Everything else ticks; this is a name someone

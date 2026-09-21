@@ -54,6 +54,17 @@ public final class FudpSocket: @unchecked Sendable {
     private var inboundConnections: [NWConnection] = []
     private var outgoing: [String: NWConnection] = [:]
 
+    /// Run `body` with `stateLock` held. `lock()`/`unlock()` written out
+    /// inside an `async` function warn (and, in the Swift 6 language
+    /// mode, error) because a suspension between the two would strand
+    /// the lock on a thread that never comes back; a scoped,
+    /// non-async helper cannot suspend, so the pairing holds.
+    private func withStateLock<T>(_ body: () -> T) -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return body()
+    }
+
     /// Stream of incoming datagrams. Iterate with `for await`. The stream
     /// finishes when ``close()`` is called.
     public let datagrams: AsyncStream<Datagram>
@@ -119,9 +130,7 @@ public final class FudpSocket: @unchecked Sendable {
             newListener.start(queue: queue)
         }
 
-        stateLock.lock()
-        self.listener = newListener
-        stateLock.unlock()
+        withStateLock { self.listener = newListener }
 
         return resolvedPort
     }
@@ -225,12 +234,9 @@ public final class FudpSocket: @unchecked Sendable {
     private func outgoingConnection(to dest: NWEndpoint) async throws -> NWConnection {
         let key = endpointKey(dest)
 
-        stateLock.lock()
-        if let existing = outgoing[key] {
-            stateLock.unlock()
+        if let existing = withStateLock({ outgoing[key] }) {
             return existing
         }
-        stateLock.unlock()
 
         let conn = NWConnection(to: dest, using: .udp)
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
@@ -250,15 +256,16 @@ public final class FudpSocket: @unchecked Sendable {
             conn.start(queue: queue)
         }
 
-        stateLock.lock()
         // Re-check; another caller may have raced us.
-        if let raced = outgoing[key] {
-            stateLock.unlock()
+        let raced = withStateLock { () -> NWConnection? in
+            if let winner = outgoing[key] { return winner }
+            outgoing[key] = conn
+            return nil
+        }
+        if let raced {
             conn.cancel()
             return raced
         }
-        outgoing[key] = conn
-        stateLock.unlock()
         return conn
     }
 

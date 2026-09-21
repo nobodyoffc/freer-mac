@@ -178,7 +178,7 @@ public struct RoomService {
             // an owner sharing the room's details — so one row written
             // here covers all of them (FIMP §8.7).
             if info.symkey != nil {
-                try? keyLedger?.record(
+                _ = try? keyLedger?.record(
                     entityId: roomId, version: version, counterparty: fid,
                     direction: .sent, outcome: .shared, solicited: false, now: now
                 )
@@ -473,7 +473,7 @@ public struct RoomService {
                 privkey: try privkeyForReceive(),
                 now: now
             )
-            try? keyLedger?.record(
+            _ = try? keyLedger?.record(
                 entityId: roomId, version: version,
                 counterparty: info.owner ?? roomId,
                 direction: .received, outcome: stored ? .stored : .duplicate,
@@ -521,7 +521,7 @@ public struct RoomService {
         // it to be kept at least as long as they are, and this is the one
         // case that outlives them: keeping a map of who could read a
         // conversation the user has erased would be its own disclosure.
-        try? keyLedger?.removeAll(for: roomId)
+        _ = try? keyLedger?.removeAll(for: roomId)
         return try rooms.remove(id: roomId)
     }
 
@@ -686,7 +686,7 @@ public struct RoomService {
                 privkey: try privkeyForReceive(),
                 now: now
             )
-            try? keyLedger?.record(
+            _ = try? keyLedger?.record(
                 entityId: roomId, version: version, counterparty: senderFid,
                 direction: .received, outcome: stored ? .stored : .duplicate,
                 solicited: false, now: now

@@ -176,7 +176,7 @@ public struct MessageCourier {
 
         for reply in outcome.outbound {
             guard let to = reply.targetId else { continue }
-            try? outbox.enqueue(reply, in: Conversation.id(type: .p2p, targetId: to))
+            _ = try? outbox.enqueue(reply, in: Conversation.id(type: .p2p, targetId: to))
         }
         // **A key that arrives is retroactive.** The rows already filed
         // sealed under it are kept precisely so they can be opened later
@@ -664,7 +664,7 @@ public struct MessageCourier {
         // `PeerBook` deliberately does not treat it as a sighting. Kept
         // out of the transaction above: a sighting is a hint, and losing
         // one must not undo a delivery.
-        try? peers.delivered(to: targetId, via: route.deliveryMethod, now: now)
+        _ = try? peers.delivered(to: targetId, via: route.deliveryMethod, now: now)
         return .sent
     }
 
@@ -678,7 +678,7 @@ public struct MessageCourier {
     ) -> MessageQueue.Outcome {
         let outcome = (try? outbox.record(result, for: id, error: error, now: now)) ?? .unknown
         if let status = outcome.messageStatus {
-            try? messages.mutate(messageId: id, in: conversationId) { $0.status = status }
+            _ = try? messages.mutate(messageId: id, in: conversationId) { $0.status = status }
         }
         return outcome
     }

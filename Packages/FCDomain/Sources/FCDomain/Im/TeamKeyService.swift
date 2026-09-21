@@ -195,7 +195,7 @@ public struct TeamKeyService {
                 continue
             }
             guard let pubkey = try pubkeys(fid) else {
-                try? keyLedger?.record(
+                _ = try? keyLedger?.record(
                     entityId: teamId, version: version, counterparty: fid,
                     direction: .sent, outcome: .noPubkey, solicited: false, now: now
                 )
@@ -212,7 +212,7 @@ public struct TeamKeyService {
             }
             outbound.append(contentsOf: messages)
             // Unsolicited by definition: nobody asked, the owner pushed.
-            try? keyLedger?.record(
+            _ = try? keyLedger?.record(
                 entityId: teamId, version: version, counterparty: fid,
                 direction: .sent, outcome: .shared, solicited: false, now: now
             )

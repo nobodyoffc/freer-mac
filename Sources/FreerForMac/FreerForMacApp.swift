@@ -19,7 +19,7 @@ struct FreerForMacApp: App {
             AppRouter()
                 .environment(appState)
                 .frame(minWidth: 720, minHeight: 480)
-                .onAppear {
+                .onAppear { [appState] in
                     // ⌘Q does not run `deinit`, so without this the
                     // ssh-agent's socket and runtime directory would be
                     // left behind once per launch. `$TMPDIR` is reaped
