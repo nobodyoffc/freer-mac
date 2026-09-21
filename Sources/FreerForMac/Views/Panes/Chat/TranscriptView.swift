@@ -36,10 +36,16 @@ struct TranscriptView: View {
     /// on the true end of the transcript.
     private static let bottomAnchor = "transcript.bottom"
 
-    /// False until the first scroll has happened, so a transcript that is
-    /// merely being opened *starts* at the bottom instead of animating
-    /// down to it in front of the user.
-    @State private var settled = false
+    /// The conversation whose end we have already landed on. A jump
+    /// within a transcript that is already on screen animates; the first
+    /// landing in one that is merely being opened does not, so a thread
+    /// *starts* at its newest message instead of animating down to it in
+    /// front of the user.
+    ///
+    /// Keyed by conversation rather than a flag, so it cannot be left
+    /// true from the previous thread by whichever `onChange` SwiftUI
+    /// happens to run first on a switch.
+    @State private var settledIn: String?
 
     /// The file record the ⓘ is showing, if any.
     @State private var inspecting: Hat?
@@ -74,6 +80,26 @@ struct TranscriptView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
             }
+            // A lazy stack measures only the rows it has realised and
+            // guesses the height of the rest from those. One very long
+            // message poisons that guess for every row still off screen,
+            // so the offset a one-shot `scrollTo` computes on the way in
+            // overshoots the true end of the transcript — and once the
+            // rows behind it realise at their real, shorter heights the
+            // content ends above the viewport and the pane shows a long
+            // blank instead of the newest messages.
+            //
+            // The anchor is a layout rule rather than an offset: the
+            // scroll view re-pins to the end of the content every time
+            // it measures differently, which is exactly what happens as
+            // those estimates are replaced by real heights.
+            .defaultScrollAnchor(.bottom)
+            // One scroll view per thread. A reused one carries the
+            // previous transcript's offset *and* its height estimates
+            // into the new one, which is the same overshoot by another
+            // route; the anchor only places content it is laying out for
+            // the first time.
+            .id(conversation.id)
             // The newest message, not the count: loading *earlier* pages
             // grows the list too, and yanking the view to the bottom
             // there would undo what the user just asked for.
@@ -81,7 +107,6 @@ struct TranscriptView: View {
                 scrollToBottom(proxy)
             }
             .onChange(of: conversation.id) { _, _ in
-                settled = false
                 scrollToBottom(proxy)
             }
         }
@@ -102,14 +127,15 @@ struct TranscriptView: View {
         // The row that triggered this doesn't exist in the lazy stack yet
         // on the turn the page changes, so the scroll is asked for once
         // that layout pass is behind us.
+        let id = conversation.id
         Task { @MainActor in
-            if settled {
+            if settledIn == id {
                 withAnimation(.easeOut(duration: 0.2)) {
                     proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
                 }
             } else {
                 proxy.scrollTo(Self.bottomAnchor, anchor: .bottom)
-                settled = true
+                settledIn = id
             }
         }
     }
