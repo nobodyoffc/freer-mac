@@ -132,6 +132,11 @@ final class TerminalSessionModel {
     /// Why the session is over. Nil while it is alive.
     private(set) var endedMessage: String?
 
+    /// The child exited 0 on its own. What a one-shot kind — the key
+    /// install — needs before acting on its result; a transcript saying
+    /// "done" is not something to key a follow-up off.
+    private(set) var exitedCleanly = false
+
     /// The exact command, shown in the scrollback before spawning so
     /// the user can see what was run on their behalf — an agent that
     /// signs invisibly is worth being loud about.
@@ -256,6 +261,8 @@ final class TerminalSessionModel {
         isRunning = false
         // A raw waitpid status, not an exit code — see SshLaunch.
         endedMessage = SshLaunch.exitDescription(rawStatus: exitCode, kind: kind)
+        // A raw status of 0 is "exited, code 0" — no signal bits set.
+        exitedCleanly = exitCode == 0
         // `stop()` has already fired this; `terminate()` also lands
         // here through the delegate, and calling it twice would put the
         // agent away while another session still needs it.

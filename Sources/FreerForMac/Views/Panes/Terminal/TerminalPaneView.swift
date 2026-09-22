@@ -45,6 +45,9 @@ struct TerminalPaneView: View {
     /// The server whose Freer key is about to come off, waiting on the
     /// lockout warning.
     @State private var confirmingKeyRemoval: SshServer?
+    /// A server that just took the Freer key but still logs in with
+    /// something else, waiting on whether to switch it over.
+    @State private var offeringKeySwitch: SshServer?
 
     /// How wide the server list is, dragged by the divider beside it.
     ///
@@ -158,6 +161,9 @@ struct TerminalPaneView: View {
         }
         .padding()
         .onAppear(perform: reload)
+        .onChange(of: installedKeySessionIds) { old, new in
+            offerKeySwitch(forNewlyInstalled: new.subtracting(old))
+        }
         .sheet(item: $editor) { mode in
             SshServerEditorSheet(
                 session: session,
@@ -202,6 +208,25 @@ struct TerminalPaneView: View {
             Button("Cancel", role: .cancel) { confirmingKeyRemoval = nil }
         } message: {
             Text(keyRemovalWarning(confirmingKeyRemoval))
+        }
+        .confirmationDialog(
+            "Use the Freer key for \(offeringKeySwitch?.name ?? "")?",
+            isPresented: Binding(
+                get: { offeringKeySwitch != nil },
+                set: { if !$0 { offeringKeySwitch = nil } }
+            ),
+            titleVisibility: .visible,
+            // The server rides in here rather than being read back off
+            // the state: dismissing clears `offeringKeySwitch`, and that
+            // can land before the button's action — which then saved
+            // nothing.
+            presenting: offeringKeySwitch
+        ) { server in
+            Button("Use Freer key") { switchToFreerKey(server) }
+                .keyboardShortcut(.defaultAction)
+            Button("Keep \(server.credentialKind.summary)", role: .cancel) {}
+        } message: { server in
+            Text("The Freer key is now in the server's authorized_keys, but this entry still logs in with \(server.credentialKind.summary). Switching makes every connection from here on use the Freer key. You can change it back in Edit.")
         }
         .alert(
             "Name this session",
@@ -799,6 +824,43 @@ struct TerminalPaneView: View {
         } catch {
             selectedId = server.id
             connectError = "Could not derive the SSH key — \(error)"
+        }
+    }
+
+    /// Key installs that have finished and succeeded, across every
+    /// server. Watched rather than called back from the session so the
+    /// question is asked by the pane that shows it.
+    private var installedKeySessionIds: Set<String> {
+        Set(appState.terminalSessions.compactMap { model in
+            guard case .installKey = model.kind, model.exitedCleanly else { return nil }
+            return model.id
+        })
+    }
+
+    /// Installing the key is a step toward using it, so when the entry
+    /// still logs in some other way, ask. Read from the store, not the
+    /// session's copy: the entry may have been edited while it ran.
+    private func offerKeySwitch(forNewlyInstalled ids: Set<String>) {
+        guard mainCanDerive else { return }
+        let serverIds = appState.terminalSessions
+            .filter { ids.contains($0.id) }
+            .map(\.server.id)
+        guard let server = serverIds.lazy
+            .compactMap({ id in try? session.sshServers.get(id: id) })
+            .first(where: { $0.credentialKind != .freer })
+        else { return }
+        selectedId = server.id
+        offeringKeySwitch = server
+    }
+
+    private func switchToFreerKey(_ server: SshServer) {
+        do {
+            var updated = try session.sshServers.get(id: server.id) ?? server
+            updated.identity = .freer
+            try session.sshServers.upsert(updated)
+            reload()
+        } catch {
+            connectError = "Could not switch \(server.name) to the Freer key — \(error)"
         }
     }
 
