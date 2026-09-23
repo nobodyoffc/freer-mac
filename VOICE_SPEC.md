@@ -234,8 +234,9 @@ bubble. If it does show one, gate the feature behind a minimum-version rule.
 
 - **Released Android (3.2.2) fails the check.** It stores a `null`-typed
   message and shows its content as a text bubble, so an INVITE appears as
-  its JSON. That JSON holds only public keys and the call id. Whether to gate
-  on version is an open decision.
+  its JSON. That JSON holds only public keys and the call id. **Decided
+  2026-09-23: no version gate.** Calls ship when they work, and a 3.2.2 user
+  sees one such bubble per call attempt until they update.
 - **This version drops any content type it does not know**, quietly, before
   anything else.
 - **The Mac reserves `CALL`** at the same ordinal and treats it as a signal
