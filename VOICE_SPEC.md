@@ -6,7 +6,7 @@ implement this document. The same file is kept in both repositories —
 `FreerForMac/VOICE_SPEC.md` and `Freer/docs/VOICE_SPEC.md` — so change both
 together.
 
-Status: **decided; Phase 1 transport implemented in FC-JDK, FC-AJDK and the Mac** (branch `fudp-datagram` in each), checked against shared vectors, and the DATAGRAM wire format frozen in FUDP7. Its gate still waits on the relay delay run on Linux (§14). The answers to the design questions are recorded in §15.
+Status: **decided; Phase 1 done** — the DATAGRAM transport is implemented in FC-JDK, FC-AJDK and the Mac (branch `fudp-datagram` in each), checked against shared vectors, frozen in FUDP7, and its gate passed on 2026-09-23 (§14). Phase 2 is next. The answers to the design questions are recorded in §15.
 
 This is the implementation contract. The protocol documents it adds or
 amends (§13) are written from it once the wire format is frozen at the end
@@ -664,6 +664,8 @@ For scale, at 24 kbps Opus and 40 ms frames:
 
 A meeting with no participants closes after 60 s.
 
+The relay SHOULD keep its UDP receive buffer small, not raise it to absorb bursts. A relay that falls behind should drop frames. A deep buffer instead turns overload into a standing queue: in the Phase 1 bench, a raised `rmem_max` turned a CPU-starved relay's backlog into seconds of delay on every frame. Audio that late is worthless (Decision 1).
+
 ## 8. Meetings in a Room or Team
 
 **Choosing the relay:**
@@ -923,7 +925,9 @@ the change needs (`LossyRequestResponseTest`, `WanSimulationThroughputTest`,
 - One server core forwards at least 20 000 datagrams/s, with p99 added delay below 5 ms.
   - "Per core" is forwards per CPU-second of the relay's receive thread. "Added delay" is the wait before the relay's listener runs plus its fan-out to the last receiver.
   - Throughput: **passed** — about 50 000 forwards per CPU-second at 21 000 forwards/s (on a Mac).
-  - Delay: **not yet passed.** On a Mac with the relay, the sender and all 60 receivers in one JVM, p99 varied between runs from under 2 ms to about 10 ms, with no GC to blame: the tail measures that machine's thread scheduling. To be run on a Linux host.
+  - Delay: **passed** 2026-09-23, three runs in a row. The relay and the sender ran on an OVH VPS in Singapore, and the 60 receivers ran on a VPS in Europe (`-Dbench.role=relay`, `clients -Dbench.part=sender|receivers`). The relay's 60 copies of each datagram went out over its real network interface, while inbound stayed on one clock. In the first run, inbound p99 + hold p99 was 1.0 + 2.9 ms at 25 pps and 1.2 + 2.7 ms at 350 pps (21 000 fwd/s), with nothing lost or dropped. Hold, the relay's own fan-out, is about 25 µs per copy.
+  - Throughput on that host: 32 000 forwards per CPU-second at 350 pps. At 500 pps (30 000 fwd/s) the relay thread used 82% of a core and inbound p99 rose to 18 ms, so one core tops out at about 25–30k fwd/s, roughly five 64-person meetings with three speakers each. That is the ceiling for Phase 4's load test.
+  - Where not to measure: every host on one machine. On a 4-vCPU VPS the 61 client nodes starved the relay thread of CPU, and Linux charged their loopback receive work to it. On a Mac the scheduling tail varied from 2 to 10 ms p99 between runs. With the sender on another continent, internet jitter (about 6 ms one way at p99, Europe to Singapore) swamped the relay's own delay.
 - The wire format is frozen, and the protocol docs in §13 are drafted. **Passed** 2026-09-23 for the DATAGRAM frame: vectors agree across all three implementations and FUDP7 is drafted. The call-layer documents in §13 (FAPI16, FIMP5) describe Phases 3 and 4, and are written when those formats freeze.
 
 ### Phase 2 — Audio spike (Android only)
