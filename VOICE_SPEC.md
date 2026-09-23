@@ -460,7 +460,7 @@ path and through the relay, and the relay forwards it byte for byte.
 ```
 MediaFrame {
   kind      (1)  = 0x01 (media frame, v1)
-  flags     (1)  bit0 VAD (voice active), bit1 DTX (comfort-noise frame),
+  flags     (1)  bit0 VAD (voice active), bit1 DTX (the frames just before this one were DTX and not sent),
                  bit7 CONTROL (payload is a probe or report, not Opus), bits 2-6 = 0
   routeId   (4)  assigned by the relay at join; 0 on a direct path
   ssrc      (4)
@@ -502,7 +502,8 @@ Attestation {
   firstSeq  (8)
   count     (1)  1..64
   digests   (8 × count)  for seq = firstSeq .. firstSeq+count-1:
-                         first 8 bytes of SHA-256(the complete MediaFrame bytes)
+                         first 8 bytes of SHA-256(the complete MediaFrame bytes),
+                         or 8 zero bytes for a seq not sent (DTX)
   sig       (64) Schnorr(tPriv, "FreerCall-attest-v1" ‖ str(callOrMeetingId) ‖ every byte above)
 }
 ```
@@ -513,7 +514,13 @@ Attestation {
   previous one, including DTX and CONTROL frames.
 - Emits one early if `count` would exceed 64.
 - Emits a final one before `call.leave` or hang-up.
-- `seq` is consecutive, so the ranges tile with no gaps.
+- `seq` counts every encoded frame, including those DTX left unsent, which
+  keeps the receiver's jitter buffer able to tell silence from loss. So
+  the ranges tile with no gaps. An unsent `seq` has an all-zero digest, which
+  no frame can match.
+- A run of unsent seqs that would overflow the 64 an attestation holds
+  closes the current attestation instead, and the next starts at the next
+  sent frame.
 
 **Delivery:** attestations travel reliably, as a FUDP NOTIFY
 (`dataType = 0`), not as datagrams. A lost attestation would otherwise look
@@ -1085,7 +1092,11 @@ Progress, in milestones:
    (`CallSignallerTest`, 14 cases), the ImManager wiring, the
    all-channel send, and call records in the chat. Placing and answering a
    call from the UI, and using the relay, come in milestone 4.
-4. `CallService`, `CallActivity` and calls over the relay.
+4. `CallService`, `CallActivity` and calls over the relay. **In progress:**
+   `CallMedia` in the app is done: it seals and opens frames, produces
+   attestations and checks them, and silences a stream it cannot verify
+   (`CallMediaTest`). The engine now passes `EncodedFrame`s between capture,
+   the wire format and playout, so the spike and calls share it.
 5. Direct paths, *Always relay* and *Available for calls*.
 
 - **FC-AJDK:**
