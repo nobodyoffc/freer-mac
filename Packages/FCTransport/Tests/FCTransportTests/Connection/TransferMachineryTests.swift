@@ -106,7 +106,7 @@ final class AckGeneratorTests: XCTestCase {
     func testSingleRangeForConsecutivePackets() throws {
         let gen = AckGenerator()
         for pn: Int64 in 0...5 { gen.onPacketReceived(pn) }
-        let frame = try XCTUnwrap(gen.generateAckFrame())
+        let frame = try XCTUnwrap(gen.generateAckFrame(maxBytes: .max))
         XCTAssertEqual(frame.largestAcknowledged, 5)
         XCTAssertEqual(frame.ranges.count, 1)
         XCTAssertEqual(frame.ranges[0].length, 5)   // 6 packets = length 5
@@ -130,7 +130,7 @@ final class AckGeneratorTests: XCTestCase {
             func advance(_ by: Int64) { lock.lock(); ms += by; lock.unlock() }
         }
         let clock = Clock()
-        let gen = AckGenerator(nowMs: clock.now)
+        let gen = AckGenerator(nowMs: { clock.now() })
 
         // A first batch, then time well past the retention window.
         for pn: Int64 in 0..<50 { gen.onPacketReceived(pn) }
@@ -143,7 +143,7 @@ final class AckGeneratorTests: XCTestCase {
             gen.onPacketReceived(pn)
         }
 
-        let frame = try XCTUnwrap(gen.generateAckFrame())
+        let frame = try XCTUnwrap(gen.generateAckFrame(maxBytes: .max))
         let acked = Set(frame.acknowledgedPackets())
         XCTAssertFalse(
             acked.contains(1),
@@ -155,7 +155,7 @@ final class AckGeneratorTests: XCTestCase {
     func testGappedPacketsProduceMultipleRanges() throws {
         let gen = AckGenerator()
         for pn: Int64 in [0, 1, 2, 5, 6, 9] { gen.onPacketReceived(pn) }
-        let frame = try XCTUnwrap(gen.generateAckFrame())
+        let frame = try XCTUnwrap(gen.generateAckFrame(maxBytes: .max))
         XCTAssertEqual(frame.largestAcknowledged, 9)
         XCTAssertEqual(Set(frame.acknowledgedPackets()), Set([0, 1, 2, 5, 6, 9]))
     }
@@ -164,7 +164,7 @@ final class AckGeneratorTests: XCTestCase {
         let gen = AckGenerator()
         let received: [Int64] = [3, 4, 7, 10, 11, 12, 20]
         for pn in received { gen.onPacketReceived(pn) }
-        let frame = try XCTUnwrap(gen.generateAckFrame())
+        let frame = try XCTUnwrap(gen.generateAckFrame(maxBytes: .max))
 
         let parsed = try FrameParser.parseAll(frame.encode())
         guard case .ack(let decoded)? = parsed.first else {
@@ -180,11 +180,11 @@ final class AckGeneratorTests: XCTestCase {
         let gen = AckGenerator()
         gen.onPacketReceived(0)
         gen.onPacketReceived(1)
-        _ = gen.generateAckFrame()
-        XCTAssertNil(gen.generateAckFrame())        // nothing new → no frame
+        _ = gen.generateAckFrame(maxBytes: .max)
+        XCTAssertNil(gen.generateAckFrame(maxBytes: .max))        // nothing new → no frame
 
         gen.onPacketReceived(2)
-        let second = try XCTUnwrap(gen.generateAckFrame())
+        let second = try XCTUnwrap(gen.generateAckFrame(maxBytes: .max))
         XCTAssertEqual(Set(second.acknowledgedPackets()), Set([0, 1, 2]))
     }
 }
@@ -202,8 +202,7 @@ final class SentPacketTrackerTests: XCTestCase {
         for pn: Int64 in 0...10 {
             tracker.recordSent(packetNumber: pn, frames: [makeFrame()], size: 1200)
         }
-        for pn: Int64 in 1...10 { _ = tracker.onAcked(pn) }
-        tracker.noteLargestAcked(10)
+        _ = tracker.onAckFrame(intervals: [AckInterval(low: 1, high: 10)])
 
         // Too young: reordering margin suppresses the gap signal.
         var detection = tracker.detectLostPackets(smoothedRttMs: 50, rttVarianceMs: 10)
@@ -246,10 +245,12 @@ final class SentPacketTrackerTests: XCTestCase {
         let tracker = SentPacketTracker(nowMs: { clock.now })
         let before = tracker.packetReorderThreshold
 
-        tracker.recordSent(packetNumber: 0, frames: [makeFrame()], size: 500)
-        tracker.noteLargestAcked(30)
+        for pn: Int64 in 0...30 {
+            tracker.recordSent(packetNumber: pn, frames: [makeFrame()], size: 500)
+        }
+        _ = tracker.onAckFrame(intervals: [AckInterval(low: 1, high: 30)])
         _ = tracker.removeForRetransmit(0)   // declared lost
-        _ = tracker.onAcked(0)               // …but the ACK arrives late
+        _ = tracker.onAckFrame(intervals: [AckInterval(low: 0, high: 0)]) // …but the ACK arrives late
 
         XCTAssertGreaterThan(tracker.packetReorderThreshold, before)
         XCTAssertEqual(tracker.ackedAfterSuspectedLost, 1)
@@ -258,10 +259,62 @@ final class SentPacketTrackerTests: XCTestCase {
     func testAckRemovesFromTracking() {
         let tracker = SentPacketTracker()
         tracker.recordSent(packetNumber: 7, frames: [makeFrame()], size: 900)
-        let record = tracker.onAcked(7)
-        XCTAssertEqual(record?.size, 900)
-        XCTAssertNil(tracker.onAcked(7))     // second ACK: already gone
+        let acked = tracker.onAckFrame(intervals: [AckInterval(low: 7, high: 7)])
+        XCTAssertEqual(acked.map(\.size), [900])
+        // A second ACK covering it, and numbers never tracked, are no-ops.
+        XCTAssertTrue(tracker.onAckFrame(intervals: [AckInterval(low: 0, high: 99)]).isEmpty)
         XCTAssertEqual(tracker.trackedCount, 0)
+    }
+}
+
+final class AckIntervalTests: XCTestCase {
+
+    /// The intervals a sender walks must cover exactly the numbers the
+    /// frame acknowledges.
+    func testIntervalsAgreeWithExpansion() throws {
+        var rng = SystemRandomNumberGenerator()
+        for _ in 0..<200 {
+            let gen = AckGenerator()
+            var expected: Set<Int64> = []
+            var pn: Int64 = Int64.random(in: 0...50, using: &rng)
+            for _ in 0..<Int.random(in: 1...60, using: &rng) {
+                gen.onPacketReceived(pn)
+                expected.insert(pn)
+                pn += Int64.random(in: 1...4, using: &rng) // runs with holes
+            }
+            let frame = try XCTUnwrap(gen.generateAckFrame(maxBytes: .max))
+            let fromIntervals = frame.acknowledgedIntervals()
+                .flatMap { Set($0.low...$0.high) }
+            XCTAssertEqual(Set(fromIntervals), Set(frame.acknowledgedPackets()))
+            XCTAssertEqual(Set(fromIntervals), expected)
+        }
+    }
+
+    /// More runs than a frame may carry: the newest ones are kept, and
+    /// the older ones stay retained for later frames.
+    func testRangeCapKeepsTheNewestRuns() throws {
+        let gen = AckGenerator()
+        // 200 runs of one packet each, every other number.
+        for pn in stride(from: Int64(0), to: 400, by: 2) { gen.onPacketReceived(pn) }
+        let frame = try XCTUnwrap(gen.generateAckFrame(maxBytes: .max))
+        XCTAssertEqual(frame.ranges.count, AckGenerator.maxRangesPerFrame)
+        let covered = Set(frame.acknowledgedPackets())
+        let lowest = Int64(398 - (AckGenerator.maxRangesPerFrame - 1) * 2)
+        let newest = Set(stride(from: lowest, through: Int64(398), by: 2))
+        XCTAssertEqual(covered, newest)
+        XCTAssertEqual(frame.largestAcknowledged, 398)
+    }
+
+    /// Ranges that would run below zero are clamped, not wrapped: the
+    /// fields are unsigned on the wire and a peer may name anything.
+    func testHostileRangesAreClamped() {
+        let frame = AckFrame(largestAcknowledged: 5, ackDelay: 0,
+                             ranges: [AckRange(gap: 0, length: 2), AckRange(gap: .max, length: .max)])
+        for interval in frame.acknowledgedIntervals() {
+            XCTAssertGreaterThanOrEqual(interval.low, 0)
+            XCTAssertGreaterThanOrEqual(interval.high, interval.low)
+        }
+        XCTAssertEqual(frame.acknowledgedIntervals().first, AckInterval(low: 3, high: 5))
     }
 }
 

@@ -111,14 +111,14 @@ private final class LoopbackServer: @unchecked Sendable {
             case .stream(let sf):
                 ackEliciting = true
                 handleStream(sf)
-            case .ack, .padding, .unknown:
+            default:
                 break
             }
         }
 
         if ackEliciting {
             ackGenerator.onPacketReceived(header.packetNumber)
-            if let ack = ackGenerator.generateAckFrame() {
+            if let ack = ackGenerator.generateAckFrame(maxBytes: .max) {
                 sendPacket(frameBytes: [ack.encode()])
             }
         }

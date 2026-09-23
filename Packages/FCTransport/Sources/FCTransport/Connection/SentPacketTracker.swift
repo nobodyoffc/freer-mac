@@ -11,14 +11,27 @@ public struct SentPacketRecord: Sendable {
     public let size: Int
     public let sentTimeMs: Int64
     public var retransmitCount: Int
+    /// Position among TRACKED packets on this connection: 0, 1, 2, …
+    /// in send order. Gap-based loss detection counts in this space, not
+    /// in packet numbers, which untracked packets also use.
+    public let trackedSeq: Int64
 }
 
 /// Send-side packet tracking + loss detection. Port of the sentPackets
 /// map and `detectLostPackets` / reorder-threshold logic in
 /// `FC-AJDK/.../fudp/connection/PeerConnection.java`.
 ///
-/// Only ack-eliciting packets are tracked: ACK-only packets are never
-/// acknowledged, so tracking them would make them look permanently lost.
+/// Only ack-eliciting packets are tracked: ACK-only and DATAGRAM-only
+/// packets are never acknowledged, so tracking them would make them
+/// look permanently lost.
+///
+/// **Gap-based loss detection counts TRACKED packets, not packet
+/// numbers** (FUDP3 §4.1.1). Packet numbers are also spent on packets
+/// that are never tracked, and the peer may list those in its ACKs.
+/// Measured in packet numbers, ten audio datagrams sent after a stream
+/// packet put it ten numbers behind the next acknowledgment, so it was
+/// declared lost with only one tracked packet after it — and an ACK for
+/// an untracked number counted as evidence against it.
 public final class SentPacketTracker: @unchecked Sendable {
 
     /// Loss detection result: packets to retransmit, plus whether any
@@ -36,11 +49,16 @@ public final class SentPacketTracker: @unchecked Sendable {
     private static let maxTimeThresholdMs: Int64 = 4000
     private static let initialPacketThreshold: Int64 = 6
     private static let maxPacketThreshold: Int64 = 64
+    /// Cap on remembered suspected-lost packet numbers.
+    private static let maxSuspectedLost = 4096
 
     private let lock = NSLock()
     private var sentPackets: [Int64: SentPacketRecord] = [:]
-    private var suspectedLostPacketNumbers: Set<Int64> = []
-    private var _largestAckedPacketNumber: Int64 = -1
+    /// Packets marked suspected-lost: packet number → its tracked seq,
+    /// for measuring the reordering extent if it is acknowledged after all.
+    private var suspectedLost: [Int64: Int64] = [:]
+    private var nextTrackedSeq: Int64 = 0
+    private var _largestAckedTrackedSeq: Int64 = -1
     private var _packetReorderThreshold: Int64 = SentPacketTracker.initialPacketThreshold
 
     // Statistics.
@@ -69,40 +87,74 @@ public final class SentPacketTracker: @unchecked Sendable {
             frames: frames,
             size: size,
             sentTimeMs: nowMs(),
-            retransmitCount: retransmitCount
+            retransmitCount: retransmitCount,
+            trackedSeq: nextTrackedSeq
         )
+        nextTrackedSeq += 1
     }
 
-    /// Process one acknowledged packet number. Returns the record if it
-    /// was still tracked (caller feeds size to congestion control and
-    /// takes the RTT sample), nil if already removed by an earlier ACK.
-    /// Also performs the spurious-loss reorder-threshold adaptation.
-    public func onAcked(_ packetNumber: Int64) -> SentPacketRecord? {
+    /// Process one ACK frame, given its acknowledged ranges as
+    /// intervals. Returns the records it newly acknowledges (the caller
+    /// feeds their sizes to congestion control and picks the RTT
+    /// sample). Advances the largest acknowledged tracked seq, and
+    /// performs the spurious-loss reorder-threshold adaptation.
+    ///
+    /// **It walks the outstanding packets, not the acknowledged numbers.**
+    /// An ACK frame re-advertises every packet number the peer has
+    /// retained — about 4 seconds of them (FUDP3 §2.1) — while what is
+    /// outstanding here is bounded by the congestion window. Expanding
+    /// the frame and looking up each number cost O(retained) per ACK:
+    /// 1.5 ms at 6 000 retained, on every one of the thousands of ACKs a
+    /// transfer receives per second. The sender fell irrecoverably behind
+    /// the ACK stream, its RTT estimate climbed past the loss timeout,
+    /// and it retransmitted packets that had already arrived.
+    public func onAckFrame(intervals: [AckInterval]) -> [SentPacketRecord] {
         lock.lock(); defer { lock.unlock() }
-        let record = sentPackets.removeValue(forKey: packetNumber)
+        guard !intervals.isEmpty else { return [] }
+
+        var acked: [SentPacketRecord] = []
+        for (packetNumber, record) in sentPackets where SentPacketTracker.covers(intervals, packetNumber) {
+            acked.append(record)
+        }
+        for record in acked {
+            sentPackets.removeValue(forKey: record.packetNumber)
+            if record.trackedSeq > _largestAckedTrackedSeq {
+                _largestAckedTrackedSeq = record.trackedSeq
+            }
+        }
 
         // Previously marked suspected-lost but now ACKed → the path
         // reorders deeper than assumed. Widen the gap threshold to the
         // observed reordering extent (RACK-style) so heavily
         // load-balanced routes stop firing false congestion signals.
-        if suspectedLostPacketNumbers.remove(packetNumber) != nil {
+        let spurious = suspectedLost.filter { SentPacketTracker.covers(intervals, $0.key) }
+        for (packetNumber, suspectedSeq) in spurious {
+            suspectedLost.removeValue(forKey: packetNumber)
             _ackedAfterSuspectedLost += 1
-            let extent = _largestAckedPacketNumber - packetNumber + 2
+            let extent = _largestAckedTrackedSeq - suspectedSeq + 2
             let widened = min(SentPacketTracker.maxPacketThreshold,
                               max(_packetReorderThreshold + 4, extent))
             if widened > _packetReorderThreshold {
                 _packetReorderThreshold = widened
             }
         }
-        return record
+        return acked
     }
 
-    /// Advance the largest-acked watermark (gap-loss reference point).
-    public func noteLargestAcked(_ largestAcked: Int64) {
-        lock.lock(); defer { lock.unlock() }
-        if largestAcked > _largestAckedPacketNumber {
-            _largestAckedPacketNumber = largestAcked
+    /// Is `packetNumber` in one of the (descending, disjoint) intervals?
+    private static func covers(_ intervals: [AckInterval], _ packetNumber: Int64) -> Bool {
+        var lo = 0, hi = intervals.count - 1
+        while lo <= hi {
+            let mid = (lo + hi) / 2
+            if packetNumber > intervals[mid].high {
+                hi = mid - 1          // intervals descend, so look newer
+            } else if packetNumber < intervals[mid].low {
+                lo = mid + 1
+            } else {
+                return true
+            }
         }
+        return false
     }
 
     /// Detect lost packets. Does NOT remove them — the retransmit loop
@@ -128,7 +180,7 @@ public final class SentPacketTracker: @unchecked Sendable {
         for record in sentPackets.values {
             let age = now - record.sentTimeMs
 
-            let lostByGap = _largestAckedPacketNumber - record.packetNumber >= _packetReorderThreshold
+            let lostByGap = _largestAckedTrackedSeq - record.trackedSeq >= _packetReorderThreshold
                 && age > gapMinAge
 
             // Exponential backoff per retransmission (QUIC PTO): 1x, 2x,
@@ -153,7 +205,18 @@ public final class SentPacketTracker: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard let removed = sentPackets.removeValue(forKey: packetNumber) else { return nil }
         _suspectedLostCount += 1
-        suspectedLostPacketNumbers.insert(packetNumber)
+        suspectedLost[packetNumber] = removed.trackedSeq
+        // Bounded: an entry is only useful until its ACK arrives, and a
+        // long-lived connection that loses packets steadily would
+        // otherwise keep every packet number it ever suspected. Trimming
+        // in batches keeps the cost amortized; dropping the oldest costs
+        // at most one threshold widening.
+        if suspectedLost.count > SentPacketTracker.maxSuspectedLost {
+            let keep = SentPacketTracker.maxSuspectedLost * 3 / 4
+            for pn in suspectedLost.keys.sorted().prefix(suspectedLost.count - keep) {
+                suspectedLost.removeValue(forKey: pn)
+            }
+        }
         return removed
     }
 
@@ -162,9 +225,10 @@ public final class SentPacketTracker: @unchecked Sendable {
         _retransmitCount += 1
     }
 
-    public var largestAckedPacketNumber: Int64 {
+    /// The highest tracked seq acknowledged so far (-1 before any).
+    public var largestAckedTrackedSeq: Int64 {
         lock.lock(); defer { lock.unlock() }
-        return _largestAckedPacketNumber
+        return _largestAckedTrackedSeq
     }
 
     public var packetReorderThreshold: Int64 {
@@ -190,7 +254,7 @@ public final class SentPacketTracker: @unchecked Sendable {
     public func resetForRestart() {
         lock.lock(); defer { lock.unlock() }
         sentPackets.removeAll()
-        suspectedLostPacketNumbers.removeAll()
-        _largestAckedPacketNumber = -1
+        suspectedLost.removeAll()
+        _largestAckedTrackedSeq = -1
     }
 }

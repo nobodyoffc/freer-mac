@@ -71,6 +71,34 @@ final class ReplayProtectionTests: XCTestCase {
         XCTAssertEqual(record(rp, packetNumber: 10), .duplicate) // still remembered
     }
 
+    /// The window slides a word at a time; check it against the plain
+    /// definition — a number is new iff it is inside the window and not
+    /// seen before — across shifts that straddle word boundaries.
+    func testSlidingMatchesAReferenceModel() throws {
+        let rp = try makeRP()
+        let window = Int64(ReplayProtection.windowSize)
+        var seen: Set<Int64> = []
+        var highest: Int64 = -1
+        var rng = SystemRandomNumberGenerator()
+        let jumps: [Int64] = [1, 1, 1, 2, 63, 64, 65, 127, 128, 129, 1000, 40_000, window - 1]
+        for step in 0..<5_000 {
+            let pn: Int64
+            if highest >= 0 && Bool.random(using: &rng) {
+                // Replay or reorder: somewhere in (or just below) the window.
+                pn = max(0, highest - Int64.random(in: 0...(window + 10), using: &rng))
+            } else {
+                pn = highest + jumps.randomElement(using: &rng)!
+            }
+            let expectedNew = pn > highest - window && !seen.contains(pn)
+            let result = record(rp, packetNumber: pn)
+            XCTAssertEqual(result, expectedNew ? .ok : .duplicate, "step \(step): pn \(pn), highest \(highest)")
+            if expectedNew {
+                seen.insert(pn)
+                highest = max(highest, pn)
+            }
+        }
+    }
+
     func testJumpBeyondWindowClearsBitmap() throws {
         let rp = try makeRP()
         XCTAssertEqual(record(rp, packetNumber: 10), .ok)

@@ -87,9 +87,14 @@ public final class FudpConnection: DatagramTransport, @unchecked Sendable {
     /// Open a UDP connection to `host:port`. The constructor returns
     /// once the connection is `.ready`, and throws
     /// ``Failure/openTimedOut(ms:)`` if it never gets there.
+    ///
+    /// `localPort` pins the local UDP port instead of taking an ephemeral
+    /// one, so two instances can be pointed at each other (tests run two
+    /// clients back to back this way).
     public init(
         host: String,
         port: UInt16,
+        localPort: UInt16? = nil,
         connectTimeoutMs: Int = FudpConnection.defaultConnectTimeoutMs
     ) async throws {
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
@@ -103,7 +108,15 @@ public final class FudpConnection: DatagramTransport, @unchecked Sendable {
         }
         self.continuation = captured
 
-        self.connection = NWConnection(to: endpoint, using: .udp)
+        let params = NWParameters.udp
+        if let localPort {
+            guard let nwLocalPort = NWEndpoint.Port(rawValue: localPort) else {
+                throw Failure.invalidPort(localPort)
+            }
+            params.requiredLocalEndpoint = .hostPort(host: .ipv4(.any), port: nwLocalPort)
+            params.allowLocalEndpointReuse = true
+        }
+        self.connection = NWConnection(to: endpoint, using: params)
 
         do {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in

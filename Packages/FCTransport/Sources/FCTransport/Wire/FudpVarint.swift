@@ -38,6 +38,17 @@ public enum FudpVarint {
         }
     }
 
+    /// Bytes `encode(value)` produces, without building them. Values past
+    /// the 62-bit cap, which `encode` refuses, count as 8.
+    public static func encodedLength(_ value: UInt64) -> Int {
+        switch value {
+        case 0...max1Byte:  return 1
+        case ...max2Bytes:  return 2
+        case ...max4Bytes:  return 4
+        default:            return 8
+        }
+    }
+
     public static func encode(_ value: UInt64) -> Data {
         switch value {
         case 0...max1Byte:

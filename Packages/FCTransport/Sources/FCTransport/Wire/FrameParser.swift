@@ -1,13 +1,24 @@
 import Foundation
 
-/// One parsed frame off the wire. Frame types we don't yet model are
-/// surfaced as `.unknown` so a receive loop can keep going rather than
-/// crashing on a frame from a future protocol revision.
+/// One parsed frame off the wire.
 public enum ParsedFrame: Equatable, Sendable {
     case padding
     case stream(StreamFrame)
     case ack(AckFrame)
-    case unknown(typeByte: UInt8, body: Data)
+    case datagram(DatagramFrame)
+    case connectionClose(errorCode: UInt64, reason: String)
+    case maxData(UInt64)
+    case maxStreamData(streamId: UInt64, maxData: UInt64)
+    case maxStreams(UInt64)
+
+    /// Whether the frame obliges the receiver to acknowledge its packet
+    /// (FUDP3 §2.1): everything except ACK, PADDING and DATAGRAM.
+    public var isAckEliciting: Bool {
+        switch self {
+        case .padding, .ack, .datagram: return false
+        default:                        return true
+        }
+    }
 }
 
 /// Parses the *frame portion* of a decrypted FUDP payload. The
@@ -19,44 +30,80 @@ public enum FrameParser {
         case truncated
         case malformedStreamFrame(String)
         case malformedAckFrame(String)
+        case malformedFrame(String)
         case missingLenFlag(typeByte: UInt8)
+        case unknownFrameType(UInt64)
 
         public var description: String {
             switch self {
             case .truncated:                          return "FrameParser: truncated"
             case .malformedStreamFrame(let r):        return "FrameParser: stream frame — \(r)"
             case .malformedAckFrame(let r):           return "FrameParser: ack frame — \(r)"
+            case .malformedFrame(let r):              return "FrameParser: \(r)"
             case .missingLenFlag(let t):              return String(format: "FrameParser: STREAM (0x%02x) without LEN flag (0x02)", t)
+            case .unknownFrameType(let t):            return "FrameParser: unknown frame type 0x\(String(t, radix: 16))"
             }
         }
     }
 
+    /// Parse every frame, or throw. **An unknown frame type fails the
+    /// whole packet**, frames before it included (FUDP1 §Versioning): a
+    /// frame carries no length a receiver could skip it by, so nothing
+    /// after it can be read, and delivering only the frames before it
+    /// would leave the packet half-processed yet still acknowledged.
     public static func parseAll(_ data: Data) throws -> [ParsedFrame] {
         var frames: [ParsedFrame] = []
         var cursor = data
         while !cursor.isEmpty {
-            let (typeBig, typeBytes) = try FudpVarint.decode(cursor)
+            let (typeValue, typeBytes) = try FudpVarint.decode(cursor)
             cursor = cursor.dropFirst(typeBytes)
-            let typeByte = UInt8(truncatingIfNeeded: typeBig)
 
-            if (0x08...0x0F).contains(typeByte) {
-                let (frame, consumed) = try parseStreamFrame(typeByte: typeByte, after: cursor)
+            switch typeValue {
+            case 0x08...0x0F:
+                let (frame, consumed) = try parseStreamFrame(typeByte: UInt8(typeValue), after: cursor)
                 frames.append(.stream(frame))
                 cursor = cursor.dropFirst(consumed)
-            } else if typeByte == FrameType.ack.rawValue {
+            case UInt64(FrameType.ack.rawValue):
                 let (frame, consumed) = try parseAckFrame(after: cursor)
                 frames.append(.ack(frame))
                 cursor = cursor.dropFirst(consumed)
-            } else if typeByte == FrameType.padding.rawValue {
+            case UInt64(FrameType.padding.rawValue):
                 frames.append(.padding)
-            } else {
-                // Unknown frame type — without a length we can't safely skip,
-                // so we surface remainder as opaque body and stop. This
-                // matches the FC-AJDK behaviour on encountering reserved
-                // types: don't crash, expose for higher-layer handling.
-                let body = Data(cursor)
-                frames.append(.unknown(typeByte: typeByte, body: body))
-                break
+            case UInt64(FrameType.datagram.rawValue):
+                let (length, lb) = try FudpVarint.decode(cursor)
+                cursor = cursor.dropFirst(lb)
+                guard length <= UInt64(cursor.count) else {
+                    throw Failure.malformedFrame("DATAGRAM length \(length) exceeds remaining \(cursor.count)")
+                }
+                frames.append(.datagram(DatagramFrame(data: Data(cursor.prefix(Int(length))))))
+                cursor = cursor.dropFirst(Int(length))
+            case UInt64(FrameType.connectionClose.rawValue):
+                let (errorCode, eb) = try FudpVarint.decode(cursor)
+                cursor = cursor.dropFirst(eb)
+                let (reasonLength, rb) = try FudpVarint.decode(cursor)
+                cursor = cursor.dropFirst(rb)
+                guard reasonLength <= UInt64(cursor.count) else {
+                    throw Failure.malformedFrame("CONNECTION_CLOSE reason length \(reasonLength) exceeds remaining \(cursor.count)")
+                }
+                let reason = String(decoding: cursor.prefix(Int(reasonLength)), as: UTF8.self)
+                frames.append(.connectionClose(errorCode: errorCode, reason: reason))
+                cursor = cursor.dropFirst(Int(reasonLength))
+            case UInt64(FrameType.maxData.rawValue):
+                let (value, vb) = try FudpVarint.decode(cursor)
+                cursor = cursor.dropFirst(vb)
+                frames.append(.maxData(value))
+            case UInt64(FrameType.maxStreamData.rawValue):
+                let (streamId, sb) = try FudpVarint.decode(cursor)
+                cursor = cursor.dropFirst(sb)
+                let (value, vb) = try FudpVarint.decode(cursor)
+                cursor = cursor.dropFirst(vb)
+                frames.append(.maxStreamData(streamId: streamId, maxData: value))
+            case UInt64(FrameType.maxStreams.rawValue):
+                let (value, vb) = try FudpVarint.decode(cursor)
+                cursor = cursor.dropFirst(vb)
+                frames.append(.maxStreams(value))
+            default:
+                throw Failure.unknownFrameType(typeValue)
             }
         }
         return frames

@@ -25,6 +25,7 @@ public final class TransferMachinery: @unchecked Sendable {
     private let lock = NSLock()
     private var pacerNextNanos: Int64 = 0
     private var lastLossSignalMs: Int64 = 0
+    private var _streamRateCapBps: Int64 = 0
 
     private let nowMs: @Sendable () -> Int64
 
@@ -40,21 +41,30 @@ public final class TransferMachinery: @unchecked Sendable {
     }
 
     /// Process one inbound ACK frame: release acked packets, take the
-    /// RTT sample (largest-acked only, corrected by the peer's reported
-    /// ack delay), grow the window, adapt the reorder threshold.
+    /// RTT sample (corrected by the peer's reported ack delay), grow the
+    /// window, adapt the reorder threshold. Numbers we never tracked
+    /// (our ACK-only and DATAGRAM-only packets) are ignored.
+    ///
+    /// The RTT is sampled when this ACK newly covers a tracked packet
+    /// sent after every tracked packet acknowledged so far — QUIC's
+    /// "largest acknowledged is newly acked", restated over tracked
+    /// packets (FUDP3 §3.2). The frame's Largest Acknowledged may be a
+    /// packet we never tracked, and requiring `pn == largest` starved
+    /// the estimator whenever datagrams were flowing.
     public func processAckFrame(_ frame: AckFrame) {
-        let largest = Int64(frame.largestAcknowledged)
-        for pn in frame.acknowledgedPackets() {
-            if let record = sentPackets.onAcked(pn) {
-                if pn == largest {
-                    let sampleMs = nowMs() - record.sentTimeMs
-                    let delayMs = Int64(frame.ackDelay) / 1000
-                    rtt.update(latestRttMs: max(1, sampleMs - delayMs))
-                }
-                congestion.onAck(record.size)
+        let previousLargestSeq = sentPackets.largestAckedTrackedSeq
+        var rttRecord: SentPacketRecord?
+        for record in sentPackets.onAckFrame(intervals: frame.acknowledgedIntervals()) {
+            if rttRecord.map({ record.trackedSeq > $0.trackedSeq }) ?? true {
+                rttRecord = record
             }
+            congestion.onAck(record.size)
         }
-        sentPackets.noteLargestAcked(largest)
+        if let rttRecord, rttRecord.trackedSeq > previousLargestSeq {
+            let sampleMs = nowMs() - rttRecord.sentTimeMs
+            let delayMs = Int64(frame.ackDelay) / 1000
+            rtt.update(latestRttMs: max(1, sampleMs - delayMs))
+        }
     }
 
     /// Run loss detection with the current RTT estimate.
@@ -78,13 +88,43 @@ public final class TransferMachinery: @unchecked Sendable {
         return false
     }
 
+    // Optional ceiling on the pacing rate of stream data, in bits per
+    // second (0 = none). A call layer sets it while a call is live:
+    // loss-based congestion control fills whatever queue sits downstream
+    // (the receiver's socket buffer, a bottleneck router), and DATAGRAM
+    // audio waits in that queue behind the upload. Capping streams below
+    // the path rate keeps it empty. Datagrams are not paced, so the cap
+    // never applies to them (FUDP3 §5.4.3).
+
+    /// The stream rate cap in bits per second; 0 when there is none.
+    public var streamRateCapBps: Int64 {
+        lock.lock(); defer { lock.unlock() }
+        return _streamRateCapBps
+    }
+
+    /// Cap the rate stream data is sent at, in bits per second; 0
+    /// removes the cap. Retransmissions are budgeted to it too.
+    public func setStreamRateCap(bitsPerSecond: Int64) {
+        precondition(bitsPerSecond >= 0, "Stream rate cap must not be negative: \(bitsPerSecond)")
+        lock.lock(); defer { lock.unlock() }
+        _streamRateCapBps = bitsPerSecond
+    }
+
+    /// Pacing rate in bytes per second: PACING_GAIN · cwnd / sRTT,
+    /// floored, then capped. Caller holds `lock`.
+    private func pacingRateBytesPerSecLocked() -> Double {
+        let srttMs = max(1, rtt.smoothedRttMs)
+        var rate = TransferMachinery.pacingGain * Double(congestion.congestionWindow) * 1000.0 / Double(srttMs)
+        if rate < TransferMachinery.minPacingRateBps { rate = TransferMachinery.minPacingRateBps }
+        if _streamRateCapBps > 0 { rate = min(rate, Double(_streamRateCapBps) / 8.0) }
+        return rate
+    }
+
     /// Reserve a pacing slot for `bytes` about to be sent. Returns the
     /// nanoseconds the caller should sleep before sending (0 = now).
     public func reservePacingDelayNanos(bytes: Int) -> Int64 {
         lock.lock(); defer { lock.unlock() }
-        let srttMs = max(1, rtt.smoothedRttMs)
-        var rateBps = TransferMachinery.pacingGain * Double(congestion.congestionWindow) * 1000.0 / Double(srttMs)
-        if rateBps < TransferMachinery.minPacingRateBps { rateBps = TransferMachinery.minPacingRateBps }
+        let rateBps = pacingRateBytesPerSecLocked()
         let nanosForBytes = Int64(Double(bytes) * 1_000_000_000.0 / rateBps)
 
         let now = Int64(DispatchTime.now().uptimeNanoseconds)
@@ -99,10 +139,8 @@ public final class TransferMachinery: @unchecked Sendable {
     /// Bytes the pacer allows within `intervalMs` (for the retransmit
     /// loop, which budgets per cycle instead of sleeping per packet).
     public func pacingBudgetBytes(intervalMs: Int64) -> Int64 {
-        let srttMs = max(1, rtt.smoothedRttMs)
-        var rateBps = TransferMachinery.pacingGain * Double(congestion.congestionWindow) * 1000.0 / Double(srttMs)
-        if rateBps < TransferMachinery.minPacingRateBps { rateBps = TransferMachinery.minPacingRateBps }
-        return Int64(rateBps * Double(intervalMs) / 1000.0)
+        lock.lock(); defer { lock.unlock() }
+        return Int64(pacingRateBytesPerSecLocked() * Double(intervalMs) / 1000.0)
     }
 
     public func resetForRestart() {

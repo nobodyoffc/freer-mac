@@ -2,7 +2,8 @@ import Foundation
 
 /// FUDP frame types. STREAM is a base value (0x08); the lower 3 bits of
 /// the on-the-wire type byte encode flags (FIN/LEN/OFF), so any byte in
-/// `0x08...0x0F` is a STREAM frame.
+/// `0x08...0x0F` is a STREAM frame. `0x06`/`0x07` belonged to the
+/// removed symkey frames and are not reused.
 public enum FrameType: UInt8, Sendable, CaseIterable {
     case padding         = 0x00
     case ack             = 0x01
@@ -11,6 +12,9 @@ public enum FrameType: UInt8, Sendable, CaseIterable {
     case maxStreamData   = 0x04
     case maxStreams      = 0x05
     case stream          = 0x08
+    /// Unreliable application datagram (FUDP7): never retransmitted,
+    /// not ACK-eliciting, not counted in bytes in flight.
+    case datagram        = 0x10
 
     public static func parse(typeByte: UInt8) -> FrameType? {
         if (0x08...0x0F).contains(typeByte) { return .stream }
@@ -32,6 +36,10 @@ public struct StreamFrame: Equatable, Hashable, Sendable {
     public static let flagFin: UInt64 = 0x01
     public static let flagLen: UInt64 = 0x02
     public static let flagOff: UInt64 = 0x04
+    /// Worst-case encoded header: type (1) + stream ID (8) + offset (8)
+    /// + length (4). Chunks are sized against this, so a STREAM packet
+    /// never outgrows the packet budget whatever its ID and offset.
+    public static let maxHeaderSize = 21
 
     public var streamId: UInt64
     public var offset: UInt64
@@ -99,6 +107,20 @@ public struct AckFrame: Equatable, Hashable, Sendable {
         self.ranges = ranges
     }
 
+    /// Bytes `encode()` produces.
+    public var encodedSize: Int {
+        let size = FudpVarint.encodedLength
+        var total = size(UInt64(FrameType.ack.rawValue)) + size(largestAcknowledged)
+            + size(ackDelay) + size(UInt64(ranges.count))
+        if let first = ranges.first {
+            total += size(first.length)
+            for range in ranges.dropFirst() {
+                total += size(range.gap) + size(range.length)
+            }
+        }
+        return total
+    }
+
     public func encode() -> Data {
         var out = Data()
         out.append(FudpVarint.encode(UInt64(FrameType.ack.rawValue)))
@@ -112,6 +134,42 @@ public struct AckFrame: Equatable, Hashable, Sendable {
                 out.append(FudpVarint.encode(range.length))
             }
         }
+        return out
+    }
+}
+
+/// DATAGRAM frame — an unreliable application payload (FUDP7).
+///
+/// Wire layout:
+/// ```
+///   varint typeByte   (0x10)
+///   varint length
+///   raw    data
+/// ```
+///
+/// Encrypted with its packet like any other frame, but never
+/// retransmitted, and a packet carrying only DATAGRAM (and ACK/PADDING)
+/// frames elicits no ACK and is not counted in bytes in flight. It must
+/// fit in one packet: there is no fragmentation and no reassembly.
+public struct DatagramFrame: Equatable, Hashable, Sendable {
+    public var data: Data
+
+    public init(data: Data) {
+        self.data = Data(data)
+    }
+
+    /// Encoded size of a DATAGRAM frame carrying `dataLength` bytes.
+    public static func encodedSize(dataLength: Int) -> Int {
+        FudpVarint.encodedLength(UInt64(FrameType.datagram.rawValue))
+            + FudpVarint.encodedLength(UInt64(dataLength))
+            + dataLength
+    }
+
+    public func encode() -> Data {
+        var out = Data(capacity: DatagramFrame.encodedSize(dataLength: data.count))
+        out.append(FudpVarint.encode(UInt64(FrameType.datagram.rawValue)))
+        out.append(FudpVarint.encode(UInt64(data.count)))
+        out.append(data)
         return out
     }
 }

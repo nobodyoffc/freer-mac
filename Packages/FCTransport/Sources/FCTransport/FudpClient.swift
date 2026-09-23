@@ -58,13 +58,18 @@ public final class FudpClient: @unchecked Sendable {
 
     /// UDP datagram budget. 1350 keeps every packet under the usual
     /// 1500-byte path MTU with headroom for IP/UDP headers.
+    ///
+    /// **A hard limit** (FUDP1 §Packet Size Budget): a packet over the
+    /// path MTU is split into IP fragments, and losing either fragment
+    /// loses the packet.
     public static let defaultMaxPacketSize = 1350
-    /// Header + AsyTwoWay bundle overhead subtracted from the packet
-    /// budget to get the plaintext payload budget.
-    static let packetOverhead = PacketHeader.size + AsyTwoWay.headerOverhead
-    /// Conservative per-frame framing overhead (type + streamId +
-    /// offset + length varints).
-    static let frameOverheadEstimate = 30
+    /// Size of the AsyTwoWay bundle around the plaintext: algorithm (6)
+    /// + type (1) + sender pubkey (33) + IV (12) + GCM tag (16). This was
+    /// budgeted as 52, leaving out the tag.
+    static let packetCryptoOverhead = AsyTwoWay.minBundleSize
+    /// Plaintext before the first frame, worst case: timestamp (8) +
+    /// session epoch (8).
+    static let packetPrefix = 16
     /// Estimated full-packet overhead added on top of a stream chunk
     /// when reserving congestion-window space.
     static let cwndPacketOverhead = 128
@@ -132,6 +137,21 @@ public final class FudpClient: @unchecked Sendable {
 
     /// `Max Remote Streams` from FUDP2V1's flow-control table.
     private static let maxConcurrentInboundStreams = 100
+
+    /// Send budget for DATAGRAM frames on this connection (FUDP7).
+    public let datagramBudget = DatagramBudget()
+    // DATAGRAM frames are off until the application learns the peer
+    // supports them: an older peer loses every packet carrying one.
+    private var _datagramsEnabled = false
+    private var _datagramHandler: (@Sendable (_ peerId: String, _ connectionId: Int64, _ data: Data) -> Void)?
+
+    // Counters (under `stateLock`).
+    private var _datagramsSent: Int64 = 0
+    private var _datagramsReceived: Int64 = 0
+    private var _datagramDrops: [DatagramResult: Int64] = [:]
+    private var _oversizePacketCount: Int64 = 0
+    private var _frameParseFailCount: Int64 = 0
+    private var _decryptFailCount: Int64 = 0
 
     // MARK: - init
 
@@ -226,6 +246,16 @@ public final class FudpClient: @unchecked Sendable {
         return !dead && transport.isViable
     }
 
+    /// Run `body` with `stateLock` held. `lock()`/`unlock()` written out
+    /// inside an `async` function are an error in the Swift 6 language
+    /// mode, since a suspension between the two would strand the lock; a
+    /// scoped, non-async helper cannot suspend.
+    private func withStateLock<T>(_ body: () -> T) -> T {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return body()
+    }
+
     // MARK: - request/response exclusion
 
     /// Run one request/response exchange with exclusive use of the
@@ -264,11 +294,185 @@ public final class FudpClient: @unchecked Sendable {
         }
     }
 
+    // MARK: - datagrams (FUDP7)
+
+    /// Allow DATAGRAM frames on this connection, with a send budget of
+    /// `rateBps` bits per second of datagram payload. Call only once the
+    /// peer has shown it supports them: an older peer loses every packet
+    /// carrying one. Datagrams turn off again if the peer restarts.
+    public func enableDatagrams(rateBps: Int64 = DatagramBudget.defaultRateBps) {
+        datagramBudget.setRate(rateBps)
+        stateLock.lock(); defer { stateLock.unlock() }
+        _datagramsEnabled = true
+    }
+
+    public var datagramsEnabled: Bool {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _datagramsEnabled
+    }
+
+    /// Override the DATAGRAM send budget, in bits per second of payload.
+    public func setDatagramRate(bitsPerSecond: Int64) {
+        datagramBudget.setRate(bitsPerSecond)
+    }
+
+    /// Receive datagrams: called once per DATAGRAM frame, in arrival
+    /// order, with the peer's FID and this connection's id.
+    ///
+    /// Datagrams are unreliable: no retransmission, no ordering, and no
+    /// deduplication beyond the packet replay window. The handler runs
+    /// on the receive pump, so it must return quickly — anything slow
+    /// here delays every packet on the connection. Pass nil to clear.
+    public func setDatagramHandler(
+        _ handler: (@Sendable (_ peerId: String, _ connectionId: Int64, _ data: Data) -> Void)?
+    ) {
+        stateLock.lock(); defer { stateLock.unlock() }
+        _datagramHandler = handler
+    }
+
+    /// Send one unreliable datagram. It never waits behind stream data —
+    /// congestion window and pacer are skipped — and is never
+    /// retransmitted; any result other than ``DatagramResult/sent``
+    /// means it was dropped.
+    public func sendDatagram(_ data: Data) async -> DatagramResult {
+        await sendDatagrams([data])[0]
+    }
+
+    /// Send several datagrams, packed into as few packets as they fit
+    /// (for frames that fall due together). Each is budgeted and may be
+    /// dropped on its own. Returns the outcome for each, in order.
+    public func sendDatagrams(_ datagrams: [Data]) async -> [DatagramResult] {
+        guard isAlive, connection.isOpen else {
+            return datagrams.map { _ in countDrop(.noConnection) }
+        }
+        guard datagramsEnabled else {
+            return datagrams.map { _ in countDrop(.notEnabled) }
+        }
+
+        var results = [DatagramResult](repeating: .sent, count: datagrams.count)
+        let room = maxFrameBytes
+        let maxSize = maxDatagramSize
+        var frames: [Data] = []
+        var packed: [Int] = []
+        var used = 0
+        for (i, data) in datagrams.enumerated() {
+            if data.count > maxSize {
+                results[i] = countDrop(.tooLarge)
+                continue
+            }
+            if !datagramBudget.tryConsume(data.count) {
+                results[i] = countDrop(.overBudget)
+                continue
+            }
+            let frame = DatagramFrame(data: data).encode()
+            if used + frame.count > room {
+                await flushDatagramPacket(frames, packed: packed, into: &results)
+                frames.removeAll()
+                packed.removeAll()
+                used = 0
+            }
+            frames.append(frame)
+            packed.append(i)
+            used += frame.count
+        }
+        await flushDatagramPacket(frames, packed: packed, into: &results)
+        return results
+    }
+
+    private func flushDatagramPacket(_ frames: [Data], packed: [Int], into results: inout [DatagramResult]) async {
+        guard !frames.isEmpty else { return }
+        var outcome = DatagramResult.sent
+        do {
+            try await sendPacket(frameBytes: await withPendingAck(frames), trackedFrames: [], hasDatagram: true)
+        } catch {
+            log("datagram packet not sent: \(error)")
+            outcome = .bufferFull
+        }
+        for i in packed {
+            results[i] = outcome == .sent ? .sent : countDrop(outcome)
+        }
+        if outcome == .sent {
+            withStateLock { _datagramsSent += Int64(packed.count) }
+        }
+    }
+
+    private func countDrop(_ reason: DatagramResult) -> DatagramResult {
+        stateLock.lock(); defer { stateLock.unlock() }
+        _datagramDrops[reason, default: 0] += 1
+        return reason
+    }
+
+    /// Cap the rate of stream (reliable) data on this connection, in
+    /// bits per second; 0 removes it. DATAGRAM frames are exempt.
+    ///
+    /// Datagrams go out ahead of stream data at the sender, but a bulk
+    /// transfer still fills any queue further along the path, and audio
+    /// then waits behind it. A call layer should cap bulk transfers below
+    /// the path rate for the duration of a call, or pause them (VOICE_SPEC
+    /// §9.5).
+    public func setStreamRateCap(bitsPerSecond: Int64) {
+        transfer.setStreamRateCap(bitsPerSecond: bitsPerSecond)
+    }
+
+    /// DATAGRAM frames handed to the socket.
+    public var datagramsSent: Int64 {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _datagramsSent
+    }
+
+    /// DATAGRAM frames received and delivered.
+    public var datagramsReceived: Int64 {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _datagramsReceived
+    }
+
+    /// DATAGRAM frames dropped at this sender for `reason`.
+    public func datagramsDropped(_ reason: DatagramResult) -> Int64 {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _datagramDrops[reason, default: 0]
+    }
+
+    /// Packets sent larger than `maxPacketSize`; nonzero means a
+    /// size-budget bug.
+    public var oversizePacketCount: Int64 {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _oversizePacketCount
+    }
+
+    /// Packets that authenticated but whose frames could not be parsed.
+    public var frameParseFailCount: Int64 {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _frameParseFailCount
+    }
+
+    /// Packets that claimed to be from the peer but did not decrypt.
+    public var decryptFailCount: Int64 {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _decryptFailCount
+    }
+
     // MARK: - sizing helpers
 
-    var maxPayloadSize: Int { maxPacketSize - FudpClient.packetOverhead }
-    /// Largest stream-chunk the send paths will put in one packet.
-    var maxStreamChunk: Int { max(100, maxPayloadSize - FudpClient.frameOverheadEstimate) }
+    /// Bytes of frames that fit in one packet of `maxPacketSize`.
+    var maxFrameBytes: Int {
+        maxPacketSize - PacketHeader.size - FudpClient.packetCryptoOverhead - FudpClient.packetPrefix
+    }
+    /// Largest stream-chunk the send paths will put in one packet, sized
+    /// for the worst-case STREAM header. A pending ACK that does not fit
+    /// beside it goes in a packet of its own.
+    var maxStreamChunk: Int { max(100, maxFrameBytes - StreamFrame.maxHeaderSize) }
+
+    /// Largest DATAGRAM payload that fits in one packet. Larger ones are
+    /// refused (``DatagramResult/tooLarge``); datagrams are never
+    /// fragmented. The budget includes the session epoch even once it is
+    /// confirmed, so the limit stays the same for the life of a
+    /// connection.
+    public var maxDatagramSize: Int {
+        let room = maxFrameBytes
+        var size = room - 2 // type and a 1-byte length; shrink as the length varint grows
+        while size > 0 && DatagramFrame.encodedSize(dataLength: size) > room { size -= 1 }
+        return max(0, size)
+    }
 
     @inline(__always)
     private func log(_ message: @autoclosure () -> String) {
@@ -655,6 +859,7 @@ public final class FudpClient: @unchecked Sendable {
         do {
             opened = try AsyTwoWay.open(bundle: body, aad: aad, localPrivkey: localPrivkey)
         } catch {
+            withStateLock { _decryptFailCount += 1 }
             log("AsyTwoWay.open failed: \(error)")
             return
         }
@@ -667,7 +872,13 @@ public final class FudpClient: @unchecked Sendable {
                 hasEpoch: header.flags.contains(.hasEpoch)
             )
         } catch {
-            log("FudpPayload.parse failed: \(error)")
+            // Authentic packet, unreadable frames (e.g. a frame type
+            // newer than ours). Lose this packet only, and do not count
+            // it as a decrypt failure: its sender is genuine (FUDP1
+            // §Versioning, FUDP4 §7). Its reliable frames come back by
+            // retransmission.
+            withStateLock { _frameParseFailCount += 1 }
+            log("dropping packet \(header.packetNumber) with unparseable frames: \(error)")
             return
         }
         log("payload ts=\(parsed.timestamp ?? -1) epoch=\(parsed.sessionEpoch ?? -1) frames=\(parsed.frames.count)")
@@ -743,7 +954,25 @@ public final class FudpClient: @unchecked Sendable {
             return
         }
 
-        var ackEliciting = false
+        // Datagrams first: they are the latency-sensitive traffic.
+        let datagrams = parsed.frames.compactMap { frame -> Data? in
+            if case .datagram(let df) = frame { return df.data }
+            return nil
+        }
+        if !datagrams.isEmpty {
+            let handler = withStateLock { () -> (@Sendable (String, Int64, Data) -> Void)? in
+                _datagramsReceived += Int64(datagrams.count)
+                return _datagramHandler
+            }
+            if let handler {
+                let peerId = connection.peerFid ?? ""
+                for data in datagrams {
+                    handler(peerId, connection.connectionId, data)
+                }
+            }
+        }
+
+        let ackEliciting = parsed.frames.contains { $0.isAckEliciting }
         for frame in parsed.frames {
             switch frame {
             case .ack(let ack):
@@ -760,16 +989,15 @@ public final class FudpClient: @unchecked Sendable {
                 }
                 transfer.processAckFrame(ack)
             case .stream(let sf):
-                ackEliciting = true
                 handleStreamFrame(sf)
-            case .padding:
+            case .connectionClose(let code, let reason):
+                // Acknowledged like any other frame; the transport's
+                // liveness, not this frame, decides when we rebuild.
+                log("peer sent CONNECTION_CLOSE code=\(code) reason=\(reason)")
+            case .padding, .datagram, .maxData, .maxStreamData, .maxStreams:
+                // Flow-control frames are acknowledged but not acted on:
+                // this client never sends enough to reach the limits.
                 break
-            case .unknown(let typeByte, _):
-                // Unmodelled frame (MAX_DATA etc.). ACK the packet —
-                // "received" is true even if we can't act on it, and a
-                // missing ACK would make the server retransmit forever.
-                ackEliciting = true
-                log("unknown frame type 0x\(String(typeByte, radix: 16)) (acked, ignored)")
             }
         }
 
@@ -777,6 +1005,10 @@ public final class FudpClient: @unchecked Sendable {
             transfer.ackGenerator.onPacketReceived(header.packetNumber)
             // ACK_THRESHOLD = 1: immediate ACK per ack-eliciting packet.
             await sendAckOnly()
+        } else {
+            // ACK-only / DATAGRAM-only: listed in later ACKs so the
+            // ranges have holes only where packets were lost; elicits none.
+            transfer.ackGenerator.onNonElicitingPacketReceived(header.packetNumber)
         }
     }
 
@@ -874,6 +1106,12 @@ public final class FudpClient: @unchecked Sendable {
         // sentPackets, the ack manager and largestAcked together.
         transfer.resetForRestart()
         connection.clearPeerEpoch()
+
+        // The restarted peer may run different software; datagram
+        // capability must be re-established by the application.
+        stateLock.lock()
+        _datagramsEnabled = false
+        stateLock.unlock()
     }
 
     private func removeStreamBuffer(_ streamId: UInt64) {
@@ -910,7 +1148,10 @@ public final class FudpClient: @unchecked Sendable {
         // burst of retransmits is exactly the line-rate burst that
         // shallow bottleneck buffers clip, turning one loss into a
         // self-sustaining storm.
-        let byteBudget = max(8 * 1024, transfer.pacingBudgetBytes(intervalMs: Int64(FudpClient.retransmitIntervalMs)))
+        // A stream rate cap (set during a call) is honoured exactly; the
+        // 8 KB floor would otherwise let retransmits alone exceed a low cap.
+        let pacingBudget = transfer.pacingBudgetBytes(intervalMs: Int64(FudpClient.retransmitIntervalMs))
+        let byteBudget = transfer.streamRateCapBps > 0 ? max(1, pacingBudget) : max(8 * 1024, pacingBudget)
         var retransmittedBytes: Int64 = 0
         var retransmitted = 0
         var abandoned = 0
@@ -991,26 +1232,71 @@ public final class FudpClient: @unchecked Sendable {
     // MARK: - private send helpers
 
     /// Encrypt and send one DATA packet carrying `streamFrames` (plus
-    /// any pending ACK piggybacked in front). Ack-eliciting packets are
-    /// recorded for loss detection BEFORE the socket write — on
-    /// localhost the ACK can beat a post-write record.
+    /// any pending ACK piggybacked in front, if it fits).
     private func sendDataPacket(streamFrames: [StreamFrame], retransmitCount: Int = 0) async throws {
-        var frameBytes: [Data] = []
-        if transfer.ackGenerator.hasPendingAcks,
-           let ack = transfer.ackGenerator.generateAckFrame() {
-            frameBytes.append(ack.encode())
-        }
-        for frame in streamFrames {
-            frameBytes.append(frame.encode())
-        }
-        let ackEliciting = !streamFrames.isEmpty
+        try await sendPacket(
+            frameBytes: await withPendingAck(streamFrames.map { $0.encode() }),
+            trackedFrames: streamFrames,
+            hasDatagram: false,
+            retransmitCount: retransmitCount
+        )
+    }
 
-        let packet = try sealPacket(frameBytes: frameBytes, includeTimestamp: ackEliciting)
+    /// The frames for one packet: `frameBytes`, plus the pending ACK in
+    /// front if it fits beside them within `maxPacketSize`. An ACK that
+    /// does not fit is sent in a packet of its own first — never
+    /// truncated to fit, since every ACK frame's full ranges are what
+    /// protect against earlier ACKs being lost (FUDP3 §2.1).
+    private func withPendingAck(_ frameBytes: [Data]) async -> [Data] {
+        guard transfer.ackGenerator.hasPendingAcks,
+              let ack = transfer.ackGenerator.generateAckFrame(maxBytes: maxFrameBytes)
+        else { return frameBytes }
+        let ackBytes = ack.encode()
+        let used = frameBytes.reduce(0) { $0 + $1.count }
+        if used + ackBytes.count <= maxFrameBytes {
+            return [ackBytes] + frameBytes
+        }
+        do {
+            try await sendPacket(frameBytes: [ackBytes], trackedFrames: [], hasDatagram: false)
+        } catch {
+            log("failed to send ACK: \(error)")
+        }
+        return frameBytes
+    }
+
+    /// Seal and send one packet. Ack-eliciting packets (those carrying
+    /// `trackedFrames`) are recorded for loss detection BEFORE the socket
+    /// write — on localhost the ACK can beat a post-write record. ACK-only
+    /// and DATAGRAM-only packets are not tracked and not in bytes in flight.
+    private func sendPacket(
+        frameBytes: [Data],
+        trackedFrames: [StreamFrame],
+        hasDatagram: Bool,
+        retransmitCount: Int = 0
+    ) async throws {
+        let ackEliciting = !trackedFrames.isEmpty
+        // E1: ACK-only packets skip the timestamp. DATAGRAM packets carry
+        // application data, so they keep it (replay protection).
+        let packet = try sealPacket(frameBytes: frameBytes, includeTimestamp: ackEliciting || hasDatagram)
+
+        if packet.bytes.count > maxPacketSize {
+            // Every sender budgets to maxFrameBytes, so this is a bug in
+            // the budget, not a condition to handle: count it loudly and
+            // send anyway.
+            let n = withStateLock { () -> Int64 in
+                _oversizePacketCount += 1
+                return _oversizePacketCount
+            }
+            if n <= 5 || n % 1000 == 0 {
+                FileHandle.standardError.write(Data(
+                    "[FudpClient] sent a \(packet.bytes.count)-byte packet over maxPacketSize \(maxPacketSize) (count=\(n))\n".utf8))
+            }
+        }
 
         if ackEliciting {
             transfer.sentPackets.recordSent(
                 packetNumber: packet.number,
-                frames: streamFrames,
+                frames: trackedFrames,
                 size: packet.bytes.count,
                 retransmitCount: retransmitCount
             )
@@ -1022,13 +1308,20 @@ public final class FudpClient: @unchecked Sendable {
 
     /// Send an ACK-only packet (not ack-eliciting, no timestamp — E1).
     private func sendAckOnly() async {
-        guard let ack = transfer.ackGenerator.generateAckFrame() else { return }
+        guard let ack = transfer.ackGenerator.generateAckFrame(maxBytes: maxFrameBytes) else { return }
         do {
-            let packet = try sealPacket(frameBytes: [ack.encode()], includeTimestamp: false)
-            try await transport.send(packet.bytes)
+            try await sendPacket(frameBytes: [ack.encode()], trackedFrames: [], hasDatagram: false)
         } catch {
             log("failed to send ACK: \(error)")
         }
+    }
+
+    /// Test hook: send arbitrary frame bytes in one packet, bypassing
+    /// every check — used to put frames an older peer cannot parse on
+    /// the wire. Stamped like a datagram packet, so only the frames can
+    /// make the receiver drop it.
+    func sendFramesForTest(_ frameBytes: [Data]) async throws {
+        try await sendPacket(frameBytes: frameBytes, trackedFrames: [], hasDatagram: true)
     }
 
     private func sealPacket(
