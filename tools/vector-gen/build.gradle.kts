@@ -77,6 +77,9 @@ val compileFcAjdk by tasks.registering(JavaCompile::class) {
         // of it. Both pull their closure in via -sourcepath below.
         include("com/fc/fc_ajdk/data/fchData/P2SH.java")
         include("com/fc/fc_ajdk/core/fch/TxHandler.java")
+        // Voice calls (VOICE_SPEC §4-§5): delegation, keys, sealed media
+        // frames, attestations, from the code Android runs.
+        include("com/fc/fc_ajdk/call/*.java")
     }
     classpath = externalDeps
     destinationDirectory.set(fcAjdkClassesDir)

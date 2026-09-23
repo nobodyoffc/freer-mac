@@ -292,8 +292,27 @@ Receivers apply FIMP's membership checks:
 
 ## 4. Keys
 
-All derivations use HKDF-SHA256 (FTSP13). `‖` is concatenation. Strings are
-UTF-8 with a 2-byte big-endian length prefix. Integers are big-endian.
+All derivations use HKDF-SHA256 (FTSP13). `‖` is concatenation. Integers are
+big-endian and unsigned (`ssrc` is a u32 even where a language stores it
+signed).
+
+- A quoted literal, such as `"FreerCall v1 p2p"`, is its UTF-8 bytes with no
+  prefix. `str(x)` is a 2-byte big-endian length, then the UTF-8 bytes.
+- An empty salt (`∅`) is RFC 5869's all-zero salt.
+- `Schnorr(key, m)` is the BCH Schnorr signature that FIMP0V3 uses, over
+  SHA-256d of `m`: 64 bytes, deterministic. Each preimage starts with its
+  own literal tag, so a signature made for one purpose never verifies for
+  another.
+- `ECDH(a, B)` is the x-coordinate of `a·B`, 32 bytes.
+- `callId` as a salt is its 16 raw bytes, not its hex. A meeting `nonce` is
+  its 32 raw bytes.
+- Timestamps in signed data (`ts` in `admitSig`) are milliseconds;
+  `expiresSec` is seconds.
+
+The reference implementation is `com.fc.fc_ajdk.call` in FC-AJDK. Its
+vectors, `callVectors.json`, come from FreerForMac's vector-gen (`CallRef`).
+FC-AJDK checks them in `CallVectorTest`; the Mac and FC-JDK copies must
+reproduce every value.
 
 ### 4.1. Transport identity and delegation
 
@@ -996,6 +1015,19 @@ described in `Freer/docs/VOICE_SPIKE_GUIDE.md`.
   measuring a device.
 
 ### Phase 3 — 1:1 calls (Android)
+
+Progress, in milestones:
+
+1. **Call cryptography: done** 2026-09-23 (Freer and FreerForMac branch
+   `voice-calls-p3`). `com.fc.fc_ajdk.call` in FC-AJDK holds `Delegation`,
+   `CallKeys` (the p2p and meeting secrets, sender keys, admission, frame
+   nonce), `MediaFrame`, `Attestation` and `ReplayWindow`. `CallCryptoTest`
+   covers each property the spec relies on, and `callVectors.json` pins the
+   bytes.
+2. `CallComponent`, `kind = p2p`, in FC-JDK.
+3. Signalling: `ContentType.CALL`, `CallSignaller`, ringing, missed calls.
+4. `CallService`, `CallActivity` and calls over the relay.
+5. Direct paths, *Always relay* and *Available for calls*.
 
 - **FC-AJDK:**
   - `CallKeys`, `MediaFrame`, `Attestation` and `Delegation`

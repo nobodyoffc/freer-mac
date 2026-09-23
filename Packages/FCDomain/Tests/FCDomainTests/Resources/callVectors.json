@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "generator": "FreerForMac VectorGen (com.fc.fc_ajdk.call from FC-AJDK)",
+  "keys": {
+    "fid_priv_a": "b62966e9246b0e65c3cc53473b60cda708e5469e593310da8aa9f9022b03ad39",
+    "fid_a": "FUc4YfApTPiCC2dRLNDLvUPB4RhYq2Ffar",
+    "fid_priv_b": "1a07eb63bea6b35ea9213dd062dc94098415368605a8c40bb26e1833c823f753",
+    "fid_b": "FRBgJuuBd3FvJoKaLY3m8KUrBmMr79L3h5",
+    "t_priv_a": "2cea1f3d41fbd6b3f06c300628f1f7b0da19b6ac0bb6a639ffd326448c276321",
+    "t_pub_a": "031a5ef517babfd12c61a6f56117d5d1c59ee4a5b3d4192bb643c0dce805fd9dc2",
+    "t_priv_b": "6ef65c32c01c246a5647d9c011e6f241e2f45cf52208dae31cfbc54e70b8dd48",
+    "t_pub_b": "02d718556cbdb6a90ecf5408157d4954f7aa9987ba44c63e964b520e96b8929838",
+    "call_id": "00112233445566778899aabbccddeeff"
+  },
+  "delegation": {
+    "expires_sec": 1790003600,
+    "json": "{\"fid\":\"FUc4YfApTPiCC2dRLNDLvUPB4RhYq2Ffar\",\"fidPub\":\"02778a1f5cb30074fde9f69be4b208ab1d93149acdc2152b4ed27f6738cd56f12b\",\"tPub\":\"031a5ef517babfd12c61a6f56117d5d1c59ee4a5b3d4192bb643c0dce805fd9dc2\",\"expiresSec\":1790003600,\"sig\":\"629e307b3dc92dcbf08c4d5ac1fc0601f5c870b5077936472912a8baa9d7717e2c4cab9ae01833899076fee1f45f0289ab5cd1cac9b68236ecfe2c18485e2690\"}",
+    "sig": "629e307b3dc92dcbf08c4d5ac1fc0601f5c870b5077936472912a8baa9d7717e2c4cab9ae01833899076fee1f45f0289ab5cd1cac9b68236ecfe2c18485e2690"
+  },
+  "p2p_secret": "7fee217727383c7bf4455a7359363350c1d4d55bab832fcbed9443e5893a154a",
+  "meeting": {
+    "symkey": "4109f9413504fd4c19a954c101b1cb858ab7948b077633354d47588aeb73f09f",
+    "nonce": "1a4731c6eaa254b68803581bbc23fbc20677fae7a0e73e4bbdc6368506a8424c",
+    "entity_id": "room_vectors",
+    "symkey_version": 3,
+    "meeting_id": "mtg_000102030405060708090a0b",
+    "secret": "5095b43b9033de74c6378b1e6dd397c9e07d73e23da10e464845a08e36b27da5"
+  },
+  "sender_key": {
+    "ssrc": "3405691582",
+    "epoch0": "437f2c462fcf2662afcc3b03f70df75889179dcf0c5cc37c76d1adfba9609427",
+    "epoch1": "35d42b7bac8f6e6a8436164786754efffef61a9c84ec3d360167205f2a2cecce",
+    "nonce_seq_258": "cafebabe0000000000000102"
+  },
+  "admission": {
+    "auth_priv": "8fe539c7178a0e952d97d88e29ac387bfe8d20ced1ec54c3a6601f1aff50b128",
+    "auth_pub": "03d7a6e2080383e35d42e52eb307b08c48985e4ee6496bf654722a8d7eaef31147",
+    "ts_ms": 1790000000123,
+    "admit_sig": "ca75899bbebec1bee207b27db8b9ca051dd59141c3816795f8dcc5bd0c59f0fa9245c73be94db82e1229b513fe755f036596fbba44348d4d9245920358bbb9d7"
+  },
+  "media_frame": {
+    "header": "010101020304cafebabe000000000000010200abcdef2600",
+    "payload": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3",
+    "frame": "010101020304cafebabe000000000000010200abcdef26002a7bcc42a1a3d37957d56342dd52702580870185d44fdaa9bddc35dbd6bf174340e08d99"
+  },
+  "attestation": {
+    "frames": [
+      "010101020304cafebabe000000000000010200abcdef26002a7bcc42a1a3d37957d56342dd52702580870185d44fdaa9bddc35dbd6bf174340e08d99",
+      "010101020304cafebabe000000000000010300abd1af2600a9eab0d4b345da9a7cf1c1954866200b68e61485072e83f9e341a9f38fac40a210fd30bd",
+      "010101020304cafebabe000000000000010400abd56f2600b825662b018c84b7637fde49f97a62767afbef18bbfc4b74add1144d0e97d58a554413ec"
+    ],
+    "attestation": "0201020304cafebabe00000000000001020330ce8f312967810654dc5dc208fe2099c2feea590edee48d5bb6a56020951728fc27ca6ba02d1042bbf01715d69efd3f7126169a325ed95da07417eda37becfbafbc312bd43d1d5e429ed44d897258ec26d14f752441ddd9"
+  }
+}

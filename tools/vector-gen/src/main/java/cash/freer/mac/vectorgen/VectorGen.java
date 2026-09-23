@@ -89,6 +89,9 @@ public final class VectorGen {
         // envelopes: folding a deterministic table into it would churn
         // two hundred unrelated lines every time the table changed.
         Path txFeeOut = args.length > 3 ? Paths.get(args[3]) : null;
+        // Call vectors (VOICE_SPEC §4-§5) are deterministic too, so they get a
+        // file of their own for the same reason.
+        Path callOut = args.length > 4 ? Paths.get(args[4]) : null;
 
         JsonObject cryptoRoot = new JsonObject();
         cryptoRoot.addProperty("generated_at", Instant.now().toString());
@@ -172,6 +175,11 @@ public final class VectorGen {
         Files.writeString(fudpOut, gson.toJson(fudpRoot) + "\n");
         System.out.println("Wrote " + fudpOut.toAbsolutePath());
 
+        if (callOut != null) {
+            Files.createDirectories(callOut.toAbsolutePath().getParent());
+            Files.writeString(callOut, gson.toJson(CallRef.generate()) + "\n");
+            System.out.println("Wrote " + callOut.toAbsolutePath());
+        }
         if (domainOut != null) {
             Files.createDirectories(domainOut.toAbsolutePath().getParent());
             Files.writeString(domainOut, gson.toJson(domainRoot) + "\n");
