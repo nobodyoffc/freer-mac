@@ -6,7 +6,7 @@ implement this document. The same file is kept in both repositories —
 `FreerForMac/VOICE_SPEC.md` and `Freer/docs/VOICE_SPEC.md` — so change both
 together.
 
-Status: **decided; Phase 1 done** — the DATAGRAM transport is implemented in FC-JDK, FC-AJDK and the Mac (branch `fudp-datagram` in each), checked against shared vectors, frozen in FUDP7, and its gate passed on 2026-09-23 (§14). Phase 2 is next. The answers to the design questions are recorded in §15.
+Status: **decided; Phase 1 done** — the DATAGRAM transport is implemented in FC-JDK, FC-AJDK and the Mac, checked against shared vectors, frozen in FUDP7, and its gate passed on 2026-09-23 (§14). **Phase 2's spike is built** (Freer and FC-JDK, branch `voice-spike`) and waits for its gate on real phones. The answers to the design questions are recorded in §15.
 
 This is the implementation contract. The protocol documents it adds or
 amends (§13) are written from it once the wire format is frozen at the end
@@ -944,6 +944,25 @@ the change needs (`LossyRequestResponseTest`, `WanSimulationThroughputTest`,
 
 **If this gate fails, stop and reconsider WebRTC's audio stack** (keeping
 FUDP as the transport) before building any further.
+
+**Built** 2026-09-23, Freer and FC-JDK branch `voice-spike`; the gate runs are
+described in `Freer/docs/VOICE_SPIKE_GUIDE.md`.
+
+- **Codec:** libopus 1.5.2, vendored without its DNN models, through JNI.
+  The packaged library is 394 KB for arm64-v8a and 298 KB for armeabi-v7a.
+- **Engine** (`app/.../call/engine/`): capture, playout with a mixer, and
+  the §9.3 jitter buffer, which has JVM tests. Phase 3 keeps all of it.
+- **Test screen:** *Tools → Voice test*, in debug builds only. Two phones
+  can connect directly, or any number can join the relay.
+- **Relay:** `VoiceSpikeRelay` in FC-JDK forwards every frame to everyone
+  else.
+- **Frames:** the §5 header with `kind = 0x7E` and the Opus data in the
+  clear, so FUDP's hop encryption is the only protection. For the spike,
+  `flags` bit 1 marks the first frame after a DTX run, so the gap before it
+  is not counted as loss.
+- **Checked on two emulators,** relayed and direct: no loss on a clean
+  path. At a simulated 5% loss, FEC recovered 47 of the 48 dropped frames.
+  Emulators cannot test delay, echo or speech quality: those are the gate.
 
 ### Phase 3 — 1:1 calls (Android)
 
