@@ -1097,6 +1097,23 @@ Progress, in milestones:
    attestations and checks them, and silences a stream it cannot verify
    (`CallMediaTest`). The engine now passes `EncodedFrame`s between capture,
    the wire format and playout, so the spike and calls share it.
+
+   **Built, waiting for real phones:**
+   - **Relay path:** `CallRelayLink` runs a call's own FUDP node under its
+     transport key, with a FAPI client to the relay. `CallSession` ties
+     signalling, relay, media and engines together; `CallManager`,
+     `CallService` (foreground, microphone and phoneCall) and `CallActivity`
+     give it a screen.
+   - **Placing a call:** a *Voice call* item in the P2P chat menu. Calling a
+     nobody asks first.
+   - **Choosing the relay:** my own `home.CALL@No1_NrC7`, then the callee's,
+     or a debug override on the Voice test screen.
+   - **Test relay:** FC-JDK's `CallRelayServer` serves an off-chain CALL
+     relay.
+   - **Tests:** `CallComponentFapiTest` runs a call through FapiServer.
+     `CallRelayLinkLiveTest` runs the phone's network path against a live
+     relay. It found two bugs: unsigned `routeId`/`ssrc` values parsed from
+     JSON saturated at 2³¹−1, and negative connection ids read as "none".
 5. Direct paths, *Always relay* and *Available for calls*.
 
 - **FC-AJDK:**
