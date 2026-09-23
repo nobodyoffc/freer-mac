@@ -134,6 +134,11 @@ public final class VectorGen {
         fudpRoot.add("ack_frame", buildAckFrameVectors());
         fudpRoot.add("padding_frame", buildPaddingFrameVectors());
         fudpRoot.add("plaintext_payload", buildPlaintextPayloadVectors());
+        // DATAGRAM (0x10, VOICE_SPEC §2 / FUDP7): the frame, packets that mix
+        // it with other frames, and the one-packet size limit.
+        fudpRoot.add("datagram_frame", buildDatagramFrameVectors());
+        fudpRoot.add("datagram_payload", buildDatagramPayloadVectors());
+        fudpRoot.add("datagram_max_size", buildDatagramMaxSizeVectors());
         fudpRoot.add("asy_two_way", buildAsyTwoWayVectors());
         fudpRoot.add("challenge_packet", buildChallengePayloadVectors());
         fudpRoot.add("challenge_response_packet", buildChallengeResponsePayloadVectors());
@@ -1730,6 +1735,105 @@ public final class VectorGen {
         arr.add(o2);
 
         return arr;
+    }
+
+    // Lengths straddle the varint boundaries (63/64, 16383/16384) and hit
+    // the largest payloads at the default 1350 and at 1400 (1242, 1292).
+    private static JsonArray buildDatagramFrameVectors() {
+        JsonArray arr = new JsonArray();
+        int[] lengths = {0, 1, 3, 63, 64, 160, 1242, 1292, 16383, 16384};
+        for (int len : lengths) {
+            byte[] data = countingBytes(len, len);
+            JsonObject o = new JsonObject();
+            o.addProperty("label", len + "-byte datagram");
+            o.addProperty("data_hex", Hex.toHexString(data));
+            o.addProperty("encoded_hex", Hex.toHexString(FudpRef.datagramFrame(data)));
+            arr.add(o);
+        }
+        return arr;
+    }
+
+    private static JsonArray buildDatagramPayloadVectors() {
+        JsonArray arr = new JsonArray();
+        long timestamp = 1_790_000_000_000L;
+        long epoch = 0x0123456789ABCDEFL;
+        java.util.List<long[]> ranges = new java.util.ArrayList<>();
+        ranges.add(new long[]{0, 2});
+
+        // What the relay sends one receiver: three speakers' frames packed
+        // in one packet, with an ACK riding along. Not ACK-eliciting.
+        java.util.List<byte[]> packed = new java.util.ArrayList<>();
+        java.util.List<byte[]> packedData = new java.util.ArrayList<>();
+        for (int i = 0; i < 3; i++) packedData.add(countingBytes(160, 0x40 * i));
+        for (byte[] d : packedData) packed.add(FudpRef.datagramFrame(d));
+        packed.add(FudpRef.ackFrame(77L, 25L, ranges));
+        arr.add(datagramPayloadCase("ts + epoch, 3 datagrams + ack", true, timestamp, true, epoch,
+                packed, packedData, false));
+
+        // Datagrams go first when they share a packet with stream data.
+        java.util.List<byte[]> mixed = new java.util.ArrayList<>();
+        java.util.List<byte[]> mixedData = new java.util.ArrayList<>();
+        mixedData.add(countingBytes(64, 0x10));
+        mixed.add(FudpRef.datagramFrame(mixedData.get(0)));
+        mixed.add(FudpRef.streamFrame(4L, 1024L, "bulk".getBytes(java.nio.charset.StandardCharsets.UTF_8), true));
+        arr.add(datagramPayloadCase("ts only, datagram then stream", true, timestamp, false, 0L,
+                mixed, mixedData, true));
+
+        // An empty datagram is legal (a probe carries a header, but the
+        // frame itself allows zero bytes).
+        java.util.List<byte[]> empty = new java.util.ArrayList<>();
+        java.util.List<byte[]> emptyData = new java.util.ArrayList<>();
+        emptyData.add(new byte[0]);
+        empty.add(FudpRef.datagramFrame(emptyData.get(0)));
+        empty.add(FudpRef.paddingFrame());
+        arr.add(datagramPayloadCase("ts only, empty datagram + padding", true, timestamp, false, 0L,
+                empty, emptyData, false));
+        return arr;
+    }
+
+    private static JsonObject datagramPayloadCase(String label, boolean includeTs, long ts,
+                                                  boolean includeEpoch, long epoch,
+                                                  java.util.List<byte[]> frames,
+                                                  java.util.List<byte[]> datagrams,
+                                                  boolean ackEliciting) {
+        JsonObject o = new JsonObject();
+        o.addProperty("label", label);
+        o.addProperty("include_timestamp", includeTs);
+        if (includeTs) o.addProperty("timestamp", ts);
+        o.addProperty("include_epoch", includeEpoch);
+        if (includeEpoch) o.addProperty("session_epoch", epoch);
+        JsonArray framesJson = new JsonArray();
+        for (byte[] f : frames) framesJson.add(Hex.toHexString(f));
+        o.add("frames_hex", framesJson);
+        JsonArray dataJson = new JsonArray();
+        for (byte[] d : datagrams) dataJson.add(Hex.toHexString(d));
+        o.add("datagrams_hex", dataJson);
+        o.addProperty("ack_eliciting", ackEliciting);
+        o.addProperty("encoded_hex", Hex.toHexString(FudpRef.payload(includeTs, ts, includeEpoch, epoch, frames)));
+        return o;
+    }
+
+    private static JsonArray buildDatagramMaxSizeVectors() {
+        JsonArray arr = new JsonArray();
+        for (int maxPacket : new int[]{1200, 1350, 1400, 1500}) {
+            int max = FudpRef.maxDatagramSize(maxPacket);
+            JsonObject o = new JsonObject();
+            o.addProperty("max_packet_size", maxPacket);
+            o.addProperty("max_datagram_size", max);
+            arr.add(o);
+        }
+        // The spec quotes these two; a change here is a wire change.
+        require(FudpRef.maxDatagramSize(1350) == 1242, "max datagram at 1350 must be 1242");
+        require(FudpRef.maxDatagramSize(1400) == 1292, "max datagram at 1400 must be 1292");
+        return arr;
+    }
+
+    private static byte[] countingBytes(int length, int start) {
+        byte[] out = new byte[length];
+        for (int i = 0; i < length; i++) {
+            out[i] = (byte) (start + i);
+        }
+        return out;
     }
 
     private static byte[] patternBytes(int length, byte value) {

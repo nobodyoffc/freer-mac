@@ -120,11 +120,13 @@ public final class FudpRef {
     //   FrameType.MAX_STREAMS      = 0x05
     //   FrameType.STREAM           = 0x08 base; lower 3 bits carry flags:
     //                                  bit 0 FIN, bit 1 LEN, bit 2 OFF.
+    //   FrameType.DATAGRAM         = 0x10 (FUDP7): varint length, data.
     // ---------------------------------------------------------------
 
     public static final int FRAME_PADDING = 0x00;
     public static final int FRAME_ACK = 0x01;
     public static final int FRAME_STREAM_BASE = 0x08;
+    public static final int FRAME_DATAGRAM = 0x10;
 
     public static final int STREAM_FIN = 0x01;
     public static final int STREAM_LEN = 0x02;  // always set in the released wire format
@@ -151,6 +153,36 @@ public final class FudpRef {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public static byte[] datagramFrame(byte[] data) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            out.write(varintEncode(FRAME_DATAGRAM));
+            out.write(varintEncode(data.length));
+            out.write(data);
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Largest DATAGRAM payload for a given maxPacketSize
+    // (Protocol.getMaxDatagramSize). Frames get what is left after the
+    // header, the crypto overhead and the timestamp + epoch prefix; the
+    // epoch is budgeted even once confirmed, so the limit is fixed for a
+    // connection.
+    // ---------------------------------------------------------------
+
+    public static final int PACKET_CRYPTO_OVERHEAD = 68;
+    public static final int PACKET_PREFIX = 16;
+
+    public static int maxDatagramSize(int maxPacketSize) {
+        int room = maxPacketSize - HEADER_SIZE - PACKET_CRYPTO_OVERHEAD - PACKET_PREFIX;
+        int size = room - 2;
+        while (size > 0 && 1 + varintEncode(size).length + size > room) size--;
+        return Math.max(0, size);
     }
 
     public static byte[] ackFrame(long largestAcked, long ackDelay, List<long[]> ranges) {

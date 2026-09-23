@@ -35,6 +35,54 @@ final class DatagramFrameTests: XCTestCase {
         XCTAssertEqual(wire.count, 67)
     }
 
+    // MARK: - cross-client vectors (fudpVectors.json, tools/vector-gen)
+
+    func testDatagramFrameMatchesVectors() throws {
+        let vectors = try FudpVectors.load()
+        XCTAssertFalse(vectors.datagramFrame.isEmpty)
+        for vector in vectors.datagramFrame {
+            let data = Data(fromHex: vector.dataHex)
+            XCTAssertEqual(DatagramFrame(data: data).encode().hex, vector.encodedHex, "'\(vector.label)'")
+            XCTAssertEqual(try FrameParser.parseAll(Data(fromHex: vector.encodedHex)),
+                           [.datagram(DatagramFrame(data: data))], "'\(vector.label)'")
+        }
+    }
+
+    func testDatagramPayloadMatchesVectors() throws {
+        let vectors = try FudpVectors.load()
+        XCTAssertFalse(vectors.datagramPayload.isEmpty)
+        for vector in vectors.datagramPayload {
+            let frameBytes = vector.framesHex.map { Data(fromHex: $0) }
+            let payload = FudpPayload.assemble(
+                includeTimestamp: vector.includeTimestamp,
+                timestamp: vector.timestamp ?? 0,
+                includeEpoch: vector.includeEpoch,
+                sessionEpoch: vector.sessionEpoch ?? 0,
+                frameBytes: frameBytes
+            )
+            XCTAssertEqual(payload.hex, vector.encodedHex, "'\(vector.label)'")
+
+            let prefix = (vector.includeTimestamp ? 8 : 0) + (vector.includeEpoch ? 8 : 0)
+            let frames = try FrameParser.parseAll(payload.dropFirst(prefix))
+            XCTAssertEqual(frames.count, frameBytes.count, "'\(vector.label)'")
+            let datagrams = frames.compactMap { frame -> String? in
+                if case .datagram(let d) = frame { return d.data.hex }
+                return nil
+            }
+            XCTAssertEqual(datagrams, vector.datagramsHex, "'\(vector.label)'")
+            XCTAssertEqual(frames.contains { $0.isAckEliciting }, vector.ackEliciting, "'\(vector.label)'")
+        }
+    }
+
+    func testMaxDatagramSizeMatchesVectors() throws {
+        let vectors = try FudpVectors.load()
+        XCTAssertFalse(vectors.datagramMaxSize.isEmpty)
+        for vector in vectors.datagramMaxSize {
+            XCTAssertEqual(FudpClient.maxDatagramSize(maxPacketSize: vector.maxPacketSize),
+                           vector.maxDatagramSize, "maxPacketSize=\(vector.maxPacketSize)")
+        }
+    }
+
     func testLengthPastEndOfPacketIsRejected() {
         let wire = DatagramFrame(data: Data(count: 10)).encode()
         XCTAssertThrowsError(try FrameParser.parseAll(wire.dropLast()))

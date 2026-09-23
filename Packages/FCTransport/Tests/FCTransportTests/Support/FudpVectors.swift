@@ -20,6 +20,9 @@ enum FudpVectors {
         let challengeResponsePacket: [ChallengeResponsePacketCase]
         let proofOfWork: [ProofOfWorkCase]
         let appMessage: [AppMessageCase]
+        let datagramFrame: [DatagramFrameCase]
+        let datagramPayload: [DatagramPayloadCase]
+        let datagramMaxSize: [DatagramMaxSizeCase]
 
         enum CodingKeys: String, CodingKey {
             case generatedAt = "generated_at"
@@ -36,6 +39,54 @@ enum FudpVectors {
             case challengeResponsePacket = "challenge_response_packet"
             case proofOfWork = "proof_of_work"
             case appMessage = "app_message"
+            case datagramFrame = "datagram_frame"
+            case datagramPayload = "datagram_payload"
+            case datagramMaxSize = "datagram_max_size"
+        }
+    }
+
+    struct DatagramFrameCase: Decodable {
+        let label: String
+        let dataHex: String
+        let encodedHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label
+            case dataHex = "data_hex"
+            case encodedHex = "encoded_hex"
+        }
+    }
+
+    struct DatagramPayloadCase: Decodable {
+        let label: String
+        let includeTimestamp: Bool
+        let timestamp: Int64?
+        let includeEpoch: Bool
+        let sessionEpoch: Int64?
+        let framesHex: [String]
+        let datagramsHex: [String]
+        let ackEliciting: Bool
+        let encodedHex: String
+
+        enum CodingKeys: String, CodingKey {
+            case label, timestamp
+            case includeTimestamp = "include_timestamp"
+            case includeEpoch = "include_epoch"
+            case sessionEpoch = "session_epoch"
+            case framesHex = "frames_hex"
+            case datagramsHex = "datagrams_hex"
+            case ackEliciting = "ack_eliciting"
+            case encodedHex = "encoded_hex"
+        }
+    }
+
+    struct DatagramMaxSizeCase: Decodable {
+        let maxPacketSize: Int
+        let maxDatagramSize: Int
+
+        enum CodingKeys: String, CodingKey {
+            case maxPacketSize = "max_packet_size"
+            case maxDatagramSize = "max_datagram_size"
         }
     }
 

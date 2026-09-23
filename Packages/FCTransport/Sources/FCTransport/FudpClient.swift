@@ -467,8 +467,12 @@ public final class FudpClient: @unchecked Sendable {
     /// fragmented. The budget includes the session epoch even once it is
     /// confirmed, so the limit stays the same for the life of a
     /// connection.
-    public var maxDatagramSize: Int {
-        let room = maxFrameBytes
+    public var maxDatagramSize: Int { FudpClient.maxDatagramSize(maxPacketSize: maxPacketSize) }
+
+    /// ``maxDatagramSize`` for a given packet size: 1242 at the default
+    /// 1350, 1292 at 1400 (checked against `fudpVectors.json`).
+    public static func maxDatagramSize(maxPacketSize: Int) -> Int {
+        let room = maxPacketSize - PacketHeader.size - packetCryptoOverhead - packetPrefix
         var size = room - 2 // type and a 1-byte length; shrink as the length varint grows
         while size > 0 && DatagramFrame.encodedSize(dataLength: size) > room { size -= 1 }
         return max(0, size)
