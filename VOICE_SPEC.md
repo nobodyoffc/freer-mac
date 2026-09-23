@@ -594,7 +594,7 @@ caller's delegation, and the relay verifies it (§4.1). For `kind = p2p`, the
 
 | Method | Who | Params | Result |
 |---|---|---|---|
-| `call.create` | host | `meetingId`, `kind` ∈ {`p2p`, `meeting`}, `authPub` (a meeting sends it now; `p2p` sends it later, §4.4), `maxParticipants` (≤ 64), `maxCostPerMinute` | `routeId`, `price` |
+| `call.create` | host | `meetingId`, `kind` ∈ {`p2p`, `meeting`}, `authPub` (a meeting sends it now; `p2p` sends it later, §4.4), `maxParticipants` (≤ 64; `p2p` defaults to 2), `maxCostPerMinute` | `price` {`perKBIn`, `perKBOut`}, `maxParticipants`. The host's `routeId` comes from its `call.join`. |
 | `call.join` | anyone | `meetingId`, `ssrc`, `maxCostPerMinute` (optional), `ts` (ms), `admitSig` = Schnorr(`authPriv`, `"FreerCall-admit-v1" ‖ str(meetingId) ‖ tPub ‖ u32(ssrc) ‖ u64(ts)`) | `routeId`, `datagram: true`, `roster`, `keyEpoch`, `speakers` (N) |
 | `call.leave` | participant | `meetingId` | — |
 | `call.register` | host (`p2p` only) | `meetingId`, `authPub` | — |
@@ -606,18 +606,28 @@ caller's delegation, and the relay verifies it (§4.1). For `kind = p2p`, the
 | `call.info` | anyone | `meetingId` | `open` (bool), `participants` (count), `started`. Used for the meeting card and to confirm a meeting has ended. |
 | `call.stats` | anyone | — | Operator counters, like `road.stats` |
 
+Rules for every request that carries a delegation:
+
+- **The delegation must be for this connection:** its `tPub` must be the key
+  the FUDP connection authenticated with. Otherwise a stolen delegation
+  could be replayed from another connection. The relay admits, names and
+  bills the delegated FID.
+
 Rules for `call.join`:
 
+- **Admission:** once `authPub` is known, every join needs `admitSig`, the
+  host's included. Before a `p2p` host registers it, only the host may join,
+  and anyone else gets 409 and retries (§6.2 step 4).
 - **Clock:** `ts` MUST be within ±60 s of the relay's clock.
 - **Replay:** the relay caches each `(meetingId, tPub, ts)` and rejects a repeat.
 - **Two devices, one FID:** two sessions for the same FID but different `tPub` are separate participants. The UI groups them.
 
-Pushed by the relay (FUDP NOTIFY with `dataType = 1`, JSON):
+Pushed by the relay (FUDP NOTIFY with `dataType = 1`, JSON with a `type` and the `meetingId`):
 
-- `roster` — someone joined or left, or a mute or host changed. Each entry carries `{fid, ssrc, routeId, delegation}`, so receivers can verify the delegation themselves (§5.1).
+- `roster` — someone joined or left, or a mute or host changed: `{type, meetingId, host, roster: [{fid, ssrc, routeId, delegation}]}`. The delegation is the JSON the participant sent, so receivers can verify it themselves (§5.1). `ssrc` and `routeId` are unsigned numbers.
 - `rekey` — as in §4.5.
 - `muted` — to the participant concerned.
-- `kicked`
+- `kicked` — `{type, meetingId, reason}`; `reason = balance` after an unpaid grace period (§7.5).
 - `ended`
 - `uplink` — every 2 s. The relay's own loss and jitter counts for each sender's stream, which only the relay can see.
 
@@ -626,6 +636,8 @@ Other rules:
 - **Admission and control are separate:** `call.join` checks only the `admitSig`. The host alone may call `call.control`, `call.rekey` and `call.register`, which the relay checks against the delegated FID.
 - **If the host leaves:** the host role passes to the participant who has been present longest. The relay announces this in the roster.
 - **Team membership (optional):** a relay with a BASE component MAY also check a Team meeting's joiners against the on-chain member list. It cannot do this for a Room, which has no chain record.
+- **Attestations** reach the relay as FUDP NOTIFY with `dataType = 0` and the raw attestation bytes (§5.1), and leave it the same way. The relay passes on only those naming the sender's own `routeId` and `ssrc`.
+- **Errors:** 400 malformed, 401 delegation or `admitSig` does not verify, 402 balance below one minute, 403 not the host, or the call is full, 404 no such call, 409 not open yet, `ssrc` in use, or a replayed join, 429 over a limit (§7.6).
 
 ### 7.3. Forwarding
 
@@ -659,9 +671,9 @@ participant pays for their own traffic:
 minuteCost = ceil(bytesIn_minute / 1024) · pricePerKBIn + ceil(bytesOut_minute / 1024) · pricePerKBOut
 ```
 
-- **When it is taken:** charged at the end of each minute. The charge key is `call:<meetingId>:<fid>:<minute>`, so it is idempotent (FAPI4 §5.2).
+- **When it is taken:** charged at the end of each minute of a participant's presence, and for the part-minute when it leaves. The charge key is `call:<meetingId>:<fid>:<ssrc>:<minute>`, where `minute` counts from that join, so it is idempotent (FAPI4 §5.2). The `ssrc` is in it because two devices of one FID are separate participants.
 - **Joining:** `call.join` needs enough balance for one minute at the full speaker count.
-- **Running low:** if a minute cannot be paid, the relay sends a `balance` notice. After 60 s more without payment it removes the participant.
+- **Running low:** if a minute cannot be paid, the relay sends a `balance` notice (`{type, meetingId, graceSeconds}`). After 60 s more without payment it sends `kicked` and removes the participant.
 - **Cost cap:** a `maxCostPerMinute` in `call.join` caps the charge. The relay reduces that participant's N before it would go over the cap.
 - **Price zero:** an operator may set it to offer a free relay.
 
@@ -1024,7 +1036,14 @@ Progress, in milestones:
    nonce), `MediaFrame`, `Attestation` and `ReplayWindow`. `CallCryptoTest`
    covers each property the spec relies on, and `callVectors.json` pins the
    bytes.
-2. `CallComponent`, `kind = p2p`, in FC-JDK.
+2. **`CallComponent`, `kind = p2p`: done** 2026-09-23 (Freeverse branch
+   `voice-calls-p3`). The rules are in `fapi/components/call/CallRelay`,
+   testable without FAPI or sockets. `CallComponent` wires them to requests,
+   billing, and the new `FudpEventAware` hook, through which `FapiServer`
+   now passes datagrams, notifies and disconnects to components. The call
+   cryptography is ported there, and reproduces `callVectors.json`.
+   `CallRelayTest` covers admission, forwarding, spoofing, attestations,
+   billing and limits; `CallRelayFudpTest` runs a whole call over real FUDP.
 3. Signalling: `ContentType.CALL`, `CallSignaller`, ringing, missed calls.
 4. `CallService`, `CallActivity` and calls over the relay.
 5. Direct paths, *Always relay* and *Available for calls*.
