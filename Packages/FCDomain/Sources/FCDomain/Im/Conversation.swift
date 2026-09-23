@@ -211,6 +211,7 @@ public struct Conversation: Codable, Equatable, Sendable, Identifiable {
         case .delete:   return "[Deleted]"
         case .forward:  return "[Forwarded] " + (message.content ?? "")
         case .voice:    return "[Voice]"
+        case .call:     return "[Call]"
         case .roomInfo, .roomLeave, .roomAccept, .roomDisband, .roomRemoved:
             return ""
         }
@@ -256,7 +257,7 @@ public extension ContentType {
             return true
         case .symkey, .members, .history, .request, .response, .typing, .receipt,
              .presence, .reaction, .edit, .delete, .roomInfo, .roomLeave,
-             .roomAccept, .roomDisband, .roomRemoved:
+             .roomAccept, .roomDisband, .roomRemoved, .call:
             return false
         }
     }

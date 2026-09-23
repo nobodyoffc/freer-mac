@@ -230,6 +230,17 @@ clients MUST use the same ordinal.
 `null` content type. It must drop such a message quietly, not show an empty
 bubble. If it does show one, gate the feature behind a minimum-version rule.
 
+**Checked 2026-09-23:**
+
+- **Released Android (3.2.2) fails the check.** It stores a `null`-typed
+  message and shows its content as a text bubble, so an INVITE appears as
+  its JSON. That JSON holds only public keys and the call id. Whether to gate
+  on version is an open decision.
+- **This version drops any content type it does not know**, quietly, before
+  anything else.
+- **The Mac reserves `CALL`** at the same ordinal and treats it as a signal
+  that nothing routes. So until Phase 6, a Mac drops calls quietly.
+
 A `CALL` message is an ordinary FIMP message:
 
 - signed with the FIMP0V3 trailer
@@ -237,6 +248,30 @@ A `CALL` message is an ordinary FIMP message:
 - sealed per mode: `asy2way` for 1:1 over ROAD or DOCK; the entity symkey for a meeting
 
 `content` is JSON with an `op` field. Fields shown `<…>` are required.
+
+- `delegation` is the §4.1 object itself, not a string.
+- `expires` is milliseconds since the epoch.
+- The reference is `CallSignal` in FC-AJDK. It refuses a signal that lacks
+  what its op needs, or whose `callId` is not 16 bytes of hex.
+
+The state machine is `CallSignaller` in the app:
+
+- **Accepting:** it rings only for an INVITE whose delegation is from the
+  sender, for this call, for the `transportPub` the INVITE names. It accepts
+  an ACCEPT only from the callee it rang, under the same check.
+- **Other devices:** on a verified ACCEPT, the caller sends `CANCEL
+  answered_elsewhere` to the callee's FID, so the callee's other devices
+  stop. The device that answered ignores it.
+- **Keys:** each call's transport key is erased when the call ends.
+
+Local call records ("Call, 4:12", "Missed call", "Declined"):
+
+- They are `CALL` messages whose content is `{record, outgoing, duration,
+  callId}`. They are written into the chat and never sent.
+- A stranger's INVITE is held as a message request and shown as a missed
+  call. If the user accepts the stranger, it enters the chat the same way.
+- Signals go out through `P2pHandler.sendCallSignal`, on every channel
+  at once, and never through the message queue.
 
 ### 3.2. 1:1 calls (`type = P2P`, `targetId` = callee)
 
@@ -1044,7 +1079,11 @@ Progress, in milestones:
    cryptography is ported there, and reproduces `callVectors.json`.
    `CallRelayTest` covers admission, forwarding, spoofing, attestations,
    billing and limits; `CallRelayFudpTest` runs a whole call over real FUDP.
-3. Signalling: `ContentType.CALL`, `CallSignaller`, ringing, missed calls.
+3. **Signalling: done** 2026-09-23 (Freer and FreerForMac branch
+   `voice-calls-p3`). `ContentType.CALL`, `CallSignal`, `CallSignaller`
+   (`CallSignallerTest`, 14 cases), the ImManager wiring, the
+   all-channel send, and call records in the chat. Placing and answering a
+   call from the UI, and using the relay, come in milestone 4.
 4. `CallService`, `CallActivity` and calls over the relay.
 5. Direct paths, *Always relay* and *Available for calls*.
 

@@ -105,6 +105,11 @@ public enum ContentType: String, JavaOrdinalEnum, Codable, Sendable {
     case roomDisband = "ROOM_DISBAND"
     /// Owner removes a member. Same owner check applies.
     case roomRemoved = "ROOM_REMOVED"
+    /// Voice call signalling (VOICE_SPEC §3), appended after ROOM_REMOVED so
+    /// it has Android's ordinal. Not displayed: until calls come to the Mac
+    /// (Phase 6) a CALL message is a signal nobody routes, dropped quietly
+    /// rather than shown as its JSON.
+    case call = "CALL"
 }
 
 /// What a `REQUEST` is asking for.
