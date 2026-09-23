@@ -6,7 +6,7 @@ implement this document. The same file is kept in both repositories —
 `FreerForMac/VOICE_SPEC.md` and `Freer/docs/VOICE_SPEC.md` — so change both
 together.
 
-Status: **decided; Phase 1 done** — the DATAGRAM transport is implemented in FC-JDK, FC-AJDK and the Mac, checked against shared vectors, frozen in FUDP7, and its gate passed on 2026-09-23 (§14). **Phase 2's spike is built** (Freer and FC-JDK, branch `voice-spike`) and waits for its gate on real phones. The answers to the design questions are recorded in §15.
+Status: **decided; Phase 1 done** — the DATAGRAM transport is implemented in FC-JDK, FC-AJDK and the Mac, checked against shared vectors, frozen in FUDP7, and its gate passed on 2026-09-23 (§14). **Phase 2 done** 2026-09-23: the audio spike passed its gate as restated in §14 (the original 300 ms mouth-to-ear limit cannot be met on the test phones by any Android voice stack). Phase 3 is next. The answers to the design questions are recorded in §15.
 
 This is the implementation contract. The protocol documents it adds or
 amends (§13) are written from it once the wire format is frozen at the end
@@ -724,8 +724,8 @@ second instead of 25.
 
 **Android:**
 
-- Capture with `AudioRecord` using `VOICE_COMMUNICATION`, with `AudioManager.MODE_IN_COMMUNICATION` set. That gives the platform's echo cancellation, noise suppression and gain control.
-- Play out with `AudioTrack` using `USAGE_VOICE_COMMUNICATION`.
+- Capture and play out through AAudio, with the `VOICE_COMMUNICATION` input preset and usage and `AudioManager.MODE_IN_COMMUNICATION` set. That gives the platform's echo cancellation, noise suppression and gain control, with the smallest buffering the device offers. `AudioRecord`/`AudioTrack` with the same settings remain as a fallback; on devices without a low-latency voice path (the Samsungs in §14) the two perform the same.
+- Keep only two bursts (or two frames) in the output buffer and grow it on underrun.
 - Route with `setCommunicationDevice` (API 31+) for Bluetooth, speaker and earpiece.
 - Handle audio focus, and put the call on hold when a phone call arrives.
 
@@ -757,8 +757,12 @@ Senders adapt on the relay's `uplink` report, or the peer's report on a direct p
 | Above 10 % | 16 kbps | 20 |
 | Above 25 % | 12 kbps, 60 ms frames | — |
 
-**Delay targets:** mouth to ear ≤ 300 ms relayed, ≤ 200 ms direct, on a
-path with 50 ms RTT.
+**Delay targets:** our stack (frame, jitter buffer and our part of the
+output buffer) adds ≤ 100 ms beyond the devices' own audio paths and the
+network's one-way delay. The first target, mouth to ear ≤ 300 ms relayed and
+≤ 200 ms direct on a 50 ms RTT path, turned out to be unreachable on common
+phones: on two Samsungs the voice-call capture and playout paths alone take
+~235–265 ms, whatever API or stack is used (§14, Phase 2).
 
 ### 9.5. Bulk transfers during a call
 
@@ -938,7 +942,9 @@ the change needs (`LossyRequestResponseTest`, `WanSimulationThroughputTest`,
 
 **Gate:**
 
-- Delay is measured by recording a click through a loopback cable: ≤ 300 ms relayed.
+- ~~Delay is measured by recording a click through a loopback cable: ≤ 300 ms relayed.~~
+  **Restated 2026-09-23:** our stack adds ≤ 100 ms beyond the devices' own
+  audio paths and the network's one-way delay (§9.4).
 - Speech stays intelligible at 5 % loss.
 - There is no audible echo on speakerphone on at least three phone models.
 
@@ -962,7 +968,32 @@ described in `Freer/docs/VOICE_SPIKE_GUIDE.md`.
   is not counted as loss.
 - **Checked on two emulators,** relayed and direct: no loss on a clean
   path. At a simulated 5% loss, FEC recovered 47 of the 48 dropped frames.
-  Emulators cannot test delay, echo or speech quality: those are the gate.
+
+**Gate results** 2026-09-23, on a Galaxy S22+ and a Galaxy A05s:
+
+- **Delay: passed as restated.** Our stack adds ~40–80 ms: a 20 ms frame
+  and a 20–60 ms jitter buffer. The rest is not ours:
+  - Measured by recording a flick, with the far phone muted. Two phones in
+    one room feed back, and the loop period equals the one-way delay.
+  - Each phone's own voice paths took ~235–265 ms: microphone ~85–100 ms,
+    speaker 145–165 ms. Loopback mode on the A05s (no network) measured
+    ~270 ms mic to speaker.
+  - AAudio was granted only the normal 20 ms-burst path on both phones,
+    even when exclusive mode was asked for, and gained nothing. WebRTC would
+    use the same voice paths.
+  - Mouth to ear: ~360 ms on Wi-Fi direct, ~510–540 ms through the
+    Singapore relay. The phones were in Shanghai on a roaming Singapore
+    SIM, with an RTT of 130–190 ms. On that route the first run lost 65% of
+    the relay's traffic to the phones, a property of the route.
+- **5% loss: passed.** Speech could be followed without repeats; FEC
+  recovered ~93% of lost frames. A three-phone relay call also worked.
+- **Echo: passed on two models;** a third is still to be tested.
+- **Changes the gate runs caused:** the jitter buffer now also skips quiet
+  frames, and after a second over target any frame, so continuous speech
+  does not keep extra delay. Capture drops a standing backlog (none was
+  seen). The output buffer holds two frames instead of the voice path's
+  80–100 ms minimum. There is an AAudio backend, and a loopback mode for
+  measuring a device.
 
 ### Phase 3 — 1:1 calls (Android)
 
