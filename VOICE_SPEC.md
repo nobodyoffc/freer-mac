@@ -278,7 +278,7 @@ Local call records ("Call, 4:12", "Missed call", "Declined"):
 
 | `op` | From | Fields | Meaning |
 |---|---|---|---|
-| `INVITE` | caller | `callId`, `transportPub`, `delegation`, `relay` {`url`} (the relay session id is `callId`), `candidates` (optional), `expires` (ms, now + 45 s), `codecs` = `["opus"]` | Ring the callee. |
+| `INVITE` | caller | `callId`, `transportPub`, `delegation`, `relay` {`url`, `pubkey`?, `sid`?} (the relay session id is `callId`; `pubkey` and `sid` are the relay's key and FAPI service id, which the caller learned connecting, so the callee can connect without discovery), `candidates` (optional), `expires` (ms, now + 45 s), `codecs` = `["opus"]` | Ring the callee. |
 | `ACCEPT` | callee | `callId`, `transportPub`, `delegation`, `candidates` (optional) | Answered. The call key can now be derived. |
 | `REJECT` | callee | `callId`, `reason` ∈ {`declined`, `busy`, `unsupported`} | Not answered. |
 | `CANCEL` | caller | `callId`, `reason` ∈ {`cancelled`, `timeout`, `answered_elsewhere`} | Stop ringing. `answered_elsewhere` goes to the callee's FID once one of its devices accepts, so its other devices stop. |
@@ -569,10 +569,10 @@ A candidate is `{"t": "map"|"lan"|"home", "a": "ip:port"}`:
 
 ### 6.2. Setting up the call
 
-1. **Caller:** `call.create` on its CALL relay (§7.2). Then it sends INVITE with `relay` and its candidates, and joins the relay.
+1. **Caller:** connects to its CALL relay, then does `call.create` and joins it (§7.2). Only then does it send the INVITE, with `relay` (including the relay's `pubkey` and `sid`) and its candidates. A callee therefore never rings for a call whose relay the caller could not reach.
 2. **Callee:** when the user answers, sends ACCEPT with its own candidates. It can derive `callSecret` at once, because the INVITE carried the caller's `transportPub`.
 3. **Caller:** on a verified ACCEPT, derives `callSecret` and calls `call.register` with `authPub`.
-4. **Callee:** joins the relay. The join fails with 409 until the caller has registered, so the callee retries every 250 ms for up to 10 s.
+4. **Callee:** connects to the relay, directly with `pubkey` and `sid` when the INVITE carried them (FUDP's handshake is retransmitted; discovery's HELLO/PING are not), and joins it. The join fails with 409 until the caller has registered, so the callee retries every 250 ms for up to 10 s.
 5. **Audio starts on the relay** as soon as both ends are in the roster.
 6. **In parallel, NAT punching:** each side sends FUDP HELLO to every peer candidate, every 100 ms for up to 3 s. HELLOs are harmless and open the sender's own NAT mapping. Only the side with the **lexicographically lower FID** goes on to send the first encrypted DATA packet, so the two do not build two connections to each other.
 7. **Checking the direct path:** the connection is accepted once its FUDP peer id equals the `transportPub` from the other side's verified delegation. Then each side sends a `probe` datagram (a MediaFrame with `routeId = 0` and an empty payload) and waits for the other side's.
