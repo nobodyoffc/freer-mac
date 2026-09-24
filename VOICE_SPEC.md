@@ -578,6 +578,7 @@ A candidate is `{"t": "map"|"lan"|"home", "a": "ip:port"}`:
 7. **Checking the direct path:** the connection is accepted once its FUDP peer id equals the `transportPub` from the other side's verified delegation. Then each side sends a `probe` datagram (a MediaFrame with `routeId = 0` and an empty payload) and waits for the other side's.
 8. **Switching over:** once probes have passed in both directions, both sides send audio only on the direct path. They keep receiving on the relay for 5 s, then `call.leave` the relay.
 9. **Falling back:** if the direct path goes quiet for 2 s, both sides switch back to the relay, rejoining if they had left. Punching is not retried during that call.
+10. **Ending on the relay:** while both are on the relay, a peer that leaves the roster and is not back within 3 s has hung up, even if its HANGUP (§3.2), which travels over IM, never arrives. The call ends as on a HANGUP.
 
 If the caller has no CALL relay configured, it uses the callee's
 `home.CALL@No1_NrC7`. If neither side has one, the call needs direct
