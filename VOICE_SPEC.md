@@ -280,7 +280,7 @@ Local call records ("Call, 4:12", "Missed call", "Declined"):
 |---|---|---|---|
 | `INVITE` | caller | `callId`, `transportPub`, `delegation`, `relay` {`url`, `pubkey`?, `sid`?} (the relay session id is `callId`; `pubkey` and `sid` are the relay's key and FAPI service id, which the caller learned connecting, so the callee can connect without discovery), `candidates` (optional), `expires` (ms, now + 45 s), `codecs` = `["opus"]` | Ring the callee. |
 | `ACCEPT` | callee | `callId`, `transportPub`, `delegation`, `candidates` (optional) | Answered. The call key can now be derived. |
-| `REJECT` | callee | `callId`, `reason` ∈ {`declined`, `busy`, `unsupported`} | Not answered. |
+| `REJECT` | callee | `callId`, `reason` ∈ {`declined`, `busy`, `unsupported`, `relay`} | Not answered. `relay`: the INVITE's relay is not the callee's `home.CALL` (§6.2). |
 | `CANCEL` | caller | `callId`, `reason` ∈ {`cancelled`, `timeout`, `answered_elsewhere`} | Stop ringing. `answered_elsewhere` goes to the callee's FID once one of its devices accepts, so its other devices stop. |
 | `HANGUP` | either | `callId`, `duration` (ms) | Ended. |
 
@@ -581,9 +581,29 @@ Candidates travel in the relay's roster, not in the signalling: each side sends 
 9. **Falling back:** if nothing arrives on the direct path for 2 s, that side sends on the relay again. Punching is not retried during that call. If neither side reaches the other within 8 s, both stay on the relay.
 10. **Ending on the relay:** a peer that leaves the relay's roster and is not back within 3 s has hung up, even if its HANGUP (§3.2), which travels over IM, never arrives. The call ends as on a HANGUP.
 
-If the caller has no CALL relay configured, it uses the callee's
-`home.CALL@No1_NrC7`. If neither side has one, the call needs direct
-candidates on both sides, and fails with "no route" when punching fails.
+**Whose relay: the callee's, and only the callee's.** A call is something
+the callee did not ask for, so it runs on the callee's terms:
+
+- **The relay is the callee's `home.CALL@No1_NrC7`.** The caller reads the
+  callee's home fresh from chain when it calls (it can change), and falls
+  back to the known copy only if the chain cannot be asked.
+- **No `home.CALL` means not callable.** The caller shows "they have not set
+  a CALL service" and sends nothing. Setting one is opt-in: the home setup
+  screen offers CALL beside DOCK and DISK, unticked by default, and
+  unticking an existing one removes it.
+- **The callee enforces it.** It rings only for an INVITE whose `relay` is
+  its own `home.CALL`: the same `sid` when the home names the service by
+  id, the same URL when it names a URL. Any other INVITE, from an old or a
+  modified client, is answered `REJECT relay` and recorded as missed.
+- **The caller pays (§7.5).** Paying the service the callee chose deters
+  unwanted calls better than paying one's own, and the callee needs no
+  account there.
+- **A caller that cannot reach the callee's relay** finds out before
+  anything rings (step 1), and knows the obstacle is between its network
+  and that relay.
+- There is no built-in list of free relays. A debug build may set a test
+  relay, which it calls through and also answers on, for testing before a
+  CALL service is on chain.
 
 ### 6.3. Ringing and reaching the callee
 
@@ -712,16 +732,19 @@ over the last 300 ms, counting only frames with VAD set.
 
 ### 7.5. Charging
 
-This follows FAPI4, measured per **minute** rather than per request. Each
-participant pays for their own traffic:
+This follows FAPI4, measured per **minute** rather than per request. In a
+1:1 call (`kind = p2p`) **the caller pays for both sides**: every
+participant's minute is charged to the FID that created the call, so the
+callee never needs an account at the relay. In a meeting each participant
+pays for their own traffic:
 
 ```
 minuteCost = ceil(bytesIn_minute / 1024) · pricePerKBIn + ceil(bytesOut_minute / 1024) · pricePerKBOut
 ```
 
 - **When it is taken:** charged at the end of each minute of a participant's presence, and for the part-minute when it leaves. The charge key is `call:<meetingId>:<fid>:<ssrc>:<minute>`, where `minute` counts from that join, so it is idempotent (FAPI4 §5.2). The `ssrc` is in it because two devices of one FID are separate participants.
-- **Joining:** `call.join` needs enough balance for one minute at the full speaker count.
-- **Running low:** if a minute cannot be paid, the relay sends a `balance` notice (`{type, meetingId, graceSeconds}`). After 60 s more without payment it sends `kicked` and removes the participant.
+- **Creating and joining:** `call.create` for a 1:1 call needs the caller's balance for a minute of both sides, and fails with 402 otherwise, before anything rings; the caller's app then offers to top up its account at that service. `call.join` needs enough of the payer's balance for one minute at the full speaker count.
+- **Running low:** if a minute cannot be paid, the relay sends a `balance` notice (`{type, meetingId, graceSeconds}`) to the payer. After 60 s more without payment it sends `kicked` and removes the unpaid participants: in a 1:1 call, both, which ends it.
 - **Cost cap:** a `maxCostPerMinute` in `call.join` caps the charge. The relay reduces that participant's N before it would go over the cap.
 - **Price zero:** an operator may set it to offer a free relay.
 
@@ -877,8 +900,9 @@ targets above. While a call is live:
   (NOBODY_SPEC §2). Anyone holds a nobody's key, so a call with one is
   as private as a public square. Calling a nobody asks for confirmation
   first (NOBODY_SPEC §3).
-- **Settings:** *Available for calls* (Android), *Always relay*, the
-  default relay, and a per-minute cost cap.
+- **Settings:** *Available for calls* (Android) and *Always relay*, in Call
+  settings; CALL itself in the home setup (§6.2); a per-minute cost cap
+  later. The caller's call screen shows the relay's price per minute.
 
 ## 11. Platform notes
 
@@ -1111,8 +1135,8 @@ Progress, in milestones:
      give it a screen.
    - **Placing a call:** a *Voice call* item in the P2P chat menu. Calling a
      nobody asks first.
-   - **Choosing the relay:** my own `home.CALL@No1_NrC7`, then the callee's,
-     or a debug override on the Voice test screen.
+   - **Choosing the relay:** the callee's `home.CALL@No1_NrC7` only
+     (§6.2), or in a debug build a test relay.
    - **Test relay:** FC-JDK's `CallRelayServer` serves an off-chain CALL
      relay.
    - **Tests:** `CallComponentFapiTest` runs a call through FapiServer.
@@ -1212,3 +1236,8 @@ Answered 2026-09-22:
 Answered 2026-09-22, during Phase 1:
 
 10. **Priority over stream data is guaranteed at the sender only.** A bulk transfer can still delay audio in queues further along the path. The call layer caps or pauses bulk transfers during a call (§9.5). A delay-based limit on streams inside FUDP is deferred.
+
+Answered 2026-09-24, during Phase 3:
+
+11. **A 1:1 call runs on the callee's `home.CALL`, and only there** (§6.2). No `home.CALL` means the FID cannot be called; setting one is opt-in. The callee's app rejects an INVITE naming any other relay. There is no built-in list of free relays.
+12. **The caller pays for the whole 1:1 call** (§7.5), at the callee's service.
