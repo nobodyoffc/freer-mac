@@ -571,7 +571,7 @@ A candidate is `{"t": "map"|"lan"|"home", "a": "ip:port"}`:
 
 1. **Caller:** connects to its CALL relay, then does `call.create` and joins it (§7.2). Only then does it send the INVITE, with `relay` (including the relay's `pubkey` and `sid`) and its candidates. A callee therefore never rings for a call whose relay the caller could not reach.
 2. **Callee:** when the user answers, sends ACCEPT with its own candidates. It can derive `callSecret` at once, because the INVITE carried the caller's `transportPub`.
-3. **Caller:** on a verified ACCEPT, derives `callSecret` and calls `call.register` with `authPub`.
+3. **Caller:** on a verified ACCEPT, or a `knock` notice from the relay, whichever comes first, derives `callSecret` and calls `call.register` with `authPub`. A knock carries the delegation the callee joined under. The callee signs it only on answering, and the relay cannot make one up, so the caller verifies it exactly as it would an ACCEPT's (§3.2) and treats it as the answer. The ACCEPT travels over IM and may be slow or lost; the knock arrives one relay hop after the callee's first join attempt.
 4. **Callee:** connects to the relay, directly with `pubkey` and `sid` when the INVITE carried them (FUDP's handshake is retransmitted; discovery's HELLO/PING are not), and joins it. The join fails with 409 until the caller has registered, so the callee retries after 0.25, 0.5, 1, 2 s, then every 2.5 s: ten attempts over about 16 s, which stays within the relay's 10 joins per `tPub` per minute (§7.6).
 5. **Audio starts on the relay** as soon as both ends are in the roster.
 6. **In parallel, NAT punching:** each side sends FUDP HELLO to every peer candidate, every 100 ms for up to 3 s. HELLOs are harmless and open the sender's own NAT mapping. Only the side with the **lexicographically lower FID** goes on to send the first encrypted DATA packet, so the two do not build two connections to each other.
@@ -670,6 +670,7 @@ Pushed by the relay (FUDP NOTIFY with `dataType = 1`, JSON with a `type` and the
 - `roster` — someone joined or left, or a mute or host changed: `{type, meetingId, host, roster: [{fid, ssrc, routeId, delegation}]}`. The delegation is the JSON the participant sent, so receivers can verify it themselves (§5.1). `ssrc` and `routeId` are unsigned numbers.
 - `rekey` — as in §4.5.
 - `muted` — to the participant concerned.
+- `knock` — to the host, when a join is refused with 409 because `authPub` is not registered yet: `{type, meetingId, fid, delegation}`, the delegation the joiner sent (§6.2 step 3).
 - `kicked` — `{type, meetingId, reason}`; `reason = balance` after an unpaid grace period (§7.5).
 - `ended`
 - `uplink` — every 2 s. The relay's own loss and jitter counts for each sender's stream, which only the relay can see.
