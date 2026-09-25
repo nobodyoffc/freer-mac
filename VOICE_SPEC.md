@@ -550,6 +550,14 @@ frames/s.
 4. **What can slip through:** at most about 3 s of unattributed audio
    can play before it is caught. The UI never says who spoke unless
    the attestations bear it out.
+5. **1:1 calls:** only the two ends hold the call key (§4.2), so the relay
+   cannot make a frame that opens, and a frame that opens can only be the
+   peer's. There an attestation that is late or lost means a slow path,
+   never a forgery, and does not silence the peer; the 3 s rule of step 3
+   is for meetings, where every member holds the key. A digest that does
+   not match still silences, since no network causes that. (On a lossy
+   Wi-Fi, reliable attestations took longer than 3 s to arrive, and each
+   side silenced the other for the rest of the call.)
 
 On a direct 1:1 path the FUDP connection itself attributes each frame: it
 is accepted only under the `transportPub` the peer's verified delegation
@@ -1247,3 +1255,4 @@ Answered 2026-09-24, during Phase 3:
 
 11. **A 1:1 call runs on the callee's `home.CALL`, and only there** (§6.2). No `home.CALL` means the FID cannot be called; setting one is opt-in. The callee's app rejects an INVITE naming any other relay. There is no built-in list of free relays.
 12. **The caller pays for the whole 1:1 call** (§7.5), at the callee's service.
+13. **In a 1:1 call a late attestation silences no one** (§5.1 step 5). Only a mismatch does. Senders still send them, and meetings keep the 3 s rule.
