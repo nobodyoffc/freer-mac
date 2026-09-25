@@ -551,9 +551,15 @@ frames/s.
    can play before it is caught. The UI never says who spoke unless
    the attestations bear it out.
 
-The same rules apply on a direct 1:1 path. There the FUDP connection
-already authenticates the peer, so attestations should never fail. A
-failure means a bug, and the user is warned.
+On a direct 1:1 path the FUDP connection itself attributes each frame: it
+is accepted only under the `transportPub` the peer's verified delegation
+names (§6.2 step 7), and nobody else holds that key. A receiver therefore
+keeps no digests for frames that arrive on it, and waits for no
+attestation for them. The sender still sends its attestations. Otherwise
+the attestations for the last frames before a direct path dies, which
+travel on that dying connection, would be lost, and the receiver would
+silence the peer for the rest of the call exactly when it falls back to
+the relay. (Found on two phones whose shared hotspot dropped for a second.)
 
 ## 6. Paths for a 1:1 call
 
