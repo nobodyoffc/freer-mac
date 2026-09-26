@@ -636,6 +636,8 @@ caller is told if its ROAD balance is too low to ring.
 Receiving three copies of one message is expected; the `(senderId, id)`
 check drops the extras.
 
+**A ringing device watches the relay.** A CANCEL (`answered_elsewhere`, or the caller giving up) reaches a device that is not online through ROAD only on its next DOCK fetch, so the device would ring on. While it rings, it therefore asks the INVITE's relay for `call.info` every 2 s, with a throwaway key and no delegation. Two in the call means another of the callee's devices answered; none, after the caller was seen, means the caller left. Either ends the ring at once. The device stops watching before it joins itself.
+
 Only a device that is actually registered and running can ring. That depends on the platform:
 
 - **Mac:** a running app can ring.
