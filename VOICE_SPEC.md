@@ -928,6 +928,11 @@ targets above. While a call is live:
 - **Incoming call:** shown as a full-screen intent notification, which needs `USE_FULL_SCREEN_INTENT` on API 34+.
 - **Telecom:** v1 uses a self-managed `ConnectionService` only if it proves necessary for Bluetooth headset buttons. Otherwise it stays out of Telecom.
 
+- **Networks that drop the relay's replies:** some networks let UDP out to the relay but drop everything coming back. Seen on China Mobile's mobile data in Shanghai, 2026-09-26: a capture on the Hong Kong relay showed the phone's joins arriving and every reply, even 100-byte acknowledgments, sent back to its exact address and port and never received. The same happened on ports 443, 3478 and 8443, and with 1200-byte packets. It worked on home broadband in the same city and on a roaming SIM. No retry can fix this, so the app says what happened instead:
+  - A call that fails with nothing ever received from the relay ends with: no reply from the call relay; it may be down, but more often the network blocks its replies; switch to Wi-Fi or another network, or use a VPN.
+  - The other side, still in the call, sees after 15 s without a single frame: no sound from them yet; their network may not reach the relay.
+  - The fix, for later: FUDP over TCP to the same relay on port 443 when UDP gets no replies. It costs some delay under loss, but those networks rarely block TCP 443.
+
 ### 11.2. Mac
 
 - **Entitlement:** a microphone usage string, and `com.apple.security.device.audio-input` in the sandbox.
