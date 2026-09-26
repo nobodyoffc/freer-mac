@@ -923,7 +923,7 @@ targets above. While a call is live:
 
 ### 11.1. Android
 
-- **Permissions:** `RECORD_AUDIO` is already declared. Add `FOREGROUND_SERVICE_MICROPHONE`, `FOREGROUND_SERVICE_PHONE_CALL` and `BLUETOOTH_CONNECT`.
+- **Permissions:** `RECORD_AUDIO` is already declared. Add `FOREGROUND_SERVICE_MICROPHONE`, `FOREGROUND_SERVICE_PHONE_CALL`, `BLUETOOTH_CONNECT` and `MODIFY_AUDIO_SETTINGS`. Without the last, Android ignores `setMode(MODE_IN_COMMUNICATION)` without an error, and on the loudspeaker the echo canceller cuts each side off while the other talks.
 - **`CallService`:** a foreground service with `foregroundServiceType="microphone|phoneCall"` (both are required from API 34). For the length of a call it holds a partial wake lock and a low-latency Wi-Fi lock: Wi-Fi power save otherwise holds incoming packets for hundreds of milliseconds, which makes audio choppy.
 - **Incoming call:** shown as a full-screen intent notification, which needs `USE_FULL_SCREEN_INTENT` on API 34+.
 - **Telecom:** v1 uses a self-managed `ConnectionService` only if it proves necessary for Bluetooth headset buttons. Otherwise it stays out of Telecom.
