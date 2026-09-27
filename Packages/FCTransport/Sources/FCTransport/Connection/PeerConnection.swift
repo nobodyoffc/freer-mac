@@ -126,13 +126,17 @@ public final class PeerConnection: @unchecked Sendable {
     /// Reserve the next outbound packet number and return it. The
     /// counter starts at 0 and increments by one per call. Callers
     /// should only call this from the send path.
+    ///
+    /// Sending is not activity: `lastActivityMs` measures how long the
+    /// peer has been silent. Were sends to count, retransmissions to a
+    /// peer that is gone would keep a request waiting forever (as they
+    /// kept FC-JDK's connections from ever idling out).
     @discardableResult
-    public func nextPacketNumber(nowMs: Int64? = nil) -> Int64 {
+    public func nextPacketNumber() -> Int64 {
         lock.lock(); defer { lock.unlock() }
         let pn = _nextPacketNumberToSend
         _nextPacketNumberToSend += 1
         _largestSentPacketNumber = pn
-        _lastActivityMs = nowMs ?? PeerConnection.currentTimeMillis()
         return pn
     }
 
@@ -283,6 +287,7 @@ public final class PeerConnection: @unchecked Sendable {
 
     // MARK: - activity
 
+    /// The last packet from the peer, or our last state change.
     public var lastActivityMs: Int64 {
         lock.lock(); defer { lock.unlock() }
         return _lastActivityMs

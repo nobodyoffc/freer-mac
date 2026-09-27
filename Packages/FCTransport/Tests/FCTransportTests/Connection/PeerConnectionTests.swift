@@ -169,9 +169,10 @@ final class PeerConnectionTests: XCTestCase {
         XCTAssertEqual(conn.lastActivityMs, now0 + 5_000)
     }
 
-    func testNextPacketNumberAlsoTouches() throws {
+    func testSendingIsNotActivity() throws {
+        // Retransmissions to a peer that is gone must not keep a request waiting.
         let conn = try makeConnection()
-        _ = conn.nextPacketNumber(nowMs: now0 + 1_000)
-        XCTAssertEqual(conn.lastActivityMs, now0 + 1_000)
+        _ = conn.nextPacketNumber()
+        XCTAssertEqual(conn.lastActivityMs, now0)
     }
 }
