@@ -724,7 +724,13 @@ Pushed by the relay (FUDP NOTIFY with `dataType = 1`, JSON with a `type` and the
 
 Other rules:
 
-- **Admission and control are separate:** `call.join` checks only the `admitSig`. The host alone may call `call.control`, `call.rekey` and `call.register`, which the relay checks against the delegated FID.
+- **Admission and control are separate:** `call.join` checks only the `admitSig`. The host alone may call `call.control`, `call.rekey` and `call.register`, which the relay checks against the delegated FID. One exception: a participant may `unmute` itself after a plain `mute`.
+- **What the controls do:** `target` is a FID (every device of it in the meeting) or an `ssrc`.
+  - `mute` and `lockMute` make the relay drop that speaker's frames and send it a `muted` notice. After a `mute` the participant may unmute itself; after a `lockMute` only the host can.
+  - `kick` removes the participant and bars its FID from rejoining this meeting. It still holds the key: only a symkey rotation by the owner stops it decrypting what follows (§4.5).
+  - `pin` forwards a speaker to everyone on top of the N loudest, at most **2** pins at once; `unpin` undoes it.
+  - `handoverHost` makes a present member the host. `end` tells everyone (`ended`) and closes the meeting at once.
+  - The roster shows each entry's `muted` (`host` or `locked`) and a raised `hand` (`call.hand`).
 - **If the host leaves:** the host role passes to the participant who has been present longest. The relay announces this in the roster.
 - **Team membership (optional):** a relay with a BASE component MAY also check a Team meeting's joiners against the on-chain member list. It cannot do this for a Room, which has no chain record.
 - **Attestations** reach the relay as FUDP NOTIFY with `dataType = 0` and the raw attestation bytes (§5.1), and leave it the same way. The relay passes on only those naming the sender's own `routeId` and `ssrc`.
