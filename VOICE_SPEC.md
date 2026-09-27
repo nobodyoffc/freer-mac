@@ -151,9 +151,10 @@ not reused.
   the limit does not change during a connection.
 - A packet MAY carry several DATAGRAM frames, and a packet MAY mix
   DATAGRAM and other frames. The relay SHOULD pack all frames for one
-  receiver that fall due within 5 ms into a single packet. For three
-  speakers, that saves two packet overheads (about 100 bytes each) every
-  40 ms. `sendDatagrams(connectionId, list)` packs the frames it is given.
+  receiver that fall due within 10 ms into a single packet. For three
+  speakers, that saves up to two packet overheads every 40 ms: about 150
+  bytes each on the wire (105 of FUDP, 28 of IP and UDP, and the link's
+  framing). `sendDatagrams(connectionId, list)` packs the frames it is given.
 - DATAGRAM frames are **not retransmitted** (`shouldRetransmit() == false`).
 - **Not ACK-eliciting:** a packet with only DATAGRAM, ACK and PADDING
   frames elicits no ACK. It still carries a timestamp, like any packet with
@@ -781,12 +782,25 @@ minuteCost = ceil(bytesIn_minute / 1024) · pricePerKBIn + ceil(bytesOut_minute 
 - **Cost cap:** a `maxCostPerMinute` in `call.join` caps the charge. The relay reduces that participant's N before it would go over the cap.
 - **Price zero:** an operator may set it to offer a free relay.
 
-For scale, at 24 kbps Opus and 40 ms frames:
+For scale, as measured in the Phase 4 load test (§14): 24 kbps Opus, 40 ms
+frames, 40 participants with 3 speaking, at the relay's network interface:
 
 | Traffic | Per participant per minute | Rate |
 |---|---|---|
-| In | about 0.4 MB | about 50 kbps once FUDP overhead is included |
-| Out (N = 3, frames packed) | about 0.8 MB | |
+| In, while speaking | about 0.46 MB | about 62 kbps |
+| Out (N = 3, frames packed) | about 1.1 MB | about 150 kbps |
+
+Where the outgoing 150 kbps goes:
+
+- **Audio:** about 94 kbps (three 160-byte sealed frames every 40 ms).
+- **Packet overhead:** about 37 kbps. Packing reaches ~2.4 frames a packet, so about 30 packets a second, each carrying ~150 bytes of headers and crypto (§2.2).
+- **Attestations:** about 10 kbps. Three a second, each in a packet of its own, because they travel reliably (§5.1).
+- **The rest:** roster and `uplink` notices, and ACKs.
+
+At 20 ms frames the same meeting costs about 1.5 MB (200 kbps) out, because
+twice the packets carry the same audio. That is why relayed audio uses
+40 ms frames (§9.1). The per-packet cost is FUDP's, and lowering it would
+be a change to FUDP, not to CALL.
 
 ### 7.6. Limits
 
@@ -796,8 +810,11 @@ For scale, at 24 kbps Opus and 40 ms frames:
 | Meetings per host FID at once | 4 |
 | `call.join` attempts per `tPub` | 10 per minute |
 | Datagram rate in, per participant | 64 kbps; excess is dropped |
+| Nothing heard from a participant, not even an ACK | 30 s, then it is removed, without a notice, and billed to that moment |
 
-A meeting with no participants closes after 60 s.
+A meeting with no participants closes after 60 s. A live participant is
+never quiet for 30 s: muted, it still sends a DTX update every 400 ms, and it
+ACKs the relay's notices.
 
 The relay SHOULD keep its UDP receive buffer small, not raise it to absorb bursts. A relay that falls behind should drop frames. A deep buffer instead turns overload into a standing queue: in the Phase 1 bench, a raised `rmem_max` turned a CPU-starved relay's backlog into seconds of delay on every frame. Audio that late is worthless (Decision 1).
 
@@ -850,7 +867,18 @@ Settings:
 | Bitrate | VBR, 24 kbps target, adapting between 12 and 32 kbps |
 | In-band FEC | on |
 | DTX | on |
-| Frame length | 40 ms by default; 20 ms when the RTT is below 50 ms (direct LAN) |
+| Frame length | 40 ms by default; 20 ms on a direct path whose RTT is below 50 ms |
+
+**Frame length.** The sender chooses it, and may change it between frames.
+It switches to 20 ms once a direct path's RTT has stayed below 50 ms for
+3 s, and back to 40 ms once the RTT has stayed at 70 ms or more for 3 s, or
+when audio returns to the relay. Relayed audio, and so every meeting, uses
+40 ms: over a relay a phone sees only its own half of the path's RTT, and
+short frames cost about a third more bandwidth there (§7.5). Receivers
+announce nothing and need no telling: each reads a packet's length from its
+Opus TOC byte (RFC 6716 §3.1), plays out in 20 ms ticks, and restarts that
+stream's jitter buffer when the length changes. So 20, 40 and 60 ms are all
+valid, and senders never use 2.5, 5 or 10 ms.
 
 DTX matters in a meeting: a silent participant sends about 2.5 frames a
 second instead of 25.
@@ -1239,6 +1267,20 @@ forwarding attestations per receiver, `call.control`, rekey and
 - The relay's CPU and bandwidth match §7.5 within 20 %.
 - Rekey drops only participants who could not prove the new key.
 
+**Result (2026-09-27): passed,** once §7.5 was corrected to measured figures
+(Decision 17). The relay was FC-JDK's CallRelayServer on an 8-core VPS in
+Singapore. The clients ran on the same host and, separately, on a Mac in
+Shanghai.
+
+- **Delivery:** 100 % of frames at both 20 and 40 ms. Attestations reached all 117 receivers each second.
+- **CPU:** 0.17 of a core at 40 ms, 0.22 at 20 ms, about 17k and 27k frames forwarded per CPU-second. Per-packet crypto dominates, so fewer, fuller packets cost less.
+- **Bandwidth:** see §7.5. The first estimate (0.8 MB a minute out) left out attestations and counted about 100 bytes a packet; the measured 1.1 MB is 41 % above it.
+- **Rekey:** only the participants who could not prove the new key are dropped (unit test).
+- **Found and fixed on the way:**
+  - FUDP kept every sent stream, so after 100 messages to a peer it refused that peer's new streams, requests included.
+  - A participant that vanished without `call.leave` stayed in the meeting, and was billed, until the relay restarted. The relay's own notices kept the FUDP connection from idling out. The relay now drops a participant it has heard nothing from, not even an ACK, for 30 s (§7.6).
+  - A join resent with the same `ts` was refused as a replay (§6.2 step 10).
+
 ### Phase 5 — Meetings (Android)
 
 - `MEETING_START` and `MEETING_END` cards in Room and Team chat.
@@ -1298,3 +1340,8 @@ Answered 2026-09-27, before Phase 4:
 14. **The host pays for a whole meeting** (§7.5), as the caller does for a 1:1 call. The payer is the FID that created the meeting, even after the host role passes on.
 15. **In a meeting, a late attestation pauses a speaker and a matching one resumes it** (§5.1 step 3). Only a mismatch silences for good. 1:1 calls wait for no attestation at all (Decision 13).
 16. **A meeting uses the entity's `home.CALL`, otherwise the host's own** (§8). Unlike a 1:1 call, a meeting has no callee to favour, and the entity's owner chooses by setting its home.
+
+Answered 2026-09-27, after the Phase 4 load test:
+
+17. **§7.5 gives measured figures,** about 1.1 MB a minute out per participant rather than 0.8. The gap is FUDP's per-packet cost and the attestations, and is accepted. Moving attestations into the media packets was rejected: they must be reliable (§5.1).
+18. **Frame length follows §9.1:** 40 ms, and 20 ms only on a fast direct path. Senders may switch mid-call, and receivers follow each packet's TOC byte. Until then the Android client always sent 20 ms frames.
