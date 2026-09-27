@@ -1205,10 +1205,10 @@ Progress, in milestones:
 |---|---|
 | Phone to phone: Wi-Fi to Wi-Fi, Wi-Fi to mobile, mobile to mobile | **Passed** (2026-09-25/26): direct on a shared Wi-Fi, relayed across networks, direct on roaming mobile data. China Mobile's Shanghai mobile data drops the relay's replies (§11.1), and the app says so. |
 | Survives a network change mid-call | **Passed** (2026-09-26). |
-| A second device stops ringing when the first answers | **Built, needs a retest.** The phone watches the relay while it rings (§6.3); MAP and ROAD now reach every device of a FID (FAPI14 §2.7, FAPI15 §5), once the callee's home ROAD server runs it. |
-| An old client ignores CALL without errors | **Not yet tested:** needs a 3.2.2 install. By Decision 3.2.2 shows a JSON bubble per call attempt. |
+| A second device stops ringing when the first answers | **Passed on the phone side; the server side is deferred** to the next production deploy. The ringing device watches the relay (§6.3) and stops within about 2 s. MAP and ROAD now reach every device of a FID (FAPI14 §2.7, FAPI15 §5), so both devices ring promptly once the callee's home ROAD server runs that build. |
+| An old client ignores CALL without errors | **Passed** (2026-09-27): 3.2.2 shows each CALL signal as a JSON bubble, the last one HANGUP, with no errors (as decided for 3.2.2). |
 | A relay that relabels an ssrc | **Passed in unit tests** (`CallMediaTest`): a relabelled frame opens under the wrong sender key and never plays; a roster naming the wrong member for a stream plays nothing; a member forging another's ssrc is caught by attestation and silenced, with the warning. The relay holds no call key, so a live patched relay would add nothing. |
-| A stranger's call does not ring until accepted | **Passed** (2026-09-26). Unblocking a refused stranger now asks again rather than quarantining in silence. |
+| A stranger's call does not ring until accepted | **Passed** (2026-09-26, retested 2026-09-27). Unblocking a refused stranger now asks again rather than quarantining in silence. |
 
 ### Phase 4 — Meetings on the relay
 
