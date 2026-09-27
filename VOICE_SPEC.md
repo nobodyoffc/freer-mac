@@ -307,12 +307,24 @@ Rules:
 
 | `op` | From | Fields | Meaning |
 |---|---|---|---|
-| `MEETING_START` | host | `meetingId`, `relay` {`url`}, `nonce` (32 bytes, hex), `symkeyVersion`, `authPub`, `title` (optional), `started` | A meeting is open. It appears in the chat as a card with a **Join** button. |
+| `MEETING_START` | host | `meetingId`, `relay` {`url`, `pubkey`?, `sid`?}, `nonce` (32 bytes, hex), `symkeyVersion`, `authPub`, `keyEpoch` (0, or the epoch after a rekey), `title` (optional), `started` | A meeting is open. It appears in the chat as a card with a **Join** button. `pubkey` and `sid` are the relay's key and service id, as in an INVITE (§3.2), so joiners skip discovery. |
 | `MEETING_END` | host | `meetingId`, `duration` | Closed. The card changes to "ended". |
 
 `MEETING_START` is posted to the entity's DOCK like any chat message, so the
 meeting shows up in the conversation for everyone, including members who
 open the app later.
+
+**After a rekey** (§4.5) the host posts `MEETING_START` again for the same
+`meetingId`, with the new `nonce`, `symkeyVersion`, `authPub` and the new
+`keyEpoch`. The relay admits a joiner only under the current `authPub`, so
+without it a member who joins later could not prove the key. Receivers:
+
+- show one card per `meetingId`, from the first `MEETING_START`;
+- keep every key set they receive for it, newest `keyEpoch` first, and join with the newest one they can derive, falling back to an older one if the relay answers 401;
+- take a key set from any member, since the host role can pass on (§7.2). A bogus one only costs a joiner a failed attempt.
+
+`MEETING_END`, and a `MEETING_START` with `keyEpoch` above 0, change the
+card and are not chat rows of their own.
 
 If the host picks *Notify members*, the same message is also sent through
 ROAD (`road.relay` with `targetFids` = members, up to 100). That rings the
@@ -685,7 +697,7 @@ caller's delegation, and the relay verifies it (§4.1). For `kind = p2p`, the
 | Method | Who | Params | Result |
 |---|---|---|---|
 | `call.create` | host | `meetingId`, `kind` ∈ {`p2p`, `meeting`}, `authPub` (a meeting sends it now; `p2p` sends it later, §4.4), `maxParticipants` (≤ 64; `p2p` defaults to 2), `maxCostPerMinute` | `price` {`perKBIn`, `perKBOut`}, `maxParticipants`. The host's `routeId` comes from its `call.join`. |
-| `call.join` | anyone | `meetingId`, `ssrc`, `maxCostPerMinute` (optional), `ts` (ms), `admitSig` = Schnorr(`authPriv`, `"FreerCall-admit-v1" ‖ str(meetingId) ‖ tPub ‖ u32(ssrc) ‖ u64(ts)`), `candidates` (optional, up to 8 `{t: lan, a}`), `reflexive` (optional bool) | `routeId`, `datagram: true`, `roster`, `keyEpoch`, `speakers` (N) |
+| `call.join` | anyone | `meetingId`, `ssrc`, `maxCostPerMinute` (optional), `ts` (ms), `admitSig` = Schnorr(`authPriv`, `"FreerCall-admit-v1" ‖ str(meetingId) ‖ tPub ‖ u32(ssrc) ‖ u64(ts)`), `candidates` (optional, up to 8 `{t: lan, a}`), `reflexive` (optional bool) | `routeId`, `datagram: true`, `roster`, `host`, `keyEpoch`, `speakers` (N). `host` because the joiner gets no roster notice of its own join. |
 | `call.leave` | participant | `meetingId` | — |
 | `call.register` | host (`p2p` only) | `meetingId`, `authPub` | — |
 | `call.rekey` | host | `meetingId`, `symkeyVersion`, `nonce`, `authPub` | new `keyEpoch` |
