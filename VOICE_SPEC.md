@@ -540,13 +540,19 @@ frames/s.
 2. **Keeping digests:** it plays frames as they arrive, since waiting
    would add a second of delay, and keeps each played frame's digest for
    5 s.
-3. **Unverified audio:** if a played frame's digest does not match its
-   attestation, or no attestation covering it arrives within 3 s, that
-   `ssrc` is **unverified**:
-   - The receiver stops playing it at once.
-   - The UI shows that audio claimed to be from *that FID* could not be
-     verified.
-   - The receiver does not resume it for the rest of that join.
+3. **Unverified audio:**
+   - **A mismatch:** if a played frame's digest does not match its
+     attestation, that `ssrc` is **unverified** for the rest of that
+     join. The receiver stops playing it at once, and the UI shows that
+     audio claimed to be from *that FID* could not be verified. No
+     network causes a mismatch.
+   - **A late attestation:** if no attestation covering a played frame
+     arrives within 3 s, the receiver **pauses** that `ssrc`: it plays
+     none of its frames and keeps their digests. When the attestation
+     arrives and every held digest matches, it resumes. Attestations
+     travel reliably but can be seconds late on a bad network, and an
+     honest speaker must not be silenced for good by that. A relay that
+     withholds attestations gains nothing: the audio stays paused.
 4. **What can slip through:** at most about 3 s of unattributed audio
    can play before it is caught. The UI never says who spoke unless
    the attestations bear it out.
@@ -752,8 +758,11 @@ over the last 300 ms, counting only frames with VAD set.
 This follows FAPI4, measured per **minute** rather than per request. In a
 1:1 call (`kind = p2p`) **the caller pays for both sides**: every
 participant's minute is charged to the FID that created the call, so the
-callee never needs an account at the relay. In a meeting each participant
-pays for their own traffic:
+callee never needs an account at the relay. **In a meeting the host who
+created it pays for everyone** (Decision 14), so members join without an
+account at the relay; a `maxCostPerMinute` in `call.create` caps the whole
+meeting's charge per minute. Either way, the cost of one participant's minute
+is:
 
 ```
 minuteCost = ceil(bytesIn_minute / 1024) · pricePerKBIn + ceil(bytesOut_minute / 1024) · pricePerKBOut
@@ -1276,3 +1285,9 @@ Answered 2026-09-24, during Phase 3:
 11. **A 1:1 call runs on the callee's `home.CALL`, and only there** (§6.2). No `home.CALL` means the FID cannot be called; setting one is opt-in. The callee's app rejects an INVITE naming any other relay. There is no built-in list of free relays.
 12. **The caller pays for the whole 1:1 call** (§7.5), at the callee's service.
 13. **In a 1:1 call a late attestation silences no one** (§5.1 step 5). Only a mismatch does. Senders still send them, and meetings keep the 3 s rule.
+
+Answered 2026-09-27, before Phase 4:
+
+14. **The host pays for a whole meeting** (§7.5), as the caller does for a 1:1 call. The payer is the FID that created the meeting, even after the host role passes on.
+15. **In a meeting, a late attestation pauses a speaker and a matching one resumes it** (§5.1 step 3). Only a mismatch silences for good. 1:1 calls wait for no attestation at all (Decision 13).
+16. **A meeting uses the entity's `home.CALL`, otherwise the host's own** (§8). Unlike a 1:1 call, a meeting has no callee to favour, and the entity's owner chooses by setting its home.
