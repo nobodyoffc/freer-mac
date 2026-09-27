@@ -720,7 +720,8 @@ Pushed by the relay (FUDP NOTIFY with `dataType = 1`, JSON with a `type` and the
 - `knock` — to the host, when a join is refused with 409 because `authPub` is not registered yet: `{type, meetingId, fid, delegation}`, the delegation the joiner sent (§6.2 step 3).
 - `kicked` — `{type, meetingId, reason}`; `reason = balance` after an unpaid grace period (§7.5).
 - `ended`
-- `uplink` — every 2 s. The relay's own loss and jitter counts for each sender's stream, which only the relay can see.
+- `uplink` — every 2 s, in a meeting, to each sender about its own stream: `{type, meetingId, loss, jitterMs}`, the fraction of its frames lost on the way to the relay and their interarrival jitter, which only the relay can see. A gap before a frame flagged `DTX` is a pause, not loss.
+- `rekey` — `{type, meetingId, symkeyVersion, nonce, authPub, keyEpoch, proveWithinSeconds}` (§4.5). `muted` — `{type, meetingId, locked}`.
 
 Other rules:
 
