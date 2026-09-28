@@ -326,6 +326,22 @@ without it a member who joins later could not prove the key. Receivers:
 `MEETING_END`, and a `MEETING_START` with `keyEpoch` above 0, change the
 card and are not chat rows of their own.
 
+**Meetings of chosen people (Decision 20).** The host may invite only some
+members. Such a meeting is keyed by a random 32-byte key `K` of its own
+(§4.2), not the entity's symkey, since every member holds that. Nothing is
+posted to the Room or Team. Instead each invitee gets a 1:1 `CALL` message,
+sealed `asy2way` to it alone and sent on every channel like a call signal
+(§6.3):
+
+| `op` | From | Fields | Meaning |
+|---|---|---|---|
+| `MEETING_INVITE` | host | `meetingId`, `entityId`, `entityType` (`ROOM` or `TEAM`), `relay`, `nonce`, `symkeyVersion` = 1, `authPub`, `key` (`K`, hex), `title` (optional), `started` | You are invited. |
+| `MEETING_END` | host | `meetingId`, `duration`, `entityId`, `entityType` | Closed; sent to each invitee. |
+
+- A receiver accepts an invitation only if its sender and the receiver are both members of `entityId`. It keeps `K` with its symkeys, under an entity named by the `meetingId`, and shows the card in its own copy of that chat. The card is never posted.
+- The host invites more members during the meeting the same way.
+- Such a meeting does not follow the entity's symkey rotations (§4.5). A host removes someone with `call.control kick`, and they still hold `K`.
+
 If the host picks *Notify members*, the same message is also sent through
 ROAD (`road.relay` with `targetFids` = members, up to 100). That rings the
 members who are online now.
@@ -400,6 +416,15 @@ callSecret = HKDF(ikm  = ECDH(tPriv_self, tPub_peer),
 callSecret = HKDF(ikm  = symkey(entityId, symkeyVersion),
                   salt = nonce,
                   info = "FreerCall v1 meeting" ‖ str(entityId) ‖ u64(symkeyVersion) ‖ str(meetingId))
+```
+
+**Meeting of chosen people** (Decision 20): the same formula, with the
+random key `K` for the symkey, the `meetingId` for the entity, and version 1:
+
+```
+callSecret = HKDF(ikm  = K,
+                  salt = nonce,
+                  info = "FreerCall v1 meeting" ‖ str(meetingId) ‖ u64(1) ‖ str(meetingId))
 ```
 
 A member may hold two keys at one version (FIMP2 §7.1). It picks the one
@@ -1314,6 +1339,18 @@ Shanghai.
 **Gate:** a 10-person meeting on real devices, including a member removal
 with the owner rotating the key mid-meeting.
 
+**Result (2026-09-28): accepted on three phones** (Galaxy S22+, Galaxy A05s
+and a 2602BRT18C), with the Phase 4 load test standing in for scale: 40
+synthetic participants on the relay. A 10-device check waits for the devices.
+
+- **Working on the phones:** joining from the card, speaking indicators, raised hands, host mute and mute-and-lock, handing over the host role, leaving, and End for all.
+- **Key rotation:** the owner removed a member from the Room mid-meeting. The host rekeyed within a second. The member who stayed proved the new key within seconds and never lost the host's audio. The removed member was dropped at 30 s.
+- **Found on the way:**
+  - Phones in one room on speaker capture each other and garble the meeting: test with them apart.
+  - On the earpiece, a phone's handset tuning barely hears a voice from arm's length.
+  - A rotated key travelled over DOCK only, 20–40 s. Key messages now go on every channel.
+  - Switching to a new key at once silenced members still waiting for it (Decision 19).
+
 ### Phase 6 — Mac
 
 - Port Phases 3 and 5 against the frozen spec and vectors.
@@ -1372,3 +1409,4 @@ Answered 2026-09-27, after the Phase 4 load test:
 Answered 2026-09-28, during Phase 5:
 
 19. **After a rekey, senders keep the previous key until everyone has proved the new one, or 30 s pass** (§4.5). Switching at once left members still waiting for the rotated symkey unable to hear anyone. The removed member can listen up to 30 s longer unless the host also kicks it.
+20. **A host may invite only chosen members** (§3.3), under a random key of the meeting's own, sent to each invitee 1:1. The entity's symkey cannot limit a meeting, since every member holds it. Asked for on 2026-09-28 after the Phase 5 tests.
