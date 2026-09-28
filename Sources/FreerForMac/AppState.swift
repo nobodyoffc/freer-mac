@@ -465,9 +465,10 @@ final class AppState {
 
     // MARK: - background collection
 
-    /// Whether a chat pane is on screen. Drives the polling rate: an
-    /// open conversation wants an answer in seconds, a wallet screen
-    /// does not.
+    /// Whether a chat pane is on screen. No longer changes the polling
+    /// rate, which follows only whether Freer is in front (see
+    /// ``applyFetchLayer()``): a meeting's ring cannot wait for the user to
+    /// open a chat. The open conversation's own DOCK is still hot.
     func setChatOpen(_ open: Bool) {
         guard chatIsOpen != open else { return }
         chatIsOpen = open
@@ -521,8 +522,11 @@ final class AppState {
 
     private func applyFetchLayer() {
         guard let fetchScheduler else { return }
-        let layer: DockFetchScheduler.Layer =
-            !appIsActive ? .background : (chatIsOpen ? .active : .normal)
+        // A new meeting rings only while its card is fresh (VOICE_SPEC Decision 21), so
+        // every DOCK is checked every 10 s while Freer is in front, whatever pane is open,
+        // and every minute behind: a Mac keeps running, and a card 3 minutes late rings no one.
+        // Our own DOCK, where calls land, is on the fast lane throughout.
+        let layer: DockFetchScheduler.Layer = appIsActive ? .active : .normal
         Task { await fetchScheduler.setLayer(layer) }
     }
 
