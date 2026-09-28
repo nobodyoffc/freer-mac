@@ -618,7 +618,7 @@ public final class ActiveSession {
                 if let square = try? squares.get(id: targetId)?.home { return square }
                 return try? rooms.get(id: targetId)?.home
             },
-            routeSignal: signalRoute,
+            routeSignal: callAwareRoute,
             squareSender: { [squareRoster, groups] sender, squareId, storedAt in
                 await squareRoster.check(sender: sender, squareId: squareId, storedAt: storedAt) { id in
                     var square = try await groups.fetchByIds(
@@ -653,6 +653,34 @@ public final class ActiveSession {
     /// and a watch-only session can do neither; a router without a key
     /// would answer "no" to everything, which is harder to read than not
     /// being there.
+    /// Calls and meetings (VOICE_SPEC §3): `CALL` messages go to ``callInbox``;
+    /// everything else to the room and key router.
+    public let callInbox = CallInbox()
+
+    private var callAwareRoute: (@Sendable (ImMessage, String, Date) throws -> SignalRouter.Outcome)? {
+        let route = signalRoute
+        let inbox = callInbox
+        return { message, liveFid, now in
+            if message.contentType == .call {
+                inbox.deliver(message, liveFid: liveFid)
+                return SignalRouter.Outcome(note: "call")
+            }
+            return try route?(message, liveFid, now) ?? SignalRouter.Outcome()
+        }
+    }
+
+    /// A 1:1 `CALL` message, out at once rather than at the next drain: a
+    /// ring is meant to arrive now (§6.3). It is a signal, so no chat row.
+    public func sendCallSignal(to fid: String, json: String, now: Date = Date()) throws {
+        var m = ImMessage.make(type: .p2p, from: liveFid, to: fid, contentType: .call, now: now).named()
+        m.content = json
+        m.unread = false
+        try outbox.enqueue(m, in: Conversation.id(type: .p2p, targetId: fid), now: now)
+        let courier = self.courier
+        let from = liveFid
+        Task { _ = try? await courier.drainOutbox(as: from) }
+    }
+
     private var signalRoute: (@Sendable (ImMessage, String, Date) throws -> SignalRouter.Outcome)? {
         guard let privkey = try? livePrikey(), let service = try? roomService else { return nil }
         // The FID `privkey` belongs to, captured with it. The router is
