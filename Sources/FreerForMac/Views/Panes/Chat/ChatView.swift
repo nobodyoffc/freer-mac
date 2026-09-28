@@ -770,6 +770,7 @@ struct ChatView: View {
             switch mode {
             case .p2p:
                 Button("Message requests…") { showRequests = true }
+                Button("Call settings…") { appState.showCallSettings = true }
                 Button("Who can message me…") { showPolicy = true }
             case .team:
                 // Both reachable when nothing is outstanding: an ignored
