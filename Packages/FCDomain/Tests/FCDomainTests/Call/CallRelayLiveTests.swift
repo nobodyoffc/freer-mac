@@ -1,5 +1,6 @@
 import XCTest
 import FCCore
+import FCTransport
 @testable import FCDomain
 
 /// A meeting's network path against a real CALL relay, as the Mac runs it:
@@ -97,5 +98,70 @@ final class CallRelayLiveTests: XCTestCase {
         try await Task.sleep(nanoseconds: 1_000_000_000)
         XCTAssertTrue(bob.lock.withLock { bob.notices }.contains { $0["type"] as? String == "ended" })
         for m in [host, bob] { m.link.close() }
+    }
+
+    private final class DirectEar: CallDirectPath.Listener, @unchecked Sendable {
+        let up: XCTestExpectation
+        init(_ up: XCTestExpectation) { self.up = up }
+        func directUp() { up.fulfill() }
+        func directDown() {}
+        func directFrame(_ datagram: Data) {}
+        func directAttestation(_ bytes: Data) {}
+        func directLog(_ what: String) { print("direct:", what) }
+    }
+
+    /// A 1:1 call joined with candidates (§6.1, §6.2 steps 6-8): the relay
+    /// passes each side's candidates to the other in the roster, and the two
+    /// direct paths, on the same ports as the relay connections, come up.
+    func testACallGoesDirectBesideTheRelay() async throws {
+        guard let relay = ProcessInfo.processInfo.environment["CALL_RELAY"] else {
+            throw XCTSkip("set CALL_RELAY=fudp://host:port to run")
+        }
+        let callId = Hex.encode(Data((0..<16).map { _ in UInt8.random(in: 0...255) }))
+        let authPriv = CallKeys.authPriv(callSecret: CallMediaTests.key())
+        let caller = Member(), callee = Member()
+        var ports: [SharedUdpPort] = []
+        defer { ports.forEach { $0.close() } }
+        for m in [caller, callee] {
+            let d = try Delegation.sign(fidPriv: m.fidPriv, callOrMeetingId: callId, tPub: m.tPub,
+                                        expiresSec: Int64(Date().timeIntervalSince1970) + 3600)
+            m.link = CallRelayLink(tPriv: m.tPriv, callId: callId, delegation: d, events: m)
+            let port = try SharedUdpPort()
+            ports.append(port)
+            try await m.link.connect(url: relay, pubkeyHex: nil, sid: nil, over: port)
+        }
+        try await caller.link.create()
+        _ = try await caller.link.join(ssrc: caller.ssrc, authPriv: nil, share: true)
+        try await caller.link.register(authPub: try CallKeys.authPub(authPriv: authPriv))
+        let joined = try await callee.link.join(ssrc: callee.ssrc, authPriv: authPriv, share: true)
+
+        func candidates(of m: Member, in roster: [String: Any]) -> [CallDirectPath.Candidate] {
+            let entry = CallRelayLink.roster(roster).first { ($0["ssrc"] as? NSNumber)?.uint32Value == m.ssrc }
+            return (entry?["candidates"] as? [[String: Any]] ?? []).compactMap(CallDirectPath.Candidate.parse)
+        }
+        let ofCaller = candidates(of: caller, in: joined)
+        XCTAssertFalse(ofCaller.isEmpty, "the callee's join result carries the caller's candidates")
+        XCTAssertTrue(ofCaller.contains { $0.t == "map" }, "including the address the relay sees: \(ofCaller)")
+        try await Task.sleep(nanoseconds: 500_000_000)
+        let rosterAtCaller = caller.lock.withLock { caller.notices }.last { $0["type"] as? String == "roster" } ?? [:]
+        let ofCallee = candidates(of: callee, in: rosterAtCaller)
+        XCTAssertFalse(ofCallee.isEmpty, "the caller's roster notice carries the callee's candidates")
+
+        let upA = expectation(description: "caller's path up"), upB = expectation(description: "callee's path up")
+        let earA = DirectEar(upA), earB = DirectEar(upB)
+        let callerFirst = caller.fid < callee.fid
+        let a = try CallDirectPath(port: ports[0], tPriv: caller.tPriv, peerTPub: callee.tPub, initiator: callerFirst,
+                                   candidates: ofCallee, listener: earA)
+        let b = try CallDirectPath(port: ports[1], tPriv: callee.tPriv, peerTPub: caller.tPub, initiator: !callerFirst,
+                                   candidates: ofCaller, listener: earB)
+        a.start()
+        b.start()
+        await fulfillment(of: [upA, upB], timeout: 8)
+        a.stop()
+        b.stop()
+        for m in [caller, callee] {
+            await m.link.leave()
+            m.link.close()
+        }
     }
 }

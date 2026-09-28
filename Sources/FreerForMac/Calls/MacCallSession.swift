@@ -1,17 +1,20 @@
 import Foundation
 import FCCore
 import FCDomain
+import FCTransport
 import FCVoice
 
-/// One 1:1 call through the relay (VOICE_SPEC §6.2), the Mac's port of
-/// Android's `CallSession`: the signaller's call, its ``CallRelayLink``,
-/// ``CallMedia``, and the voice engine. Relayed only; direct paths come later.
+/// One 1:1 call (VOICE_SPEC §6.2), the Mac's port of Android's
+/// `CallSession`: the signaller's call, its ``CallRelayLink``, ``CallMedia``,
+/// and the voice engine. Audio starts on the relay; with a contact, a
+/// ``CallDirectPath`` is tried beside it from the same port, and audio moves
+/// there once probes pass both ways (§6.2 steps 6-9).
 ///
 /// Caller: connect, `call.create`, join, then ring; once the callee's ACCEPT
 /// verifies, register `authPub` and start the audio. Callee, after
 /// accepting: connect, join with `admitSig` (retrying while the caller has
 /// not registered), start the audio.
-final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked Sendable {
+final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, CallDirectPath.Listener, @unchecked Sendable {
 
     enum State: Equatable { case connecting, ringing, connected, ended, failed(String) }
 
@@ -27,7 +30,13 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked
     private let myFid: String
     private let onState: @Sendable (State) -> Void
     private let onUnverified: @Sendable (String) -> Void
+    /// Audio moved to the direct path (true), or back to the relay.
+    private let onPath: @Sendable (Bool) -> Void
+    /// Try a direct path (§6.2 step 6): only with a contact, and never with Always relay on (Decision 8).
+    private let allowDirect: Bool
     private let lock = NSLock()
+    private var port: SharedUdpPort?
+    private var direct: CallDirectPath?
     private var link: CallRelayLink?
     private var media: CallMedia?
     private var mixer: Mixer?
@@ -41,14 +50,19 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked
     private let ssrc = UInt32.random(in: 0...UInt32.max)
     private var over = false
 
-    init(call: CallSignaller.Call, signaller: CallSignaller, myFid: String,
-         onState: @escaping @Sendable (State) -> Void, onUnverified: @escaping @Sendable (String) -> Void) {
+    init(call: CallSignaller.Call, signaller: CallSignaller, myFid: String, allowDirect: Bool,
+         onState: @escaping @Sendable (State) -> Void, onUnverified: @escaping @Sendable (String) -> Void,
+         onPath: @escaping @Sendable (Bool) -> Void) {
         self.call = call
         self.signaller = signaller
         self.myFid = myFid
+        self.allowDirect = allowDirect
         self.onState = onState
         self.onUnverified = onUnverified
+        self.onPath = onPath
     }
+
+    var isDirect: Bool { lock.withLock { direct }?.isUp ?? false }
 
     // MARK: - Steps
 
@@ -57,7 +71,7 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked
             do {
                 try await openLink()
                 try await createRetrying()
-                let joined = try await link!.join(ssrc: ssrc, authPriv: nil)
+                let joined = try await link!.join(ssrc: ssrc, authPriv: nil, share: allowDirect)
                 routeId = (joined["routeId"] as? NSNumber)?.uint32Value ?? 0
                 signaller.ring(callId: call.callId, relay: .init(url: call.relayUrl ?? "", pubkey: link?.relayPubkey,
                                                                  sid: link?.relaySid))
@@ -87,7 +101,8 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked
             do {
                 guard let secret = signaller.callSecret(callId: call.callId) else { throw CallRelayLink.Refused(code: 0, message: "no call key") }
                 try await openLink()
-                let joined = try await link!.join(ssrc: ssrc, authPriv: CallKeys.authPriv(callSecret: secret))
+                let joined = try await link!.join(ssrc: ssrc, authPriv: CallKeys.authPriv(callSecret: secret),
+                                                  share: allowDirect)
                 routeId = (joined["routeId"] as? NSNumber)?.uint32Value ?? 0
                 lock.withLock { lastRoster = joined }
                 watchPeer(joined)
@@ -114,7 +129,10 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked
         guard let url = call.relayUrl else { throw CallRelayLink.Refused(code: 0, message: "no relay for this call") }
         let l = CallRelayLink(tPriv: call.transportPriv, callId: call.callId, delegation: call.myDelegation, events: self)
         link = l
-        try await l.connect(url: url, pubkeyHex: call.relayPubkey, sid: call.relaySid)
+        // One port for the relay and the peer: the address the relay sees is where the peer can reach us (§6.1).
+        let shared = allowDirect ? try? SharedUdpPort() : nil
+        lock.withLock { port = shared }
+        try await l.connect(url: url, pubkeyHex: call.relayPubkey, sid: call.relaySid, over: shared)
     }
 
     private func createRetrying() async throws {
@@ -150,10 +168,13 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked
         let mix = Mixer()
         let link = self.link
         let enc = try FrameEncoder(ssrc: ssrc, frameMs: MacCallSession.frameMs, bitrate: MacCallSession.bitrate,
-                                   expectedLossPercent: MacCallSession.expectedLoss) { [weak m] f in
+                                   expectedLossPercent: MacCallSession.expectedLoss) { [weak self, weak m] f in
             guard let m, let sealed = try? m.seal(seq: f.seq, timestamp: f.timestamp, level: f.level, voiceActive: f.voiceActive,
                                                   afterDtx: f.afterDtx, opus: f.opus, nowMs: MacCallSession.nowMs()) else { return }
-            Task { await link?.sendFrame(sealed) }
+            let d = self?.lock.withLock { self?.direct }
+            Task {
+                if let d, d.isUp { await d.send(sealed) } else { await link?.sendFrame(sealed) }
+            }
         }
         let voice = VoiceIO(onCapture: { [weak enc] samples in enc?.push(samples) },
                             render: { [weak mix] now in mix?.renderTick(nowMs: now) ?? [Int16](repeating: 0, count: Mixer.tickSamples) })
@@ -178,7 +199,11 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked
     private func tick() async {
         guard let m = media, let l = link else { return }
         let now = MacCallSession.nowMs()
-        for a in m.takeAttestations(nowMs: now) { await l.sendAttestation(a) }
+        // Attestations go the way the frames they cover went.
+        let d = lock.withLock { direct }
+        for a in m.takeAttestations(nowMs: now) {
+            if let d, d.isUp { await d.sendAttestation(a) } else { await l.sendAttestation(a) }
+        }
         m.tick(nowMs: now)
     }
 
@@ -193,7 +218,26 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked
                   d.tPub == signalled.tPub, let tPub = d.tPubBytes,
                   let ssrc = (e["ssrc"] as? NSNumber)?.uint32Value else { continue }
             m.addPeer(fid: call.peerFid, ssrc: ssrc, tPub: tPub)
+            tryDirect(e, peerTPub: tPub)
         }
+    }
+
+    /// The peer's roster entry, its delegation verified, carries the candidates
+    /// it chose to share: punch to them, keeping the relay (§6.2 steps 6-9).
+    /// The lower FID opens the connection.
+    private func tryDirect(_ entry: [String: Any], peerTPub: Data) {
+        guard allowDirect, let list = entry["candidates"] as? [[String: Any]] else { return }
+        let candidates = list.compactMap(CallDirectPath.Candidate.parse)
+        guard !candidates.isEmpty else { return }
+        let started = lock.withLock { () -> CallDirectPath? in
+            guard direct == nil, let port,
+                  let d = try? CallDirectPath(port: port, tPriv: call.transportPriv, peerTPub: peerTPub,
+                                              initiator: myFid < call.peerFid, candidates: candidates, listener: self)
+            else { return nil }
+            direct = d
+            return d
+        }
+        started?.start()
     }
 
     /// A peer that was on the relay and left has hung up, even if its HANGUP never reaches us.
@@ -229,6 +273,7 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked
         guard !already else { return }
         ticker?.cancel()
         io?.stop()
+        lock.withLock { direct }?.stop()
         if let m = media, let l = link {
             for a in m.finish(nowMs: MacCallSession.nowMs()) { await l.sendAttestation(a) }
         }
@@ -236,13 +281,17 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked
             await l.leave()
             l.close()
         }
-        lock.withLock {
+        let shared = lock.withLock { () -> SharedUdpPort? in
             media = nil
             mixer = nil
             encoder = nil
             io = nil
             link = nil
+            direct = nil
+            defer { port = nil }
+            return port
         }
+        shared?.close()
     }
 
     static func nowMs() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
@@ -250,7 +299,12 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked
     // MARK: - CallRelayLink.Events
 
     func frame(_ datagram: Data) {
-        guard let m = media, let mix = mixer, let opened = m.open(datagram, nowMs: MacCallSession.nowMs()) else { return }
+        play(datagram, direct: false)
+    }
+
+    private func play(_ datagram: Data, direct: Bool) {
+        guard let m = media, let mix = mixer,
+              let opened = m.open(datagram, nowMs: MacCallSession.nowMs(), fromPeerConnection: direct) else { return }
         let h = opened.header
         mix.onFrame(EncodedFrame(ssrc: h.ssrc, seq: h.seq, timestamp: h.timestamp, level: h.level,
                                  voiceActive: h.flags & MediaFrame.flagVad != 0, afterDtx: h.flags & MediaFrame.flagDtx != 0,
@@ -287,4 +341,34 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, @unchecked
     }
 
     func paused(fid: String, ssrc: UInt32, on: Bool) {}
+
+    // MARK: - CallDirectPath.Listener
+
+    func directUp() {
+        media?.setRouteId(0) // §5: routeId 0 on a direct path
+        step("audio now goes direct")
+        onPath(true)
+    }
+
+    func directDown() {
+        media?.setRouteId(routeId)
+        step("back on the relay")
+        onPath(false)
+    }
+
+    func directFrame(_ datagram: Data) {
+        play(datagram, direct: true)
+    }
+
+    func directAttestation(_ bytes: Data) {
+        media?.onAttestation(bytes, nowMs: MacCallSession.nowMs())
+    }
+
+    func directLog(_ what: String) {
+        step("direct: \(what)")
+    }
+
+    private func step(_ what: String) {
+        SystemLog.shared.info(SystemSource.messages, "call \(call.callId.prefix(8)): \(what)")
+    }
 }

@@ -183,6 +183,19 @@ public final class FudpClient: @unchecked Sendable {
         )
     }
 
+    /// A client over a transport the caller owns: a ``SharedUdpPort``
+    /// channel, so several connections leave from one local port. `host`
+    /// and `port` name the peer for the connection's record only.
+    public convenience init(
+        over transport: any DatagramTransport,
+        host: String,
+        port: UInt16,
+        peerPubkey: Data,
+        localPrivkey: Data
+    ) throws {
+        try self.init(transport: transport, host: host, port: port, peerPubkey: peerPubkey, localPrivkey: localPrivkey)
+    }
+
     /// Designated initializer with an injectable transport (tests use
     /// an in-process fake to exercise ACK/retransmit behaviour).
     init(

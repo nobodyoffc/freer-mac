@@ -16,7 +16,9 @@ struct CallView: View {
                 Text(CallCenter.short(calls.peerFid ?? "")).font(.title3).bold().textSelection(.enabled)
                 Text(status).foregroundStyle(.secondary)
                 Label("End-to-end encrypted", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
-                if let host = calls.relayHost {
+                if calls.direct {
+                    Text("Direct").font(.caption).foregroundStyle(.secondary)
+                } else if let host = calls.relayHost {
                     Text("Relayed via \(host)").font(.caption).foregroundStyle(.secondary)
                 }
                 if let fid = calls.unverifiedFid {
@@ -84,6 +86,7 @@ struct CallSettingsSheet: View {
     let calls: CallCenter
     @Environment(\.dismiss) private var dismiss
     @State private var relay = ""
+    @State private var alwaysRelay = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -91,17 +94,24 @@ struct CallSettingsSheet: View {
             Text("Test relay: calls go through it instead of the callee's CALL service, and this Mac answers on it too. Leave empty to use CALL services from the chain.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             TextField("fudp://host:port", text: $relay).textFieldStyle(.roundedBorder)
+            Toggle("Always relay", isOn: $alwaysRelay)
+            Text("Never connect directly to the other side of a call, so they never learn this Mac's IP address. Calls with contacts otherwise try a direct path, which is faster and costs no relay fee.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
                     calls.testRelay = relay
+                    calls.alwaysRelay = alwaysRelay
                     dismiss()
                 }.keyboardShortcut(.defaultAction)
             }
         }
         .padding(20)
         .frame(width: 420)
-        .onAppear { relay = calls.testRelay }
+        .onAppear {
+            relay = calls.testRelay
+            alwaysRelay = calls.alwaysRelay
+        }
     }
 }

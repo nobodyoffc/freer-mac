@@ -18,6 +18,8 @@ final class CallCenter {
     static let homeKey = "CALL@No1_NrC7"
     /// A relay to call through, and to answer on, before a CALL service is on chain: for testing.
     static let testRelayKey = "callTestRelay"
+    /// Never try a direct path: the peer never learns this Mac's address (Decision 8).
+    static let alwaysRelayKey = "callAlwaysRelay"
 
     private(set) var phase: Phase = .idle
     private(set) var peerFid: String?
@@ -25,6 +27,8 @@ final class CallCenter {
     private(set) var endReason: String?
     private(set) var unverifiedFid: String?
     private(set) var relayHost: String?
+    /// Audio goes on a direct path rather than the relay.
+    private(set) var direct = false
     /// The call failed rather than ended: the card stays until closed, so the reason can be read.
     private(set) var failed = false
     var muted = false {
@@ -46,6 +50,11 @@ final class CallCenter {
     @ObservationIgnored let meetingBusy = LockedValue(false)
     /// An incoming call is about to ring.
     @ObservationIgnored var onIncoming: () -> Void = {}
+
+    var alwaysRelay: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.alwaysRelayKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.alwaysRelayKey) }
+    }
 
     var testRelay: String {
         get { UserDefaults.standard.string(forKey: Self.testRelayKey) ?? "" }
@@ -235,10 +244,16 @@ final class CallCenter {
     // MARK: - Internals
 
     private func newSession(_ c: CallSignaller.Call) -> MacCallSession {
-        MacCallSession(call: c, signaller: signaller!, myFid: active?.liveFid ?? "", onState: { [weak self] state in
+        // A direct path shows each side's IP to the other: only with a contact,
+        // and never with Always relay on (§6.1, Decision 8).
+        let isContact = ((try? active?.contacts.get(fid: c.peerFid)) ?? nil) != nil
+        return MacCallSession(call: c, signaller: signaller!, myFid: active?.liveFid ?? "",
+                              allowDirect: isContact && !alwaysRelay, onState: { [weak self] state in
             Task { @MainActor in self?.sessionState(state, for: c) }
         }, onUnverified: { [weak self] fid in
             Task { @MainActor in self?.unverifiedFid = fid }
+        }, onPath: { [weak self] direct in
+            Task { @MainActor in if self?.call === c { self?.direct = direct } }
         })
     }
 
@@ -275,6 +290,7 @@ final class CallCenter {
         failed = false
         unverifiedFid = nil
         relayHost = nil
+        direct = false
         muted = false
     }
 

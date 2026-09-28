@@ -42,6 +42,8 @@ public final class CallRelayLink: @unchecked Sendable {
     private var fapi: FapiClient?
     public private(set) var relayPubkey: String?
     public private(set) var relaySid: String?
+    /// The call's port when a direct path may follow: the relay sees this port, and the peer can reach it.
+    public private(set) var sharedPort: SharedUdpPort?
 
     public init(tPriv: Data, callId: String, delegation: Delegation?, events: Events) {
         self.tPriv = tPriv
@@ -52,18 +54,28 @@ public final class CallRelayLink: @unchecked Sendable {
 
     /// Reach the relay: with its key when an INVITE or card carried it,
     /// otherwise by a HELLO. The service id is sent when known; the relay
-    /// routes by method, so it may be left out.
-    public func connect(url: String, pubkeyHex: String?, sid: String?) async throws {
-        guard let (host, port) = FudpUrl.hostPort(url) else { throw Refused(code: 400, message: "not a fudp:// url: \(url)") }
+    /// routes by method, so it may be left out. With `port`, the connection
+    /// leaves from that shared port, so a direct path can use the address
+    /// the relay sees (§6.1).
+    public func connect(url: String, pubkeyHex: String?, sid: String?, over port: SharedUdpPort? = nil) async throws {
+        guard let (host, portNumber) = FudpUrl.hostPort(url) else { throw Refused(code: 400, message: "not a fudp:// url: \(url)") }
         var pub = pubkeyHex.flatMap(Hex.decodeOrNil)
         if pub?.count != 33 {
             var last: Error?
             for _ in 0..<3 where pub == nil {
-                do { pub = try await FudpDiscovery.discoverPubkey(host: host, port: port) } catch { last = error }
+                do { pub = try await FudpDiscovery.discoverPubkey(host: host, port: portNumber) } catch { last = error }
             }
             guard pub != nil else { throw last ?? Refused(code: 408, message: "relay unreachable: \(url)") }
         }
-        let client = try await FudpClient(host: host, port: port, peerPubkey: pub!, localPrivkey: tPriv)
+        let client: FudpClient
+        if let shared = port {
+            let at = try SharedUdpPort.resolve(host, port: portNumber)
+            client = try FudpClient(over: shared.channel(to: at), host: at.host, port: at.port, peerPubkey: pub!,
+                                    localPrivkey: tPriv)
+            sharedPort = shared
+        } else {
+            client = try await FudpClient(host: host, port: portNumber, peerPubkey: pub!, localPrivkey: tPriv)
+        }
         client.setNotifyHandler { [weak self] dataType, data in
             guard let events = self?.events else { return }
             if dataType == 0 {
@@ -105,11 +117,20 @@ public final class CallRelayLink: @unchecked Sendable {
 
     /// `call.join`: with `authPriv`, an admitSig, retried on 409 while the caller has not
     /// registered yet (§6.2 step 4); without, the host's own join before registration.
-    public func join(ssrc: UInt32, authPriv: Data?) async throws -> [String: Any] {
+    /// - Parameter share: give the relay our direct-path candidates to pass on
+    ///   (§6.1): our private addresses, and the address it sees us at. It shows
+    ///   our IP to the peer, so only for contacts and never with Always relay
+    ///   on (Decision 8). Needs the shared port.
+    public func join(ssrc: UInt32, authPriv: Data?, share: Bool = false) async throws -> [String: Any] {
         guard let tPub = delegation?.tPubBytes else { throw Refused(code: 400, message: "no delegation") }
         var attempt = 0
         while true {
             var p = base()
+            if share, let shared = sharedPort {
+                p["reflexive"] = true
+                let lan = CallDirectPath.lanCandidates(port: shared.localPort)
+                if !lan.isEmpty { p["candidates"] = lan }
+            }
             let ts = UInt64(Date().timeIntervalSince1970 * 1000)
             p["ssrc"] = UInt64(ssrc)
             p["ts"] = ts
