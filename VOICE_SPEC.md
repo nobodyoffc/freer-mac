@@ -355,7 +355,7 @@ Receivers apply FIMP's membership checks:
 
 ## 4. Keys
 
-All derivations use HKDF-SHA256 (FTSP13). `‖` is concatenation. Integers are
+All derivations use HKDF with HMAC-SHA512 (FTSP13's `HKDF`, as every reference implementation runs it; this spec said SHA-256 until the Mac port found the difference in Phase 6). `‖` is concatenation. Integers are
 big-endian and unsigned (`ssrc` is a u32 even where a language stores it
 signed).
 
