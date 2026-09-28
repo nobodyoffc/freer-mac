@@ -143,7 +143,22 @@ public struct ChatService {
         try messages.put(stored, in: conversation.id)
         try conversations.record(stored, myFid: liveFid)
         try outbox.enqueue(outgoing, in: conversation.id, now: now)
+        if conversation.type == .p2p, stored.contentType?.isDisplayable == true {
+            acceptPeer(conversation.targetId, as: liveFid)
+        }
         return stored
+    }
+
+    /// **Writing to someone accepts them**, as it does on Android: their
+    /// replies, and their calls, must not come back as a stranger's. An
+    /// explicit block wins — messaging a blocked peer does not quietly
+    /// unblock them. Best effort: a policy that cannot be written costs a
+    /// message request later, not this send.
+    public func acceptPeer(_ fid: String, as liveFid: String) {
+        guard let policy, !fid.isEmpty, fid != liveFid else { return }
+        _ = try? policy.mutate(liveFid: liveFid) { p in
+            if !p.isBlocked(fid) && !p.isAllowed(fid) { p.allow(fid) }
+        }
     }
 
     /// Seal a body the way `conversation` requires. Throws rather than

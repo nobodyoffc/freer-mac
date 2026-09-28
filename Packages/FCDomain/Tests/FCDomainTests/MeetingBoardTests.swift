@@ -59,4 +59,13 @@ final class MeetingBoardTests: XCTestCase {
         XCTAssertNil(MeetingKeys.secret(symkeys: [wrong], nonce: nonce, entityId: "room1", version: 3,
                                         meetingId: id, authPubHex: authPub))
     }
+
+    /// What Android's Gson writes for a card: nulls left out, the relay as a record.
+    func testAndroidCardDecodes() {
+        let json = #"{"op":"MEETING_START","meetingId":"mtg_269aa5e16822807257977aee","relay":{"url":"fudp://1.2.3.4:8500","pubkey":"02\#(String(repeating: "ab", count: 32))","sid":"s1"},"nonce":"\#(String(repeating: "11", count: 32))","symkeyVersion":2,"authPub":"03\#(String(repeating: "cd", count: 32))","keyEpoch":0,"started":1759044690000}"#
+        let s = MeetingSignal.fromJson(json)
+        XCTAssertEqual(s?.op, .MEETING_START)
+        XCTAssertEqual(s?.relay?.sid, "s1")
+        XCTAssertEqual(s?.symkeyVersion, 2)
+    }
 }

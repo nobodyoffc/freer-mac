@@ -78,9 +78,22 @@ final class CallCenter {
         let meetings = meetingInbox
         session.callInbox.handler = { [weak session, weak s] message, liveFid in
             if meetings.value?.take(message) == true { return }
-            guard let session, let s, let sender = message.senderId, message.type == .p2p,
-                  let content = message.content, let signal = CallSignal.fromJson(content) else { return }
-            switch session.callGate(sender: sender) {
+            guard let session, let s else {
+                SystemLog.shared.warning(SystemSource.messages, "A CALL message arrived with no identity to take it")
+                return
+            }
+            guard let sender = message.senderId, message.type == .p2p,
+                  let content = message.content, let signal = CallSignal.fromJson(content) else {
+                SystemLog.shared.warning(SystemSource.messages,
+                    "A CALL message from \(CallCenter.short(message.senderId ?? "?")) was not understood",
+                    detail: "type \(message.type.map { "\($0)" } ?? "?"), "
+                        + (message.content.map { "content: \($0.prefix(200))" } ?? "still sealed"))
+                return
+            }
+            let gate = session.callGate(sender: sender)
+            SystemLog.shared.info(SystemSource.messages,
+                "Call signal \(signal.op.rawValue) for call \(signal.callId) from \(CallCenter.short(sender)): \(gate)")
+            switch gate {
             case .ring:
                 s.onSignal(from: sender, messageId: message.id ?? UUID().uuidString, signal)
             case .missed where signal.op == .INVITE:
@@ -139,6 +152,8 @@ final class CallCenter {
                 finish("Calls need the microphone. Allow it in System Settings → Privacy & Security.")
                 return
             }
+            // Calling someone accepts them, as writing to them does: their calls back must ring.
+            session.chat.acceptPeer(fid, as: session.liveFid)
             do {
                 let c = try signaller.prepare(peerFid: fid, relayUrl: url)
                 call = c
