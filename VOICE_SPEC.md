@@ -999,8 +999,10 @@ targets above. While a call is live:
   chat as "Call, 4:12", "Missed call" or "Declined". The record is a local
   entry made from the signalling. It is not another message on the wire.
 - **Meeting:** a Room or Team chat button that starts a meeting; the
-  meeting card with a live participant count; an in-meeting screen with
-  the participant list, who is speaking, raised hands and host controls.
+  meeting card with a Join button; an in-meeting screen with the
+  participant list, who is speaking, raised hands and host controls. A new
+  meeting rings every member like a call, with Join and Decline
+  (Decision 21).
 - **Always shown:**
   - A lock with "End-to-end encrypted".
   - The path in use: "Direct" or "Relayed via &lt;relay&gt;".
@@ -1410,3 +1412,7 @@ Answered 2026-09-28, during Phase 5:
 
 19. **After a rekey, senders keep the previous key until everyone has proved the new one, or 30 s pass** (§4.5). Switching at once left members still waiting for the rotated symkey unable to hear anyone. The removed member can listen up to 30 s longer unless the host also kicks it.
 20. **A host may invite only chosen members** (§3.3), under a random key of the meeting's own, sent to each invitee 1:1. The entity's symkey cannot limit a meeting, since every member holds it. Asked for on 2026-09-28 after the Phase 5 tests.
+
+Answered 2026-09-28, during Phase 6:
+
+21. **A new meeting rings its members like a call,** whichever way it was started: an everyone-in-the-chat card and a chosen-people invitation both ring, with Join and Decline, for up to 45 s. It rings only if it started within the last 2 minutes by the host's clock, is someone else's, and finds the device in no call or meeting; its end, a call that rings, or joining it stops the ring. A card that arrives late only shows. The card itself carries a Join button on both clients.

@@ -17,7 +17,9 @@ struct MeetingView: View {
     private let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        if meetings.visible {
+        if meetings.visible, !meetings.isActive, let m = meetings.ringing {
+            ringingPanel(m)
+        } else if meetings.visible {
             let _ = meetings.revision // redraw when the session changes
             let s = meetings.session
             let people = s?.participants ?? []
@@ -69,6 +71,34 @@ struct MeetingView: View {
                                   confirm: "Invite") { meetings.invite($0) }
             }
         }
+    }
+
+    /// A new meeting ringing: who started what, and Join or Decline.
+    private func ringingPanel(_ m: MeetingBoard.Meeting) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Incoming meeting").font(.headline)
+            Text(meetings.ringText(m, names: names)).font(.title3).bold().lineLimit(2)
+            if m.invited {
+                Text("Only invited members").font(.caption).foregroundStyle(.secondary)
+            }
+            Label("End-to-end encrypted", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
+            if let controlError {
+                Text(controlError).font(.caption).foregroundStyle(.red)
+            }
+            HStack {
+                Button("Join") {
+                    controlError = nil
+                    Task { controlError = await meetings.answerRing() }
+                }
+                .buttonStyle(.borderedProminent).tint(.green)
+                Button("Decline", role: .destructive) { meetings.declineRing() }
+            }
+        }
+        .padding(16)
+        .frame(width: 300, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+        .shadow(radius: 8)
+        .padding(16)
     }
 
     private func status(_ count: Int) -> String {

@@ -44,6 +44,8 @@ final class CallCenter {
     @ObservationIgnored let meetingInbox = LockedValue<MeetingInbox?>(nil)
     /// A meeting is running or joining: one call or meeting at a time (§3.2).
     @ObservationIgnored let meetingBusy = LockedValue(false)
+    /// An incoming call is about to ring.
+    @ObservationIgnored var onIncoming: () -> Void = {}
 
     var testRelay: String {
         get { UserDefaults.standard.string(forKey: Self.testRelayKey) ?? "" }
@@ -215,6 +217,7 @@ final class CallCenter {
         peerFid = c.peerFid
         relayHost = c.relayUrl.map(Self.host)
         phase = .ringingIn
+        onIncoming()
         ring()
     }
 

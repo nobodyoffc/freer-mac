@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import FCCore
 import FCDomain
 
@@ -16,6 +17,10 @@ final class MeetingCenter {
 
     /// A member's MEETING_END is checked with the relay after the relay would have closed an empty meeting (§7.6).
     static let confirmEndAfterNs: UInt64 = 70_000_000_000
+    /// A new meeting rings only if it started this recently: a card that arrives late is not a call.
+    static let ringFreshMs: Int64 = 120_000
+    /// A meeting rings this long, as a call does (§6.3).
+    static let ringForNs: UInt64 = 45_000_000_000
 
     private(set) var phase: Phase = .idle
     private(set) var meeting: MeetingBoard.Meeting?
@@ -28,6 +33,9 @@ final class MeetingCenter {
     private(set) var cardsRevision = 0
     /// Shown by the meeting view until closed.
     var visible = false
+    /// A new meeting ringing this Mac, not yet joined or declined.
+    private(set) var ringing: MeetingBoard.Meeting?
+    @ObservationIgnored private var ringtone: Task<Void, Never>?
 
     @ObservationIgnored private(set) var session: MacMeetingSession?
     @ObservationIgnored private(set) var board: MeetingBoard?
@@ -39,6 +47,8 @@ final class MeetingCenter {
 
     init(calls: CallCenter) {
         self.calls = calls
+        // One ring at a time: a call's.
+        calls.onIncoming = { [weak self] in self?.stopRinging() }
     }
 
     var isActive: Bool { phase == .connecting || phase == .inMeeting }
@@ -213,13 +223,80 @@ final class MeetingCenter {
         cardsRevision += 1
     }
 
+    // MARK: - Ringing
+
+    /// What the inbox made of a meeting signal: a new meeting rings, an ended one stops ringing.
+    fileprivate func cardEvent(_ r: MeetingBoard.Result, _ s: MeetingSignal, sender: String) {
+        switch (r, s.op) {
+        case (.new, .MEETING_START) where s.keyEpochOrZero == 0, (.new, .MEETING_INVITE):
+            maybeRing(s.meetingId, sender: sender)
+        case (.updated, .MEETING_END):
+            if ringing?.meetingId == s.meetingId { stopRinging() }
+        default:
+            break
+        }
+    }
+
+    /// A new meeting in one of my chats rings like a call: someone else's, just
+    /// started, while this Mac is in no call or meeting. One at a time.
+    private func maybeRing(_ meetingId: String, sender: String) {
+        guard let m = board?.get(meetingId), !m.ended, sender != active?.liveFid,
+              ringing == nil, busyReason() == nil,
+              // The host's clock, not ours: a little skew either way still counts as just started.
+              abs(MacMeetingSession.nowMs() - m.started) <= MeetingCenter.ringFreshMs else { return }
+        ringing = m
+        entityName = ActiveSession.meetingImType(m.entityType).flatMap { active?.entityName(type: $0, entityId: m.entityId) }
+        visible = true
+        SystemLog.shared.info(SystemSource.messages, "meeting \(meetingId) rings")
+        NSApp.activate(ignoringOtherApps: true)
+        ringtone?.cancel()
+        ringtone = Task { [weak self] in
+            let until = DispatchTime.now().uptimeNanoseconds + MeetingCenter.ringForNs
+            while !Task.isCancelled && DispatchTime.now().uptimeNanoseconds < until {
+                NSSound(named: "Submarine")?.play()
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+            if !Task.isCancelled { self?.declineRing() }
+        }
+    }
+
+    /// Join the ringing meeting. Returns why not, or nil once connecting.
+    func answerRing() async -> String? {
+        guard let m = ringing else { return "The meeting stopped ringing." }
+        let why = await join(meetingId: m.meetingId)
+        if why != nil { stopRinging() }
+        return why
+    }
+
+    func declineRing() {
+        stopRinging()
+        if !isActive && phase != .ended { visible = false }
+    }
+
+    /// Stop ringing: a call rang, the meeting was joined, declined or ended, or 45 s passed.
+    func stopRinging() {
+        ringtone?.cancel()
+        ringtone = nil
+        ringing = nil
+    }
+
+    /// The ring's line: who started which meeting.
+    func ringText(_ m: MeetingBoard.Meeting, names: (String) -> String) -> String {
+        let who = names(m.hostFid)
+        if let t = m.title, !t.isEmpty { return "\(who) started “\(t)”" }
+        return "\(who) started a meeting" + (entityName.map { " in \($0)" } ?? "")
+    }
+
     /// Another member says a meeting ended: believe it only once its relay
     /// no longer knows it, after it would have closed an empty meeting.
     fileprivate func confirmEndLater(_ meetingId: String) {
         Task { [weak self] in
             try? await Task.sleep(nanoseconds: MeetingCenter.confirmEndAfterNs)
             guard let self, let b = self.board, let m = b.get(meetingId), !m.ended else { return }
-            if await MeetingCenter.probeOpen(m) == false, b.markEnded(meetingId, durationMs: 0) { self.cardsRevision += 1 }
+            if await MeetingCenter.probeOpen(m) == false, b.markEnded(meetingId, durationMs: 0) {
+                if self.ringing?.meetingId == meetingId { self.stopRinging() }
+                self.cardsRevision += 1
+            }
         }
     }
 
@@ -277,6 +354,7 @@ final class MeetingCenter {
         session = ms
         visible = true
         setPhase(.connecting)
+        stopRinging() // after the phase: a ring answered turns into the meeting, not into nothing
         if let type = ActiveSession.meetingImType(m.entityType) { meetingDocks(type, m.entityId) }
         ms.start()
     }
@@ -473,6 +551,7 @@ final class MeetingInbox: @unchecked Sendable {
         log("Meeting signal \(s.op.rawValue) for \(s.meetingId) in \(CallCenter.short(entityId)) from \(CallCenter.short(sender)): \(r)")
         if r == .new && !ActiveSession.isMeetingControl(s) { try? session.fileMeetingCard(message) }
         notify(r, meetingId: s.meetingId)
+        ring(r, s, sender: sender)
     }
 
     /// A 1:1 invitation to a chosen-people meeting, or its end. It counts only
@@ -500,6 +579,11 @@ final class MeetingInbox: @unchecked Sendable {
                                           timestampMs: message.timestamp)
         }
         notify(r, meetingId: s.meetingId)
+        ring(r, s, sender: sender)
+    }
+
+    private func ring(_ r: MeetingBoard.Result, _ s: MeetingSignal, sender: String) {
+        Task { @MainActor [weak center] in center?.cardEvent(r, s, sender: sender) }
     }
 
     private func notify(_ r: MeetingBoard.Result, meetingId: String) {
