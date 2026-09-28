@@ -1222,7 +1222,8 @@ struct ChatView: View {
                     onStartRecording: { Task { await recorder.start(in: voiceDirectory) } },
                     onSendVoice: { sendVoice(in: conversation) },
                     onCancelRecording: { recorder.cancel() },
-                    onGenerateKey: { generateKey(for: conversation) }
+                    onGenerateKey: { generateKey(for: conversation) },
+                    callControl: callControl(for: conversation)
                 )
             }
         } else {
@@ -1274,31 +1275,6 @@ struct ChatView: View {
                 Text("\(members) members").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            if conversation.type == .p2p, conversation.targetId != session.liveFid {
-                let calls = appState.callCenter
-                Button {
-                    // A nobody's key is public: calling one asks first (NOBODY_SPEC §3).
-                    if names.isNobody(conversation.targetId) { confirmNobodyCall = conversation.targetId }
-                    else { calls.placeCall(to: conversation.targetId) }
-                } label: { Image(systemName: "phone") }
-                .buttonStyle(.borderless)
-                .help("Voice call")
-                .disabled(calls.phase != .idle && calls.phase != .ended)
-            }
-            if conversation.type == .room || conversation.type == .team, conversation.leftGroup != true {
-                let meetings = appState.meetingCenter
-                Menu {
-                    Button("Everyone in this chat") { startMeeting(in: conversation, invitees: nil) }
-                    // Only them: a key of the meeting's own goes to each alone (Decision 20).
-                    Button("Choose people…") { meetingPicker = conversation }
-                } label: {
-                    Image(systemName: "person.3")
-                }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .help("Start a voice meeting")
-                .disabled(meetings.isActive)
-            }
             // The id, badged rather than greyed. It is the one string in
             // this pane that has to be copied exactly — to add a
             // contact, to invite somebody, to check you are in the
@@ -1462,6 +1438,44 @@ struct ChatView: View {
     }
 
     // MARK: - actions
+
+    /// The phone in the composer: a call in a 1:1 chat; in a Room or Team,
+    /// the menu that starts a meeting for everyone or for chosen people.
+    private func callControl(for conversation: Conversation) -> AnyView? {
+        let calls = appState.callCenter
+        let meetings = appState.meetingCenter
+        let busy = (calls.phase != .idle && calls.phase != .ended) || meetings.isActive
+        switch conversation.type {
+        case .p2p where conversation.targetId != session.liveFid:
+            return AnyView(
+                Button {
+                    // A nobody's key is public: calling one asks first (NOBODY_SPEC §3).
+                    if names.isNobody(conversation.targetId) { confirmNobodyCall = conversation.targetId }
+                    else { calls.placeCall(to: conversation.targetId) }
+                } label: { Image(systemName: "phone") }
+                .buttonStyle(.borderless)
+                .help("Voice call")
+                .disabled(busy)
+            )
+        case .room where conversation.leftGroup != true, .team where conversation.leftGroup != true:
+            return AnyView(
+                Menu {
+                    Button("Everyone in this chat") { startMeeting(in: conversation, invitees: nil) }
+                    // Only them: a key of the meeting's own goes to each alone (Decision 20).
+                    Button("Choose people…") { meetingPicker = conversation }
+                } label: {
+                    Image(systemName: "phone")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Start a voice meeting")
+                .disabled(busy)
+            )
+        default:
+            return nil
+        }
+    }
 
     /// Start a meeting in a Room or Team: everyone in it, or only `invitees`.
     private func startMeeting(in conversation: Conversation, invitees: [String]?) {

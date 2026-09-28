@@ -42,6 +42,9 @@ struct MessageComposerView: View {
     let onSendVoice: () -> Void
     let onCancelRecording: () -> Void
     let onGenerateKey: () -> Void
+    /// A voice call (1:1) or the meeting menu (Room, Team), just left of the
+    /// microphone; nil where neither applies.
+    var callControl: AnyView? = nil
 
     @State private var showEmoji = false
 
@@ -145,6 +148,8 @@ struct MessageComposerView: View {
             .buttonStyle(.borderless)
             .disabled(!enabled || attaching)
             .help("Share a file — it is encrypted, uploaded to DISK, and the message carries the key")
+
+            if let callControl { callControl }
 
             Button(action: onStartRecording) {
                 Image(systemName: "mic")
