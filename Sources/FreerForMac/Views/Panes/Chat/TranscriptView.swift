@@ -273,6 +273,10 @@ struct TranscriptView: View {
                 .foregroundStyle(NobodyMark.color)
         } else if message.isSealed {
             sealedBubble(message)
+        } else if message.contentType == .call, message.type == .room || message.type == .team,
+                  let signal = message.content.flatMap(MeetingSignal.fromJson) {
+            // A meeting's card (VOICE_SPEC §3.3): join it from here while it runs.
+            MeetingCardView(signal: signal)
         } else if message.contentType == .call {
             // A call record, not something anybody said (VOICE_SPEC §10).
             Label(CallText.describe(message.content), systemImage: "phone")
@@ -558,5 +562,43 @@ struct ChatTrack: View {
                 .frame(width: width * max(0, min(1, fraction)))
         }
         .frame(width: width, height: 5)
+    }
+}
+
+
+/// One meeting's card in a Room or Team chat: its title and, from the board,
+/// whether it still runs. Join is the only thing to do with it.
+private struct MeetingCardView: View {
+    @Environment(AppState.self) private var appState
+    let signal: MeetingSignal
+    @State private var error: String?
+
+    var body: some View {
+        let meetings = appState.meetingCenter
+        let _ = meetings.cardsRevision // redraw when a card changes
+        let known = meetings.board?.get(signal.meetingId)
+        let here = meetings.isActive && meetings.meeting?.meetingId == signal.meetingId
+        VStack(alignment: .leading, spacing: 6) {
+            Label(signal.title.map { "Voice meeting: \($0)" } ?? "Voice meeting", systemImage: "person.3.fill")
+                .font(.callout.bold())
+            if known?.invited == true {
+                Text("Only invited members").font(.caption).foregroundStyle(.secondary)
+            }
+            if let m = known, m.ended {
+                Text(m.duration > 0 ? "Ended · \(CallText.formatDuration(m.duration))" : "Ended")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if known == nil {
+                Text("This device cannot join it.").font(.caption).foregroundStyle(.secondary)
+            } else {
+                Button(here ? "Show" : "Join") {
+                    Task { error = await meetings.join(meetingId: signal.meetingId) }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!here && meetings.isActive)
+            }
+            if let error {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
+        }
     }
 }

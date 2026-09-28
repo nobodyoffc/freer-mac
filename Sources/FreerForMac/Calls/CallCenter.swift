@@ -40,6 +40,10 @@ final class CallCenter {
     @ObservationIgnored private var ringtone: Task<Void, Never>?
     /// My own home.CALL, read by the signaller's thread for its relay policy.
     @ObservationIgnored private let ownCallRelay = LockedValue<String?>(nil)
+    /// Where meeting messages go, set by ``MeetingCenter``; read on the courier's thread.
+    @ObservationIgnored let meetingInbox = LockedValue<MeetingInbox?>(nil)
+    /// A meeting is running or joining: one call or meeting at a time (§3.2).
+    @ObservationIgnored let meetingBusy = LockedValue(false)
 
     var testRelay: String {
         get { UserDefaults.standard.string(forKey: Self.testRelayKey) ?? "" }
@@ -65,11 +69,15 @@ final class CallCenter {
             if !test.isEmpty && FudpUrl.sameEndpoint(test, url) { return true }
             return FudpUrl.sameEndpoint(own.value, url) // my own home.CALL, and no other (§6.2)
         }
+        let busy = meetingBusy
+        s.alsoBusy = { busy.value }
         let ev = SignallerEvents(center: self)
         s.listener = ev
         events = ev
         signaller = s
+        let meetings = meetingInbox
         session.callInbox.handler = { [weak session, weak s] message, liveFid in
+            if meetings.value?.take(message) == true { return }
             guard let session, let s, let sender = message.senderId, message.type == .p2p,
                   let content = message.content, let signal = CallSignal.fromJson(content) else { return }
             switch session.callGate(sender: sender) {
@@ -111,6 +119,12 @@ final class CallCenter {
     func placeCall(to fid: String) {
         guard let session = active, let signaller, phase == .idle || phase == .ended else { return }
         reset()
+        if meetingBusy.value {
+            phase = .calling
+            peerFid = fid
+            finish("You are in a meeting.")
+            return
+        }
         phase = .calling
         peerFid = fid
         Task {
@@ -295,7 +309,7 @@ final class CallCenter {
         FudpUrl.hostPort(url).map { "\($0.host):\($0.port)" } ?? url
     }
 
-    static func short(_ fid: String) -> String {
+    nonisolated static func short(_ fid: String) -> String {
         fid.count > 14 ? String(fid.prefix(6)) + "…" + String(fid.suffix(6)) : fid
     }
 }

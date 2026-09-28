@@ -145,6 +145,10 @@ struct ChatView: View {
     @State private var confirmDelete: Conversation?
     /// A nobody about to be called: its key is public (NOBODY_SPEC §3).
     @State private var confirmNobodyCall: String?
+    /// The Room or Team whose members are being chosen for a meeting (Decision 20).
+    @State private var meetingPicker: Conversation?
+    /// Why a meeting could not start or be joined.
+    @State private var meetingError: String?
     @State private var syncing = false
     @State private var syncSummary: String?
     @State private var delivering = false
@@ -378,6 +382,28 @@ struct ChatView: View {
         .onChange(of: appState.inboxRevision) { _, _ in
             reload()
             openSelected()
+        }
+        // A meeting card opened, changed or ended outside the poller: a card
+        // this device posted, or one only it holds (Decision 20).
+        .onChange(of: appState.meetingCenter.cardsRevision) { _, _ in
+            reload()
+            openSelected()
+        }
+        .sheet(isPresented: Binding(get: { meetingPicker != nil }, set: { if !$0 { meetingPicker = nil } })) {
+            if let conversation = meetingPicker {
+                MemberPickerSheet(
+                    title: "Meet with whom?",
+                    members: session.entityMembers(type: conversation.type, entityId: conversation.targetId)
+                        .filter { $0 != session.liveFid },
+                    names: meetingName,
+                    confirm: "Start meeting"
+                ) { chosen in startMeeting(in: conversation, invitees: chosen) }
+            }
+        }
+        .alert("Meeting", isPresented: Binding(get: { meetingError != nil }, set: { if !$0 { meetingError = nil } })) {
+            Button("OK", role: .cancel) { meetingError = nil }
+        } message: {
+            Text(meetingError ?? "")
         }
         .sheet(isPresented: $showDetails) {
             if let conversation = selected {
@@ -1259,6 +1285,20 @@ struct ChatView: View {
                 .help("Voice call")
                 .disabled(calls.phase != .idle && calls.phase != .ended)
             }
+            if conversation.type == .room || conversation.type == .team, conversation.leftGroup != true {
+                let meetings = appState.meetingCenter
+                Menu {
+                    Button("Everyone in this chat") { startMeeting(in: conversation, invitees: nil) }
+                    // Only them: a key of the meeting's own goes to each alone (Decision 20).
+                    Button("Choose people…") { meetingPicker = conversation }
+                } label: {
+                    Image(systemName: "person.3")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("Start a voice meeting")
+                .disabled(meetings.isActive)
+            }
             // The id, badged rather than greyed. It is the one string in
             // this pane that has to be copied exactly — to add a
             // contact, to invite somebody, to check you are in the
@@ -1422,6 +1462,21 @@ struct ChatView: View {
     }
 
     // MARK: - actions
+
+    /// Start a meeting in a Room or Team: everyone in it, or only `invitees`.
+    private func startMeeting(in conversation: Conversation, invitees: [String]?) {
+        let meetings = appState.meetingCenter
+        Task {
+            if let why = await meetings.start(type: conversation.type, entityId: conversation.targetId,
+                                              title: nil, invitees: invitees) {
+                meetingError = why
+            }
+        }
+    }
+
+    private func meetingName(_ fid: String) -> String {
+        ((try? session.contacts.get(fid: fid)) ?? nil)?.name ?? CallCenter.short(fid)
+    }
 
     private func reload() {
         do {

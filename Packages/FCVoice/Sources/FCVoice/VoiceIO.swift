@@ -27,7 +27,7 @@ public final class VoiceIO: @unchecked Sendable {
 
     /// - Parameters:
     ///   - onCapture: 48 kHz mono samples, on the audio thread; return quickly
-    ///   - render: one 20 ms tick of playout at a monotonic time in ms, on the playout thread
+    ///   - render: one 20 ms tick of playout at the uptime in ms, on the playout thread
     public init(onCapture: @escaping ([Int16]) -> Void, render: @escaping (Int64) -> [Int16]) {
         self.onCapture = onCapture
         self.render = render
@@ -86,10 +86,10 @@ public final class VoiceIO: @unchecked Sendable {
 
     /// Keeps about three ticks queued: the device drains the ring at its own pace.
     private func playoutLoop() {
-        let start = DispatchTime.now().uptimeNanoseconds
         while running.get() {
             while ring.count < VoiceIO.aheadSamples && running.get() {
-                let nowMs = Int64((DispatchTime.now().uptimeNanoseconds - start) / 1_000_000)
+                // Uptime, the clock frames are stamped with on arrival: the jitter buffer compares the two.
+                let nowMs = Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000)
                 ring.write(render(nowMs).map { Float($0) / 32768 })
             }
             Thread.sleep(forTimeInterval: 0.005)

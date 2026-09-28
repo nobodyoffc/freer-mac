@@ -26,6 +26,13 @@ struct AppRouter: View {
         ))
         // A call can ring whatever screen is open (VOICE_SPEC §10).
         .overlay(alignment: .topTrailing) { CallView(calls: appState.callCenter) }
+        .overlay(alignment: .bottomTrailing) {
+            MeetingView(meetings: appState.meetingCenter) { fid in
+                // A contact's name where there is one; the FID, shortened, where not.
+                let contact = (try? appState.activeSession?.contacts.get(fid: fid)) ?? nil
+                return contact.map(\.name) ?? CallCenter.short(fid)
+            }
+        }
         .sheet(isPresented: Bindable(appState).showCallSettings) { CallSettingsSheet(calls: appState.callCenter) }
     }
 }

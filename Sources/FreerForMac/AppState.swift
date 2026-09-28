@@ -60,6 +60,11 @@ final class AppState {
     private(set) var activeSession: ActiveSession?
     /// Calls for the live identity (VOICE_SPEC §10): attached with its poller.
     let callCenter = CallCenter()
+    @ObservationIgnored private(set) lazy var meetingCenter: MeetingCenter = {
+        let m = MeetingCenter(calls: callCenter)
+        m.meetingDocks = { [weak self] type, id in self?.setMeetingDocks(type: type, id: id) }
+        return m
+    }()
     /// The call settings sheet (the test relay).
     var showCallSettings = false
     private(set) var configures: [ConfigureRecord]
@@ -483,9 +488,28 @@ final class AppState {
     /// INVITE waiting for a slow fetch outlives its 45 s ring.
     @ObservationIgnored private var ownDockHot: String?
 
+    /// A running meeting's Room or Team DOCK, fetched every few seconds
+    /// whatever pane is open: its cards and key re-posts arrive there, and
+    /// key shares after a rotation land in our own DOCK, already hot.
+    @ObservationIgnored private var meetingDock: String?
+
+    private func setMeetingDocks(type: ImType?, id: String?) {
+        guard let type, let id, let session = activeSession else {
+            meetingDock = nil
+            pushPriorityDocks()
+            return
+        }
+        Task { @MainActor [weak self] in
+            let url = await session.dockRegistry.dockUrl(forTarget: id, type: type)
+            guard let self else { return }
+            self.meetingDock = url
+            self.pushPriorityDocks()
+        }
+    }
+
     private func pushPriorityDocks() {
         guard let fetchScheduler else { return }
-        let docks = Set([chatPriorityDock, ownDockHot].compactMap { $0 })
+        let docks = Set([chatPriorityDock, ownDockHot, meetingDock].compactMap { $0 })
         Task { await fetchScheduler.setPriorityDocks(docks) }
     }
 
@@ -555,6 +579,7 @@ final class AppState {
         applyFetchLayer()
         Task { await scheduler.start() }
         callCenter.attach(session)
+        meetingCenter.attach(session)
         Task { @MainActor [weak self] in
             let own = await session.dockRegistry.ownDockUrl
             guard let self, self.sessionGeneration == generation else { return }
@@ -572,6 +597,7 @@ final class AppState {
     /// replacement on the next line. ``shutdown()`` is the synchronous
     /// half of the same operation.
     private func stopFetchScheduler() {
+        meetingCenter.detach()
         callCenter.detach()
         guard let fetchScheduler else { return }
         self.fetchScheduler = nil
