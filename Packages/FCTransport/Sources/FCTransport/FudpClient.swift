@@ -144,6 +144,10 @@ public final class FudpClient: @unchecked Sendable {
     // supports them: an older peer loses every packet carrying one.
     private var _datagramsEnabled = false
     private var _datagramHandler: (@Sendable (_ peerId: String, _ connectionId: Int64, _ data: Data) -> Void)?
+    /// NOTIFY messages go here instead of the request mailbox when set: a
+    /// peer pushes them unasked (a CALL relay's notices and attestations), and a
+    /// request waiting on the mailbox would drop them as not its reply.
+    private var _notifyHandler: (@Sendable (_ dataType: Int, _ data: Data) -> Void)?
 
     // Counters (under `stateLock`).
     private var _datagramsSent: Int64 = 0
@@ -496,6 +500,45 @@ public final class FudpClient: @unchecked Sendable {
     private var inboundProgress: (@Sendable (Int) -> Void)? {
         stateLock.lock(); defer { stateLock.unlock() }
         return _inboundProgress
+    }
+
+    // MARK: - notify
+
+    /// Take the peer's NOTIFY messages as they come, in place of the mailbox.
+    public func setNotifyHandler(_ handler: (@Sendable (_ dataType: Int, _ data: Data) -> Void)?) {
+        stateLock.lock()
+        _notifyHandler = handler
+        stateLock.unlock()
+    }
+
+    private var notifyHandler: (@Sendable (Int, Data) -> Void)? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _notifyHandler
+    }
+
+    /// A NOTIFY: `dataType(1) ‖ length(4) ‖ data`, as FC-AJDK's NotifyMessage.
+    /// No ack is asked for; the stream it rides is delivered reliably anyway.
+    public func sendNotify(_ data: Data, dataType: Int, messageId: Int64 = Int64.random(in: 1...Int64.max)) async throws {
+        var payload = Data([UInt8(truncatingIfNeeded: dataType)])
+        withUnsafeBytes(of: UInt32(data.count).bigEndian) { payload.append(contentsOf: $0) }
+        payload.append(data)
+        try await send(AppMessageEnvelope(type: .notify, messageId: messageId, payload: payload))
+    }
+
+    private func deliverNotify(_ envelope: AppMessageEnvelope, to handler: @Sendable (Int, Data) -> Void) {
+        let p = Data(envelope.payload)
+        if envelope.flags.contains(.needAck) {
+            // NOTIFY_ACK: the acked message id, 8 bytes (FC-AJDK's NotifyAckMessage).
+            var ack = Data()
+            withUnsafeBytes(of: envelope.messageId.bigEndian) { ack.append(contentsOf: $0) }
+            let reply = AppMessageEnvelope(type: .notifyAck, messageId: Int64.random(in: 1...Int64.max), payload: ack)
+            Task { [weak self] in try? await self?.send(reply) }
+        }
+        guard p.count >= 5 else { return }
+        let length = p[1..<5].reduce(0) { $0 << 8 | Int($1) }
+        guard p.count >= 5 + length else { return }
+        handler(Int(p[0]), p.subdata(in: 5..<(5 + length)))
     }
 
     // MARK: - send
@@ -1076,6 +1119,10 @@ public final class FudpClient: @unchecked Sendable {
 
         do {
             let envelope = try AppMessageCodec.decode(complete)
+            if envelope.type == .notify, let handler = notifyHandler {
+                deliverNotify(envelope, to: handler)
+                return
+            }
             inboundMailbox.put(ReceivedMessage(envelope: envelope, senderPubkey: connection.peerPubkey))
         } catch {
             log("AppMessageCodec.decode failed: \(error)")
