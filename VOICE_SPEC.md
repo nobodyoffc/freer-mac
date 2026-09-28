@@ -452,8 +452,19 @@ version during the meeting, usually because a member was removed (FIMP2
 4. Each participant has **30 s** to prove itself with a signature under the new `authPriv`. The relay drops anyone who does not.
 5. A participant that lacks the new symkey version asks for it the FIMP way (FIMP2 §7.4, FIMP4 §7.4) and stays connected until the 30 s runs out.
 
-Senders switch to the new `keyEpoch` as soon as they have it. Receivers keep
-the previous epoch's keys for **5 s**, to cover frames already in flight.
+**Switching (Decision 19).** A participant that has the new key opens frames
+under both epochs, but keeps *sending* under the previous one until every
+roster entry shows the new `keyEpoch` (the relay puts each participant's
+proven epoch in its roster entry, and pushes the roster on each
+`call.prove`), or until the 30 s deadline, when the relay drops those who
+did not prove. Then it sends under the new epoch, and keeps the previous
+epoch's keys **5 s** longer for frames already in flight. So a member still
+waiting for the new symkey keeps hearing everyone. In the Phase 5 test the
+key reached the member who stayed 22 s after the rotation, and switching at
+once had silenced the host for all of them. The cost: a removed member who
+is still connected can listen for up to 30 s more. A host that removes
+someone should also `kick` them (§7.2), which cuts them off at the relay at
+once.
 
 The host does not rotate the symkey itself. FIMP forbids automatic rotation
 (FIMP2 §7.2), and a meeting is no reason to break that rule. The host only
@@ -727,7 +738,7 @@ Rules for `call.join`:
 
 Pushed by the relay (FUDP NOTIFY with `dataType = 1`, JSON with a `type` and the `meetingId`):
 
-- `roster` — someone joined or left, or a mute or host changed: `{type, meetingId, host, roster: [{fid, ssrc, routeId, delegation, candidates?}]}`. The delegation is the JSON the participant sent, so receivers can verify it themselves (§5.1). `ssrc` and `routeId` are unsigned numbers.
+- `roster` — someone joined or left, proved a new key, or a mute or host changed: `{type, meetingId, host, roster: [{fid, ssrc, routeId, delegation, keyEpoch, muted?, hand?, candidates?}]}`. `keyEpoch` is the epoch that participant has proved (§4.5). The delegation is the JSON the participant sent, so receivers can verify it themselves (§5.1). `ssrc` and `routeId` are unsigned numbers.
 - `rekey` — as in §4.5.
 - `muted` — to the participant concerned.
 - `knock` — to the host, when a join is refused with 409 because `authPub` is not registered yet: `{type, meetingId, fid, delegation}`, the delegation the joiner sent (§6.2 step 3).
@@ -1357,3 +1368,7 @@ Answered 2026-09-27, after the Phase 4 load test:
 
 17. **§7.5 gives measured figures,** about 1.1 MB a minute out per participant rather than 0.8. The gap is FUDP's per-packet cost and the attestations, and is accepted. Moving attestations into the media packets was rejected: they must be reliable (§5.1).
 18. **Frame length follows §9.1:** 40 ms, and 20 ms only on a fast direct path. Senders may switch mid-call, and receivers follow each packet's TOC byte. Until then the Android client always sent 20 ms frames.
+
+Answered 2026-09-28, during Phase 5:
+
+19. **After a rekey, senders keep the previous key until everyone has proved the new one, or 30 s pass** (§4.5). Switching at once left members still waiting for the rotated symkey unable to hear anyone. The removed member can listen up to 30 s longer unless the host also kicks it.
