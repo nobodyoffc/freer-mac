@@ -34,21 +34,9 @@ public final class VoiceIO: @unchecked Sendable {
     }
 
     public func start() throws {
-        let input = engine.inputNode
-        try input.setVoiceProcessingEnabled(true)
-        let inFormat = input.outputFormat(forBus: 0)
-        guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else { throw Failure.noMicrophone }
-        // Voice processing may present several channels; the processed voice is the first.
-        let monoIn = AVAudioFormat(standardFormatWithSampleRate: inFormat.sampleRate, channels: 1)!
-        let out48 = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(Opus.sampleRate), channels: 1,
-                                  interleaved: false)!
-        guard let conv = AVAudioConverter(from: monoIn, to: out48) else { throw Failure.converter }
-        converter = conv
-        input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(inFormat.sampleRate / 50), format: inFormat) {
-            [weak self] buffer, _ in
-            self?.captured(buffer, monoIn: monoIn, out48: out48)
-        }
-
+        // The playback graph first: turning voice processing on replaces the
+        // engine's I/O unit, and doing that before the output side exists
+        // leaves the output unit unable to initialise (-10875 on a MacBook).
         let playFormat = AVAudioFormat(standardFormatWithSampleRate: Double(Opus.sampleRate), channels: 1)!
         let ring = self.ring
         let source = AVAudioSourceNode(format: playFormat) { [weak self] _, _, frameCount, abl -> OSStatus in
@@ -63,6 +51,22 @@ public final class VoiceIO: @unchecked Sendable {
         }
         engine.attach(source)
         engine.connect(source, to: engine.mainMixerNode, format: playFormat)
+        _ = engine.outputNode
+
+        let input = engine.inputNode
+        try input.setVoiceProcessingEnabled(true)
+        let inFormat = input.outputFormat(forBus: 0)
+        guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else { throw Failure.noMicrophone }
+        // Voice processing may present several channels; the processed voice is the first.
+        let monoIn = AVAudioFormat(standardFormatWithSampleRate: inFormat.sampleRate, channels: 1)!
+        let out48 = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: Double(Opus.sampleRate), channels: 1,
+                                  interleaved: false)!
+        guard let conv = AVAudioConverter(from: monoIn, to: out48) else { throw Failure.converter }
+        converter = conv
+        input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(inFormat.sampleRate / 50), format: inFormat) {
+            [weak self] buffer, _ in
+            self?.captured(buffer, monoIn: monoIn, out48: out48)
+        }
         engine.prepare()
         try engine.start()
 

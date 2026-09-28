@@ -25,6 +25,8 @@ final class CallCenter {
     private(set) var endReason: String?
     private(set) var unverifiedFid: String?
     private(set) var relayHost: String?
+    /// The call failed rather than ended: the card stays until closed, so the reason can be read.
+    private(set) var failed = false
     var muted = false {
         didSet { callSession?.muted = muted }
     }
@@ -216,6 +218,8 @@ final class CallCenter {
             connectedAtMs = Int64(Date().timeIntervalSince1970 * 1000)
         case .failed(let why):
             hangup() // the media path failed: end the call for the peer too
+            SystemLog.shared.error(SystemSource.messages, "A call failed", detail: why)
+            failed = true
             finish("The call failed: \(why)")
         default:
             break
@@ -236,6 +240,7 @@ final class CallCenter {
         callSession = nil
         connectedAtMs = -1
         endReason = nil
+        failed = false
         unverifiedFid = nil
         relayHost = nil
         muted = false

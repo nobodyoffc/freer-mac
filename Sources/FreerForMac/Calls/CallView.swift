@@ -32,7 +32,7 @@ struct CallView: View {
             .padding(16)
             .onReceive(clock) { now = $0 }
             .onChange(of: calls.phase) { _, phase in
-                if phase == .ended {
+                if phase == .ended && !calls.failed {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) { calls.dismiss() }
                 }
             }
