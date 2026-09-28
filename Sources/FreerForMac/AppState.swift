@@ -67,6 +67,13 @@ final class AppState {
     }()
     /// The call settings sheet (the test relay).
     var showCallSettings = false
+    /// Keep running in the menu bar with the window closed, so calls and
+    /// meetings still ring (VOICE_SPEC §11.2). Off by default, as on Android.
+    var availableForCalls = UserDefaults.standard.bool(forKey: "availableForCalls") {
+        didSet { UserDefaults.standard.set(availableForCalls, forKey: "availableForCalls") }
+    }
+    /// A call or a meeting is ringing: the window must be on screen to answer it.
+    var somethingRinging: Bool { callCenter.phase == .ringingIn || meetingCenter.ringing != nil }
     private(set) var configures: [ConfigureRecord]
 
     /// Bumped every time the active session changes hands — an unlock, a

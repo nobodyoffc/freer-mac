@@ -84,6 +84,7 @@ struct CallView: View {
 /// The relay to call through and answer on before a CALL service is on chain.
 struct CallSettingsSheet: View {
     let calls: CallCenter
+    @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
     @State private var relay = ""
     @State private var alwaysRelay = false
@@ -94,6 +95,9 @@ struct CallSettingsSheet: View {
             Text("Test relay: calls go through it instead of the callee's CALL service, and this Mac answers on it too. Leave empty to use CALL services from the chain.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             TextField("fudp://host:port", text: $relay).textFieldStyle(.roundedBorder)
+            Toggle("Available for calls", isOn: Bindable(appState).availableForCalls)
+            Text("Keep Freer running in the menu bar when its window is closed, so calls and meetings still ring. Quit it from the menu bar icon.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Toggle("Always relay", isOn: $alwaysRelay)
             Text("Never connect directly to the other side of a call, so they never learn this Mac's IP address. Calls with contacts otherwise try a direct path, which is faster and costs no relay fee.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
