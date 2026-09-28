@@ -13,6 +13,7 @@ let package = Package(
         .package(path: "Packages/FCStorage"),
         .package(path: "Packages/FCDomain"),
         .package(path: "Packages/FCUI"),
+        .package(path: "Packages/FCVoice"),
         // The terminal emulator behind the Terminal pane. Pinned to a
         // minor range on purpose: SwiftTerm's `main` has already moved
         // to swift-tools 6.2 with `swiftLanguageModes: [.v6]` and picked
@@ -32,6 +33,7 @@ let package = Package(
                 "FCStorage",
                 "FCDomain",
                 "FCUI",
+                "FCVoice",
                 .product(name: "SwiftTerm", package: "SwiftTerm")
             ],
             // Linked into the binary, not copied as a resource — see the

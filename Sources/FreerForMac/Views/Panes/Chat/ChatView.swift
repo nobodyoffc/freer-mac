@@ -143,6 +143,8 @@ struct ChatView: View {
     /// Nil is "nothing pending" — a Bool could not name the row, and the
     /// row can be any of the four flavours.
     @State private var confirmDelete: Conversation?
+    /// A nobody about to be called: its key is public (NOBODY_SPEC §3).
+    @State private var confirmNobodyCall: String?
     @State private var syncing = false
     @State private var syncSummary: String?
     @State private var delivering = false
@@ -500,6 +502,20 @@ struct ChatView: View {
             Button("Cancel", role: .cancel) { confirmDelete = nil }
         } message: { conversation in
             Text(deleteMessage(conversation))
+        }
+        .confirmationDialog(
+            "Call a nobody?",
+            isPresented: Binding(
+                get: { confirmNobodyCall != nil },
+                set: { if !$0 { confirmNobodyCall = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: confirmNobodyCall
+        ) { fid in
+            Button("Call") { appState.callCenter.placeCall(to: fid) }
+            Button("Cancel", role: .cancel) { confirmNobodyCall = nil }
+        } message: { _ in
+            Text("This is a nobody FID: anyone may hold its key, so a call with it is only as private as a public square.")
         }
         .sheet(isPresented: $showTeamOffers) {
             TeamOffersSheet(
@@ -1231,6 +1247,17 @@ struct ChatView: View {
                 Text("\(members) members").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            if conversation.type == .p2p, conversation.targetId != session.liveFid {
+                let calls = appState.callCenter
+                Button {
+                    // A nobody's key is public: calling one asks first (NOBODY_SPEC §3).
+                    if names.isNobody(conversation.targetId) { confirmNobodyCall = conversation.targetId }
+                    else { calls.placeCall(to: conversation.targetId) }
+                } label: { Image(systemName: "phone") }
+                .buttonStyle(.borderless)
+                .help("Voice call")
+                .disabled(calls.phase != .idle && calls.phase != .ended)
+            }
             // The id, badged rather than greyed. It is the one string in
             // this pane that has to be copied exactly — to add a
             // contact, to invite somebody, to check you are in the

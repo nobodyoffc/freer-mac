@@ -41,6 +41,14 @@ public final class CallSignaller: @unchecked Sendable {
         public let durationMs: Int64
         public let callId: String
 
+        public init(kind: Kind, outgoing: Bool, atMs: Int64, durationMs: Int64, callId: String) {
+            self.kind = kind
+            self.outgoing = outgoing
+            self.atMs = atMs
+            self.durationMs = durationMs
+            self.callId = callId
+        }
+
         /// The record's JSON, as Android writes it into the chat.
         public var json: String {
             "{\"record\":\"\(kind.rawValue)\",\"outgoing\":\(outgoing),\"duration\":\(durationMs),\"callId\":\"\(callId)\"}"

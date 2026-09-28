@@ -26,6 +26,11 @@ public final class CallRelayLink: @unchecked Sendable {
         public let code: Int
         public let message: String
         public var lostReply: Bool { code == 408 }
+
+        public init(code: Int, message: String) {
+            self.code = code
+            self.message = message
+        }
         public var description: String { "\(code) \(message)" }
     }
 

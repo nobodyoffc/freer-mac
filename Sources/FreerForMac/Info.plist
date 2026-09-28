@@ -25,6 +25,6 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Freer records voice notes you send in a chat. The microphone runs only while you are recording one.</string>
+	<string>Freer records the voice notes you send in a chat, and carries your voice in calls and meetings. The microphone runs only while you record a note or are in a call.</string>
 </dict>
 </plist>

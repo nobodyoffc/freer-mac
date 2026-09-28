@@ -48,6 +48,12 @@ struct FreerForMacApp: App {
                 .disabled(appState.configureSession == nil)
                 .help("Closes the vault, and with it any open terminal sessions and the SSH agent holding your key.")
             }
+            CommandGroup(after: .appSettings) {
+                Button("Call Settings…") {
+                    appState.showCallSettings = true
+                }
+                .disabled(appState.activeSession == nil)
+            }
         }
     }
 }

@@ -24,5 +24,8 @@ struct AppRouter: View {
             center: appState.txApprovals,
             session: appState.activeSession
         ))
+        // A call can ring whatever screen is open (VOICE_SPEC §10).
+        .overlay(alignment: .topTrailing) { CallView(calls: appState.callCenter) }
+        .sheet(isPresented: Bindable(appState).showCallSettings) { CallSettingsSheet(calls: appState.callCenter) }
     }
 }

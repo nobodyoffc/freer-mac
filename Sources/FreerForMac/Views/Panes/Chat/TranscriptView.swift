@@ -273,6 +273,11 @@ struct TranscriptView: View {
                 .foregroundStyle(NobodyMark.color)
         } else if message.isSealed {
             sealedBubble(message)
+        } else if message.contentType == .call {
+            // A call record, not something anybody said (VOICE_SPEC §10).
+            Label(CallText.describe(message.content), systemImage: "phone")
+                .font(.callout)
+                .foregroundStyle(.secondary)
         } else if message.contentType == .voice {
             // Before the `content` branch, because a voice note's
             // content is its metadata JSON — showing that to the user is

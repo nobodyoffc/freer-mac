@@ -58,6 +58,10 @@ final class AppState {
     let manager: ConfigureManager
     private(set) var configureSession: ConfigureSession?
     private(set) var activeSession: ActiveSession?
+    /// Calls for the live identity (VOICE_SPEC §10): attached with its poller.
+    let callCenter = CallCenter()
+    /// The call settings sheet (the test relay).
+    var showCallSettings = false
     private(set) var configures: [ConfigureRecord]
 
     /// Bumped every time the active session changes hands — an unlock, a
@@ -468,8 +472,21 @@ final class AppState {
     /// Put one conversation's DOCK on the fast lane. Pass nil when the
     /// conversation closes.
     func setPriorityDock(_ dockUrl: String?) {
+        chatPriorityDock = dockUrl
+        pushPriorityDocks()
+    }
+
+    /// The open chat's DOCK, fetched every few seconds while it is open.
+    @ObservationIgnored private var chatPriorityDock: String?
+    /// Our own DOCK, fetched every few seconds whenever the app runs: a
+    /// call rings a Mac only while the app runs (VOICE_SPEC §11.2), and an
+    /// INVITE waiting for a slow fetch outlives its 45 s ring.
+    @ObservationIgnored private var ownDockHot: String?
+
+    private func pushPriorityDocks() {
         guard let fetchScheduler else { return }
-        Task { await fetchScheduler.setPriorityDock(dockUrl) }
+        let docks = Set([chatPriorityDock, ownDockHot].compactMap { $0 })
+        Task { await fetchScheduler.setPriorityDocks(docks) }
     }
 
     /// Collect from every DOCK right now, off the schedule.
@@ -537,6 +554,13 @@ final class AppState {
         fetchScheduler = scheduler
         applyFetchLayer()
         Task { await scheduler.start() }
+        callCenter.attach(session)
+        Task { @MainActor [weak self] in
+            let own = await session.dockRegistry.ownDockUrl
+            guard let self, self.sessionGeneration == generation else { return }
+            self.ownDockHot = own
+            self.pushPriorityDocks()
+        }
     }
 
     /// Put the current poller away, completely, before this line
@@ -548,6 +572,7 @@ final class AppState {
     /// replacement on the next line. ``shutdown()`` is the synchronous
     /// half of the same operation.
     private func stopFetchScheduler() {
+        callCenter.detach()
         guard let fetchScheduler else { return }
         self.fetchScheduler = nil
         fetchScheduler.shutdown()

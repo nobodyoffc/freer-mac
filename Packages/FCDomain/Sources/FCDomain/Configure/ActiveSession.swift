@@ -681,6 +681,23 @@ public final class ActiveSession {
         Task { _ = try? await courier.drainOutbox(as: from) }
     }
 
+    /**
+     * A local entry in the chat with `peerFid`: "Call, 4:12", "Missed call",
+     * "Declined" (§10). Built from the signalling, never sent; its content is
+     * the record JSON Android writes, so both show it the same way.
+     */
+    public func recordCall(peerFid: String, _ record: CallSignaller.CallRecord) throws {
+        var m = record.outgoing
+            ? ImMessage.make(type: .p2p, from: liveFid, to: peerFid, contentType: .call).named()
+            : ImMessage.make(type: .p2p, from: peerFid, to: liveFid, contentType: .call).named()
+        m.content = record.json
+        m.timestamp = record.atMs
+        m.status = record.outgoing ? .sent : .delivered
+        m.unread = !record.outgoing && record.kind == .MISSED
+        try messages.put(m, in: Conversation.id(type: .p2p, targetId: peerFid))
+        try conversations.record(m, myFid: liveFid)
+    }
+
     private var signalRoute: (@Sendable (ImMessage, String, Date) throws -> SignalRouter.Outcome)? {
         guard let privkey = try? livePrikey(), let service = try? roomService else { return nil }
         // The FID `privkey` belongs to, captured with it. The router is
@@ -836,6 +853,30 @@ public final class ActiveSession {
             policy: contactPolicy, requests: messageRequests,
             isContact: { fid in ((try? contacts.get(fid: fid)) ?? nil) != nil }
         )
+    }
+
+    /// What an incoming call from `sender` may do (VOICE_SPEC §3.2): the
+    /// chat's stranger gate, applied to calls.
+    public enum CallGate: Equatable, Sendable {
+        /// Ring. An accepted contact is remembered, as a message would be.
+        case ring
+        /// A stranger not yet accepted: no ring, only a missed call to see.
+        case missed
+        /// Blocked.
+        case drop
+    }
+
+    public func callGate(sender: String) -> CallGate {
+        guard sender != liveFid, let policy = try? contactPolicy.load(liveFid: liveFid) else { return .drop }
+        let isContact = ((try? contacts.get(fid: sender)) ?? nil) != nil
+        switch policy.decide(sender: sender, isContact: isContact) {
+        case .deliver: return .ring
+        case .acceptAndDeliver:
+            try? contactPolicy.mutate(liveFid: liveFid) { $0.allow(sender) }
+            return .ring
+        case .hold: return .missed
+        case .drop: return .drop
+        }
     }
 
     /// Who may start a conversation with this identity.
