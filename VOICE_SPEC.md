@@ -1365,6 +1365,19 @@ synthetic participants on the relay. A 10-device check waits for the devices.
 - A mixed meeting works.
 - All vectors pass on both clients.
 
+**Result (2026-09-29): passed** with a MacBook and the Android phones.
+
+- **1:1 calls:** Mac↔Android both ways, relayed and direct. The Mac runs the relay and the direct connection from one UDP port, so the address the relay sees is where the phone reaches it. Tested on one Wi-Fi.
+- **Meetings:** mixed Mac and Android meetings in a Room, started from either side, for everyone and for chosen people; rings on both (Decision 21).
+- **Vectors:** every call vector passes on the Mac, as on Android; the Mac's own tests include two direct paths meeting over loopback and, live against the HK relay, a call going direct beside it.
+- **Mac specifics:** *Available for calls* keeps Freer in the menu bar with its window closed and reopens the window when something rings; *Always relay* keeps calls off the direct path.
+- **Found on the way:**
+  - Porting the crypto showed §4 named HKDF-SHA256 where every implementation uses SHA-512; the spec was corrected.
+  - The Mac treated a phone it had messaged and called as a stranger, so its calls came in as missed: writing to or calling someone now accepts them, as on Android.
+  - Android never switched its DOCK checking pace, so outside an open chat a meeting rang up to a minute late (Decision 22).
+  - A meeting's ring opened the password check from the background: the meeting screen is now exempt, as the call screen was.
+- **Left as is:** the Mac sends 40 ms frames even on a direct path; Android adapts to 20 ms there, and receivers follow either.
+
 ### Phase 7 — Hardening
 
 - Move the media code into the `:voice` process (§11.3).
