@@ -1069,6 +1069,9 @@ symkeys and the FID key, and drives it over a `Messenger` (`VoiceProtocol`):
   signalling went with it.
 - `FreerApplication` sets up only the crypto providers and logging in `:voice`.
 
+**Tested 2026-09-29 on the phones:** 1:1 calls and meetings run with the
+media in `:voice`, and passed.
+
 ## 12. Security considerations
 
 1. **What a relay learns:** who joined which meeting and when, each
