@@ -1048,6 +1048,27 @@ process then hands that process only:
 A memory-corruption bug in libopus or the audio stack can then reach, at
 most, the current call. It cannot reach the wallet.
 
+**Built 2026-09-29 (Phase 7).** `VoiceService` runs in `:voice` with the
+call and meeting sessions, the call's FUDP nodes, Opus, the audio devices and
+routing, and `CallService`. The main process keeps the signalling, the
+symkeys and the FID key, and drives it over a `Messenger` (`VoiceProtocol`):
+
+- **A 1:1 call** gets the call's ids and relay, `tPriv`, both delegations, and
+  the call secret once there is one. Ringing, a knock and the peer leaving come
+  back as events, and the main process signals them.
+- **A meeting** gets the meeting, the join's `tPriv` and a delegation signed in
+  the main process, and the call secret of every key set the device can derive.
+  A rekey's secret is asked for when its notice arrives; as host, the process
+  asks every 5 s whether the owner rotated the symkey, and gets the new key set
+  if so. It never sees a symkey.
+- **The screens** read what the voice process last reported: a call's path,
+  RTT and mute every second, and a meeting's `MeetingView` whenever it changes.
+- **If the voice process dies,** the running call or meeting ends with "the
+  call's audio stopped unexpectedly", and the next one starts a fresh process.
+  If the main process dies, the voice process ends its call, since the
+  signalling went with it.
+- `FreerApplication` sets up only the crypto providers and logging in `:voice`.
+
 ## 12. Security considerations
 
 1. **What a relay learns:** who joined which meeting and when, each
