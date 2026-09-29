@@ -52,6 +52,7 @@ final class CallRelayLiveTests: XCTestCase {
                                         expiresSec: Int64(Date().timeIntervalSince1970) + 3600)
             m.link = CallRelayLink(tPriv: m.tPriv, callId: meetingId, delegation: d, events: m)
             try await m.link.connect(url: relay, pubkeyHex: nil, sid: nil)
+            XCTAssertEqual(m.link.overTcp, CallRelayLink.udpBlockedForTesting, "UDP when it answers, TCP when it does not")
         }
         try await host.link.createMeeting(authPub: try CallKeys.authPub(authPriv: authPriv))
         var last: [String: Any] = [:]
@@ -163,5 +164,16 @@ final class CallRelayLiveTests: XCTestCase {
             await m.link.leave()
             m.link.close()
         }
+    }
+
+    /// On a network that drops every UDP reply (§11.1), the links fall back to
+    /// FUDP over TCP, and a meeting runs over it as it does over UDP.
+    func testAMeetingOverTcpWhenUdpGetsNoAnswer() async throws {
+        guard ProcessInfo.processInfo.environment["CALL_RELAY"] != nil else {
+            throw XCTSkip("set CALL_RELAY=fudp://host:port to run")
+        }
+        CallRelayLink.udpBlockedForTesting = true
+        defer { CallRelayLink.udpBlockedForTesting = false }
+        try await testAMeetingThroughTheRelay()
     }
 }

@@ -1028,7 +1028,7 @@ targets above. While a call is live:
 - **Networks that drop the relay's replies:** some networks let UDP out to the relay but drop everything coming back. Seen on China Mobile's mobile data in Shanghai, 2026-09-26: a capture on the Hong Kong relay showed the phone's joins arriving and every reply, even 100-byte acknowledgments, sent back to its exact address and port and never received. The same happened on ports 443, 3478 and 8443, and with 1200-byte packets. It worked on home broadband in the same city and on a roaming SIM. No retry can fix this, so the app says what happened instead:
   - A call that fails with nothing ever received from the relay ends with: no reply from the call relay; it may be down, but more often the network blocks its replies; switch to Wi-Fi or another network, or use a VPN.
   - The other side, still in the call, sees after 15 s without a single frame: no sound from them yet; their network may not reach the relay.
-  - The fix, for later: FUDP over TCP to the same relay on port 443 when UDP gets no replies. It costs some delay under loss, but those networks rarely block TCP 443.
+  - **The fix, built 2026-09-29 (Phase 7): FUDP over TCP** (FUDP8). A relay listens for TCP beside UDP. A client that hears nothing over UDP within about 4 s connects over TCP to port 443 and to the relay's own port at once, and uses the first that answers; the call runs over it unchanged. It remembers for half an hour that UDP got no answer from that relay and goes straight to TCP, and forgets it if TCP fails. It costs some delay under loss, but those networks rarely block TCP. The message above now appears only when TCP fails too.
 
 ### 11.2. Mac
 
@@ -1129,6 +1129,7 @@ which changed for every frame type.
 | `FAPI/FAPI16V1_CALL.md` | New: §5–§7 as the relay sees them. **Drafted** 2026-09-29 from §7 and FC-JDK's `CallRelay`. |
 | `FAPI/FAPI3V1_Components.md` | Add CALL to the component list. **Done** 2026-09-29. |
 | `IM/FIMP5V1_Call.md` | New: §3–§6, §9.1 and §8, the end-to-end layer. **Drafted** 2026-09-29. |
+| `FUDP/FUDP8V1_TcpBinding.md` | New: FUDP over TCP for networks that drop UDP replies (§11.1). **Drafted** 2026-09-29; FUDP0 lists it. |
 | `IM/FIMP0` | Add `CALL` to the ContentType ordinal table. **Done** 2026-09-29, as ordinal 21 in FIMP0V2. |
 
 ## 14. Implementation plan
