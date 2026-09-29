@@ -1102,10 +1102,10 @@ which changed for every frame type.
 | `FUDP/FUDP1V1_CoreTransport.md` | Add `0x10` to the Frame Type Summary, pointing to FUDP7. **Done** 2026-09-22, with the unknown-frame rules and the packet size budget. |
 | `FUDP/FUDP3V1_LossAndCongestion.md` | **Done** 2026-09-22: DATAGRAM not ack-eliciting, ACKs listing untracked numbers, loss gap in tracked packets, RTT sampling, stream rate cap, recording every non-eliciting packet, ACK frames limited to one packet. |
 | `FUDP/FUDP4V1_Security.md` | **Done** 2026-09-22: an unparseable authentic packet is not a decrypt failure. |
-| `FAPI/FAPI16V1_CALL.md` | New: §7. |
-| `FAPI/FAPI3V1_Components.md` | Add CALL to the component list. |
-| `IM/FIMP5V1_Call.md` | New: §3, §4 and §8. |
-| `IM/FIMP0` | Add `CALL` to the ContentType ordinal table. |
+| `FAPI/FAPI16V1_CALL.md` | New: §5–§7 as the relay sees them. **Drafted** 2026-09-29 from §7 and FC-JDK's `CallRelay`. |
+| `FAPI/FAPI3V1_Components.md` | Add CALL to the component list. **Done** 2026-09-29. |
+| `IM/FIMP5V1_Call.md` | New: §3–§6, §9.1 and §8, the end-to-end layer. **Drafted** 2026-09-29. |
+| `IM/FIMP0` | Add `CALL` to the ContentType ordinal table. **Done** 2026-09-29, as ordinal 21 in FIMP0V2. |
 
 ## 14. Implementation plan
 

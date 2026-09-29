@@ -105,10 +105,9 @@ public enum ContentType: String, JavaOrdinalEnum, Codable, Sendable {
     case roomDisband = "ROOM_DISBAND"
     /// Owner removes a member. Same owner check applies.
     case roomRemoved = "ROOM_REMOVED"
-    /// Voice call signalling (VOICE_SPEC §3), appended after ROOM_REMOVED so
-    /// it has Android's ordinal. Not displayed: until calls come to the Mac
-    /// (Phase 6) a CALL message is a signal nobody routes, dropped quietly
-    /// rather than shown as its JSON.
+    /// Voice call and meeting signalling (FIMP5), appended after ROOM_REMOVED
+    /// so it has Android's ordinal, 21. Routed to the call code by
+    /// ``CallInbox``; shown only as a call record or a meeting card.
     case call = "CALL"
 }
 
