@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 import FCDomain
 
 /// The meeting panel (VOICE_SPEC §10), over the main window: who is in it and

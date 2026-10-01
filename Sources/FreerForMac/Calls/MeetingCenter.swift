@@ -395,7 +395,7 @@ final class MeetingCenter {
               let type = ActiveSession.meetingImType(m.entityType) else { return }
         // Late joiners need the new keys (§3.3); the board takes them as any member's post.
         _ = board?.onStart(entityId: m.entityId, entityType: m.entityType, senderFid: active.liveFid, update)
-        try? active.postMeetingSignal(type: type, entityId: m.entityId, update)
+        _ = try? active.postMeetingSignal(type: type, entityId: m.entityId, update)
     }
 
     fileprivate func ended(_ meetingId: String, _ why: MacMeetingSession.End, _ detail: String?) {
@@ -412,7 +412,7 @@ final class MeetingCenter {
                     end.entityType = m.entityType
                     for fid in m.invitees where fid != active.liveFid { try? active.sendMeetingDirect(to: fid, end) }
                 } else {
-                    try? active.postMeetingSignal(type: type, entityId: m.entityId, end)
+                    _ = try? active.postMeetingSignal(type: type, entityId: m.entityId, end)
                 }
             }
             if m.invited { active?.forgetMeetingKey(keyEntity: m.meetingId) } // over: its key has no further use
