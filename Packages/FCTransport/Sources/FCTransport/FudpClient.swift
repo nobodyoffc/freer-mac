@@ -750,8 +750,14 @@ public final class FudpClient: @unchecked Sendable {
 
     /// One-shot ping: builds + encrypts + sends a PING with a fresh
     /// `messageId`, then waits for a PONG matching that id.
+    ///
+    /// `wantInfo` sets `FLAG_WANT_PONG_INFO`, asking a FAPI server to put
+    /// its service advert in ``PongMessage/info``: SID, dealer pubkey,
+    /// components and prices. It is the one way to learn who a server
+    /// is that the server does not bill for, which matters exactly when
+    /// our balance there has run out — see ``PongInfoAsking``.
     @discardableResult
-    public func ping(timeoutMs: Int = 3_000) async throws -> PongMessage {
+    public func ping(timeoutMs: Int = 3_000, wantInfo: Bool = false) async throws -> PongMessage {
         let messageId = Int64.random(in: 1...Int64.max)
         let pingTs = ReplayProtection.currentTimeMillis()
         // A ping is an exchange like any other, and a connection test
@@ -760,6 +766,7 @@ public final class FudpClient: @unchecked Sendable {
             try await send(AppMessageEnvelope(
                 type: .ping,
                 messageId: messageId,
+                flags: wantInfo ? [.wantPongInfo] : [],
                 payload: PingMessage(timestamp: pingTs).payload()
             ))
             log("sent PING messageId=\(messageId) ts=\(pingTs)")

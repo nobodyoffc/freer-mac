@@ -1930,3 +1930,45 @@ public struct WalletService {
         return row.birthTxId == spent.birthTxId && row.birthIndex == spent.birthIndex
     }
 }
+
+// MARK: - top-up inputs
+
+extension WalletService {
+
+    /// Cashes in the local cache that could add to `offered`: spendable
+    /// by the same rules a Send uses, and not already among them.
+    public func localTopUpCashes(fromAddress: String, excluding offered: [Cash]) -> [Cash] {
+        guard let snapshot = try? cachedSnapshot(forAddress: fromAddress),
+              let spendable = try? spendableCashes(in: snapshot, fromAddress: fromAddress)
+        else { return [] }
+        return spendable.filter { cash in !offered.contains { matches(cash, $0) } }
+    }
+
+    /// The inputs for a DOCK top-up of `amount`.
+    ///
+    /// **The server's cashes first, and only then ours.** The ones a 402
+    /// offered were checked against the chain a moment ago; the local
+    /// cache may be minutes or days old, and a single stale input gets
+    /// the whole broadcast refused — spending the server's one free pass
+    /// on it. So local cashes are added largest first, and only as many
+    /// as it takes for `amount` and its fee to be covered.
+    public func topUpInputs(
+        offered: [Cash], fromAddress: String, amount: Int64, feePerByte: Int64 = 1
+    ) throws -> [Cash] {
+        var inputs = offered
+        if (try? CoinSelector.fixed(cashes: inputs, amount: amount, feePerByte: feePerByte)) != nil {
+            return inputs
+        }
+        let local = localTopUpCashes(fromAddress: fromAddress, excluding: offered)
+            .sorted { $0.value > $1.value }
+        for cash in local {
+            inputs.append(cash)
+            if (try? CoinSelector.fixed(cashes: inputs, amount: amount, feePerByte: feePerByte)) != nil {
+                return inputs
+            }
+        }
+        // Not enough between them: let the selector say by how much.
+        _ = try CoinSelector.fixed(cashes: inputs, amount: amount, feePerByte: feePerByte)
+        return inputs
+    }
+}

@@ -27,7 +27,7 @@ import Foundation
 /// may already be on the wire, and re-sending a `dock.put` or a carve
 /// would double-execute it. Such a call surfaces its error, marks the
 /// transport for rebuild, and the next call comes up on a fresh socket.
-public final class ReconnectingFapiClient: FapiCalling, @unchecked Sendable {
+public final class ReconnectingFapiClient: FapiCalling, PongInfoAsking, @unchecked Sendable {
 
     /// Builds a fresh, connected transport. Called on every reconnect,
     /// so it must be safe to invoke repeatedly.
@@ -77,6 +77,12 @@ public final class ReconnectingFapiClient: FapiCalling, @unchecked Sendable {
     /// callers should not hold onto it.
     public var currentTransport: FudpClient? {
         get async { await box.currentIfAny() }
+    }
+
+    // MARK: - PongInfoAsking
+
+    public func pongInfo(timeoutMs: Int) async throws -> Data {
+        try await box.client().ping(timeoutMs: timeoutMs, wantInfo: true).info
     }
 
     // MARK: - FapiCalling

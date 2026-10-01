@@ -45,6 +45,9 @@ struct OverviewView: View {
     /// Invitations and agreements waiting on an answer, per chat flavour.
     @State private var awaitingChat: [ImType: Int] = [:]
 
+    /// The DOCK whose top-up sheet is open.
+    @State private var toppingUp: DockRegistry.Unpaid?
+
     @State private var recentGroups: [TxGroup] = []
     @State private var latestNews: [News] = []
 
@@ -85,6 +88,9 @@ struct OverviewView: View {
         // cheap enough to do on every revision.
         .onChange(of: appState.inboxRevision) { _, _ in
             reloadUnread()
+        }
+        .sheet(item: $toppingUp) { unpaid in
+            DockTopUpSheet(session: session, unpaid: unpaid, onClose: { toppingUp = nil })
         }
     }
 
@@ -221,10 +227,58 @@ struct OverviewView: View {
         /// things unread. The two clear differently, and saying "unread"
         /// of an invitation promises that opening it is enough.
         var awaitingAnswer: Bool = false
+        /// Hover text, when the generic unread/awaiting wording would
+        /// say the wrong thing.
+        var help: String? = nil
+    }
+
+    /// `fapi.cid.cash` out of `fudp://fapi.cid.cash:8500` — enough to
+    /// tell two servers apart on a tile without the scheme and port.
+    private static func host(of url: String) -> String {
+        URLComponents(string: url)?.host ?? url
     }
 
     private var attentionTiles: [AttentionTile] {
         var tiles: [AttentionTile] = []
+        // First, because it is the one thing here that stops the rest
+        // from arriving: a DOCK out of balance holds every message
+        // addressed to the mailboxes it serves. Counted in mailboxes,
+        // since the server will not say how many messages it holds.
+        //
+        // A paid top-up keeps its tile, turned blue, until the server
+        // actually serves again: dismissing it at Pay would read as
+        // "fixed" before anything was credited, and an orange "Top up"
+        // still showing would invite paying twice.
+        for unpaid in appState.unpaidDocks {
+            let host = Self.host(of: unpaid.dockUrl)
+            let title: String, symbol: String, tint: Color, help: String
+            switch unpaid.stage() {
+            case .needsPayment:
+                title = "Top up \(host)"
+                symbol = "creditcard.trianglebadge.exclamationmark"
+                tint = .orange
+                help = "\(unpaid.dockUrl) stopped handing over messages: \(unpaid.message). Click to top up your balance there."
+            case .confirming:
+                title = "Top-up confirming: \(host)"
+                symbol = "hourglass"
+                tint = .blue
+                help = "Paid. Messages from \(unpaid.dockUrl) resume once a block confirms the payment and the server credits it. Click for the txid."
+            case .lapsed:
+                title = "Top-up not credited: \(host)"
+                symbol = "exclamationmark.arrow.circlepath"
+                tint = .orange
+                help = "A top-up to \(unpaid.dockUrl) was sent over half an hour ago and the server still refuses. Click to check the txid or pay again."
+            }
+            tiles.append(AttentionTile(
+                id: "dock.unpaid.\(unpaid.dockUrl)",
+                title: title,
+                count: max(unpaid.recipientIds.count, 1),
+                systemImage: symbol, tint: tint,
+                open: { toppingUp = unpaid },
+                awaitingAnswer: true,
+                help: help
+            ))
+        }
         if unreadMail > 0 {
             tiles.append(AttentionTile(
                 id: "mail", title: "Mail", count: unreadMail,
@@ -308,9 +362,9 @@ struct OverviewView: View {
         // An invitation is not an unread message: reading it changes
         // nothing, and the count stands until it is answered. Calling it
         // unread is what made a tile that would not clear look broken.
-        .help(tile.awaitingAnswer
+        .help(tile.help ?? (tile.awaitingAnswer
               ? "Open \(tile.title) — \(tile.count) waiting on your answer, and counted until you give one"
-              : "Open \(tile.title) — \(tile.count) unread")
+              : "Open \(tile.title) — \(tile.count) unread"))
     }
 
     // MARK: - recent activity

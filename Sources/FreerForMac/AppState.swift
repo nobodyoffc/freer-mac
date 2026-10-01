@@ -305,6 +305,34 @@ final class AppState {
 
     func clearNewcomersWaiting() { newcomersWaiting = 0 }
 
+    /// DOCKs that answered 402 on the last pass: our prepaid balance
+    /// with them ran out, and their messages wait until it is topped up.
+    /// Drives the Overview's "Server balance" tile and ``DockTopUpSheet``.
+    private(set) var unpaidDocks: [DockRegistry.Unpaid] = []
+
+    /// Re-read the registry's unpaid list after a fetch pass. Assigned
+    /// only on change so an unchanged list does not redraw Overview on
+    /// every poll. Compared whole, not by URL: a top-up being sent is a
+    /// change to an entry already listed.
+    private func publishUnpaidDocks(of session: ActiveSession, generation: Int) async {
+        let now = await session.dockRegistry.unpaidDocks()
+        guard sessionGeneration == generation else { return }
+        if now != unpaidDocks { unpaidDocks = now }
+    }
+
+    /// Ask `dockUrl` again and run a pass now — for the moment a top-up
+    /// has been paid, or the user wants to check. Republishes first so
+    /// the tile turns to "confirming" without waiting on the fetch.
+    func retryUnpaidDock(_ dockUrl: String) {
+        guard let session = activeSession else { return }
+        let generation = sessionGeneration
+        Task {
+            await session.dockRegistry.retryUnpaid(dockUrl)
+            await publishUnpaidDocks(of: session, generation: generation)
+            fetchInboxNow()
+        }
+    }
+
     /// The live FID holds nothing, and we actually know that.
     ///
     /// Three states collapse to "no coins" and only one of them is worth
@@ -564,6 +592,7 @@ final class AppState {
                         docks: selection,
                         privkey: try? session.livePrikey()
                     )
+                    await self?.publishUnpaidDocks(of: session, generation: generation)
                     // A history answer is routed during the collect but
                     // is a file on somebody's DISK, which the synchronous
                     // router cannot fetch. Nothing waiting makes this a
@@ -610,6 +639,7 @@ final class AppState {
     private func stopFetchScheduler() {
         meetingCenter.detach()
         callCenter.detach()
+        unpaidDocks = []
         guard let fetchScheduler else { return }
         self.fetchScheduler = nil
         fetchScheduler.shutdown()

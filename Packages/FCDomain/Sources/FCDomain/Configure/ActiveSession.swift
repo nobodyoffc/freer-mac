@@ -1110,8 +1110,15 @@ public final class ActiveSession {
     /// time something asks for the wallet. WalletService is a struct;
     /// constructing it is essentially a Foundation pointer copy.
     public var wallet: WalletService {
+        wallet(over: fapi)
+    }
+
+    /// The same wallet, talking to a different server. For a top-up
+    /// whose broadcast has to go through the one server that granted it
+    /// a free pass — see ``payDockTopUp(_:amount:feePerByte:timeoutMs:)``.
+    func wallet(over server: any FapiCalling) -> WalletService {
         WalletService(
-            fapi: fapi, cashes: cashes, recentActivity: recentActivity,
+            fapi: server, cashes: cashes, recentActivity: recentActivity,
             approve: effectiveApprover
         )
     }

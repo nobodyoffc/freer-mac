@@ -356,5 +356,19 @@ public struct DockService {
                 return "DockService: \(e)"
             }
         }
+
+        /// FAPI's 402: the server answered and refused because our
+        /// prepaid balance with it cannot cover the call. Not a dead
+        /// socket and not a busy server — nothing but a payment to its
+        /// dealer changes the answer. See ``DockRegistry/markUnpaid(_:message:now:)``.
+        public static let paymentRequiredCode = 402
+
+        /// The server's own words when this is a 402, nil otherwise.
+        public var paymentRequiredMessage: String? {
+            guard case let .fapiNonZeroCode(_, code, message) = self,
+                  code == Self.paymentRequiredCode
+            else { return nil }
+            return message ?? "Insufficient balance"
+        }
     }
 }

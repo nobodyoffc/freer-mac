@@ -12,6 +12,19 @@ import FCCore
 /// on a typed `FapiClient` instance still get the friendly form.
 /// Protocol-typed callers (`any FapiCalling`) pass everything
 /// explicitly.
+/// A FAPI connection that can ask its server to describe itself.
+///
+/// Every FAPI call is billed, so a FID whose prepaid balance has run out
+/// cannot even look the server up — `base.search` answers 402 like
+/// everything else. The PING/PONG exchange sits below the billing gate,
+/// and a server answers one flagged `FLAG_WANT_PONG_INFO` with its
+/// service advert: `{"services": [{sid, name, type, ver, dealerPubkey,
+/// components, pricePerKB, minPayment, minCredit}]}` as UTF-8 JSON.
+/// Empty data means the server advertised nothing.
+public protocol PongInfoAsking: Sendable {
+    func pongInfo(timeoutMs: Int) async throws -> Data
+}
+
 public protocol FapiCalling: Sendable {
     func call(
         api: String,

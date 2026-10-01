@@ -537,6 +537,13 @@ public struct MessageCourier {
                         targetDockUrl: nil, ownDockUrl: nil, timeoutMs: timeoutMs
                     )
                     return await succeed(queued, route: route, dockId: item.id, targetId: targetId, now: now)
+                } catch let failure as DockService.Failure where failure.paymentRequiredMessage != nil {
+                    // Storing on someone's DOCK is paid for by the sender,
+                    // so this is our balance there that ran out. Surfaced
+                    // the same way as a fetch refusal; the message stays
+                    // queued and the next route is still tried.
+                    await registry.markUnpaid(url, message: failure.paymentRequiredMessage ?? "", now: now)
+                    lastError = "recipient DOCK \(url) wants paying: \(failure.paymentRequiredMessage ?? "")"
                 } catch {
                     // A server that answered and refused is not a dead
                     // socket, so only drop the client — starting the
@@ -776,6 +783,7 @@ public struct MessageCourier {
         }
 
         for target in await registry.fetchTargets() where docks.includes(target.dockUrl) {
+            if await registry.isAwaitingPayment(target.dockUrl, now: now) { continue }
             guard let client = await registry.client(for: target.dockUrl, now: now) else { continue }
             do {
                 let report = try await collect(
@@ -784,6 +792,22 @@ public struct MessageCourier {
                     maxPages: maxPages, pageSize: pageSize, now: now, timeoutMs: timeoutMs
                 )
                 total = total.adding(report)
+                await registry.markPaid(target.dockUrl)
+            } catch let failure as DockService.Failure where failure.paymentRequiredMessage != nil {
+                // The server is up and answering; it wants paying. Saying
+                // "could not collect" here sent people looking for a
+                // network fault. The cursor stays put, as below, so the
+                // messages are all still there once the top-up lands.
+                let message = failure.paymentRequiredMessage ?? ""
+                let wasUnpaid = await registry.unpaidDocks().contains { FudpUrl.sameEndpoint($0.dockUrl, target.dockUrl) }
+                await registry.markUnpaid(target.dockUrl, message: message, now: now)
+                if !wasUnpaid {
+                    SystemLog.shared.warning(
+                        SystemSource.dock,
+                        "Balance ran out on \(target.dockUrl)",
+                        detail: "\(message)\nTop up from Overview → Server balance. Waiting for: \(target.recipientIds.joined(separator: ", "))"
+                    )
+                }
             } catch {
                 // The socket, not the message: a DOCK that cannot be
                 // fetched from gets its client dropped and a cooldown,

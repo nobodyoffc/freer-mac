@@ -233,6 +233,89 @@ final class DockRegistryTests: XCTestCase {
         XCTAssertEqual(network.connectAttempts, before + 1)
     }
 
+    /// A DOCK that answers 402 is up and wants paying, not down: it is
+    /// reported as unpaid, left alone through the cooldown so it is not
+    /// asked for the same refusal every pass, and its messages arrive
+    /// intact once the balance is back.
+    func testADockOutOfBalanceIsReportedUnpaidAndCollectedOnceToppedUp() async throws {
+        let alice = try await makeSession(privkey: alicePriv, label: "alice", ownDock: aliceDock)
+        let bob = try await makeSession(privkey: bobPriv, label: "bob", ownDock: bobDock)
+        network.homeByFid[bob.liveFid] = [ServiceName.dock: bobDockHome]
+        try await sendP2P(from: alice, to: bob, "held until paid")
+        await bob.refreshDockRegistry()
+
+        let bobServer = network.server(at: bobDock)
+        bobServer.unpaid = true
+        let refused = try await bob.courier.collect(as: bob.liveFid, privkey: bobPriv, now: at(60))
+        XCTAssertEqual(refused.filed, 0)
+        let unpaid = await bob.dockRegistry.unpaidDocks()
+        XCTAssertEqual(unpaid.map(\.dockUrl), [FudpUrl.normalize(bobDock)])
+        XCTAssertEqual(unpaid.first?.recipientIds, [bob.liveFid])
+        XCTAssertTrue(unpaid.first?.message.contains("Insufficient balance") == true)
+
+        let fetchesBefore = bobServer.fetchCount
+        _ = try await bob.courier.collect(as: bob.liveFid, privkey: bobPriv, now: at(61))
+        XCTAssertEqual(bobServer.fetchCount, fetchesBefore, "not asked again during the cooldown")
+
+        bobServer.unpaid = false
+        let paid = try await bob.courier.collect(
+            as: bob.liveFid, privkey: bobPriv, now: at(60 + DockRegistry.retryCooldown + 1)
+        )
+        XCTAssertEqual(paid.filed, 1, "the held message arrives once the balance is back")
+        let stillUnpaid = await bob.dockRegistry.unpaidDocks()
+        XCTAssertTrue(stillUnpaid.isEmpty)
+    }
+
+    /// Saying "I have paid" skips the rest of the cooldown.
+    func testRetryUnpaidAsksAgainOnTheNextPass() async throws {
+        let bob = try await makeSession(privkey: bobPriv, label: "bob", ownDock: bobDock)
+        await bob.refreshDockRegistry()
+        await bob.dockRegistry.markUnpaid(bobDock, message: "Insufficient balance", now: at(0))
+        let cooling = await bob.dockRegistry.isAwaitingPayment(bobDock, now: at(1))
+        XCTAssertTrue(cooling)
+        await bob.dockRegistry.retryUnpaid(bobDock)
+        let afterRetry = await bob.dockRegistry.isAwaitingPayment(bobDock, now: at(1))
+        XCTAssertFalse(afterRetry)
+        let listed = await bob.dockRegistry.unpaidDocks()
+        XCTAssertEqual(listed.count, 1, "still listed until a fetch actually succeeds")
+    }
+
+    /// A paid top-up is remembered through the 402s that keep coming
+    /// until it confirms, turns "lapsed" if it never does, and the whole
+    /// entry goes the moment the server serves again.
+    func testASentTopUpConfirmsLapsesAndClearsOnTheFirstGoodFetch() async throws {
+        let alice = try await makeSession(privkey: alicePriv, label: "alice", ownDock: aliceDock)
+        let bob = try await makeSession(privkey: bobPriv, label: "bob", ownDock: bobDock)
+        network.homeByFid[bob.liveFid] = [ServiceName.dock: bobDockHome]
+        try await sendP2P(from: alice, to: bob, "after the top-up")
+        await bob.refreshDockRegistry()
+
+        let bobServer = network.server(at: bobDock)
+        bobServer.unpaid = true
+        _ = try await bob.courier.collect(as: bob.liveFid, privkey: bobPriv, now: at(0))
+        let fresh = await bob.dockRegistry.unpaidDocks().first
+        XCTAssertEqual(fresh?.stage(now: at(0)), .needsPayment)
+
+        await bob.dockRegistry.markTopUpSent(bobDock, txid: "tx-1", now: at(10))
+        // Not yet confirmed: the server still refuses, and is asked again
+        // straight away rather than after the cooldown.
+        _ = try await bob.courier.collect(as: bob.liveFid, privkey: bobPriv, now: at(11))
+        let confirming = await bob.dockRegistry.unpaidDocks().first
+        XCTAssertEqual(confirming?.stage(now: at(11)), .confirming(txid: "tx-1", sentAt: at(10)))
+        XCTAssertEqual(
+            confirming?.stage(now: at(10 + DockRegistry.topUpConfirmWindow + 1)),
+            .lapsed(txid: "tx-1", sentAt: at(10))
+        )
+
+        bobServer.unpaid = false
+        let paid = try await bob.courier.collect(
+            as: bob.liveFid, privkey: bobPriv, now: at(11 + DockRegistry.retryCooldown + 1)
+        )
+        XCTAssertEqual(paid.filed, 1)
+        let after = await bob.dockRegistry.unpaidDocks()
+        XCTAssertTrue(after.isEmpty)
+    }
+
     /// One fetch per server, not per entity: a group hosted on our own
     /// DOCK shares the round trip with our P2P inbox.
     func testEntitiesSharingAServerShareOneFetch() async throws {
@@ -458,6 +541,10 @@ private final class DockServer: FapiCalling, @unchecked Sendable {
 
     var items: [DockNetwork.Item] = []
     var lastPut: DockNetwork.Put?
+    /// Answer every paid call with FAPI's 402, as a server does once a
+    /// FID's prepaid balance is spent.
+    var unpaid = false
+    private(set) var fetchCount = 0
 
     private unowned let network: DockNetwork
 
@@ -485,6 +572,11 @@ private final class DockServer: FapiCalling, @unchecked Sendable {
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
             else { return [:] }
             return obj
+        }
+
+        if api == "dock.fetch" { fetchCount += 1 }
+        if unpaid, api.hasPrefix("dock.") {
+            return reply(nil, code: 402, message: "Insufficient balance for egress fee: 1 satoshi")
         }
 
         switch api {

@@ -126,6 +126,8 @@ public actor DockRegistry {
         self.connect = connect
         clients.removeAll()
         failedAt.removeAll()
+        // A different server set owes nothing the old one asked for.
+        unpaid.removeAll()
         if let normalized, let ownClient {
             clients[normalized] = ownClient
         }
@@ -327,6 +329,108 @@ public actor DockRegistry {
     /// out a timer the user did not start is just latency.
     public func clearCooldowns() {
         failedAt.removeAll()
+        for url in unpaid.keys { unpaid[url]?.since = .distantPast }
+    }
+
+    // MARK: - balance
+
+    /// A DOCK that answered 402: our prepaid balance with it ran out.
+    public struct Unpaid: Sendable, Equatable, Identifiable {
+        /// Normalised — see ``FudpUrl``.
+        public let dockUrl: String
+        /// The server's own words, e.g. "Insufficient balance for egress fee: 120 satoshi".
+        public let message: String
+        /// The groups (and our own inbox) whose messages are stuck behind it.
+        public let recipientIds: [String]
+        /// When it last refused. Drives the retry cooldown.
+        public var since: Date
+        /// The top-up we broadcast for it, while the server has yet to
+        /// credit it.
+        public var topUpTxid: String?
+        public var topUpSentAt: Date?
+        public var id: String { dockUrl }
+
+        public enum Stage: Sendable, Equatable {
+            /// Nothing paid yet.
+            case needsPayment
+            /// Paid; waiting for a block and the server's credit.
+            case confirming(txid: String, sentAt: Date)
+            /// Paid long enough ago that it should have landed and has
+            /// not — dropped, double-spent, or paid to the wrong place.
+            case lapsed(txid: String, sentAt: Date)
+        }
+
+        public func stage(now: Date = Date()) -> Stage {
+            guard let topUpTxid, let topUpSentAt else { return .needsPayment }
+            return now.timeIntervalSince(topUpSentAt) < DockRegistry.topUpConfirmWindow
+                ? .confirming(txid: topUpTxid, sentAt: topUpSentAt)
+                : .lapsed(txid: topUpTxid, sentAt: topUpSentAt)
+        }
+    }
+
+    /// How long a top-up may take before it is presumed lost. A block is
+    /// a minute and the server's scan another; half an hour is well past
+    /// both and short enough that a payment that never landed is noticed
+    /// the same session.
+    public static let topUpConfirmWindow: TimeInterval = 30 * 60
+
+    private var unpaid: [String: Unpaid] = [:]
+
+    /// Record that `dockUrl` refused for want of balance.
+    ///
+    /// **Kept apart from ``markFailed(_:now:)`` on purpose.** That one
+    /// drops the client and reads as "unreachable", which is exactly
+    /// the wrong thing to tell a user whose server is up and simply
+    /// waiting to be paid: the fix is a payment, not patience. The
+    /// connection is fine and stays cached.
+    public func markUnpaid(_ dockUrl: String, message: String, now: Date = Date()) {
+        guard let url = FudpUrl.normalize(dockUrl) else { return }
+        let ids = entries.values.filter { $0.dockUrl == url }.map(\.recipientId).sorted()
+        // Every pass while a top-up confirms is another 402; it must not
+        // forget the payment it is waiting on.
+        let previous = unpaid[url]
+        var entry = Unpaid(dockUrl: url, message: message, recipientIds: ids, since: now)
+        entry.topUpTxid = previous?.topUpTxid
+        entry.topUpSentAt = previous?.topUpSentAt
+        unpaid[url] = entry
+    }
+
+    /// A top-up for `dockUrl` was broadcast. The entry stays until a
+    /// call there succeeds — the only proof the credit arrived — and asks
+    /// again on the next pass rather than after the cooldown.
+    public func markTopUpSent(_ dockUrl: String, txid: String, now: Date = Date()) {
+        guard let url = FudpUrl.normalize(dockUrl), unpaid[url] != nil else { return }
+        unpaid[url]?.topUpTxid = txid
+        unpaid[url]?.topUpSentAt = now
+        unpaid[url]?.since = .distantPast
+    }
+
+    /// A call to `dockUrl` went through, so whatever balance it was
+    /// short of has arrived.
+    public func markPaid(_ dockUrl: String) {
+        guard let url = FudpUrl.normalize(dockUrl) else { return }
+        unpaid[url] = nil
+    }
+
+    /// Whether `dockUrl` refused for balance recently enough that asking
+    /// again would only earn the same 402. Uses the same cooldown as an
+    /// unreachable server: a top-up takes a block to confirm, so a
+    /// minute between asks costs nothing.
+    public func isAwaitingPayment(_ dockUrl: String, now: Date = Date()) -> Bool {
+        guard let url = FudpUrl.normalize(dockUrl), let entry = unpaid[url] else { return false }
+        return now.timeIntervalSince(entry.since) < Self.retryCooldown
+    }
+
+    /// Every DOCK currently refusing for balance, by URL.
+    public func unpaidDocks() -> [Unpaid] {
+        unpaid.values.sorted { $0.dockUrl < $1.dockUrl }
+    }
+
+    /// Ask an unpaid DOCK again on the next pass rather than after its
+    /// cooldown — for the moment the user says they have paid.
+    public func retryUnpaid(_ dockUrl: String) {
+        guard let url = FudpUrl.normalize(dockUrl) else { return }
+        unpaid[url]?.since = .distantPast
     }
 
     // MARK: - cursors
