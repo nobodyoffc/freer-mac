@@ -108,6 +108,30 @@ final class IdentityFeipTests: XCTestCase {
         XCTAssertNil(HomeFeip.merged(over: [ServiceName.disk: "(sid)" + sid], dock: "", disk: sid))
     }
 
+    func testMergeSetsCallBesideTheRest() {
+        let sid = String(repeating: "c", count: 64)
+        let merged = HomeFeip.merged(over: [ServiceName.dock: "(sid)d"], dock: nil, disk: nil, call: sid)
+        XCTAssertEqual(merged, [ServiceName.dock: "(sid)d", ServiceName.call: "(sid)" + sid])
+    }
+
+    func testRemovingCallTakesOutEveryCallKeyAndNothingElse() {
+        let merged = HomeFeip.merged(
+            over: [ServiceName.dock: "(sid)d", ServiceName.call: "(sid)c", "call": "fudp://x:1", "CALLBACK": "keep"],
+            dock: nil, disk: nil, removeCall: true
+        )
+        XCTAssertEqual(merged, [ServiceName.dock: "(sid)d", "CALLBACK": "keep"])
+        XCTAssertNil(HomeFeip.merged(over: [ServiceName.dock: "(sid)d"], dock: nil, disk: nil, removeCall: true),
+                     "no CALL to remove: nothing to carve")
+    }
+
+    func testEditingARoomHomeTouchesOnlyItsKind() {
+        let stored = [ServiceName.dock: "fudp://dock:1", ServiceName.call: "(sid)old"]
+        XCTAssertEqual(GroupHome.editing(stored, key: ServiceName.call, kind: "CALL", value: "fudp://call:2"),
+                       [ServiceName.dock: "fudp://dock:1", ServiceName.call: "fudp://call:2"])
+        XCTAssertEqual(GroupHome.editing(stored, key: ServiceName.call, kind: "CALL", value: " "),
+                       [ServiceName.dock: "fudp://dock:1"])
+    }
+
     func testDeclaresMatchesByPrefixAndIgnoresBlankValues() {
         XCTAssertTrue(HomeFeip.declares("DOCK", in: [ServiceName.dock: "x"]))
         XCTAssertTrue(HomeFeip.declares("DOCK", in: ["dock": "x"]))

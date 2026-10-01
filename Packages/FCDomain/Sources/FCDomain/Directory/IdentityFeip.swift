@@ -106,15 +106,22 @@ public enum HomeFeip {
         )
     }
 
-    /// The home map with a new DOCK and/or DISK, under the keys every
-    /// resolver in this app looks up (``ServiceName``). Nil when nothing
+    /// The home map with a new DOCK, DISK and/or CALL, under the keys every
+    /// resolver in this app looks up (``ServiceName``). `removeCall` takes
+    /// the CALL entry out, which stops calls (FIMP5 §6.1). Nil when nothing
     /// would change — a carve for that would cost a fee to say nothing.
     public static func merged(
         over stored: [String: String]?,
         dock: String?,
-        disk: String?
+        disk: String?,
+        call: String? = nil,
+        removeCall: Bool = false
     ) -> [String: String]? {
-        GroupHome.merged(over: stored, changing: [ServiceName.dock: dock, ServiceName.disk: disk])
+        GroupHome.merged(
+            over: stored,
+            changing: [ServiceName.dock: dock, ServiceName.disk: disk, ServiceName.call: removeCall ? nil : call],
+            removing: removeCall ? ["CALL"] : []
+        )
     }
 
     /// Whether `home` names a service of `kind` (`"DOCK"`, `"DISK"`).

@@ -1569,6 +1569,9 @@ final class AppState {
             liveFidInfo = info
             liveFidInfoConfirmed = true
             noteIfLiveKeyIsNobody(info)
+            // A home.CALL set or removed, here or on another device, is
+            // what incoming calls are now checked against.
+            callCenter.ownHomeChanged(info.home)
         } catch {
             guard session.liveFid == fidAtStart else { return }
             liveFidInfoError = String(describing: error)

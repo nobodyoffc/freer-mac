@@ -68,6 +68,11 @@ struct NewChatSheet: View {
     @State private var roomDock = ""
     @State private var roomInvitees: [PickedFid] = []
     @State private var pickingDock = false
+    /// The room's or team's CALL service: the relay its meetings run on.
+    /// Optional; without it each host's own (FIMP5 §8.2).
+    @State private var roomCall = ""
+    @State private var groupCall = ""
+    @State private var pickingCall = false
 
     /// Which pick the open picker is for. One sheet, two jobs — the
     /// request says which.
@@ -184,6 +189,19 @@ struct NewChatSheet: View {
                 pickingDock = false
             } onCancel: {
                 pickingDock = false
+            }
+        }
+        .sheet(isPresented: $pickingCall) {
+            ServicePickerSheet(
+                session: session,
+                component: ServiceName.call,
+                title: "Choose this \(style.noun)'s CALL service",
+                initialQuery: mode == .room ? roomCall : groupCall
+            ) { service in
+                if mode == .room { roomCall = service.sid } else { groupCall = service.sid }
+                pickingCall = false
+            } onCancel: {
+                pickingCall = false
             }
         }
         .sheet(isPresented: $pickingDisk) {
@@ -340,6 +358,8 @@ struct NewChatSheet: View {
                     .help("Search the chain for a server that offers DOCK.")
                 }
             }
+
+            callField(text: $roomCall)
 
             HStack(spacing: 8) {
                 Text("Invite")
@@ -671,6 +691,10 @@ struct NewChatSheet: View {
                 }
             }
 
+            if mode == .team {
+                callField(text: $groupCall)
+            }
+
             Text("Creating is a transaction: it costs a miner fee and is public. **The id is the carve's own txid**, so nothing appears here until it confirms and you refresh — you are its first member either way.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
@@ -792,7 +816,7 @@ struct NewChatSheet: View {
                 desc: roomDesc.isEmpty ? nil : roomDesc,
                 owner: session.liveFid,
                 invite: members,
-                home: dock.isEmpty ? nil : [ServiceName.dock: dock],
+                home: roomHome(dock: dock),
                 pubkeys: { fid in
                     try pickedPubkeys[fid] ?? session.contacts.get(fid: fid)?.pubkey
                 },
@@ -902,6 +926,34 @@ struct NewChatSheet: View {
     /// **A team's consensus document is uploaded first, and the carve is
     /// abandoned if that fails.** The id carved on chain is a hash and
     /// nothing else — the indexer never resolves it, so a team whose
+    /// A new room's home: its DOCK as typed, its CALL in the prefixed
+    /// form; nil when neither is set.
+    private func roomHome(dock: String) -> [String: String]? {
+        var home = GroupHome.editing(nil, key: ServiceName.call, kind: "CALL", value: roomCall)
+        if !dock.isEmpty { home[ServiceName.dock] = dock }
+        return home.isEmpty ? nil : home
+    }
+
+    /// The optional CALL row of the room and team forms.
+    private func callField(text: Binding<String>) -> some View {
+        LabeledField(
+            "CALL",
+            hint: "Optional. The relay this \(style.noun)'s meetings run on, paid by whoever starts one. Empty: each host's own CALL service."
+        ) {
+            HStack(spacing: 8) {
+                TextField("", text: text, prompt: Text("service id, or fudp://host:port"))
+                    .font(.system(.body, design: .monospaced))
+                    .fieldInputStyle()
+                Button {
+                    pickingCall = true
+                } label: {
+                    Label("Find…", systemImage: "phone")
+                }
+                .help("Search the chain for a server that offers CALL.")
+            }
+        }
+    }
+
     /// consensus points at bytes no DISK holds looks perfectly valid and
     /// is unreadable forever. Failing here costs nothing; failing after
     /// the carve costs the fee and leaves a permanent dead pointer that
@@ -919,9 +971,11 @@ struct NewChatSheet: View {
         // except that here they are public and everyone reads them from
         // the same record. `(sid)`-prefixed, which is the shape the rest
         // of the family writes.
+        let call = groupCall.trimmingCharacters(in: .whitespaces)
         let home = GroupHome.merged(over: nil, changing: [
             ServiceName.dock: dock.isEmpty ? nil : dock,
             ServiceName.disk: mode == .team && !diskSid.isEmpty ? diskSid : nil,
+            ServiceName.call: mode == .team && !call.isEmpty ? call : nil,
         ])
         do {
             let txid: String

@@ -1473,6 +1473,9 @@ struct ChatView: View {
         let busy = (calls.phase != .idle && calls.phase != .ended) || meetings.isActive
         switch conversation.type {
         case .p2p where conversation.targetId != session.liveFid:
+            // Dimmed, not disabled: the known home may be stale, and placing
+            // the call reads it fresh from the chain.
+            let noCall = calls.knownWithoutCall(conversation.targetId, in: session)
             return AnyView(
                 Button {
                     // A nobody's key is public: calling one asks first (NOBODY_SPEC §3).
@@ -1480,7 +1483,10 @@ struct ChatView: View {
                     else { calls.placeCall(to: conversation.targetId) }
                 } label: { Image(systemName: "phone") }
                 .buttonStyle(.borderless)
-                .help("Voice call")
+                .opacity(noCall ? 0.4 : 1)
+                .help(noCall
+                      ? "Voice call — they have no CALL service, so a call cannot ring them. Clicking checks the chain again."
+                      : "Voice call")
                 .disabled(busy)
             )
         case .room where conversation.leftGroup != true, .team where conversation.leftGroup != true:

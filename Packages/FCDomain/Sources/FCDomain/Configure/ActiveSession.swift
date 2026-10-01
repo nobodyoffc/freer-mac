@@ -1902,24 +1902,27 @@ public final class ActiveSession {
         return result.remoteTxid
     }
 
-    /// Carve FEIP9 `register` setting the live FID's DOCK and/or DISK.
+    /// Carve FEIP9 `register` setting the live FID's DOCK, DISK and/or CALL.
     ///
     /// `register` replaces the whole map, so the map carved is the one the
-    /// chain holds now with these two laid over it — read fresh, because a
+    /// chain holds now with these laid over it — read fresh, because a
     /// cached copy missing an entry added elsewhere would erase it. A nil
-    /// or blank value leaves that entry as it is. Throws
-    /// ``Failure/homeUnchanged`` when the chain already says this.
+    /// or blank value leaves that entry as it is; `removeCall` takes the
+    /// CALL entry out. Throws ``Failure/homeUnchanged`` when the chain
+    /// already says this.
     @discardableResult
     public func carveHomeOnChain(
         dock: String?,
         disk: String?,
+        call: String? = nil,
+        removeCall: Bool = false,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000,
         now: Date = Date()
     ) async throws -> String {
         let fid = liveFid
         let stored = try await directory.freerByIds([fid], timeoutMs: timeoutMs)[fid]?.home
-        guard let home = HomeFeip.merged(over: stored, dock: dock, disk: disk) else {
+        guard let home = HomeFeip.merged(over: stored, dock: dock, disk: disk, call: call, removeCall: removeCall) else {
             throw Failure.homeUnchanged
         }
         let opReturn = try HomeFeip.register(home: home)

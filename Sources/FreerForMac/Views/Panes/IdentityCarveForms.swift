@@ -230,11 +230,12 @@ struct CidCarveForm: View {
     }
 }
 
-// MARK: - DOCK and DISK
+// MARK: - DOCK, DISK and CALL
 
-/// Both are chosen with the service picker and carved as one FEIP9
+/// All three are chosen with the service picker and carved as one FEIP9
 /// register, laid over the map the chain holds now, because register
-/// replaces the whole map.
+/// replaces the whole map. CALL is opt-in (FIMP5 §6.1): without it this
+/// FID cannot be called, and unticking an existing one removes it.
 struct HomeCarveForm: View {
     @Environment(AppState.self) private var appState
     let session: ActiveSession
@@ -243,9 +244,12 @@ struct HomeCarveForm: View {
 
     @State private var dock = ""
     @State private var disk = ""
+    @State private var call = ""
+    @State private var takeCalls = false
     @State private var loadedHome = false
     @State private var pickingDock = false
     @State private var pickingDisk = false
+    @State private var pickingCall = false
     @State private var carvingHome = false
     @State private var homeError: String?
     @State private var pendingHome: PendingIdentityCarve?
@@ -259,6 +263,7 @@ struct HomeCarveForm: View {
         Group {
             serviceRow("DOCK", value: $dock, kind: "DOCK") { pickingDock = true }
             serviceRow("DISK", value: $disk, kind: "DISK") { pickingDisk = true }
+            callRow
             HStack(spacing: 12) {
                 Button {
                     Task { await carveHome() }
@@ -266,13 +271,13 @@ struct HomeCarveForm: View {
                     if carvingHome {
                         ProgressView().controlSize(.small)
                     } else {
-                        Text("Carve DOCK and DISK")
+                        Text("Carve home")
                     }
                 }
                 .disabled(!canCarveHome)
                 Spacer()
             }
-            CarveOutcome(error: homeError, pending: pendingHome, what: "your DOCK and DISK")
+            CarveOutcome(error: homeError, pending: pendingHome, what: "your home")
         }
         .onAppear {
             loadHome()
@@ -312,6 +317,45 @@ struct HomeCarveForm: View {
                 pickingDisk = false
             }
         }
+        .sheet(isPresented: $pickingCall) {
+            ServicePickerSheet(
+                session: session,
+                component: ServiceName.call,
+                title: "Choose your CALL service",
+                subtitle: "Calls to you run on this relay, and callers pay it. It is also where your meetings run when the chat has no CALL service of its own.",
+                initialQuery: call
+            ) { service in
+                call = service.sid
+                takeCalls = true
+                pickingCall = false
+            } onCancel: {
+                pickingCall = false
+            }
+        }
+    }
+
+    /// Being callable is a choice: off unless the home already has a CALL
+    /// service, and unticking an existing one removes it.
+    private var callRow: some View {
+        LabeledField("CALL", hint: callHint) {
+            HStack(spacing: 8) {
+                Toggle("Take calls", isOn: $takeCalls)
+                TextField("", text: $call, prompt: Text("Service id or URL"))
+                    .font(.system(.body, design: .monospaced))
+                    .fieldInputStyle()
+                    .disabled(!takeCalls)
+                Button("Choose…") { pickingCall = true }
+            }
+        }
+    }
+
+    private var callHint: String {
+        if storedValue("CALL") != nil {
+            return takeCalls
+                ? "Callers reach you through this relay and pay it per minute."
+                : "Carving removes your CALL service: nobody can call you, and your meetings need a chat that has one."
+        }
+        return "Not on the chain yet. Without a CALL service nobody can call you, and your meetings need a chat that has one."
     }
 
     private func serviceRow(
@@ -359,7 +403,7 @@ struct HomeCarveForm: View {
     /// or, failing that, any key another client wrote for it.
     private func storedValue(_ kind: String) -> String? {
         guard let home = info?.home else { return nil }
-        let exact = kind == "DOCK" ? ServiceName.dock : ServiceName.disk
+        let exact = kind == "DOCK" ? ServiceName.dock : kind == "DISK" ? ServiceName.disk : ServiceName.call
         let value = home[exact] ?? home.first { $0.key.uppercased().hasPrefix(kind) }?.value
         guard let value, !value.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         return value
@@ -368,7 +412,13 @@ struct HomeCarveForm: View {
     private var canCarveHome: Bool {
         guard IdentityCarve.blocker(session: session, info: info) == nil,
               !carvingHome, info != nil, !IdentityCarve.isWaiting(pendingHome) else { return false }
-        return HomeFeip.merged(over: info?.home, dock: dock, disk: disk) != nil
+        return HomeFeip.merged(over: info?.home, dock: dock, disk: disk,
+                               call: callEdit.call, removeCall: callEdit.remove) != nil
+    }
+
+    /// The CALL part of the carve: a value to set, or the stored one to remove.
+    private var callEdit: (call: String?, remove: Bool) {
+        takeCalls ? (call, false) : (nil, storedValue("CALL") != nil)
     }
 
     private func loadHome() {
@@ -376,6 +426,8 @@ struct HomeCarveForm: View {
         loadedHome = true
         dock = HomeServiceResolver.displayValue(storedValue("DOCK"))
         disk = HomeServiceResolver.displayValue(storedValue("DISK"))
+        call = HomeServiceResolver.displayValue(storedValue("CALL"))
+        takeCalls = storedValue("CALL") != nil
     }
 
     private func carveHome() async {
@@ -384,7 +436,8 @@ struct HomeCarveForm: View {
         homeError = nil
         defer { carvingHome = false }
         do {
-            try await session.carveHomeOnChain(dock: dock, disk: disk)
+            let edit = callEdit
+            try await session.carveHomeOnChain(dock: dock, disk: disk, call: edit.call, removeCall: edit.remove)
             loadPending()
             await appState.refreshLiveFidInfo()
             onCarved()

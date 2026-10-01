@@ -93,9 +93,11 @@ struct CallSettingsSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Call settings").font(.headline)
-            Text("Test relay: calls go through it instead of the callee's CALL service, and this Mac answers on it too. Leave empty to use CALL services from the chain.")
-                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            TextField("fudp://host:port", text: $relay).textFieldStyle(.roundedBorder)
+            if CallCenter.testRelayAllowed {
+                Text("Test relay (debug builds only): calls go through it instead of the callee's CALL service, and this Mac answers on it too. Leave empty to use CALL services from the chain.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                TextField("fudp://host:port", text: $relay).textFieldStyle(.roundedBorder)
+            }
             Toggle("Available for calls", isOn: Bindable(appState).availableForCalls)
             Text("Keep Freer running in the menu bar when its window is closed, so calls and meetings still ring. Quit it from the menu bar icon.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -106,7 +108,7 @@ struct CallSettingsSheet: View {
                 Spacer()
                 Button("Cancel") { dismiss() }
                 Button("Save") {
-                    calls.testRelay = relay
+                    if CallCenter.testRelayAllowed { calls.testRelay = relay }
                     calls.alwaysRelay = alwaysRelay
                     dismiss()
                 }.keyboardShortcut(.defaultAction)

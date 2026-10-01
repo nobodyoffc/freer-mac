@@ -17,7 +17,8 @@ import FCUI
 ///
 /// **Two flavours, one sheet, because the form really is the same.**
 /// Name, description and DOCK on both; a team adds its consensus
-/// document and the DISK that document lives on. What differs is who may
+/// document, the DISK that document lives on, and the CALL service its
+/// meetings run on. What differs is who may
 /// do it and what it costs, and both of those are stated on screen
 /// rather than assumed:
 ///
@@ -68,12 +69,16 @@ struct GroupSettingsSheet: View {
     @State private var consensusId = ""
     @State private var dock = ""
     @State private var disk = ""
+    /// The team's CALL service. Unlike DOCK, emptying it removes it:
+    /// meetings then run on each host's own (FIMP5 §8.2).
+    @State private var call = ""
 
     /// What the record said when the sheet opened, so the carve can
     /// leave alone what the user did not touch.
     @State private var original: Loaded?
     @State private var pickingDock = false
     @State private var pickingDisk = false
+    @State private var pickingCall = false
     /// The consensus sheet, and whether it may be typed in.
     @State private var document: DocumentRequest?
     @State private var loaded = false
@@ -88,6 +93,7 @@ struct GroupSettingsSheet: View {
         var consensusId: String
         var dock: String
         var disk: String
+        var call: String
         /// The stored `home` in full — what an update's map is merged
         /// over. Kept whole rather than picked apart into the two boxes
         /// above, because the entries this sheet does not draw are
@@ -185,6 +191,21 @@ struct GroupSettingsSheet: View {
                             .help("Search the chain for a server that offers DISK.")
                         }
                     }
+
+                    LabeledField(
+                        "CALL",
+                        hint: "The relay this team's meetings run on, paid by whoever starts one. Empty: each host's own CALL service, and emptying a set one removes it."
+                    ) {
+                        HStack(spacing: 8) {
+                            TextField("", text: $call, prompt: Text("service id, or fudp://host:port"))
+                                .font(.system(.body, design: .monospaced))
+                                .fieldInputStyle()
+                            Button { pickingCall = true } label: {
+                                Label("Find…", systemImage: "phone")
+                            }
+                            .help("Search the chain for a server that offers CALL.")
+                        }
+                    }
                 }
             }
 
@@ -242,6 +263,19 @@ struct GroupSettingsSheet: View {
                 pickingDisk = false
             } onCancel: {
                 pickingDisk = false
+            }
+        }
+        .sheet(isPresented: $pickingCall) {
+            ServicePickerSheet(
+                session: session,
+                component: ServiceName.call,
+                title: "Choose this team's CALL service",
+                initialQuery: call
+            ) { service in
+                call = service.sid
+                pickingCall = false
+            } onCancel: {
+                pickingCall = false
             }
         }
         .sheet(item: $document) { request in
@@ -434,6 +468,7 @@ struct GroupSettingsSheet: View {
                     // must not read as a change.
                     dock: HomeServiceResolver.displayValue(team.home?[ServiceName.dock]),
                     disk: TeamConsensus.diskSid(of: team) ?? "",
+                    call: HomeServiceResolver.displayValue(team.home?[ServiceName.call]),
                     home: team.home,
                     cddToUpdate: nil,
                     isTeamOwner: team.isOwner(session.liveFid),
@@ -451,6 +486,7 @@ struct GroupSettingsSheet: View {
                     consensusId: "",
                     dock: HomeServiceResolver.displayValue(square.home?[ServiceName.dock]),
                     disk: "",
+                    call: "",
                     home: square.home,
                     cddToUpdate: square.cddToUpdate,
                     isTeamOwner: false,
@@ -467,6 +503,7 @@ struct GroupSettingsSheet: View {
             consensusId = original.consensusId
             dock = original.dock
             disk = original.disk
+            call = original.call
         } catch {
             self.error = String(describing: error)
         }
@@ -520,6 +557,7 @@ struct GroupSettingsSheet: View {
         let newDesc = desc.trimmingCharacters(in: .whitespaces)
         let newDock = dock.trimmingCharacters(in: .whitespaces)
         let newDisk = disk.trimmingCharacters(in: .whitespaces)
+        let newCall = call.trimmingCharacters(in: .whitespaces)
         let newConsensus = consensusId.trimmingCharacters(in: .whitespaces)
         let consensusChanged = newConsensus != original.consensusId
 
@@ -532,7 +570,11 @@ struct GroupSettingsSheet: View {
             changing: [
                 ServiceName.dock: newDock.isEmpty ? nil : newDock,
                 ServiceName.disk: mode == .team && !newDisk.isEmpty ? newDisk : nil,
-            ]
+                ServiceName.call: mode == .team && !newCall.isEmpty ? newCall : nil,
+            ],
+            // The carved map replaces the stored one, so an emptied CALL
+            // box can say "none", which an emptied DOCK box cannot.
+            removing: mode == .team && newCall.isEmpty && !original.call.isEmpty ? ["CALL"] : []
         )
 
         Task {

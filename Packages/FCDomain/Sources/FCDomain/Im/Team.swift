@@ -188,11 +188,16 @@ public enum GroupHome {
     /// Returns **nil when nothing would change**, so an update that only
     /// renames a team omits `home` entirely rather than re-announcing a
     /// DOCK move that is not one.
+    ///
+    /// `removing` names kinds (`"CALL"`) whose entries are taken out, under
+    /// any key that names that kind (``isKey(_:ofKind:)``). The carved map
+    /// replaces the stored one, so leaving a key out is how it is removed.
     public static func merged(
         over stored: [String: String]?,
-        changing changes: [String: String?]
+        changing changes: [String: String?],
+        removing kinds: Set<String> = []
     ) -> [String: String]? {
-        var merged = stored ?? [:]
+        var merged = (stored ?? [:]).filter { key, _ in !kinds.contains { isKey(key, ofKind: $0) } }
         for (key, value) in changes {
             guard let value else { continue }
             let normalised = HomeServiceResolver.homeValue(value)
@@ -201,6 +206,26 @@ public enum GroupHome {
         }
         guard !merged.isEmpty, merged != (stored ?? [:]) else { return nil }
         return merged
+    }
+
+    /// Whether `key` names a service of `kind`: the bare kind or
+    /// `kind@anything`, any case, as Android's `keysOf` reads a map
+    /// another client may have written.
+    public static func isKey(_ key: String, ofKind kind: String) -> Bool {
+        let k = key.uppercased(), want = kind.uppercased()
+        return k == want || k.hasPrefix(want + "@")
+    }
+
+    /// A room's home with the entry of `kind` set to `value` under `key`,
+    /// or removed when `value` is nil or blank. A room's record is off
+    /// chain and travels whole, so unlike a team's its map may end up empty.
+    public static func editing(
+        _ stored: [String: String]?, key: String, kind: String, value: String?
+    ) -> [String: String] {
+        var home = (stored ?? [:]).filter { k, _ in !isKey(k, ofKind: kind) }
+        let normalised = HomeServiceResolver.homeValue(value)
+        if !normalised.isEmpty { home[key] = normalised }
+        return home
     }
 }
 

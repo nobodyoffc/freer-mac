@@ -874,7 +874,9 @@ The relay SHOULD keep its UDP receive buffer small, not raise it to absorb burst
 2. Otherwise, the host's own configured CALL service.
 
 A Team or Room owner who wants every meeting on one relay sets the entity's
-`home`.
+`home`, in the Team's or Room's create screen or settings, beside its DOCK. Those screens lay
+the CALL entry over the stored map, so the entries they do not draw
+survive; an emptied CALL box removes it.
 
 **Starting:**
 
@@ -994,7 +996,8 @@ targets above. While a call is live:
 
 ## 10. What each client shows
 
-- **1:1 call:** a call button in P2P chat; incoming, outgoing and in-call
+- **1:1 call:** a call button in P2P chat, dimmed when the peer's known
+  home has no CALL (still usable: placing the call reads the home fresh); incoming, outgoing and in-call
   screens; mute, speaker and route controls. The call is recorded in the
   chat as "Call, 4:12", "Missed call" or "Declined". The record is a local
   entry made from the signalling. It is not another message on the wire.
@@ -1012,7 +1015,7 @@ targets above. While a call is live:
   as private as a public square. Calling a nobody asks for confirmation
   first (NOBODY_SPEC §3).
 - **Settings:** *Available for calls* (Android) and *Always relay*, in Call
-  settings; CALL itself in the home setup (§6.2); a per-minute cost cap
+  settings; CALL itself in the home setup (§6.2), on both clients; a Room's or Team's in its settings (§8); a per-minute cost cap
   later. The caller's call screen shows the relay's price per minute.
 
 ## 11. Platform notes

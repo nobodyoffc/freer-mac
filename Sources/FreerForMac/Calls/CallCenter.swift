@@ -43,7 +43,11 @@ final class CallCenter {
     @ObservationIgnored private var ticker: Task<Void, Never>?
     @ObservationIgnored private var ringtone: Task<Void, Never>?
     /// My own home.CALL, read by the signaller's thread for its relay policy.
-    @ObservationIgnored private let ownCallRelay = LockedValue<String?>(nil)
+    @ObservationIgnored private let ownCall = LockedValue<OwnCall?>(nil)
+    /// When an INVITE last made me read my home.CALL again (milliseconds).
+    @ObservationIgnored private let ownCallRecheckedMs = LockedValue<Int64>(0)
+    /// Reads my home.CALL until the chain answers once.
+    @ObservationIgnored private var ownCallLookup: Task<Void, Never>?
     /// Where meeting messages go, set by ``MeetingCenter``; read on the courier's thread.
     @ObservationIgnored let meetingInbox = LockedValue<MeetingInbox?>(nil)
     /// A meeting is running or joining: one call or meeting at a time (§3.2).
@@ -56,8 +60,18 @@ final class CallCenter {
         set { UserDefaults.standard.set(newValue, forKey: Self.alwaysRelayKey) }
     }
 
+    /// Whether this build offers a test relay. A release build calls and
+    /// answers only on CALL services from the chain (§6.2).
+    static var testRelayAllowed: Bool {
+#if DEBUG
+        true
+#else
+        false
+#endif
+    }
+
     var testRelay: String {
-        get { UserDefaults.standard.string(forKey: Self.testRelayKey) ?? "" }
+        get { Self.testRelayAllowed ? UserDefaults.standard.string(forKey: Self.testRelayKey) ?? "" : "" }
         set { UserDefaults.standard.set(newValue.trimmingCharacters(in: .whitespaces), forKey: Self.testRelayKey) }
     }
 
@@ -73,13 +87,16 @@ final class CallCenter {
             outbox: { [weak session] fid, signal in try? session?.sendCallSignal(to: fid, json: signal.toJson()) },
             records: { [weak session] fid, record in try? session?.recordCall(peerFid: fid, record) },
             clock: { Int64(Date().timeIntervalSince1970 * 1000) })
-        let own = ownCallRelay
+        let own = ownCall
         s.relayPolicy = { relay in
-            guard let url = relay?.url else { return false }
+            guard let relay else { return false }
+#if DEBUG
             let test = UserDefaults.standard.string(forKey: CallCenter.testRelayKey) ?? ""
-            if !test.isEmpty && FudpUrl.sameEndpoint(test, url) { return true }
-            return FudpUrl.sameEndpoint(own.value, url) // my own home.CALL, and no other (§6.2)
+            if !test.isEmpty && FudpUrl.sameEndpoint(test, relay.url) { return true }
+#endif
+            return own.value?.accepts(relay) ?? false // my own home.CALL, and no other (§6.2)
         }
+        let rechecked = ownCallRecheckedMs
         let busy = meetingBusy
         s.alsoBusy = { busy.value }
         let ev = SignallerEvents(center: self)
@@ -106,7 +123,21 @@ final class CallCenter {
                 "Call signal \(signal.op.rawValue) for call \(signal.callId) from \(CallCenter.short(sender)): \(gate)")
             switch gate {
             case .ring:
-                s.onSignal(from: sender, messageId: message.id ?? UUID().uuidString, signal)
+                let messageId = message.id ?? UUID().uuidString
+                // My home.CALL may have changed since I read it, here or on
+                // another device: read it again before answering REJECT relay.
+                // At most every 10 s, so INVITEs naming other relays cannot
+                // make me ask the chain on every one.
+                let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+                if signal.op == .INVITE, !s.relayPolicy(signal.relay), nowMs - rechecked.value > 10_000 {
+                    rechecked.value = nowMs
+                    Task { @MainActor [weak session, weak s] in
+                        if let session { _ = await CallCenter.readOwnCall(into: own, session: session) }
+                        s?.onSignal(from: sender, messageId: messageId, signal)
+                    }
+                    return
+                }
+                s.onSignal(from: sender, messageId: messageId, signal)
             case .missed where signal.op == .INVITE:
                 // A stranger's call rings nowhere; it is a missed call to see (§3.2).
                 try? session.recordCall(peerFid: sender, .init(kind: .MISSED, outgoing: false,
@@ -121,12 +152,28 @@ final class CallCenter {
                 s?.tick()
             }
         }
-        Task {
-            own.value = await Self.callRelay(of: session.liveFid, in: session)
+        // Until the chain answers, every INVITE would be refused: keep asking.
+        ownCallLookup = Task { [weak session] in
+            var delaySec: UInt64 = 5
+            while !Task.isCancelled, let session {
+                if await Self.readOwnCall(into: own, session: session) { return }
+                try? await Task.sleep(nanoseconds: delaySec * 1_000_000_000)
+                delaySec = min(delaySec * 2, 60)
+            }
         }
     }
 
+    /// My home as the chain now says, after a refresh or a home carve.
+    func ownHomeChanged(_ home: [String: String]?) {
+        guard let session = active else { return }
+        let own = ownCall
+        Task { own.value = await Self.ownCall(from: home, in: session) }
+    }
+
     func detach() {
+        ownCallLookup?.cancel()
+        ownCallLookup = nil
+        ownCall.value = nil
         active?.callInbox.handler = nil
         ticker?.cancel()
         if let c = call { signaller?.hangup(callId: c.callId) }
@@ -138,6 +185,18 @@ final class CallCenter {
     }
 
     // MARK: - Actions
+
+    /// What the last call attempt read from the chain: whether the peer has a home.CALL.
+    private(set) var peerHasCall: [String: Bool] = [:]
+
+    /// Whether `fid` is known to have no CALL service: by the last call
+    /// attempt, else by its known home. False when nothing is known. Only
+    /// a hint for the call button, since placing a call reads it fresh.
+    func knownWithoutCall(_ fid: String, in session: ActiveSession) -> Bool {
+        if let has = peerHasCall[fid] { return !has }
+        guard let home = (try? session.knownHome(of: fid)) ?? nil else { return false }
+        return (home[Self.homeKey] ?? "").isEmpty
+    }
 
     /// Ring `fid`: its home.CALL, and no other (§6.2); a test relay when set.
     func placeCall(to fid: String) {
@@ -154,6 +213,7 @@ final class CallCenter {
         Task {
             let test = testRelay
             let url = test.isEmpty ? await Self.callRelay(of: fid, in: session) : test
+            if test.isEmpty { peerHasCall[fid] = url != nil }
             guard phase == .calling, call == nil else { return }
             guard let url, !url.isEmpty else {
                 finish("\(Self.short(fid)) has no CALL service in their home, so they cannot be called.")
@@ -324,6 +384,25 @@ final class CallCenter {
         }
     }
 
+    /// Read my own home.CALL from the chain into `own`. False if the chain could not be asked.
+    static func readOwnCall(into own: LockedValue<OwnCall?>, session: ActiveSession) async -> Bool {
+        let freer: Freer?
+        do {
+            freer = try await DirectoryService(fapi: session.fapi).freer(byId: session.liveFid)
+        } catch {
+            SystemLog.shared.warning(SystemSource.messages, "Could not read my home.CALL; calls are refused until it is read",
+                                     detail: String(describing: error))
+            return false
+        }
+        own.value = await ownCall(from: freer?.home, in: session)
+        return true
+    }
+
+    static func ownCall(from home: [String: String]?, in session: ActiveSession) async -> OwnCall? {
+        guard let value = home?[homeKey], !value.isEmpty else { return nil }
+        return OwnCall(url: await session.homeServices.resolve(value), sid: HomeServiceResolver.extractSid(value))
+    }
+
     /// `fid`'s home.CALL, resolved to a URL; nil if it has none.
     static func callRelay(of fid: String, in session: ActiveSession) async -> String? {
         guard let freer = try? await DirectoryService(fapi: session.fapi).freer(byId: fid),
@@ -349,6 +428,18 @@ final class CallCenter {
 }
 
 /// A value read and written from several threads.
+/// My home.CALL as an INVITE's relay is checked against (§6.1): by service
+/// id when my home names one and the INVITE carries one, else by address.
+struct OwnCall: Sendable, Equatable {
+    var url: String?
+    var sid: String?
+
+    func accepts(_ relay: CallSignal.Relay) -> Bool {
+        if let sid, let theirs = relay.sid { return sid == theirs }
+        return FudpUrl.sameEndpoint(url, relay.url)
+    }
+}
+
 final class LockedValue<T>: @unchecked Sendable {
     private let lock = NSLock()
     private var _value: T
