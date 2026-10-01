@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import FCDomain
+import FCUI
 
 /// The meeting panel (VOICE_SPEC §10), over the main window: who is in it and
 /// who is speaking, mute and hand, and the host's controls (§7.2). It says the
@@ -10,6 +11,8 @@ import FCDomain
 struct MeetingView: View {
     let meetings: MeetingCenter
     let names: (String) -> String
+    /// Ask after the CIDs of these FIDs, so `names` can answer with them.
+    let resolve: ([String]) -> Void
     @State private var now = Date()
     @State private var confirmEnd = false
     @State private var confirmKick: MacMeetingSession.Participant?
@@ -69,7 +72,7 @@ struct MeetingView: View {
             }
             .sheet(isPresented: $picking) {
                 MemberPickerSheet(title: "Invite to the meeting", members: meetings.invitable(), names: names,
-                                  confirm: "Invite") { meetings.invite($0) }
+                                  resolve: resolve, confirm: "Invite") { meetings.invite($0) }
             }
         }
     }
@@ -185,10 +188,19 @@ struct MemberPickerSheet: View {
     let title: String
     let members: [String]
     let names: (String) -> String
+    /// Called with the members on appear, so their CIDs are on the way
+    /// before anybody types a name to search for.
+    let resolve: ([String]) -> Void
     let confirm: String
     let onPick: ([String]) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var chosen = Set<String>()
+    /// Narrows the rows drawn; whoever is ticked stays chosen while hidden.
+    @State private var query = ""
+
+    private var shown: [String] {
+        MemberSearch.filter(members, by: query) { [names($0)] }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -196,13 +208,29 @@ struct MemberPickerSheet: View {
             if members.isEmpty {
                 Text("There is no one else to choose.").foregroundStyle(.secondary)
             } else {
-                List(members, id: \.self) { fid in
+                if members.count >= MemberSearch.threshold {
+                    HStack {
+                        Text("\(chosen.count) of \(members.count) chosen")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        SearchField("Search name, FID…", text: $query, minWidth: 120, maxWidth: 180)
+                    }
+                }
+                List(shown, id: \.self) { fid in
                     Toggle(isOn: Binding(get: { chosen.contains(fid) },
                                          set: { if $0 { chosen.insert(fid) } else { chosen.remove(fid) } })) {
                         Text(names(fid)).lineLimit(1)
                     }
                 }
                 .frame(minHeight: 200)
+                .overlay {
+                    if shown.isEmpty {
+                        Label("No member matches “\(query)”", systemImage: "magnifyingglass")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             HStack {
                 Spacer()
@@ -217,5 +245,6 @@ struct MemberPickerSheet: View {
         }
         .padding(20)
         .frame(width: 380)
+        .onAppear { resolve(members) }
     }
 }

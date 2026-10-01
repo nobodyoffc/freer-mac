@@ -32,10 +32,19 @@ struct MemberListSheet: View {
     let session: ActiveSession
     let style: ChatModeStyle
     let conversation: Conversation
+    /// The chat pane's CIDs, so a row reads as a name where the chain
+    /// has published one, and the search finds it by that name.
+    let names: ChatNameBook
     let onClose: () -> Void
     let onChanged: () -> Void
 
     @State private var members: [String] = []
+    /// What the search field holds. Only narrows the rows drawn — every
+    /// act and every count still sees the whole membership.
+    @State private var query = ""
+    /// What the address book knows of each member, for the search —
+    /// read once per membership rather than per keystroke.
+    @State private var contactKeys: [String: [String]] = [:]
     @State private var owner: String?
     @State private var managers: [String] = []
     /// Who has renamed a square. A **history**, not a role — kept apart
@@ -125,6 +134,18 @@ struct MemberListSheet: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if members.count >= MemberSearch.threshold {
+                HStack {
+                    Text(shown.count == members.count
+                         ? "\(members.count) members"
+                         : "\(shown.count) of \(members.count) members")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    SearchField("Search name, FID…", text: $query, minWidth: 160, maxWidth: 240)
+                }
+            }
+
             list
 
             if style.mode == .team {
@@ -169,6 +190,8 @@ struct MemberListSheet: View {
             }
         }
         .task(id: members) {
+            names.resolve(members, session: session)
+            contactKeys = MemberSearch.contactKeys(members, session: session)
             let directory = session.directory
             await NobodyRegistry.shared.resolve(members, retryFailed: false) { fids in
                 await directory.nobodyFids(among: fids)
@@ -198,17 +221,24 @@ struct MemberListSheet: View {
         }
     }
 
+    /// The members the search leaves showing.
+    private var shown: [String] {
+        MemberSearch.filter(members, by: query) { fid in
+            [names.cid(of: fid)].compactMap { $0 } + (contactKeys[fid] ?? [])
+        }
+    }
+
     private var list: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(members, id: \.self) { fid in
+                ForEach(shown, id: \.self) { fid in
                     HStack(spacing: 8) {
                         Button { inspectFid(fid) } label: {
                             FidAvatarView(fid: fid, size: 24)
                         }
                         .buttonStyle(.plain)
                         .help("Show this FID's details, standing and ratings")
-                        FidBadge(fid, font: .callout)
+                        FidBadge(fid, name: names.cid(of: fid), font: .callout)
                         if fid == owner { ChatChip("owner", color: style.tint) }
                         if managers.contains(fid) { ChatChip("manager", color: .secondary) }
                         if namers.contains(fid) { ChatChip("named it", color: .secondary) }
@@ -248,6 +278,11 @@ struct MemberListSheet: View {
                 }
                 if members.isEmpty {
                     Text("No members listed.").font(.caption).foregroundStyle(.secondary)
+                } else if shown.isEmpty {
+                    Label("No member matches “\(query)”", systemImage: "magnifyingglass")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 5)
                 }
             }
         }

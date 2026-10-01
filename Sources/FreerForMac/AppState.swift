@@ -65,6 +65,12 @@ final class AppState {
         m.meetingDocks = { [weak self] type, id in self?.setMeetingDocks(type: type, id: id) }
         return m
     }()
+    /// Who FIDs are — their CIDs — for the chat pane and the meeting
+    /// panel alike. Kept here rather than in the pane because the panel
+    /// floats over every screen, and a meeting's people are the chat's
+    /// people. A CID is the chain's answer, not the identity's, so the
+    /// book survives switching identity.
+    let chatNames = ChatNameBook()
     /// The call settings sheet (the test relay).
     var showCallSettings = false
     /// Keep running in the menu bar with the window closed, so calls and

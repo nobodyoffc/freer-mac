@@ -75,12 +75,19 @@ struct AskMembersSheet: View {
     let style: ChatModeStyle
     let conversation: Conversation
     let ask: Ask
+    /// The chat pane's CIDs, so a row reads as a name where the chain
+    /// has published one, and the search finds it by that name.
+    let names: ChatNameBook
     let onClose: () -> Void
     let onSent: (String) -> Void
 
     @State private var members: [String] = []
     @State private var owner: String?
     @State private var chosen: Set<String> = []
+    /// Narrows the rows drawn. Whoever is ticked stays ticked while
+    /// hidden, and is still sent to.
+    @State private var query = ""
+    @State private var contactKeys: [String: [String]] = [:]
     @State private var error: String?
     /// Whether we already hold a key for this entity. Only a caption —
     /// asking again is legitimate (a rotation we missed, a room whose
@@ -126,15 +133,23 @@ struct AskMembersSheet: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 HStack {
-                    Button(chosen.count == members.count ? "Select none" : "Select all") {
-                        chosen = chosen.count == members.count ? [] : Set(members)
+                    // While searching, the bulk toggle acts on the rows
+                    // showing — ticking everyone hidden is not what
+                    // anybody who typed a name meant.
+                    let allShown = Set(shown).isSubset(of: chosen)
+                    Button(selectToggleTitle(allShown: allShown)) {
+                        if allShown { chosen.subtract(shown) } else { chosen.formUnion(shown) }
                     }
                     .buttonStyle(.borderless)
                     .font(.caption)
+                    .disabled(shown.isEmpty)
                     Spacer()
                     Text("\(chosen.count) of \(members.count) selected")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                    if members.count >= MemberSearch.threshold {
+                        SearchField("Search name, FID…", text: $query, minWidth: 120, maxWidth: 180)
+                    }
                 }
                 list
             }
@@ -203,10 +218,33 @@ struct AskMembersSheet: View {
         }
     }
 
+    /// The members the search leaves showing.
+    private var shown: [String] {
+        MemberSearch.filter(members, by: query) { fid in
+            [names.cid(of: fid)].compactMap { $0 } + (contactKeys[fid] ?? [])
+        }
+    }
+
+    private func selectToggleTitle(allShown: Bool) -> String {
+        let searching = shown.count != members.count
+        switch (allShown, searching) {
+        case (true, false):  return "Select none"
+        case (false, false): return "Select all"
+        case (true, true):   return "Deselect shown"
+        case (false, true):  return "Select shown"
+        }
+    }
+
     private var list: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                ForEach(members, id: \.self) { fid in
+                if shown.isEmpty {
+                    Label("No member matches “\(query)”", systemImage: "magnifyingglass")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(.vertical, 5)
+                }
+                ForEach(shown, id: \.self) { fid in
                     Button {
                         if chosen.contains(fid) { chosen.remove(fid) } else { chosen.insert(fid) }
                     } label: {
@@ -215,7 +253,7 @@ struct AskMembersSheet: View {
                                 Image(systemName: chosen.contains(fid) ? "checkmark.square.fill" : "square")
                                     .foregroundStyle(chosen.contains(fid) ? style.tint : .secondary)
                                 FidAvatarView(fid: fid, size: 22)
-                                Text(fid.elidingMiddle(head: 8, tail: 8))
+                                Text(names.label(for: fid, head: 8, tail: 8))
                                     .font(.callout)
                                 if fid == owner { ChatChip("owner", color: style.tint) }
                                 if fid == session.liveFid { ChatChip("your other devices", color: style.tint) }
@@ -278,6 +316,8 @@ struct AskMembersSheet: View {
                 // Neither has a key, so neither reaches this sheet.
                 members = []
             }
+            names.resolve(members, session: session)
+            contactKeys = MemberSearch.contactKeys(members, session: session)
             alreadyHeld = (try? session.symkeys.has(entityId: conversation.targetId)) ?? false
             missingVersions = sealedVersionsNotHeld()
             // The owner is the answer that counts most in both cases, so

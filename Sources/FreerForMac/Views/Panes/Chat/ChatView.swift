@@ -175,8 +175,9 @@ struct ChatView: View {
     /// each, so a transcript names people instead of reciting digits.
     /// One book for the whole pane rather than one per flavour: the
     /// same person turns up in a room, a team and a chat, and they are
-    /// the same person in all three.
-    @State private var names = ChatNameBook()
+    /// the same person in all three. The app's, so the meeting panel
+    /// names them the same way.
+    private var names: ChatNameBook { appState.chatNames }
 
     // MARK: - derived
 
@@ -402,6 +403,7 @@ struct ChatView: View {
                     members: session.entityMembers(type: conversation.type, entityId: conversation.targetId)
                         .filter { $0 != session.liveFid },
                     names: meetingName,
+                    resolve: { names.resolve($0, session: session) },
                     confirm: "Start meeting"
                 ) { chosen in startMeeting(in: conversation, invitees: chosen) }
             }
@@ -427,6 +429,7 @@ struct ChatView: View {
                     style: style,
                     conversation: conversation,
                     ask: ask,
+                    names: names,
                     onClose: { asking = nil },
                     onSent: { summary in syncSummary = summary }
                 )
@@ -477,6 +480,7 @@ struct ChatView: View {
                     session: session,
                     style: style,
                     conversation: conversation,
+                    names: names,
                     onClose: { showMembers = false },
                     onChanged: { reload() }
                 )
@@ -1511,8 +1515,10 @@ struct ChatView: View {
         }
     }
 
+    /// The CID where the chain has published one — the address book's
+    /// is already in the book once resolved — else the FID, shortened.
     private func meetingName(_ fid: String) -> String {
-        ((try? session.contacts.get(fid: fid)) ?? nil)?.name ?? CallCenter.short(fid)
+        names.cid(of: fid) ?? CallCenter.short(fid)
     }
 
     private func reload() {

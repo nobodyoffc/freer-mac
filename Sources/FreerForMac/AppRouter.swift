@@ -27,11 +27,16 @@ struct AppRouter: View {
         // A call can ring whatever screen is open (VOICE_SPEC §10).
         .overlay(alignment: .topTrailing) { CallView(calls: appState.callCenter) }
         .overlay(alignment: .bottomTrailing) {
-            MeetingView(meetings: appState.meetingCenter) { fid in
-                // A contact's name where there is one; the FID, shortened, where not.
-                let contact = (try? appState.activeSession?.contacts.get(fid: fid)) ?? nil
-                return contact.map(\.name) ?? CallCenter.short(fid)
-            }
+            MeetingView(
+                meetings: appState.meetingCenter,
+                // The chat's names: a CID where one is known, the FID,
+                // shortened, where not.
+                names: { fid in appState.chatNames.cid(of: fid) ?? CallCenter.short(fid) },
+                resolve: { fids in
+                    guard let session = appState.activeSession else { return }
+                    appState.chatNames.resolve(fids, session: session)
+                }
+            )
         }
         .sheet(isPresented: Bindable(appState).showCallSettings) { CallSettingsSheet(calls: appState.callCenter) }
     }
