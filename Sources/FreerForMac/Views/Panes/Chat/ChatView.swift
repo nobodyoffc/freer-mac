@@ -402,8 +402,7 @@ struct ChatView: View {
                     title: "Meet with whom?",
                     members: session.entityMembers(type: conversation.type, entityId: conversation.targetId)
                         .filter { $0 != session.liveFid },
-                    names: meetingName,
-                    resolve: { names.resolve($0, session: session) },
+                    names: MeetingNames(book: names, session: session),
                     confirm: "Start meeting"
                 ) { chosen in startMeeting(in: conversation, invitees: chosen) }
             }
@@ -1513,12 +1512,6 @@ struct ChatView: View {
                 meetingError = why
             }
         }
-    }
-
-    /// The CID where the chain has published one — the address book's
-    /// is already in the book once resolved — else the FID, shortened.
-    private func meetingName(_ fid: String) -> String {
-        names.cid(of: fid) ?? CallCenter.short(fid)
     }
 
     private func reload() {

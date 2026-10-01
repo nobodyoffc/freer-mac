@@ -3,6 +3,33 @@ import Combine
 import FCDomain
 import FCUI
 
+/// Who the meeting's people are: the app's ``ChatNameBook``, so a meeting
+/// names people the way the chat does, and the session it resolves them in.
+/// Called like a function for the name to draw.
+@MainActor
+struct MeetingNames {
+    let book: ChatNameBook
+    let session: ActiveSession?
+
+    /// The CID where one is known; the FID, shortened, where not.
+    func callAsFunction(_ fid: String) -> String {
+        book.cid(of: fid) ?? CallCenter.short(fid)
+    }
+
+    /// Ask after these FIDs' CIDs; each row redraws as its answer lands.
+    func resolve(_ fids: [String]) {
+        guard let session else { return }
+        book.resolve(fids, session: session)
+    }
+
+    /// Every name a member can be searched by besides their FID: the CID
+    /// known now and what the address book holds.
+    func searchKeys(_ fids: [String]) -> [String: [String]] {
+        guard let session else { return [:] }
+        return MemberSearch.contactKeys(fids, session: session)
+    }
+}
+
 /// The meeting panel (VOICE_SPEC §10), over the main window: who is in it and
 /// who is speaking, mute and hand, and the host's controls (§7.2). It says the
 /// meeting is end-to-end encrypted and where it runs, and warns when audio
@@ -10,9 +37,7 @@ import FCUI
 /// ``MeetingCenter``; this only shows it.
 struct MeetingView: View {
     let meetings: MeetingCenter
-    let names: (String) -> String
-    /// Ask after the CIDs of these FIDs, so `names` can answer with them.
-    let resolve: ([String]) -> Void
+    let names: MeetingNames
     @State private var now = Date()
     @State private var confirmEnd = false
     @State private var confirmKick: MacMeetingSession.Participant?
@@ -48,6 +73,8 @@ struct MeetingView: View {
                         }
                     }
                     .frame(maxHeight: 220)
+                    // Somebody joining is somebody to name.
+                    .task(id: people.map(\.fid)) { names.resolve(people.map(\.fid)) }
                 }
                 if let controlError {
                     Text(controlError).font(.caption).foregroundStyle(.red)
@@ -72,7 +99,7 @@ struct MeetingView: View {
             }
             .sheet(isPresented: $picking) {
                 MemberPickerSheet(title: "Invite to the meeting", members: meetings.invitable(), names: names,
-                                  resolve: resolve, confirm: "Invite") { meetings.invite($0) }
+                                  confirm: "Invite") { meetings.invite($0) }
             }
         }
     }
@@ -81,7 +108,8 @@ struct MeetingView: View {
     private func ringingPanel(_ m: MeetingBoard.Meeting) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Incoming meeting").font(.headline)
-            Text(meetings.ringText(m, names: names)).font(.title3).bold().lineLimit(2)
+            Text(meetings.ringText(m, names: names.callAsFunction)).font(.title3).bold().lineLimit(2)
+                .task(id: m.hostFid) { names.resolve([m.hostFid]) }
             if m.invited {
                 Text("Only invited members").font(.caption).foregroundStyle(.secondary)
             }
@@ -187,19 +215,20 @@ struct MeetingView: View {
 struct MemberPickerSheet: View {
     let title: String
     let members: [String]
-    let names: (String) -> String
-    /// Called with the members on appear, so their CIDs are on the way
-    /// before anybody types a name to search for.
-    let resolve: ([String]) -> Void
+    let names: MeetingNames
     let confirm: String
     let onPick: ([String]) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var chosen = Set<String>()
     /// Narrows the rows drawn; whoever is ticked stays chosen while hidden.
     @State private var query = ""
+    /// What the address book knows of each member, read once on appear.
+    @State private var contactKeys: [String: [String]] = [:]
 
     private var shown: [String] {
-        MemberSearch.filter(members, by: query) { [names($0)] }
+        MemberSearch.filter(members, by: query) { fid in
+            [names.book.cid(of: fid)].compactMap { $0 } + (contactKeys[fid] ?? [])
+        }
     }
 
     var body: some View {
@@ -245,6 +274,10 @@ struct MemberPickerSheet: View {
         }
         .padding(20)
         .frame(width: 380)
-        .onAppear { resolve(members) }
+        .onAppear {
+            // Their CIDs are on the way before anybody types one.
+            names.resolve(members)
+            contactKeys = names.searchKeys(members)
+        }
     }
 }

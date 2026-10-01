@@ -29,13 +29,7 @@ struct AppRouter: View {
         .overlay(alignment: .bottomTrailing) {
             MeetingView(
                 meetings: appState.meetingCenter,
-                // The chat's names: a CID where one is known, the FID,
-                // shortened, where not.
-                names: { fid in appState.chatNames.cid(of: fid) ?? CallCenter.short(fid) },
-                resolve: { fids in
-                    guard let session = appState.activeSession else { return }
-                    appState.chatNames.resolve(fids, session: session)
-                }
+                names: MeetingNames(book: appState.chatNames, session: appState.activeSession)
             )
         }
         .sheet(isPresented: Bindable(appState).showCallSettings) { CallSettingsSheet(calls: appState.callCenter) }
