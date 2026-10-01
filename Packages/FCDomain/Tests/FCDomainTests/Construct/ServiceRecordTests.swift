@@ -251,6 +251,34 @@ final class ServiceRecordTests: XCTestCase {
         XCTAssertEqual(op, #"{"op":"publish","stdName":"DOCK@ME"}"#)
     }
 
+    /// The indexer reads `dealerPubkey` off the op and derives the
+    /// dealer's FID from it; a key it cannot derive from loses the
+    /// whole record, so the carve refuses one before anything is spent.
+    func testDealerPubkeyIsCarvedAndAMalformedOneIsRefused() throws {
+        let key = "02" + String(repeating: "ab", count: 32)
+        let publish = try ServiceFeip.publishCarve(stdName: "DOCK@ME", dealerPubkey: key)
+        XCTAssertTrue(publish.contains(#""dealerPubkey":"\#(key)""#))
+        let update = try ServiceFeip.updateCarve(sid: "s", stdName: "DOCK@ME", dealerPubkey: key)
+        XCTAssertTrue(update.contains(#""dealerPubkey":"\#(key)""#))
+
+        XCTAssertFalse(try ServiceFeip.publishCarve(stdName: "DOCK@ME", dealerPubkey: " ")
+            .contains("dealerPubkey"))
+        XCTAssertThrowsError(try ServiceFeip.publishCarve(stdName: "DOCK@ME", dealerPubkey: "04abc"))
+        XCTAssertThrowsError(try ServiceFeip.updateCarve(
+            sid: "s", stdName: "DOCK@ME", dealerPubkey: "05" + String(repeating: "ab", count: 32)
+        ))
+    }
+
+    func testADraftShowsTheDealerItsPubkeyDerivesTo() throws {
+        let priv = Hash.sha256(Data("dealer".utf8))
+        let pub = try Secp256k1.publicKey(fromPrivateKey: priv)
+        let draft = Service.createLocal(
+            stdName: "DOCK@ME", dealerPubkey: Hex.encode(pub), owner: "F"
+        )
+        XCTAssertEqual(draft.dealerPubkey, Hex.encode(pub))
+        XCTAssertEqual(draft.dealer, try FchAddress(publicKey: pub).fid)
+    }
+
     /// Android's `ProtocolOpData.rate` is a primitive `int`, so Gson
     /// writes `"rate":0` into every protocol op (**issue C20**).
     /// `ServiceOpData.rate` is a boxed `Integer` and does not. Pinned on

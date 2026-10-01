@@ -534,6 +534,8 @@ struct ProtocolsView: View {
                     }
                 }
 
+                RecordIdLine(spec.id, isDraft: spec.onChain == false)
+
                 if let desc = spec.desc, !desc.isEmpty {
                     Text(desc)
                         .font(.caption)

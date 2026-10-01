@@ -200,3 +200,44 @@ struct FidBadge: View {
         }
     }
 }
+
+/// A record's own id on a list row — the SID, code ID, protocol ID or
+/// app ID every other record and every carve refers to it by.
+///
+/// Its own line under the title rather than a corner of the owner line:
+/// it is the one value on the row that names *this* record, and a list
+/// of near-identical names (`DOCK@No1_NrC7` four times over) is told
+/// apart only by it. Click copies, like every id the app draws. A draft
+/// has no id until its carve returns a txid, and says so rather than
+/// showing the local digest it is keyed by.
+struct RecordIdLine: View {
+
+    let id: String
+    let isDraft: Bool
+
+    init(_ id: String, isDraft: Bool) {
+        self.id = id
+        self.isDraft = isDraft
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("ID").font(.caption2.bold()).foregroundStyle(.tertiary)
+            if isDraft {
+                Text("assigned when published")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                CopyableText(
+                    display: id.elidingMiddle(head: 10, tail: 10),
+                    copy: id,
+                    font: .system(.caption, design: .monospaced),
+                    color: .secondary
+                )
+                .contextMenu {
+                    Button("Copy ID") { copyToPasteboard(id) }
+                }
+            }
+        }
+    }
+}

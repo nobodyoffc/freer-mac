@@ -95,6 +95,7 @@ struct PublishServiceSheet: View {
         _stdName = State(initialValue: s?.stdName ?? "")
         _type = State(initialValue: s?.type ?? "")
         _ver = State(initialValue: s?.ver ?? "")
+        _dealerPubkey = State(initialValue: s?.dealerPubkey ?? "")
         _desc = State(initialValue: s?.desc ?? "")
         _components = State(initialValue: s?.components ?? [])
         _homeRows = State(initialValue: HomeRow.rows(from: s?.home))
@@ -109,6 +110,7 @@ struct PublishServiceSheet: View {
     @State private var stdName: String
     @State private var type: String
     @State private var ver: String
+    @State private var dealerPubkey: String
     @State private var desc: String
     @State private var components: [String]
     @State private var homeRows: [HomeRow]
@@ -131,6 +133,25 @@ struct PublishServiceSheet: View {
         stdName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The dealer pubkey as it will be carved: compressed hex when the
+    /// input is any form ``PubkeyFormats`` reads, nil when blank, and
+    /// `.failure` when it is not a key — which turns the carve off.
+    private var cleanDealerPubkey: Swift.Result<String?, Error> {
+        let typed = dealerPubkey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !typed.isEmpty else { return .success(nil) }
+        return Swift.Result { try PubkeyFormats.pubkey33(from: typed) }
+    }
+
+    private var dealerPubkeyValue: String? {
+        if case .success(let key) = cleanDealerPubkey { return key }
+        return nil
+    }
+
+    private var dealerPubkeyIsBad: Bool {
+        if case .failure = cleanDealerPubkey { return true }
+        return false
+    }
+
     private var home: [String: String]? {
         let map = HomeRow.map(from: homeRows)
         return map.isEmpty ? nil : map
@@ -150,6 +171,7 @@ struct PublishServiceSheet: View {
             type: type,
             components: components.isEmpty ? nil : components,
             ver: ver,
+            dealerPubkey: dealerPubkeyValue,
             home: home,
             waiters: waiters.isEmpty ? nil : waiters,
             protocols: protocols.isEmpty ? nil : protocols,
@@ -160,7 +182,7 @@ struct PublishServiceSheet: View {
     }
 
     private var canCarve: Bool {
-        !trimmedName.isEmpty && remaining >= 0 && session.canSign && !busy
+        !trimmedName.isEmpty && remaining >= 0 && !dealerPubkeyIsBad && session.canSign && !busy
     }
 
     private var heading: String {
@@ -214,6 +236,26 @@ struct PublishServiceSheet: View {
                         }
                     }
                     .help("Free text. The component list below is what a client filters on — the type only says this is an FC service at all.")
+
+                    field("Dealer pubkey") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            TextField("02… or 03… — 66 hex characters", text: $dealerPubkey)
+                                .font(.system(.body, design: .monospaced))
+                                .fieldInputStyle()
+                            if dealerPubkeyIsBad {
+                                Text("Not a pubkey. The indexer would drop the whole record, not just this field.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.red)
+                            } else if let key = dealerPubkeyValue,
+                                      let fid = Service.dealerFid(ofPubkey: key) {
+                                FidLine("Dealer", fid, name: names[fid])
+                            } else {
+                                Text("Optional. Who runs the server day to day; the indexer derives the dealer's FID from this key.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
 
                     field("Description") {
                         VStack(alignment: .leading, spacing: 4) {
@@ -436,6 +478,7 @@ struct PublishServiceSheet: View {
             type: clean(type),
             components: components.isEmpty ? nil : components,
             ver: clean(ver),
+            dealerPubkey: dealerPubkeyValue,
             home: home,
             waiters: waiters.isEmpty ? nil : waiters,
             protocols: protocols.isEmpty ? nil : protocols,
@@ -478,6 +521,7 @@ struct PublishServiceSheet: View {
                     type: clean(type),
                     components: components.isEmpty ? nil : components,
                     ver: clean(ver),
+                    dealerPubkey: dealerPubkeyValue,
                     home: home,
                     waiters: waiters.isEmpty ? nil : waiters,
                     protocols: protocols.isEmpty ? nil : protocols,
@@ -502,6 +546,7 @@ struct PublishServiceSheet: View {
                 type: clean(type),
                 components: components.isEmpty ? nil : components,
                 ver: clean(ver),
+                dealerPubkey: dealerPubkeyValue,
                 home: home,
                 waiters: waiters.isEmpty ? nil : waiters,
                 protocols: protocols.isEmpty ? nil : protocols,
@@ -544,13 +589,17 @@ struct PublishServiceSheet: View {
 /// asks for it as a comma-separated field and accepts whatever is typed.
 /// The four the network actually looks for are one click each here, and
 /// anything else can still be typed.
+///
+/// FAPI is not one of the four: it is what a service *is* — the Type
+/// field — not something it offers alongside DOCK or DISK. A record
+/// that already lists it keeps it, as a typed extra.
 struct ComponentListEditor: View {
     @Binding var components: [String]
 
     @State private var typed = ""
 
     private static let wellKnown = [
-        ServiceName.fapi, ServiceName.dock, ServiceName.disk, ServiceName.road
+        ServiceName.dock, ServiceName.disk, ServiceName.road, ServiceName.call
     ]
 
     var body: some View {

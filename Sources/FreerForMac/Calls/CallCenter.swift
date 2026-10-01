@@ -15,7 +15,7 @@ final class CallCenter {
 
     enum Phase: Equatable { case idle, calling, ringingIn, connecting, connected, ended }
 
-    static let homeKey = "CALL@No1_NrC7"
+    static let homeKey = ServiceName.call
     /// A relay to call through, and to answer on, before a CALL service is on chain: for testing.
     static let testRelayKey = "callTestRelay"
     /// Never try a direct path: the peer never learns this Mac's address (Decision 8).

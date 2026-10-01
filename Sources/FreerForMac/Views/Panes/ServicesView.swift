@@ -579,6 +579,8 @@ struct ServicesView: View {
                     }
                 }
 
+                RecordIdLine(service.sid, isDraft: service.onChain == false)
+
                 if let desc = service.desc, !desc.isEmpty {
                     Text(desc)
                         .font(.caption)

@@ -540,6 +540,8 @@ struct AppsView: View {
                     }
                 }
 
+                RecordIdLine(app.id, isDraft: app.onChain == false)
+
                 if let desc = app.desc, !desc.isEmpty {
                     Text(desc)
                         .font(.caption)

@@ -536,6 +536,8 @@ struct CodesView: View {
                     }
                 }
 
+                RecordIdLine(code.id, isDraft: code.onChain == false)
+
                 if let desc = code.desc, !desc.isEmpty {
                     Text(desc)
                         .font(.caption)

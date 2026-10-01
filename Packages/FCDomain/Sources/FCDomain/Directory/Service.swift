@@ -518,6 +518,7 @@ public struct Service: Codable, Equatable, Sendable, Identifiable {
         type: String? = nil,
         components: [String]? = nil,
         ver: String? = nil,
+        dealerPubkey: String? = nil,
         home: [String: String]? = nil,
         waiters: [String]? = nil,
         protocols: [String]? = nil,
@@ -527,7 +528,8 @@ public struct Service: Codable, Equatable, Sendable, Identifiable {
     ) -> String {
         let detail = (try? ServiceFeip.publishOp(
             stdName: stdName, localNames: localNames, desc: desc, type: type,
-            components: components, ver: ver, home: home, waiters: waiters,
+            components: components, ver: ver, dealerPubkey: dealerPubkey,
+            home: home, waiters: waiters,
             protocols: protocols, codes: codes, services: services, pricing: pricing
         )) ?? "\(stdName ?? "")\u{1F}\(type ?? "")\u{1F}\(ver ?? "")"
         return Hex.encode(Hash.doubleSha256(Data(detail.utf8)))
@@ -543,6 +545,7 @@ public struct Service: Codable, Equatable, Sendable, Identifiable {
         type: String? = nil,
         components: [String]? = nil,
         ver: String? = nil,
+        dealerPubkey: String? = nil,
         home: [String: String]? = nil,
         waiters: [String]? = nil,
         protocols: [String]? = nil,
@@ -567,6 +570,9 @@ public struct Service: Codable, Equatable, Sendable, Identifiable {
         let cleanServices = prune(services)
         let cleanHome = (home?.isEmpty == false) ? home : nil
         let cleanLocalNames = (localNames?.isEmpty == false) ? localNames : nil
+        let cleanDealerPubkey = dealerPubkey
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .flatMap { $0.isEmpty ? nil : $0 }
         let clean = pricing.pruned
         var draft = Service(
             stdName: stdName,
@@ -575,6 +581,8 @@ public struct Service: Codable, Equatable, Sendable, Identifiable {
             type: type,
             components: cleanComponents,
             ver: ver,
+            dealer: cleanDealerPubkey.flatMap(Service.dealerFid(ofPubkey:)),
+            dealerPubkey: cleanDealerPubkey,
             home: cleanHome,
             waiters: cleanWaiters,
             protocols: cleanProtocols,
@@ -586,12 +594,23 @@ public struct Service: Codable, Equatable, Sendable, Identifiable {
             id: localId(
                 stdName: stdName, localNames: cleanLocalNames, desc: desc,
                 type: type, components: cleanComponents, ver: ver,
-                home: cleanHome, waiters: cleanWaiters, protocols: cleanProtocols,
+                dealerPubkey: cleanDealerPubkey, home: cleanHome, waiters: cleanWaiters, protocols: cleanProtocols,
                 codes: cleanCodes, services: cleanServices, pricing: clean
             )
         )
         draft.applyPricing(clean)
         return draft
+    }
+
+    /// The FID a dealer pubkey derives to — what the indexer will set
+    /// ``dealer`` to once it parses the carve, so a draft or a
+    /// just-broadcast row can show it before then. Nil for anything
+    /// that is not a 33-byte compressed key.
+    public static func dealerFid(ofPubkey hex: String) -> String? {
+        guard let data = Hex.decodeOrNil(hex), data.count == 33,
+              let address = try? FchAddress(publicKey: data)
+        else { return nil }
+        return address.fid
     }
 }
 
@@ -607,4 +626,7 @@ public enum ServiceName {
     public static let disk = "DISK@No1_NrC7"
     /// The chain-index API.
     public static let fapi = "FAPI@No1_NrC7"
+    /// Voice-call relay — holds a session open and forwards frames it
+    /// cannot read (VOICE_SPEC §7).
+    public static let call = "CALL@No1_NrC7"
 }

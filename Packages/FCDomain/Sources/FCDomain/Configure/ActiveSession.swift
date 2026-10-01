@@ -4293,7 +4293,7 @@ public final class ActiveSession {
     /// Pays nobody: publishing is a registration, not a message.
     ///
     /// Everything goes on chain **in the clear**, which is why the size
-    /// guard in ``ServiceFeip/publishCarve(stdName:localNames:desc:type:components:ver:home:waiters:protocols:codes:services:pricing:)``
+    /// guard in ``ServiceFeip/publishCarve(stdName:localNames:desc:type:components:ver:dealerPubkey:home:waiters:protocols:codes:services:pricing:)``
     /// runs before a single satoshi is committed. It bites soonest on
     /// this record of the four: a service can name five id lists, two
     /// maps and thirteen prices, and protocol and code ids are 64
@@ -4311,6 +4311,7 @@ public final class ActiveSession {
         type: String? = nil,
         components: [String]? = nil,
         ver: String? = nil,
+        dealerPubkey: String? = nil,
         home: [String: String]? = nil,
         waiters: [String]? = nil,
         protocols: [String]? = nil,
@@ -4326,7 +4327,8 @@ public final class ActiveSession {
         // too big for an OP_RETURN.
         let feipJson = try ServiceFeip.publishCarve(
             stdName: stdName, localNames: localNames, desc: desc, type: type,
-            components: components, ver: ver, home: home, waiters: waiters,
+            components: components, ver: ver, dealerPubkey: dealerPubkey,
+            home: home, waiters: waiters,
             protocols: protocols, codes: codes, services: serviceIds, pricing: pricing
         )
         let result = try await wallet.carve(
@@ -4360,6 +4362,8 @@ public final class ActiveSession {
             type: clean(type),
             components: cleanList(components),
             ver: clean(ver),
+            dealer: clean(dealerPubkey).flatMap(Service.dealerFid(ofPubkey:)),
+            dealerPubkey: clean(dealerPubkey),
             home: (home?.isEmpty == false) ? home : nil,
             waiters: cleanList(waiters),
             protocols: cleanList(protocols),
@@ -4404,6 +4408,7 @@ public final class ActiveSession {
         type: String? = nil,
         components: [String]? = nil,
         ver: String? = nil,
+        dealerPubkey: String? = nil,
         home: [String: String]? = nil,
         waiters: [String]? = nil,
         protocols: [String]? = nil,
@@ -4416,7 +4421,8 @@ public final class ActiveSession {
         let priv = try livePrikey()
         let feipJson = try ServiceFeip.updateCarve(
             sid: sid, stdName: stdName, localNames: localNames, desc: desc,
-            type: type, components: components, ver: ver, home: home,
+            type: type, components: components, ver: ver,
+            dealerPubkey: dealerPubkey, home: home,
             waiters: waiters, protocols: protocols, codes: codes,
             services: serviceIds, pricing: pricing
         )

@@ -1,4 +1,5 @@
 import Foundation
+import FCCore
 
 /// Builders for the FEIP `Service` protocol (sn 5, ver 3) — the
 /// OP_RETURN JSON that registers, amends and retires a service record
@@ -55,6 +56,7 @@ public enum ServiceFeip {
     public enum Failure: Error, CustomStringConvertible {
         case encoding(underlying: Error)
         case emptyStdName
+        case badDealerPubkey(String)
         case noSid
         case noSids
         case rateOutOfRange(Int)
@@ -66,6 +68,8 @@ public enum ServiceFeip {
                 return "ServiceFeip: JSON encoding failed — \(e)"
             case .emptyStdName:
                 return "ServiceFeip: a service needs a standard name"
+            case .badDealerPubkey(let key):
+                return "ServiceFeip: the dealer pubkey must be 66 hex characters starting 02 or 03, not \"\(key)\""
             case .noSid:
                 return "ServiceFeip: no service given"
             case .noSids:
@@ -207,6 +211,7 @@ public enum ServiceFeip {
         type: String? = nil,
         components: [String]? = nil,
         ver: String? = nil,
+        dealerPubkey: String? = nil,
         home: [String: String]? = nil,
         waiters: [String]? = nil,
         protocols: [String]? = nil,
@@ -216,9 +221,10 @@ public enum ServiceFeip {
     ) throws -> String {
         var dict: [String: Any] = ["op": Op.publish.rawValue]
         fill(&dict, stdName: stdName, localNames: localNames, desc: desc,
-             type: type, components: components, ver: ver, home: home,
-             waiters: waiters, protocols: protocols, codes: codes,
-             services: services, pricing: pricing)
+             type: type, components: components, ver: ver,
+             dealerPubkey: dealerPubkey, home: home, waiters: waiters,
+             protocols: protocols, codes: codes, services: services,
+             pricing: pricing)
         return try jsonString(dict)
     }
 
@@ -238,6 +244,7 @@ public enum ServiceFeip {
         type: String? = nil,
         components: [String]? = nil,
         ver: String? = nil,
+        dealerPubkey: String? = nil,
         home: [String: String]? = nil,
         waiters: [String]? = nil,
         protocols: [String]? = nil,
@@ -248,9 +255,10 @@ public enum ServiceFeip {
         guard !sid.isEmpty else { throw Failure.noSid }
         var dict: [String: Any] = ["op": Op.update.rawValue, "sid": sid]
         fill(&dict, stdName: stdName, localNames: localNames, desc: desc,
-             type: type, components: components, ver: ver, home: home,
-             waiters: waiters, protocols: protocols, codes: codes,
-             services: services, pricing: pricing)
+             type: type, components: components, ver: ver,
+             dealerPubkey: dealerPubkey, home: home, waiters: waiters,
+             protocols: protocols, codes: codes, services: services,
+             pricing: pricing)
         return try jsonString(dict)
     }
 
@@ -323,6 +331,7 @@ public enum ServiceFeip {
         type: String? = nil,
         components: [String]? = nil,
         ver: String? = nil,
+        dealerPubkey: String? = nil,
         home: [String: String]? = nil,
         waiters: [String]? = nil,
         protocols: [String]? = nil,
@@ -333,9 +342,10 @@ public enum ServiceFeip {
         guard !stdName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Failure.emptyStdName
         }
+        try checkDealerPubkey(dealerPubkey)
         return try sized(envelope(opJson: publishOp(
             stdName: stdName, localNames: localNames, desc: desc, type: type,
-            components: components, ver: ver, home: home, waiters: waiters,
+            components: components, ver: ver, dealerPubkey: dealerPubkey, home: home, waiters: waiters,
             protocols: protocols, codes: codes, services: services, pricing: pricing
         )))
     }
@@ -349,6 +359,7 @@ public enum ServiceFeip {
         type: String? = nil,
         components: [String]? = nil,
         ver: String? = nil,
+        dealerPubkey: String? = nil,
         home: [String: String]? = nil,
         waiters: [String]? = nil,
         protocols: [String]? = nil,
@@ -359,9 +370,10 @@ public enum ServiceFeip {
         guard !stdName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Failure.emptyStdName
         }
+        try checkDealerPubkey(dealerPubkey)
         return try sized(envelope(opJson: updateOp(
             sid: sid, stdName: stdName, localNames: localNames, desc: desc,
-            type: type, components: components, ver: ver, home: home,
+            type: type, components: components, ver: ver, dealerPubkey: dealerPubkey, home: home,
             waiters: waiters, protocols: protocols, codes: codes,
             services: services, pricing: pricing
         )))
@@ -405,6 +417,7 @@ public enum ServiceFeip {
         type: String? = nil,
         components: [String]? = nil,
         ver: String? = nil,
+        dealerPubkey: String? = nil,
         home: [String: String]? = nil,
         waiters: [String]? = nil,
         protocols: [String]? = nil,
@@ -417,14 +430,14 @@ public enum ServiceFeip {
         if let sid, !sid.isEmpty {
             op = try? updateOp(
                 sid: sid, stdName: stdName, localNames: localNames, desc: probe,
-                type: type, components: components, ver: ver, home: home,
+                type: type, components: components, ver: ver, dealerPubkey: dealerPubkey, home: home,
                 waiters: waiters, protocols: protocols, codes: codes,
                 services: services, pricing: pricing
             )
         } else {
             op = try? publishOp(
                 stdName: stdName, localNames: localNames, desc: probe,
-                type: type, components: components, ver: ver, home: home,
+                type: type, components: components, ver: ver, dealerPubkey: dealerPubkey, home: home,
                 waiters: waiters, protocols: protocols, codes: codes,
                 services: services, pricing: pricing
             )
@@ -470,7 +483,7 @@ public enum ServiceFeip {
         _ dict: inout [String: Any],
         stdName: String?, localNames: [String: String]?, desc: String?,
         type: String?, components: [String]?, ver: String?,
-        home: [String: String]?, waiters: [String]?, protocols: [String]?,
+        dealerPubkey: String?, home: [String: String]?, waiters: [String]?, protocols: [String]?,
         codes: [String]?, services: [String]?, pricing: Pricing
     ) {
         func put(_ key: String, _ value: String?) {
@@ -498,12 +511,27 @@ public enum ServiceFeip {
         put("type", type)
         putList("components", components)
         put("ver", ver)
+        put("dealerPubkey", dealerPubkey)
         if let home, !home.isEmpty { dict["home"] = home }
         putList("waiters", waiters)
         putList("protocols", protocols)
         putList("codes", codes)
         putList("services", services)
         for (key, value) in pricing.wirePairs { dict[key] = value }
+    }
+
+    /// The indexer derives the dealer's FID from this key, and a key it
+    /// cannot derive from loses the whole publish or update — not just
+    /// the field. So a malformed one stops the carve while it is still
+    /// text in a field. Compressed form only: it is what every key in
+    /// the app is shown as, and half the bytes of the other.
+    private static func checkDealerPubkey(_ key: String?) throws {
+        guard let key = key?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !key.isEmpty else { return }
+        guard key.count == 66, Hex.isHex(key),
+              key.hasPrefix("02") || key.hasPrefix("03") else {
+            throw Failure.badDealerPubkey(key)
+        }
     }
 
     private static func idListOp(_ op: Op, sids: [String]) throws -> String {
