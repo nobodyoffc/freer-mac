@@ -25,6 +25,13 @@ import Foundation
 /// | invite, withdraw invitation, dismiss | any manager — and the owner is always one |
 /// | join | an invitee |
 ///
+/// **The owner's master may transfer too.** FEIP18 rule 16: the master
+/// (FEIP6) of the owner can transfer the team "in case of the owner
+/// losing its private key". It is the only op a master may carve on a
+/// servant's behalf — not take over, not disband, not appoint — and it
+/// is enough: the master transfers the team to a FID it holds, often
+/// itself, and that FID takes it over.
+///
 /// **A transfer to the owner is how a transfer is withdrawn.** The parser
 /// clears `transferee` when the named FID is the owner, and there is no
 /// other op that does; ``TeamGovernance/cancelTransferee`` names that
@@ -49,6 +56,15 @@ public enum TeamGovernance {
         public var isEmpty: Bool { effective.isEmpty }
     }
 
+    /// Why a signer may carve a `transfer` for a team.
+    public enum TransferAuthority: Equatable, Sendable {
+        /// The signer owns the team.
+        case owner
+        /// The signer is the owner's on-chain master, acting for an
+        /// owner that may have lost its prikey.
+        case ownersMaster
+    }
+
     /// Whom a transfer to the owner names — the op's only way to withdraw
     /// an offer of ownership.
     public static func cancelTransferee(of team: Team) -> String? { team.owner }
@@ -60,6 +76,20 @@ public enum TeamGovernance {
     /// but this does not rely on the record saying so.
     public static func canManage(_ team: Team, _ fid: String?) -> Bool {
         team.isManager(fid)
+    }
+
+    /// Whether `signer` may carve a `transfer` for `team`, and why.
+    ///
+    /// `ownerMaster` is the `master` field of the **owner's** FID record
+    /// as the chain holds it now — not anything this device remembers
+    /// about the relationship, since a stale "I am its master" would buy
+    /// a carve the parser ignores. Nil when the owner names no master.
+    public static func transferAuthority(
+        _ team: Team, signer: String, ownerMaster: String?
+    ) -> TransferAuthority? {
+        if team.isOwner(signer) { return .owner }
+        if let ownerMaster, !ownerMaster.isEmpty, ownerMaster == signer { return .ownersMaster }
+        return nil
     }
 
     // MARK: - plans
@@ -124,9 +154,10 @@ public enum TeamGovernance {
     ///
     /// Naming the FID the team already offered to changes nothing, and
     /// naming the owner when nothing is on offer clears a field that is
-    /// already clear. The signer is **not** checked: the parser also
-    /// accepts the owner's master, and refusing a master here would
-    /// refuse a transfer the chain allows.
+    /// already clear. The signer is checked separately, by
+    /// ``transferAuthority(_:signer:ownerMaster:)``, because knowing
+    /// whether it is the owner's master takes a read of the owner's
+    /// FID record.
     public static func transferRefusal(_ team: Team, to transferee: String) -> TeamGovernanceFailure? {
         let id = team.id ?? ""
         let fid = transferee.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -157,6 +188,7 @@ public enum TeamGovernanceFailure: Error, Equatable, CustomStringConvertible {
     case noSuchTeam(String)
     case disbanded(String)
     case notTheOwner(teamId: String)
+    case notTheOwnerOrMaster(teamId: String)
     case notAManager(teamId: String)
     case notInvited(teamId: String)
     case alreadyAMember(teamId: String)
@@ -175,6 +207,8 @@ public enum TeamGovernanceFailure: Error, Equatable, CustomStringConvertible {
             return "This team has been disbanded. Nothing can be carved to it any more."
         case .notTheOwner:
             return "Only the team's owner can do this, and the chain does not list you as the owner."
+        case .notTheOwnerOrMaster:
+            return "Only the team's owner, or the owner's master, can hand this team over. The chain lists you as neither."
         case .notAManager:
             return "Only the team's owner or one of its managers can do this, and the chain lists you as neither."
         case .notInvited:

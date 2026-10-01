@@ -107,6 +107,11 @@ struct ChatView: View {
     @State private var teamOffers: [TeamOffer] = []
     @State private var showTeamOffers = false
     @State private var showTransfer = false
+    @State private var showServantTeams = false
+    /// `"<liveFid>|<teamId>"` for teams this identity does not own but may
+    /// hand over, as their owner's master. Filled for the selected team only, from the
+    /// owner's chain record — see ``checkMasterOfSelectedTeam()``.
+    @State private var masterOfOwner: Set<String> = []
     /// The team the owner asked to disband, held until they confirm.
     @State private var confirmDisband: Conversation?
     /// Teams and squares carved for and not yet shown by the chain, per
@@ -376,6 +381,7 @@ struct ChatView: View {
             openSelected()
             updatePriorityDock()
         }
+        .task(id: selection[mode]) { await checkMasterOfSelectedTeam() }
         // The poller files straight into the stores, behind this view's
         // back. Without this the transcript would sit stale until the
         // user touched something.
@@ -548,6 +554,16 @@ struct ChatView: View {
                 session: session,
                 onClose: { showTeamOffers = false },
                 onChanged: { reload() }
+            )
+        }
+        .sheet(isPresented: $showServantTeams) {
+            ServantTeamsSheet(
+                session: session,
+                onClose: { showServantTeams = false },
+                onDone: { summary in
+                    showServantTeams = false
+                    syncSummary = summary
+                }
             )
         }
         .sheet(isPresented: $showTransfer) {
@@ -805,6 +821,8 @@ struct ChatView: View {
                 // asking.
                 Button("Team invitations…") { showTeamOffers = true }
                 Button("Consensus agreements…") { showConsensus = true }
+                Divider()
+                Button("Servants' teams…") { showServantTeams = true }
             case .room, .square:
                 // The per-flavour membership actions land with the rest
                 // of the group menus; until then there is nothing here
@@ -1389,6 +1407,11 @@ struct ChatView: View {
                     Button("Team settings (carve)…") { showGroupSettings = true }
                     Button("Hand over this team…") { showTransfer = true }
                     Button("Reset the key") { generateKey(for: conversation) }
+                } else if masterOfOwner.contains(session.liveFid + "|" + conversation.targetId) {
+                    // FEIP18 rule 16: the owner's master may transfer,
+                    // and nothing else.
+                    Divider()
+                    Button("Hand over this team as its owner's master…") { showTransfer = true }
                 }
                 Divider()
                 if facts.isOwner {
@@ -1956,6 +1979,24 @@ struct ChatView: View {
     /// because the sync will never flag it: a disbanded team keeps its
     /// members, and it is `active` that goes false. Keys and transcript
     /// stay, as for a closed room.
+    /// Whether the live FID is the selected team's owner's master — the
+    /// one non-owner the chain lets hand a team over. Asked only for a
+    /// team someone else owns, and answered from the owner's chain record.
+    private func checkMasterOfSelectedTeam() async {
+        guard let conversation = selected, conversation.type == .team,
+              let team = (try? session.teams.get(id: conversation.targetId)) ?? nil,
+              !team.isOwner(session.liveFid), team.isActive
+        else { return }
+        // Keyed by identity as well: the answer is about the live FID.
+        let id = session.liveFid + "|" + conversation.targetId
+        let authority = try? await session.teamTransferAuthority(team)
+        if authority == .ownersMaster {
+            masterOfOwner.insert(id)
+        } else {
+            masterOfOwner.remove(id)
+        }
+    }
+
     private func disbandTeam(_ conversation: Conversation) {
         confirmDisband = nil
         sendError = nil

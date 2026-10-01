@@ -2642,8 +2642,11 @@ public final class ActiveSession {
     /// team; nothing changes hands until they carve a `take over`, and
     /// until then the owner can withdraw the offer with
     /// ``carveTeamCancelTransferOnChain(teamId:feePerByte:timeoutMs:)``.
-    /// The signer is not checked here, because the parser also accepts
-    /// the owner's master — see ``TeamGovernance/transferRefusal(_:to:)``.
+    ///
+    /// The signer may be the owner **or the owner's master** (FEIP18
+    /// rule 16), which is how a team survives its owner losing their
+    /// prikey: the master transfers it to a FID it holds, and that FID
+    /// takes it over. Anybody else is refused here, before the fee.
     @discardableResult
     public func carveTeamTransferOnChain(
         teamId: String,
@@ -2652,6 +2655,7 @@ public final class ActiveSession {
         timeoutMs: Int = 10_000
     ) async throws -> String {
         let team = try await governedTeam(teamId, timeoutMs: timeoutMs)
+        try await requireTransferAuthority(team, timeoutMs: timeoutMs)
         let fid = transferee.trimmingCharacters(in: .whitespacesAndNewlines)
         if let refusal = TeamGovernance.transferRefusal(team, to: fid) {
             throw Failure.underlying(refusal)
@@ -2663,7 +2667,8 @@ public final class ActiveSession {
     }
 
     /// Withdraw a pending transfer. The protocol has no op for it: a
-    /// transfer naming the owner is what clears `transferee`.
+    /// transfer naming the owner is what clears `transferee`. Being a
+    /// transfer, the owner's master may carve it too.
     @discardableResult
     public func carveTeamCancelTransferOnChain(
         teamId: String,
@@ -2671,6 +2676,7 @@ public final class ActiveSession {
         timeoutMs: Int = 10_000
     ) async throws -> String {
         let team = try await governedTeam(teamId, timeoutMs: timeoutMs)
+        try await requireTransferAuthority(team, timeoutMs: timeoutMs)
         guard let owner = TeamGovernance.cancelTransferee(of: team),
               !(team.transferee ?? "").isEmpty
         else { throw Failure.underlying(TeamGovernanceFailure.noTransferPending(teamId: teamId)) }
@@ -2678,6 +2684,52 @@ public final class ActiveSession {
             TeamFeip.envelope(opJson: try TeamFeip.transferOp(tid: teamId, transferee: owner)),
             feePerByte: feePerByte, timeoutMs: timeoutMs
         )
+    }
+
+    /// Whether this identity may hand `team` over, and why — reading the
+    /// owner's FID record for its master only when the signer is not the
+    /// owner. Nil when it may not.
+    public func teamTransferAuthority(
+        _ team: Team, timeoutMs: Int = 10_000
+    ) async throws -> TeamGovernance.TransferAuthority? {
+        if team.isOwner(liveFid) { return .owner }
+        guard let owner = team.owner, !owner.isEmpty else { return nil }
+        let record = try await directory.freer(byId: owner, timeoutMs: timeoutMs)
+        return TeamGovernance.transferAuthority(team, signer: liveFid, ownerMaster: record?.master)
+    }
+
+    private func requireTransferAuthority(_ team: Team, timeoutMs: Int) async throws {
+        guard try await teamTransferAuthority(team, timeoutMs: timeoutMs) != nil else {
+            throw Failure.underlying(TeamGovernanceFailure.notTheOwnerOrMaster(teamId: team.id ?? ""))
+        }
+    }
+
+    /// Active teams owned by this identity's servants — every FID whose
+    /// chain record names the live FID as its master. These are the teams
+    /// the live FID may hand over on a servant's behalf.
+    ///
+    /// The servants are found on the chain, not in the local servant
+    /// list: that list is bookkeeping the user may never have filled in,
+    /// and the chain's `master` field is what the parser checks.
+    public func servantTeams(timeoutMs: Int = 15_000) async throws -> [Team] {
+        var servants: [String] = []
+        var after: [String]? = nil
+        for _ in 0..<10 {
+            let page = try await directory.myServants(of: liveFid, after: after, size: 50, timeoutMs: timeoutMs)
+            servants += page.freers.compactMap(\.id).filter { $0 != liveFid }
+            guard page.freers.count == 50, let next = page.last, !next.isEmpty else { break }
+            after = next
+        }
+        var seen: Set<String> = []
+        var teams: [Team] = []
+        for servant in Set(servants).sorted() {
+            for team in try await groups.fetchTeamsOwned(by: servant, timeoutMs: timeoutMs)
+            where team.isActive && team.isOwner(servant) {
+                guard let id = team.id, seen.insert(id).inserted else { continue }
+                teams.append(team)
+            }
+        }
+        return teams.sorted { ($0.displayName ?? "").localizedCaseInsensitiveCompare($1.displayName ?? "") == .orderedAscending }
     }
 
     /// Take over a team offered to this identity.

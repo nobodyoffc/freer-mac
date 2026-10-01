@@ -194,6 +194,21 @@ public struct GroupService {
         return (invited, transfers)
     }
 
+    /// Teams `fid` owns — what a master looks for on a servant's behalf.
+    ///
+    /// **Not written to ``TeamsStore``**, for the reason
+    /// ``fetchTeamOffers(fid:pageSize:maxPages:timeoutMs:)`` gives: the
+    /// store's highest height is the member sync's watermark, and these
+    /// are teams the signer is usually not in.
+    public func fetchTeamsOwned(
+        by fid: String, pageSize: Int = 50, maxPages: Int = 4, timeoutMs: Int = 15_000
+    ) async throws -> [Team] {
+        try await fetch(
+            Team.self, entity: "team", fid: fid, fields: ["owner"],
+            newerThanHeight: nil, pageSize: pageSize, maxPages: maxPages, timeoutMs: timeoutMs
+        )
+    }
+
     public func fetchSquares(
         fid: String, newerThanHeight: Int64? = nil,
         pageSize: Int = 200, maxPages: Int = 200, timeoutMs: Int = 15_000

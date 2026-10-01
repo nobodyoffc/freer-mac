@@ -58,16 +58,65 @@ struct MemberListSheet: View {
     /// The owner or one of a team's managers. For a room, the owner.
     @State private var isManager = false
     @State private var pick: FidPickerRequest?
+    /// What the open picker is choosing for. One picker, because two
+    /// `.sheet(item:)`s on one view do not reliably present.
+    @State private var pickPurpose: PickPurpose = .add
     @State private var addFid = ""
     @State private var working = false
     @State private var error: String?
     @State private var note: String?
+
+    private enum PickPurpose {
+        case add
+        case appoint
+        case demote
+    }
+
+    /// Members the owner could make managers: not the owner, not one already.
+    private var appointable: [String] {
+        members.filter { canAppoint($0) }
+    }
+
+    /// Managers the owner could demote: everyone but the owner.
+    private var demotable: [String] {
+        members.filter { canDemote($0) }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("Members of this \(style.noun)").font(.title3.bold())
                 Spacer()
+                if style.mode == .team, isOwner {
+                    // Android's "Appoint managers" takes a list in one
+                    // carve; the row buttons below take one at a time.
+                    Button("Appoint managers…") {
+                        pickPurpose = .appoint
+                        pick = .many(
+                            title: "Appoint managers",
+                            subtitle: "Managers may invite, withdraw invitations and dismiss members. One carve for everyone chosen.",
+                            confirmTitle: "Appoint",
+                            pool: appointable
+                        )
+                    }
+                    .disabled(working || appointable.isEmpty)
+                    .help(appointable.isEmpty
+                          ? "Every member is already a manager"
+                          : "Make several members managers in one carve")
+                    Button("Remove managers…") {
+                        pickPurpose = .demote
+                        pick = .many(
+                            title: "Remove managers",
+                            subtitle: "They stay members. One carve for everyone chosen.",
+                            confirmTitle: "Remove",
+                            pool: demotable
+                        )
+                    }
+                    .disabled(working || demotable.isEmpty)
+                    .help(demotable.isEmpty
+                          ? "Nobody but the owner is a manager"
+                          : "Take the manager role from several members in one carve")
+                }
                 Button("Done", action: onClose).keyboardShortcut(.defaultAction)
             }
 
@@ -110,7 +159,11 @@ struct MemberListSheet: View {
         .sheet(item: $pick) { request in
             FidPickerSheet(session: session, request: request) { picked in
                 pick = nil
-                add(picked.map(\.fid))
+                switch pickPurpose {
+                case .add: add(picked.map(\.fid))
+                case .appoint: appoint(picked.map(\.fid))
+                case .demote: demote(picked.map(\.fid))
+                }
             } onCancel: {
                 pick = nil
             }
@@ -257,6 +310,7 @@ struct MemberListSheet: View {
                     .fieldInputStyle()
                 if style.mode == .team {
                     Button {
+                        pickPurpose = .add
                         pick = .many(
                             title: "Invite to this team",
                             subtitle: "An invitation is a carve. They still have to join, agreeing to the team's consensus.",
@@ -501,20 +555,34 @@ struct MemberListSheet: View {
     }
 
     private func appoint(_ fid: String) {
+        appoint([fid])
+    }
+
+    /// One `appoint` carve for every FID chosen. The session drops any
+    /// the parser would skip, so the carve names only who it changes.
+    private func appoint(_ fids: [String]) {
+        guard !fids.isEmpty else { return }
         Task {
             // A nobody manager is a manager anyone can be.
-            guard await NobodyGate.confirm([fid], .team, session: session) else { return }
+            guard await NobodyGate.confirm(fids, .team, session: session) else { return }
             await MainActor.run {
-                carve("Appointment") {
-                    try await session.carveTeamAppointOnChain(teamId: conversation.targetId, fids: [fid])
+                carve(fids.count == 1 ? "Appointment" : "Appointment of \(fids.count) managers") {
+                    try await session.carveTeamAppointOnChain(teamId: conversation.targetId, fids: fids)
                 }
             }
         }
     }
 
     private func demote(_ fid: String) {
-        carve("Cancellation") {
-            try await session.carveTeamCancelAppointmentOnChain(teamId: conversation.targetId, fids: [fid])
+        demote([fid])
+    }
+
+    /// One `cancel appointment` carve for every FID chosen; the session
+    /// drops any who are not managers, and the owner.
+    private func demote(_ fids: [String]) {
+        guard !fids.isEmpty else { return }
+        carve(fids.count == 1 ? "Cancellation" : "Removal of \(fids.count) managers") {
+            try await session.carveTeamCancelAppointmentOnChain(teamId: conversation.targetId, fids: fids)
         }
     }
 

@@ -162,7 +162,80 @@ final class TeamGovernanceTests: XCTestCase {
         XCTAssertEqual(TeamGovernance.transferRefusal(owned, to: "  "), .noTransferee)
     }
 
+    /// FEIP18 rule 16: the owner's master may transfer. Nobody else who
+    /// is not the owner may, managers included.
+    func testTheOwnerOrTheOwnersMasterMayTransfer() {
+        let theirs = Team(owner: alice, members: [alice, me], managers: [alice, me], active: true, id: teamId)
+        XCTAssertEqual(TeamGovernance.transferAuthority(team, signer: me, ownerMaster: nil), .owner)
+        XCTAssertEqual(TeamGovernance.transferAuthority(theirs, signer: me, ownerMaster: me), .ownersMaster)
+        XCTAssertNil(TeamGovernance.transferAuthority(theirs, signer: me, ownerMaster: nil), "a manager is not enough")
+        XCTAssertNil(TeamGovernance.transferAuthority(theirs, signer: me, ownerMaster: bob))
+        XCTAssertNil(TeamGovernance.transferAuthority(theirs, signer: "", ownerMaster: ""))
+    }
+
     // MARK: - carves refused before they are paid for
+
+    func testTransferringSomebodyElsesTeamIsRefused() async throws {
+        stageTeam(
+            ["id": teamId, "owner": alice, "members": [alice, me], "managers": [alice, me], "active": true],
+            freers: [alice: ["id": alice, "master": bob]]
+        )
+        await assertRefused(.notTheOwnerOrMaster(teamId: teamId)) {
+            _ = try await self.session.carveTeamTransferOnChain(teamId: self.teamId, transferee: self.me)
+        }
+    }
+
+    /// The master hands a servant's team to itself — the recovery the
+    /// rule exists for. It need not be a member.
+    func testTheOwnersMasterCarvesATransfer() async throws {
+        let box = Box()
+        stageTeam(
+            ["id": teamId, "owner": alice, "members": [alice, bob], "active": true],
+            freers: [alice: ["id": alice, "master": me]],
+            funded: true, onBroadcast: { box.value = $0 }
+        )
+        _ = try await session.carveTeamTransferOnChain(teamId: teamId, transferee: me)
+        let raw = Data(fromHex: try XCTUnwrap(box.value))
+        XCTAssertNotNil(raw.range(of: Data(#""op":"transfer","tid":"\#(teamId)","transferee":"\#(me)""#.utf8)))
+    }
+
+    func testTheOwnersMasterMayWithdrawAnOffer() async throws {
+        let box = Box()
+        stageTeam(
+            ["id": teamId, "owner": alice, "members": [alice], "transferee": bob, "active": true],
+            freers: [alice: ["id": alice, "master": me]],
+            funded: true, onBroadcast: { box.value = $0 }
+        )
+        _ = try await session.carveTeamCancelTransferOnChain(teamId: teamId)
+        let raw = Data(fromHex: try XCTUnwrap(box.value))
+        XCTAssertNotNil(raw.range(of: Data(#""transferee":"\#(alice)""#.utf8)))
+    }
+
+    /// Servants come from the chain's `master` field, and only their
+    /// active teams — ones they still own — are listed.
+    func testServantTeamsAreTheActiveTeamsOfFidsNamingUsMaster() async throws {
+        mock.responder = { [teamId, otherTeamId, alice, me] call in
+            guard call.api == "base.search",
+                  let dsl = try JSONSerialization.jsonObject(with: call.fcdsl ?? Data()) as? [String: Any]
+            else { return try makeResponse(code: 404) }
+            if dsl["entity"] as? String == "freer" {
+                return try makeResponse(code: 0, data: [["id": alice, "master": me]])
+            }
+            return try makeResponse(code: 0, data: [
+                ["id": teamId, "stdName": "Kept", "owner": alice, "members": [alice], "active": true],
+                ["id": otherTeamId, "stdName": "Gone", "owner": alice, "members": [alice], "active": false],
+            ])
+        }
+        let teams = try await session.servantTeams()
+        XCTAssertEqual(teams.map(\.id), [teamId])
+
+        let teamQuery = try mock.recorded.compactMap { call -> [String: Any]? in
+            try JSONSerialization.jsonObject(with: call.fcdsl ?? Data()) as? [String: Any]
+        }.first { $0["entity"] as? String == "team" }
+        let terms = (teamQuery?["query"] as? [String: Any])?["terms"] as? [String: Any]
+        XCTAssertEqual(terms?["fields"] as? [String], ["owner"])
+        XCTAssertEqual(terms?["values"] as? [String], [alice])
+    }
 
     func testAppointingRefusesANonOwner() async throws {
         stageTeam(["id": teamId, "owner": alice, "members": [alice, me, bob], "managers": [alice, me], "active": true])
@@ -600,6 +673,7 @@ final class TeamGovernanceTests: XCTestCase {
     /// go through — a funded wallet and a broadcast sink beside it.
     private func stageTeam(
         _ row: [String: Any],
+        freers: [String: [String: Any]] = [:],
         funded: Bool = false,
         onBroadcast: @escaping @Sendable (String) -> Void = { _ in }
     ) {
@@ -609,6 +683,8 @@ final class TeamGovernanceTests: XCTestCase {
             switch call.api {
             case DirectoryService.getByIdsApi:
                 return try makeResponse(code: 0, data: [id: row])
+            case "base.freerByIds" where !freers.isEmpty:
+                return try makeResponse(code: 0, data: freers)
             case "base.cashValid" where funded:
                 let h160 = try FchAddress(fid: owner).hash160
                 let txid = String(repeating: "ab", count: 32)
