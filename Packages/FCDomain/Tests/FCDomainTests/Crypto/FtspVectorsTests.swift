@@ -22,6 +22,41 @@ final class FtspVectorsTests: XCTestCase {
         return list
     }
 
+    /// FTSP31 entity backups, read the way ``AddMainView`` adds exported keys:
+    /// every signable entry opens, or nothing is added. Secret lists are not
+    /// keys, and Add identity turns them away by their `tClass`.
+    func testBackupVectors() throws {
+        for v in try vectors("backup") {
+            let id = v["id"] as? String ?? "?"
+            let text = try XCTUnwrap(v["backupText"] as? String, id)
+            let expectImport = v["expect"] as? String == "import"
+            guard v["tClass"] as? String == "KeyInfo" else {
+                let backup = KeyBackup.parse(text)
+                XCTAssertTrue(backup == nil || backup?.itemClass == "Secret", id)
+                continue
+            }
+            var opened: [[String: String]]?
+            if let backup = KeyBackup.parse(text) {
+                let typed = v["password"] as? String
+                let password = (backup.password ?? typed).map { Data($0.utf8) }
+                opened = try? backup.entries.filter(\.canSign).map { entry in
+                    let prikey = try backup.open(entry, password: password)
+                    let pubkey = try Secp256k1.publicKey(fromPrivateKey: prikey)
+                    return ["fid": try FchAddress(publicKey: pubkey).fid,
+                            "label": entry.label ?? "",
+                            "prikeyHex": prikey.hex,
+                            "pubkeyHex": pubkey.hex]
+                }
+            }
+            if expectImport {
+                let items = try XCTUnwrap(v["items"] as? [[String: String]], id)
+                XCTAssertEqual(opened, items, id)
+            } else {
+                XCTAssertNil(opened, "\(id) must be refused")
+            }
+        }
+    }
+
     func testKdfVectors() throws {
         for v in try vectors("kdf") {
             let id = v["id"] as? String ?? "?"

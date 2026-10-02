@@ -1,0 +1,165 @@
+{
+  "description": "Entity backup lists (FTSP31): JSON objects separated by a blank line - an optional BackupKey, an optional BackupHeader, then the items. mode=plain: items in the clear. mode=appPassword: the reader asks for password. mode=randomPassword: the password is in the BackupKey. expect=import: reading backupText gives exactly items. expect=reject: the reader must refuse the list and save nothing. Key items carry prikeyCipher as a Base64 FTSP30 bundle and no pubkey; other items are encrypted whole as a FVEP8 Password cipher JSON.",
+  "generatedBy": "FC-JDK core.crypto.CryptoVectorsGenerator",
+  "vectors": [
+    {
+      "id": "BACKUP-KEYS-PLAIN",
+      "tClass": "KeyInfo",
+      "mode": "plain",
+      "expect": "import",
+      "backupText": "{\n  \"label\": \"key A\",\n  \"saveTime\": \"2026-10-02 12:00:00\",\n  \"prikey\": \"a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575\",\n  \"id\": \"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\"\n}\n\n{\n  \"label\": \"key B\",\n  \"saveTime\": \"2026-10-02 12:00:00\",\n  \"prikey\": \"ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c\",\n  \"id\": \"F86zoAvNaQxEuYyvQssV5WxEzapNaiDtTW\"\n}",
+      "items": [
+        {
+          "fid": "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK",
+          "label": "key A",
+          "prikeyHex": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575",
+          "pubkeyHex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+        },
+        {
+          "fid": "F86zoAvNaQxEuYyvQssV5WxEzapNaiDtTW",
+          "label": "key B",
+          "prikeyHex": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+          "pubkeyHex": "02536e4f3a6871831fa91089a5d5a950b96a31c861956f01459c0cd4f4374b2f67"
+        }
+      ]
+    },
+    {
+      "id": "BACKUP-KEYS-APP-PASSWORD",
+      "tClass": "KeyInfo",
+      "mode": "appPassword",
+      "expect": "import",
+      "password": "MyPassword",
+      "backupText": "{\n  \"time\": \"2026-10-02 12:00:00\",\n  \"keyName\": \"dc1e7c03e162\",\n  \"hint\": \"App password can not be shown. Please keep it carefully.\"\n}\n\n{\n  \"time\": \"2026-10-02 12:00:00\",\n  \"items\": 2,\n  \"keyName\": \"dc1e7c03e162\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"tClass\": \"KeyInfo\"\n}\n\n{\n  \"prikeyCipher\": \"dveyJqizAwABAgMEBQYHCAkKgFjVMA5My28bGXPb/e0uqGI/+/4Hd3sDB7mh7Q+0FC8K+wt22XyxKb9w4H4i2qPWKA==\",\n  \"label\": \"key A\",\n  \"saveTime\": \"2026-10-02 12:00:00\",\n  \"id\": \"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\"\n}\n\n{\n  \"prikeyCipher\": \"dveyJqizAwABAgMEBQYHCAkKgRIoSHKqBP/MPkWSF9CaYgYWSTI/AHFfU9U4cyHXOHHaDbcAo7L1urYxHyoSRU3/mA==\",\n  \"label\": \"key B\",\n  \"saveTime\": \"2026-10-02 12:00:00\",\n  \"id\": \"F86zoAvNaQxEuYyvQssV5WxEzapNaiDtTW\"\n}",
+      "items": [
+        {
+          "fid": "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK",
+          "label": "key A",
+          "prikeyHex": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575",
+          "pubkeyHex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+        },
+        {
+          "fid": "F86zoAvNaQxEuYyvQssV5WxEzapNaiDtTW",
+          "label": "key B",
+          "prikeyHex": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+          "pubkeyHex": "02536e4f3a6871831fa91089a5d5a950b96a31c861956f01459c0cd4f4374b2f67"
+        }
+      ]
+    },
+    {
+      "id": "BACKUP-KEYS-RANDOM-PASSWORD",
+      "tClass": "KeyInfo",
+      "mode": "randomPassword",
+      "expect": "import",
+      "backupText": "{\n  \"password\": \"AAAQEAYEAUDAO\",\n  \"time\": \"2026-10-02 12:00:00\",\n  \"keyName\": \"108d0cc374cf\"\n}\n\n{\n  \"time\": \"2026-10-02 12:00:00\",\n  \"items\": 2,\n  \"keyName\": \"108d0cc374cf\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"tClass\": \"KeyInfo\"\n}\n\n{\n  \"prikeyCipher\": \"dveyJqizAwABAgMEBQYHCAkKgrzO4GOAot/PSrpoHKIfcPOVufYgDvElHx4W6IttIz/8o+ZrqjdWcZb/2WRK0Ofe1w==\",\n  \"label\": \"key A\",\n  \"saveTime\": \"2026-10-02 12:00:00\",\n  \"id\": \"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\"\n}\n\n{\n  \"prikeyCipher\": \"dveyJqizAwABAgMEBQYHCAkKg+MiGjtPxbLck+A+ZghFM70JHsyU68ki4wc5TQoUI8Ub/eFUcdvvFeZnFhEI4YxfQQ==\",\n  \"label\": \"key B\",\n  \"saveTime\": \"2026-10-02 12:00:00\",\n  \"id\": \"F86zoAvNaQxEuYyvQssV5WxEzapNaiDtTW\"\n}",
+      "items": [
+        {
+          "fid": "FEk41Kqjar45fLDriztUDTUkdki7mmcjWK",
+          "label": "key A",
+          "prikeyHex": "a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575",
+          "pubkeyHex": "030be1d7e633feb2338a74a860e76d893bac525f35a5813cb7b21e27ba1bc8312a"
+        },
+        {
+          "fid": "F86zoAvNaQxEuYyvQssV5WxEzapNaiDtTW",
+          "label": "key B",
+          "prikeyHex": "ee72e6dd4047ef7f4c9886059cbab42eaab08afe7799cbc0539269ee7e2ec30c",
+          "pubkeyHex": "02536e4f3a6871831fa91089a5d5a950b96a31c861956f01459c0cd4f4374b2f67"
+        }
+      ]
+    },
+    {
+      "id": "BACKUP-SECRETS-PLAIN",
+      "tClass": "Secret",
+      "mode": "plain",
+      "expect": "import",
+      "backupText": "{\n  \"time\": \"2026-10-02 12:00:00\",\n  \"items\": 2,\n  \"tClass\": \"Secret\"\n}\n\n{\n  \"type\": \"Password\",\n  \"title\": \"Bank\",\n  \"content\": \"PIN 2468\",\n  \"memo\": \"the card ending 1234\"\n}\n\n{\n  \"type\": \"Note\",\n  \"title\": \"Wifi\",\n  \"content\": \"Hello world!\"\n}",
+      "items": [
+        {
+          "type": "Password",
+          "title": "Bank",
+          "content": "PIN 2468",
+          "memo": "the card ending 1234"
+        },
+        {
+          "type": "Note",
+          "title": "Wifi",
+          "content": "Hello world!"
+        }
+      ]
+    },
+    {
+      "id": "BACKUP-SECRETS-APP-PASSWORD",
+      "tClass": "Secret",
+      "mode": "appPassword",
+      "expect": "import",
+      "password": "MyPassword",
+      "backupText": "{\n  \"time\": \"2026-10-02 12:00:00\",\n  \"keyName\": \"dc1e7c03e162\",\n  \"hint\": \"App password can not be shown. Please keep it carefully.\"\n}\n\n{\n  \"time\": \"2026-10-02 12:00:00\",\n  \"items\": 2,\n  \"keyName\": \"dc1e7c03e162\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"tClass\": \"Secret\"\n}\n\n{\n  \"type\": \"Password\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"kdf\": \"Argon2id@No1_NrC7\",\n  \"cipher\": \"1inwGAd0OKpNEQWgFi4of6/2IN+Elb8vJAitvLWS/ZYx5wv9CV24gU8A2G2HwgXZsWqNEjYmf7orvJhG+95oayAq76mp2cJMRb+4NZorQm+eBsWOvQcXJnWDhFEHe6jX9GfFuH9vjUBnFNOMWRZDoXnfR/3PwQ==\",\n  \"keyName\": \"6578df63ff43\",\n  \"iv\": \"000102030405060708090a84\"\n}\n\n{\n  \"type\": \"Password\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"kdf\": \"Argon2id@No1_NrC7\",\n  \"cipher\": \"IDvoiGAP8miM0sMOik5fzIeGGS3k9OcB9AjgLq1QtrflhwzHH+80yZ/4T3fsfEamDrfsWuh5nbEixGjjWmsx2CyOB2wNY6sbBzrayIKZ3di9tXyM\",\n  \"keyName\": \"af8a066d4d25\",\n  \"iv\": \"000102030405060708090a85\"\n}",
+      "items": [
+        {
+          "type": "Password",
+          "title": "Bank",
+          "content": "PIN 2468",
+          "memo": "the card ending 1234"
+        },
+        {
+          "type": "Note",
+          "title": "Wifi",
+          "content": "Hello world!"
+        }
+      ]
+    },
+    {
+      "id": "BACKUP-SECRETS-RANDOM-PASSWORD",
+      "tClass": "Secret",
+      "mode": "randomPassword",
+      "expect": "import",
+      "backupText": "{\n  \"password\": \"AAAQEAYEAUDAO\",\n  \"time\": \"2026-10-02 12:00:00\",\n  \"keyName\": \"108d0cc374cf\"\n}\n\n{\n  \"time\": \"2026-10-02 12:00:00\",\n  \"items\": 2,\n  \"keyName\": \"108d0cc374cf\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"tClass\": \"Secret\"\n}\n\n{\n  \"type\": \"Password\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"kdf\": \"Argon2id@No1_NrC7\",\n  \"cipher\": \"Rg+7sT+5khdOzAtk1KtYNQvWvTWVIjQIOHU/Deok4Y6jwtdkz8+wrPXjZhWWzcHYqOrF0vzHfOcBDDEBsAY8+DgN4xyhUGAP5BhQwd/+YyFg8g/WAJqI0DhE8PtM8McP8lvZJadpSEubF8sgZFb632MjCD0dsw==\",\n  \"keyName\": \"19220b53c775\",\n  \"iv\": \"000102030405060708090a86\"\n}\n\n{\n  \"type\": \"Password\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"kdf\": \"Argon2id@No1_NrC7\",\n  \"cipher\": \"sXsmjata9fnkSmYoTV3W9GrfZW4iarxjo7liZQwQhr2u3beznDiuoWEKgD0yOXYhunVGoje04eBHtpm6uonGaUFrthuyfKmbrmzDt5fnoyRaaH4+\",\n  \"keyName\": \"ba180463d6de\",\n  \"iv\": \"000102030405060708090a87\"\n}",
+      "items": [
+        {
+          "type": "Password",
+          "title": "Bank",
+          "content": "PIN 2468",
+          "memo": "the card ending 1234"
+        },
+        {
+          "type": "Note",
+          "title": "Wifi",
+          "content": "Hello world!"
+        }
+      ]
+    },
+    {
+      "id": "BACKUP-KEYS-WRONG-PASSWORD",
+      "tClass": "KeyInfo",
+      "mode": "appPassword",
+      "expect": "reject",
+      "password": "NotMyPassword",
+      "backupText": "{\n  \"time\": \"2026-10-02 12:00:00\",\n  \"keyName\": \"dc1e7c03e162\",\n  \"hint\": \"App password can not be shown. Please keep it carefully.\"\n}\n\n{\n  \"time\": \"2026-10-02 12:00:00\",\n  \"items\": 2,\n  \"keyName\": \"dc1e7c03e162\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"tClass\": \"KeyInfo\"\n}\n\n{\n  \"prikeyCipher\": \"dveyJqizAwABAgMEBQYHCAkKgFjVMA5My28bGXPb/e0uqGI/+/4Hd3sDB7mh7Q+0FC8K+wt22XyxKb9w4H4i2qPWKA==\",\n  \"label\": \"key A\",\n  \"saveTime\": \"2026-10-02 12:00:00\",\n  \"id\": \"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\"\n}\n\n{\n  \"prikeyCipher\": \"dveyJqizAwABAgMEBQYHCAkKgRIoSHKqBP/MPkWSF9CaYgYWSTI/AHFfU9U4cyHXOHHaDbcAo7L1urYxHyoSRU3/mA==\",\n  \"label\": \"key B\",\n  \"saveTime\": \"2026-10-02 12:00:00\",\n  \"id\": \"F86zoAvNaQxEuYyvQssV5WxEzapNaiDtTW\"\n}",
+      "reason": "The password opens no prikeyCipher; nothing may be saved."
+    },
+    {
+      "id": "BACKUP-SECRETS-WRONG-PASSWORD",
+      "tClass": "Secret",
+      "mode": "appPassword",
+      "expect": "reject",
+      "password": "NotMyPassword",
+      "backupText": "{\n  \"time\": \"2026-10-02 12:00:00\",\n  \"keyName\": \"dc1e7c03e162\",\n  \"hint\": \"App password can not be shown. Please keep it carefully.\"\n}\n\n{\n  \"time\": \"2026-10-02 12:00:00\",\n  \"items\": 2,\n  \"keyName\": \"dc1e7c03e162\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"tClass\": \"Secret\"\n}\n\n{\n  \"type\": \"Password\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"kdf\": \"Argon2id@No1_NrC7\",\n  \"cipher\": \"1inwGAd0OKpNEQWgFi4of6/2IN+Elb8vJAitvLWS/ZYx5wv9CV24gU8A2G2HwgXZsWqNEjYmf7orvJhG+95oayAq76mp2cJMRb+4NZorQm+eBsWOvQcXJnWDhFEHe6jX9GfFuH9vjUBnFNOMWRZDoXnfR/3PwQ==\",\n  \"keyName\": \"6578df63ff43\",\n  \"iv\": \"000102030405060708090a84\"\n}\n\n{\n  \"type\": \"Password\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"kdf\": \"Argon2id@No1_NrC7\",\n  \"cipher\": \"IDvoiGAP8miM0sMOik5fzIeGGS3k9OcB9AjgLq1QtrflhwzHH+80yZ/4T3fsfEamDrfsWuh5nbEixGjjWmsx2CyOB2wNY6sbBzrayIKZ3di9tXyM\",\n  \"keyName\": \"af8a066d4d25\",\n  \"iv\": \"000102030405060708090a85\"\n}",
+      "reason": "The password opens no item cipher; nothing may be saved."
+    },
+    {
+      "id": "BACKUP-KEYS-FID-MISMATCH",
+      "tClass": "KeyInfo",
+      "mode": "plain",
+      "expect": "reject",
+      "backupText": "{\n  \"label\": \"not mine\",\n  \"saveTime\": \"2026-10-02 12:00:00\",\n  \"prikey\": \"a048f6c843f92bfe036057f7fc2bf2c27353c624cf7ad97e98ed41432f700575\",\n  \"id\": \"F86zoAvNaQxEuYyvQssV5WxEzapNaiDtTW\"\n}",
+      "reason": "The prikey belongs to FEk41Kqjar45fLDriztUDTUkdki7mmcjWK, not to the item's id."
+    },
+    {
+      "id": "BACKUP-KEYNAME-MISMATCH",
+      "tClass": "KeyInfo",
+      "mode": "randomPassword",
+      "expect": "reject",
+      "backupText": "{\n  \"password\": \"AAAQEAYEAUDAO\",\n  \"time\": \"2026-10-02 12:00:00\",\n  \"keyName\": \"000000000000\"\n}\n\n{\n  \"time\": \"2026-10-02 12:00:00\",\n  \"items\": 1,\n  \"keyName\": \"108d0cc374cf\",\n  \"alg\": \"AesGcm256@No1_NrC7\",\n  \"tClass\": \"KeyInfo\"\n}\n\n{\n  \"prikeyCipher\": \"dveyJqizAwABAgMEBQYHCAkKiDmbgpO3MZpXv0jk2aPZlvC+wMOuSj4xNX1dpQlXw8aJ6kGMV0AbAdFd03tOuR3QLA==\",\n  \"label\": \"key A\",\n  \"saveTime\": \"2026-10-02 12:00:00\",\n  \"id\": \"FEk41Kqjar45fLDriztUDTUkdki7mmcjWK\"\n}",
+      "reason": "BackupKey.keyName differs from BackupHeader.keyName."
+    }
+  ]
+}
