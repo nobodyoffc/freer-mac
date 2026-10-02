@@ -43,6 +43,8 @@ struct MeetingView: View {
     @State private var confirmKick: MacMeetingSession.Participant?
     @State private var picking = false
     @State private var controlError: String?
+    /// What was just copied, shown for a moment.
+    @State private var copied: String?
     private let clock = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -72,17 +74,21 @@ struct MeetingView: View {
                             ForEach(people) { p in row(p, host: s?.isHost == true, speaking: speaking, paused: paused) }
                         }
                     }
-                    .frame(maxHeight: 220)
+                    .frame(maxHeight: 260)
                     // Somebody joining is somebody to name.
                     .task(id: people.map(\.fid)) { names.resolve(people.map(\.fid)) }
                 }
                 if let controlError {
                     Text(controlError).font(.caption).foregroundStyle(.red)
                 }
+                if let copied {
+                    Text("Copied \(copied)").font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
                 buttons(s)
             }
             .padding(16)
-            .frame(width: 320, alignment: .leading)
+            .frame(width: 340, alignment: .leading)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             .shadow(radius: 8)
             .padding(16)
@@ -146,17 +152,30 @@ struct MeetingView: View {
 
     private func row(_ p: MacMeetingSession.Participant, host: Bool, speaking: Set<UInt32>, paused: Set<UInt32>) -> some View {
         let talking = speaking.contains(p.ssrc)
-        var state: [String] = []
-        if p.hand { state.append("✋") }
-        if p.host { state.append("host") }
-        if talking { state.append("speaking") }
-        if p.mutedByHost == "locked" { state.append("mute locked") } else if p.mutedByHost != nil { state.append("muted by host") }
-        if !p.verified { state.append("not verified") } else if paused.contains(p.ssrc) { state.append("audio paused") }
-        return HStack {
-            Image(systemName: talking ? "waveform" : "person.fill").frame(width: 16).foregroundStyle(talking ? .green : .secondary)
-            Text(names(p.fid) + (p.me ? " (you)" : "")).fontWeight(talking ? .bold : .regular).lineLimit(1)
-            Spacer()
-            Text(state.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+        // The CID where one is known, and the FID under it, so two alike are told apart.
+        let cid = names.book.cid(of: p.fid)
+        return HStack(spacing: 10) {
+            // Ringed while their voice is heard.
+            FidAvatarView(fid: p.fid, size: 32)
+                .padding(3)
+                .overlay(Circle().stroke(talking ? Color.green : .clear, lineWidth: 2.5))
+                .help(talking ? "Speaking" : "")
+            VStack(alignment: .leading, spacing: 1) {
+                // A click on the CID or FID copies it.
+                Text((cid ?? p.fid) + (p.me ? " (you)" : ""))
+                    .fontWeight(talking ? .bold : .regular)
+                    .lineLimit(1).truncationMode(.middle)
+                    .onTapGesture { copy(cid ?? p.fid) }
+                    .help(cid != nil ? "Click to copy the CID" : "Click to copy the FID")
+                if cid != nil {
+                    Text(p.fid).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                        .onTapGesture { copy(p.fid) }
+                        .help("Click to copy the FID")
+                }
+            }
+            Spacer(minLength: 4)
+            badges(p, paused: paused)
         }
         .contentShape(Rectangle())
         .contextMenu {
@@ -174,6 +193,40 @@ struct MeetingView: View {
                 Divider()
                 Button("Remove…", role: .destructive) { confirmKick = p }
             }
+        }
+    }
+
+    /// What is so of one participant, as icons that say it on hover.
+    @ViewBuilder private func badges(_ p: MacMeetingSession.Participant, paused: Set<UInt32>) -> some View {
+        HStack(spacing: 4) {
+            if p.hand { badge("hand.raised.fill", .orange, "Hand raised") }
+            if p.host { badge("star.fill", .yellow, "Host") }
+            if p.mutedByHost == "locked" {
+                badge("mic.slash.fill", .red, "Muted by host, locked")
+                badge("lock.fill", .red, "Muted by host, locked")
+            } else if p.mutedByHost != nil {
+                badge("mic.slash.fill", .red, "Muted by host")
+            }
+            if !p.verified {
+                badge("exclamationmark.triangle.fill", .red, "Not verified")
+            } else if paused.contains(p.ssrc) {
+                badge("pause.circle.fill", .orange, "Audio on hold: not yet verified")
+            }
+        }
+        .font(.caption)
+    }
+
+    private func badge(_ symbol: String, _ color: Color, _ meaning: String) -> some View {
+        Image(systemName: symbol).foregroundStyle(color).help(meaning).accessibilityLabel(meaning)
+    }
+
+    private func copy(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+        copied = value
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            if copied == value { copied = nil }
         }
     }
 
