@@ -345,6 +345,7 @@ public final class ActiveSession {
 
     public var onboardingSkipped: Set<OnboardingStep> { setting.onboardingSkipped }
     public var onboardingStarted: Bool { setting.onboardingStarted }
+    public var onboardingCompleted: Bool { setting.onboardingCompleted }
 
     /// Leave a skippable step undone for good. Required steps cannot be
     /// skipped; asking to is a no-op rather than an error, since the only
@@ -358,6 +359,12 @@ public final class ActiveSession {
     public func markOnboardingStarted() throws {
         guard !setting.onboardingStarted else { return }
         setting.onboardingStarted = true
+        try saveSetting()
+    }
+
+    public func markOnboardingCompleted() throws {
+        guard !setting.onboardingCompleted else { return }
+        setting.onboardingCompleted = true
         try saveSetting()
     }
 

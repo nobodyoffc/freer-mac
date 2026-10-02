@@ -225,6 +225,16 @@ final class OnboardingTests: XCTestCase {
         XCTAssertFalse(ob.shouldShow(started: true))
     }
 
+    func testAFinishedIdentityLooksUnfinishedUntilTheChainAnswers() {
+        // Why the completion is persisted: at launch every chain-backed step
+        // is unknown, so a started identity would get the card back.
+        let ob = Onboarding(OnboardingFacts(
+            prikeyBackedUp: true, chain: nil, skipped: [.addGuide, .joinSquare]
+        ))
+        XCTAssertFalse(ob.isComplete, "unknown is not settled, so this cannot mark it complete")
+        XCTAssertTrue(ob.shouldShow(started: true))
+    }
+
     // MARK: - persistence
 
     func testSkippedRoundTripsThroughTheSettingAndDropsUnknownNames() {
@@ -236,5 +246,13 @@ final class OnboardingTests: XCTestCase {
 
         setting.settingMap[Setting.onboardingSkippedKey] = .string("joinSquare,somethingNew")
         XCTAssertEqual(setting.onboardingSkipped, [.joinSquare])
+    }
+
+    func testCompletedDefaultsToFalseAndRoundTrips() {
+        var setting = Setting(mainFid: "FMain")
+        XCTAssertFalse(setting.onboardingCompleted)
+        setting.onboardingCompleted = true
+        XCTAssertEqual(setting.settingMap[Setting.onboardingCompletedKey], .bool(true))
+        XCTAssertTrue(setting.onboardingCompleted)
     }
 }

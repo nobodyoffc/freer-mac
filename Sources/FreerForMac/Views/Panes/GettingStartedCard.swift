@@ -55,19 +55,30 @@ struct GettingStartedCard: View {
     }
 
     var body: some View {
+        // Once finished it stays finished, and nothing below runs: at launch
+        // the chain has not answered, every chain-backed step reads unknown,
+        // and the card would otherwise come back to say so.
+        if !appState.onboardingCompleted {
+            checklist
+        }
+    }
+
+    @ViewBuilder private var checklist: some View {
         let ob = onboarding
         Group {
             // Watch-only identities cannot carve, back up or write anything,
             // so every step would be a button that fails.
             if session.canSign && ob.shouldShow(started: appState.onboardingStarted) {
                 card(ob)
-                    .onAppear { noteStarted(ob) }
+                    .onAppear { noteProgress(ob) }
                     .task(id: ob.status(of: .firstFch) == .open) { await watchForFirstFch(ob) }
             }
         }
         .onAppear { reloadLocal(guide: ob.guide) }
         .onChange(of: ob.guide) { _, guide in reloadLocal(guide: guide) }
-        .onChange(of: ob.hasRequiredStepOpen) { _, _ in noteStarted(ob) }
+        .onChange(of: ob.hasRequiredStepOpen) { _, _ in noteProgress(ob) }
+        // Finishing hides the card, so its onAppear is not there to see it.
+        .onChange(of: ob.isComplete) { _, _ in noteProgress(ob) }
         // A refresh is also what clears a landed CID or home carve.
         .onChange(of: appState.knownLiveFidInfo) { _, _ in reloadLocal(guide: ob.guide) }
         .sheet(item: $carving) { kind in
@@ -416,8 +427,12 @@ struct GettingStartedCard: View {
         return false
     }
 
-    private func noteStarted(_ ob: Onboarding) {
+    /// `isComplete` needs every step settled, and a step only settles on a
+    /// record the chain answered for, so this never fires on launch's unknowns.
+    private func noteProgress(_ ob: Onboarding) {
+        guard session.canSign else { return }
         if ob.hasRequiredStepOpen { appState.markOnboardingStarted() }
+        if ob.isComplete { appState.markOnboardingCompleted() }
     }
 
     // MARK: - words

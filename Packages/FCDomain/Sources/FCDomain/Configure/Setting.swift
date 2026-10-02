@@ -79,6 +79,7 @@ public struct Setting: Codable, Equatable, Sendable {
 
     public static let onboardingSkippedKey = "onboardingSkipped"
     public static let onboardingStartedKey = "onboardingStarted"
+    public static let onboardingCompletedKey = "onboardingCompleted"
 
     /// Getting-started steps the user chose to leave undone, stored as their
     /// raw names joined by commas. A name this build does not know is dropped
@@ -104,6 +105,20 @@ public struct Setting: Codable, Equatable, Sendable {
             return false
         }
         set { settingMap[Setting.onboardingStartedKey] = .bool(newValue) }
+    }
+
+    /// Whether every step has been seen settled — done or skipped — on a
+    /// record the chain answered for. Once set the checklist is gone for
+    /// good: at launch the chain has not answered yet, every chain-backed
+    /// step reads as unknown, and without this a finished identity would see
+    /// the card come back full of unknowns until it does (or for as long as
+    /// it is offline). A step that later goes backwards is Settings' to show.
+    public var onboardingCompleted: Bool {
+        get {
+            if case .bool(let completed) = settingMap[Setting.onboardingCompletedKey] { return completed }
+            return false
+        }
+        set { settingMap[Setting.onboardingCompletedKey] = .bool(newValue) }
     }
 }
 

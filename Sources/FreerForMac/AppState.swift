@@ -139,6 +139,7 @@ final class AppState {
     /// for the same reason as ``prikeyBackedUp``.
     private(set) var onboardingSkipped: Set<OnboardingStep> = []
     private(set) var onboardingStarted = false
+    private(set) var onboardingCompleted = false
 
     private(set) var liveFidInfo: LiveFidInfo?
     private(set) var liveFidInfoLoading = false
@@ -727,6 +728,7 @@ final class AppState {
         prikeyBackedUp = true
         onboardingSkipped = []
         onboardingStarted = false
+        onboardingCompleted = false
         clearLiveFidInfo()
         configureSession?.lock()
         configureSession = nil
@@ -957,6 +959,7 @@ final class AppState {
             self.prikeyBackedUp = session.prikeyBackedUp
             self.onboardingSkipped = session.onboardingSkipped
             self.onboardingStarted = session.onboardingStarted
+            self.onboardingCompleted = session.onboardingCompleted
             // Replay records older than any DOCK can still serve are dead weight.
             _ = try? session.seenMessages.prune()
             // Every identity opens on Overview. The pane is app state, so
@@ -1002,6 +1005,7 @@ final class AppState {
         prikeyBackedUp = true
         onboardingSkipped = []
         onboardingStarted = false
+        onboardingCompleted = false
         clearLiveFidInfo()
         applyTheme(.system)
         route = .chooseMain
@@ -1522,6 +1526,16 @@ final class AppState {
         do {
             try session.markOnboardingStarted()
             onboardingStarted = true
+        } catch {
+            lastError = String(describing: error)
+        }
+    }
+
+    func markOnboardingCompleted() {
+        guard let session = activeSession, !onboardingCompleted else { return }
+        do {
+            try session.markOnboardingCompleted()
+            onboardingCompleted = true
         } catch {
             lastError = String(describing: error)
         }
