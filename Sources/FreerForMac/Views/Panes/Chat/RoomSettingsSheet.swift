@@ -76,7 +76,7 @@ struct RoomSettingsSheet: View {
                 }
                 LabeledField(
                     "CALL",
-                    hint: "The relay this room's meetings run on, paid by whoever starts one. Empty: each host's own CALL service."
+                    hint: "The relay this room's meetings run on, paid by whoever starts one. Empty: no meetings."
                 ) {
                     HStack(spacing: 8) {
                         TextField("", text: $call, prompt: Text("service id, or fudp://host:port"))

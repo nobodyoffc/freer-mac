@@ -114,7 +114,10 @@ public final class CallSignaller: @unchecked Sendable {
     // MARK: - Outgoing
 
     /// A call's keys and delegation, with nothing sent: the caller reaches its relay first.
-    public func prepare(peerFid: String, relayUrl: String?) throws -> Call {
+    /// `relayPubkey` and `relaySid` are the callee's CALL service as named on chain, so the
+    /// link takes no other relay at that address.
+    public func prepare(peerFid: String, relayUrl: String?, relayPubkey: String? = nil,
+                        relaySid: String? = nil) throws -> Call {
         try lock.withLock {
             guard !busyLocked(except: nil) else { throw CallKeys.Failure.badCallId }
             let now = clock()
@@ -125,6 +128,8 @@ public final class CallSignaller: @unchecked Sendable {
                                         expiresSec: now / 1000 + CallSignaller.delegationSec)
             let c = try Call(callId: callId, peerFid: peerFid, outgoing: true, tPriv: tPriv, delegation: d,
                              relayUrl: relayUrl, state: .preparing)
+            c.relayPubkey = relayPubkey
+            c.relaySid = relaySid
             calls[callId] = c
             return c
         }

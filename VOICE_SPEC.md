@@ -870,8 +870,10 @@ The relay SHOULD keep its UDP receive buffer small, not raise it to absorb burst
 
 **Choosing the relay:**
 
-1. The entity's `home["CALL@No1_NrC7"]`. For a Team that is the on-chain `home`; for a Room it is `RoomInfo.home`.
-2. Otherwise, the host's own configured CALL service.
+The entity's `home["CALL@No1_NrC7"]`, and nothing else. For a Team that is the on-chain `home`; for a Room it is `RoomInfo.home`.
+An entity without one cannot hold meetings: the app says so and starts nothing.
+Every member shows its IP to the relay, so only the entity may choose it, never
+the host's own CALL service or a default one.
 
 A Team or Room owner who wants every meeting on one relay sets the entity's
 `home`, in the Team's or Room's create screen or settings, beside its DOCK. Those screens lay
@@ -1459,7 +1461,7 @@ Answered 2026-09-27, before Phase 4:
 
 14. **The host pays for a whole meeting** (§7.5), as the caller does for a 1:1 call. The payer is the FID that created the meeting, even after the host role passes on.
 15. **In a meeting, a late attestation pauses a speaker and a matching one resumes it** (§5.1 step 3). Only a mismatch silences for good. 1:1 calls wait for no attestation at all (Decision 13).
-16. **A meeting uses the entity's `home.CALL`, otherwise the host's own** (§8). Unlike a 1:1 call, a meeting has no callee to favour, and the entity's owner chooses by setting its home.
+16. **A meeting uses the entity's `home.CALL`, and no other** (§8). Unlike a 1:1 call, a meeting has no callee to favour, and the entity's owner chooses by setting its home. Falling back to the host's own CALL service, or to a default, would let one member pick where every member's IP goes; an entity without `home.CALL` holds no meetings.
 
 Answered 2026-09-27, after the Phase 4 load test:
 

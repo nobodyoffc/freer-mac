@@ -70,7 +70,7 @@ struct GroupSettingsSheet: View {
     @State private var dock = ""
     @State private var disk = ""
     /// The team's CALL service. Unlike DOCK, emptying it removes it:
-    /// meetings then run on each host's own (FIMP5 §8.2).
+    /// the team then holds no meetings (VOICE_SPEC §8).
     @State private var call = ""
 
     /// What the record said when the sheet opened, so the carve can
@@ -194,7 +194,7 @@ struct GroupSettingsSheet: View {
 
                     LabeledField(
                         "CALL",
-                        hint: "The relay this team's meetings run on, paid by whoever starts one. Empty: each host's own CALL service, and emptying a set one removes it."
+                        hint: "The relay this team's meetings run on, paid by whoever starts one. Empty: no meetings, and emptying a set one removes it."
                     ) {
                         HStack(spacing: 8) {
                             TextField("", text: $call, prompt: Text("service id, or fudp://host:port"))

@@ -212,7 +212,8 @@ final class CallCenter {
         peerFid = fid
         Task {
             let test = testRelay
-            let url = test.isEmpty ? await Self.callRelay(of: fid, in: session) : test
+            let relay = test.isEmpty ? await Self.callRelay(of: fid, in: session) : (test, nil, nil)
+            let url = relay?.url
             if test.isEmpty { peerHasCall[fid] = url != nil }
             guard phase == .calling, call == nil else { return }
             guard let url, !url.isEmpty else {
@@ -226,7 +227,8 @@ final class CallCenter {
             // Calling someone accepts them, as writing to them does: their calls back must ring.
             session.chat.acceptPeer(fid, as: session.liveFid)
             do {
-                let c = try signaller.prepare(peerFid: fid, relayUrl: url)
+                let c = try signaller.prepare(peerFid: fid, relayUrl: url, relayPubkey: relay?.pubkey,
+                                              relaySid: relay?.sid)
                 call = c
                 relayHost = Self.host(url)
                 let cs = newSession(c)
@@ -404,10 +406,19 @@ final class CallCenter {
     }
 
     /// `fid`'s home.CALL, resolved to a URL; nil if it has none.
-    static func callRelay(of fid: String, in session: ActiveSession) async -> String? {
+    /// The callee's CALL service (§6.2): its address, and its id and key when its home
+    /// names it by SID. Nil without one, or when that service is closed or inactive.
+    static func callRelay(of fid: String, in session: ActiveSession)
+        async -> (url: String, sid: String?, pubkey: String?)? {
         guard let freer = try? await DirectoryService(fapi: session.fapi).freer(byId: fid),
-              let value = freer.home?[homeKey], !value.isEmpty else { return nil }
-        return await session.homeServices.resolve(value)
+              let value = freer.home?[homeKey], !value.isEmpty,
+              let url = await session.homeServices.resolve(value) else { return nil }
+        guard !HomeServiceResolver.isUrl(value), let sid = HomeServiceResolver.extractSid(value) else {
+            return (url, nil, nil)
+        }
+        let service = await session.homeServices.cachedService(sid: sid)
+        if service?.closed == true || service?.active == false { return nil }
+        return (url, sid, service?.dealerPubkey)
     }
 
     static func microphoneAllowed() async -> Bool {

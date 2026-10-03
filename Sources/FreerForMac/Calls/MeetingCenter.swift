@@ -95,9 +95,9 @@ final class MeetingCenter {
         guard let s = active, let fidPriv = try? s.livePrikey() else { return "This identity cannot sign, so it cannot hold meetings." }
         setPhase(.connecting)
         endReason = nil
-        guard let relayUrl = await relay(for: type, entityId: entityId, in: s), !relayUrl.isEmpty else {
+        guard let relay = await relay(for: type, entityId: entityId, in: s), !relay.url.isEmpty else {
             setPhase(.idle)
-            return "Neither this chat nor you have a CALL service in your home, so there is no relay to meet on."
+            return "This group has no CALL service in its home, so it cannot hold meetings. An admin can set one."
         }
         guard await CallCenter.microphoneAllowed() else {
             setPhase(.idle)
@@ -137,7 +137,7 @@ final class MeetingCenter {
         }
         let m = MeetingBoard.Meeting(
             meetingId: meetingId, entityId: entityId, entityType: type == .team ? "TEAM" : "ROOM", hostFid: s.liveFid,
-            relay: .init(url: relayUrl), title: (title?.isEmpty ?? true) ? nil : title,
+            relay: .init(url: relay.url, pubkey: relay.pubkey, sid: relay.sid), title: (title?.isEmpty ?? true) ? nil : title,
             started: MacMeetingSession.nowMs(),
             keys: [.init(nonce: Hex.encode(nonce), symkeyVersion: keyVersion, authPub: Hex.encode(authPub), keyEpoch: 0)],
             invited: invitees != nil, invitees: invitees ?? [])
@@ -458,15 +458,23 @@ final class MeetingCenter {
         }
     }
 
-    /// The entity's home.CALL, else my own (§8); the test relay wins, as for 1:1 calls.
-    private func relay(for type: ImType, entityId: String, in s: ActiveSession) async -> String? {
+    /// The entity's own home.CALL, and nothing else (§8): every member shows its IP to the
+    /// relay, so only the entity chooses it, never my own service or a default. The test
+    /// relay wins, as for 1:1 calls.
+    /// With the service's id and key when the home names it by SID, so the host's link,
+    /// and the card members join from, take no other relay at that address.
+    private func relay(for type: ImType, entityId: String, in s: ActiveSession)
+        async -> (url: String, pubkey: String?, sid: String?)? {
         let test = calls.testRelay
-        if !test.isEmpty { return test }
-        if let value = s.entityHome(type: type, entityId: entityId)?[CallCenter.homeKey], !value.isEmpty,
-           let url = await s.homeServices.resolve(value) {
-            return url
+        if !test.isEmpty { return (test, nil, nil) }
+        guard let value = s.entityHome(type: type, entityId: entityId)?[CallCenter.homeKey], !value.isEmpty,
+              let url = await s.homeServices.resolve(value) else { return nil }
+        guard !HomeServiceResolver.isUrl(value), let sid = HomeServiceResolver.extractSid(value) else {
+            return (url, nil, nil)
         }
-        return await CallCenter.callRelay(of: s.liveFid, in: s)
+        let service = await s.homeServices.cachedService(sid: sid)
+        if service?.closed == true || service?.active == false { return nil }
+        return (url, service?.dealerPubkey, sid)
     }
 
     static func random(_ n: Int) -> Data {

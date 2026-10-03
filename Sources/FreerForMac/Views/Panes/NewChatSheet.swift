@@ -69,7 +69,7 @@ struct NewChatSheet: View {
     @State private var roomInvitees: [PickedFid] = []
     @State private var pickingDock = false
     /// The room's or team's CALL service: the relay its meetings run on.
-    /// Optional; without it each host's own (FIMP5 §8.2).
+    /// Optional; without it the entity holds no meetings (VOICE_SPEC §8).
     @State private var roomCall = ""
     @State private var groupCall = ""
     @State private var pickingCall = false
@@ -938,7 +938,7 @@ struct NewChatSheet: View {
     private func callField(text: Binding<String>) -> some View {
         LabeledField(
             "CALL",
-            hint: "Optional. The relay this \(style.noun)'s meetings run on, paid by whoever starts one. Empty: each host's own CALL service."
+            hint: "Optional. The relay this \(style.noun)'s meetings run on, paid by whoever starts one. Empty: no meetings."
         ) {
             HStack(spacing: 8) {
                 TextField("", text: text, prompt: Text("service id, or fudp://host:port"))
