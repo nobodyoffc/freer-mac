@@ -225,11 +225,6 @@ public struct DirectoryService {
 
     // MARK: - finding a service
 
-    /// The `type` every FC service record carries. The *component* is
-    /// what distinguishes a DOCK from a DISK; the type says only that
-    /// this is an FC service at all.
-    public static let fapiServiceType = "FAPI@No1_NrC7"
-
     /// One page of a ``searchServices(offering:matching:after:size:timeoutMs:)``
     /// result.
     public struct ServiceSearchPage: Sendable {
@@ -252,6 +247,13 @@ public struct DirectoryService {
     /// one `service` record listing everything it runs, so "find me a
     /// DOCK" is `components contains DOCK@No1_NrC7` — asking on `type`
     /// would match every FC service on the chain.
+    ///
+    /// **Nor is `type` asked at all.** It is free text the publisher
+    /// types in, and the index stores it as a keyword, so requiring
+    /// `FAPI@No1_NrC7` silently hid every server published with a type
+    /// spelled any other way — a light CALL server among them — while a
+    /// pasted SID, which skips this search, still found it. A component
+    /// named `…@No1_NrC7` already says the record is an FC service.
     ///
     /// `term` is optional: with none, this is "show me the DOCKs",
     /// which is what the picker opens on. With one, it matches the
@@ -276,7 +278,6 @@ public struct DirectoryService {
         var dict: [String: Any] = [
             "entity": Self.serviceIndex,
             "query": [
-                "match": ["fields": ["type"], "value": Self.fapiServiceType],
                 "equals": ["fields": ["active"], "values": ["true"]],
             ],
             "filter": filter,
