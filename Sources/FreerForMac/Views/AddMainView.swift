@@ -103,7 +103,13 @@ struct AddMainView: View {
                 case .key:
                     keyBox
                 case .passphrase:
-                    SecureField("Passphrase", text: $phrase)
+                    // Shown in the clear: a passphrase that derives a
+                    // key is long and full of symbols, and one wrong
+                    // character silently yields a different FID.
+                    TextField("Passphrase", text: $phrase, axis: .vertical)
+                        .font(.system(.body, design: .monospaced))
+                        .lineLimit(1 ... 5)
+                        .autocorrectionDisabled()
                     Picker("KDF", selection: $phraseScheme) {
                         Text("Argon2id (recommended)").tag(PhraseKey.Scheme.argon2id)
                         Text("Legacy SHA-256 (Android import)").tag(PhraseKey.Scheme.legacySha256)

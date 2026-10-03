@@ -67,6 +67,10 @@ struct HomeView: View {
                 // `refreshCidInfoAsync`.
                 .id(appState.liveFid)
                 .toolbar { toolbar(for: session) }
+                // On the detail column, not the split view: across the
+                // whole window the banner covered the sidebar's last
+                // rows (Settings).
+                .safeAreaInset(edge: .bottom) { identityNoteBanner }
         }
         .sheet(isPresented: $showQrTool) {
             QrToolSheet { showQrTool = false }
@@ -164,25 +168,27 @@ struct HomeView: View {
         // sheets that show FIDs of their own install their own host,
         // because a sheet cannot present a second sheet from here.
         .fidDetailsHost(session: session)
-        .safeAreaInset(edge: .bottom) {
-            if let identityNote {
-                HStack(spacing: 8) {
-                    Image(systemName: "info.circle")
-                    CopyableText(identityNote, font: .callout)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    Button {
-                        self.identityNote = nil
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private var identityNoteBanner: some View {
+        if let identityNote {
+            HStack(spacing: 8) {
+                Image(systemName: "info.circle")
+                CopyableText(identityNote, font: .callout)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+                Button {
+                    self.identityNote = nil
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(.regularMaterial)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(.regularMaterial)
         }
     }
 
