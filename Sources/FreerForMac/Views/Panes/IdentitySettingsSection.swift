@@ -2,8 +2,9 @@ import SwiftUI
 import FCDomain
 import FCUI
 
-/// Settings › Identity: the on-chain records that say who a FID is — its CID
-/// (FEIP3), its master (FEIP6) and its DOCK and DISK (FEIP9 Home). The
+/// Settings › Identity and Home: the on-chain records that say who a FID is
+/// — its CID (FEIP3) and master (FEIP6) — and where it can be reached — its
+/// BASE, DOCK, DISK and CALL (FEIP9 Home), a section of their own. The
 /// CID and DOCK/DISK forms live in ``CidCarveForm`` and ``HomeCarveForm``,
 /// which the getting-started checklist also opens as dialogs.
 ///
@@ -11,9 +12,13 @@ import FCUI
 /// of your own as this one's owner, which a beginner does not have, and it
 /// is permanent. The row only shows state and opens ``SetMasterSheet``,
 /// which carries the warnings.
-struct IdentitySettingsSection: View {
+struct IdentitySettingsSection<BaseOnThisMac: View>: View {
     @Environment(AppState.self) private var appState
     let session: ActiveSession
+    /// Which server this Mac actually reads through, and the local
+    /// override — under the Home rows, because the home BASE is what it
+    /// follows.
+    @ViewBuilder let baseOnThisMac: () -> BaseOnThisMac
 
     @State private var pendingMaster: PendingIdentityCarve?
 
@@ -30,12 +35,31 @@ struct IdentitySettingsSection: View {
             }
             CidCarveForm(session: session)
             masterRow
-            HomeCarveForm(session: session)
         } header: {
             Text("Identity")
         } footer: {
-            Text("Your CID is the name people find you by; the last characters of your FID are added to keep it unique, and registering one puts your pubkey on the chain. A master is optional and permanent: only set one to a FID of your own that you trust completely. Your DOCK holds messages while you're offline and your DISK keeps your files — until both are on the chain, nobody has anywhere to reach you. Each is a carve with a small fee, and shows here once a block confirms it.")
-                .font(.caption)
+            FoldingFooter(
+                summary: "Who you are on the chain. Each record is a carve with a small fee.",
+                details: "Your CID is the name people find you by; the last characters of your FID are added to keep it unique, and registering one puts your pubkey on the chain. A master is optional and permanent: only set one to a FID of your own that you trust completely. Each is a carve with a small fee, and shows here once a block confirms it."
+            )
+        }
+
+        // Who you are and where you're reached are both carves, but they
+        // answer different questions — and the second is the one people
+        // come back to change.
+        Section {
+            if let carveBlocker {
+                CarveBlockerLabel(text: carveBlocker)
+            }
+            HomeCarveForm(session: session)
+            baseOnThisMac()
+        } header: {
+            Text("Home")
+        } footer: {
+            FoldingFooter(
+                summary: "Where you read the chain and where people reach you.",
+                details: "Your BASE is the server you read the chain through: once it is carved, every device of yours connects to it. Your DOCK holds messages while you're offline and your DISK keeps your files — until both are on the chain, nobody has anywhere to reach you. Each is a service id, so a server can move without anyone losing you. Carving your home costs a small fee, and shows here once a block confirms it."
+            )
         }
         .onAppear(perform: loadPending)
         // A refresh is what clears a carve that has landed.

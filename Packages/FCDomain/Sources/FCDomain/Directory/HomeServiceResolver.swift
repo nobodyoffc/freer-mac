@@ -133,6 +133,9 @@ public actor HomeServiceResolver {
     public func resolve(_ homeValue: String?, timeoutMs: Int = 5_000) async -> String? {
         guard let homeValue, !homeValue.isEmpty else { return nil }
         if Self.isUrl(homeValue) { return homeValue }
+        // Kept private by its owner (``HomePrivacy``): there is nothing
+        // here for anyone else to resolve, and nothing wrong with that.
+        if HomePrivacy.isSealed(homeValue) { return nil }
         guard let sid = Self.extractSid(homeValue) else {
             SystemLog.shared.warning(
                 SystemSource.directory,

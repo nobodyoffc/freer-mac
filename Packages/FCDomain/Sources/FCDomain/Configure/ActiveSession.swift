@@ -1919,8 +1919,9 @@ public final class ActiveSession {
     /// already says this.
     @discardableResult
     public func carveHomeOnChain(
+        base: HomeEntry? = nil,
         dock: String?,
-        disk: String?,
+        disk: HomeEntry?,
         call: String? = nil,
         removeCall: Bool = false,
         feePerByte: Int64 = 1,
@@ -1929,11 +1930,16 @@ public final class ActiveSession {
     ) async throws -> String {
         let fid = liveFid
         let stored = try await directory.freerByIds([fid], timeoutMs: timeoutMs)[fid]?.home
-        guard let home = HomeFeip.merged(over: stored, dock: dock, disk: disk, call: call, removeCall: removeCall) else {
+        let priv = try livePrikey()
+        // A private BASE or DISK is sealed to this FID's own pubkey.
+        let pubkey = try Secp256k1.publicKey(fromPrivateKey: priv)
+        guard let home = try HomeFeip.planned(
+            over: stored, base: base, dock: dock, disk: disk,
+            call: call, removeCall: removeCall, prikey: priv, pubkey: pubkey
+        ) else {
             throw Failure.homeUnchanged
         }
         let opReturn = try HomeFeip.register(home: home)
-        let priv = try livePrikey()
         let result = try await wallet.carve(
             fromAddress: fid, privkey: priv,
             opReturn: opReturn,

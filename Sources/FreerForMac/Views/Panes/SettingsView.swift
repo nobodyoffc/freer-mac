@@ -3,16 +3,17 @@ import FCDomain
 import FCTransport
 import FCUI
 
-/// Per-main-FID preferences. FAPI server config (host / port /
-/// pubkey) plus a few UI knobs. Two ways to validate the FAPI form:
+/// Per-main-FID preferences: this Mac's own BASE server (host / port /
+/// pubkey) and whether to follow the home BASE instead, plus a few UI
+/// knobs. Two ways to validate the server form:
 ///
 /// - **Test connection** — builds a one-shot `FapiClient` from the
 ///   live form values, runs `base.health`, reports the result.
 ///   Doesn't persist anything.
 /// - **Save** — persists to the per-main `PreferencesStore` AND asks
-///   the AppState to swap the active session's FAPI client to the
-///   new server. Subsequent Overview Refreshes hit the live server
-///   immediately.
+///   the AppState to reconnect: to the home BASE when following one,
+///   else to this server. Subsequent Overview Refreshes hit the live
+///   server immediately.
 struct SettingsView: View {
     @Environment(AppState.self) private var appState
     let session: ActiveSession
@@ -60,6 +61,14 @@ struct SettingsView: View {
     @State private var payBackNoticeFee: Bool = true
     @State private var confirmBeforeSigning: Bool = true
 
+    /// Folds. This Mac's server and the maintenance tools are set once and
+    /// then left alone, so they start closed — except the server while it
+    /// is not set up, which is the one thing here that stops the wallet.
+    @State private var serverExpanded: Bool = false
+    @State private var followHomeBase: Bool = true
+    @State private var sendingLimitsExpanded: Bool = false
+    @State private var maintenanceExpanded: Bool = false
+
     enum TestResult: Equatable {
         case ok(String)
         case fail(String)
@@ -92,98 +101,7 @@ struct SettingsView: View {
         Form {
             // First: who this FID is on the chain matters more than how
             // this Mac reaches it.
-            IdentitySettingsSection(session: session)
-
-            Section {
-                LabeledField("Host") {
-                    TextField("", text: $fapiHost, prompt: Text("localhost"))
-                        .fieldInputStyle()
-                }
-                LabeledField("Port") {
-                    TextField("", text: $fapiPort, prompt: Text("8500"))
-                        .fieldInputStyle()
-                        .frame(maxWidth: 140)
-                }
-
-                LabeledField(
-                    "Server pubkey",
-                    hint: (!fapiPubkeyHex.isEmpty && !pubkeyLooksValid(fapiPubkeyHex))
-                        ? "Pubkey must be 66 hex characters (33 SEC1-compressed bytes)."
-                        : nil,
-                    hintIsError: true
-                ) {
-                    HStack(spacing: 8) {
-                        TextField("", text: $fapiPubkeyHex, prompt: Text("03cd14…"))
-                            .font(.system(.body, design: .monospaced))
-                            .fieldInputStyle()
-
-                        Button {
-                            Task { await runDiscover() }
-                        } label: {
-                            if discovering {
-                                HStack(spacing: 4) {
-                                    ProgressView().controlSize(.small)
-                                    Text("Discovering…")
-                                }
-                            } else {
-                                Label("Discover", systemImage: "magnifyingglass")
-                            }
-                        }
-                        .disabled(discovering || !hostPortLooksValid)
-                        .help("Send a plaintext HELLO to the host:port and auto-fill the pubkey from the reply.")
-                    }
-                }
-
-                if let err = discoverError {
-                    HStack(alignment: .top, spacing: 4) {
-                        Image(systemName: "xmark.octagon.fill")
-                        CopyableText(err, font: .caption)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .foregroundStyle(.red)
-                    .font(.caption)
-                }
-
-                HStack(spacing: 12) {
-                    Button {
-                        Task { await runTestConnection() }
-                    } label: {
-                        if testing {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small)
-                                Text("Testing…")
-                            }
-                        } else {
-                            Label("Test connection", systemImage: "antenna.radiowaves.left.and.right")
-                        }
-                    }
-                    .disabled(testing || !fapiFormLooksValid)
-
-                    if let result = testResult {
-                        switch result {
-                        case .ok(let msg):
-                            HStack(alignment: .top, spacing: 4) {
-                                Image(systemName: "checkmark.circle.fill")
-                                CopyableText(msg, font: .callout)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .foregroundStyle(.green)
-                        case .fail(let msg):
-                            HStack(alignment: .top, spacing: 4) {
-                                Image(systemName: "xmark.octagon.fill")
-                                CopyableText(msg, font: .callout)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                            .foregroundStyle(.red)
-                        }
-                    }
-                }
-            } header: {
-                Text("FAPI server")
-            } footer: {
-                Text("The FAPI server's pubkey lets the wallet establish an authenticated FUDP session. Without it, balance / send / broadcast fall back to the stub client.")
-                    .font(.caption)
-            }
+            IdentitySettingsSection(session: session) { baseOnThisMac }
 
             Section("Appearance") {
                 LabeledField("Theme") {
@@ -196,145 +114,9 @@ struct SettingsView: View {
                 }
             }
 
-            Section {
-                LabeledField(
-                    "My notice fee",
-                    hint: myNoticeFeeHint,
-                    hintIsError: myNoticeFeeSats == nil && !myNoticeFee.isEmpty
-                ) {
-                    HStack(spacing: 8) {
-                        TextField("", text: $myNoticeFee, prompt: Text("0"))
-                            .fieldInputStyle()
-                            .frame(maxWidth: 160)
-                        Text("F").foregroundStyle(.secondary)
-
-                        Button {
-                            Task { await carveNoticeFee() }
-                        } label: {
-                            if carvingFee {
-                                ProgressView().controlSize(.small)
-                            } else {
-                                Text("Carve")
-                            }
-                        }
-                        .disabled(!canCarveNoticeFee)
-                        .help(session.canSign
-                              ? "Write this rate to the chain so senders' clients can read it"
-                              : "Watch-only identity — no key to sign a carve with")
-
-                        if loadingFee {
-                            ProgressView().controlSize(.small)
-                        }
-                    }
-                }
-
-                LabeledField(
-                    "Most I'll pay",
-                    hint: maxPayingSats == nil && !maxPayingNoticeFee.isEmpty
-                        ? "Not a valid amount."
-                        : "Blank = \(NoticeFee.coinString(satoshis: NoticeFee.defaultMaxPayingSats)) F.",
-                    hintIsError: maxPayingSats == nil && !maxPayingNoticeFee.isEmpty
-                ) {
-                    HStack(spacing: 8) {
-                        TextField("", text: $maxPayingNoticeFee, prompt: Text("100"))
-                            .fieldInputStyle()
-                            .frame(maxWidth: 160)
-                        Text("F").foregroundStyle(.secondary)
-                    }
-                }
-
-                Toggle("Match what a sender paid me when I reply", isOn: $payBackNoticeFee)
-                    .help("If someone paid more than the rate you'd normally pay them, your reply returns the same amount — still capped by the limit above.")
-
-                if let err = feeCarveError {
-                    CopyableText(err, font: .callout).foregroundStyle(.red)
-                } else if let txid = feeCarveTxid {
-                    CopyableText(
-                        display: "Carved — tx \(txid.elidingMiddle(head: 8, tail: 8)). Senders see the new rate once a block confirms it.",
-                        copy: txid,
-                        font: .caption
-                    )
-                    .foregroundStyle(.green)
-                }
-            } header: {
-                Text("Mail")
-            } footer: {
-                Text("Your notice fee is what other people pay **you** to land a mail in your inbox — it lives on the chain, so raising it costs a carve and only applies to mail sent after it confirms. The other two settings are local: they bound what you spend, and never leave this device.")
-                    .font(.caption)
-            }
-
-            Section {
-                HStack(spacing: 12) {
-                    Button {
-                        appState.openBackupPrikey()
-                    } label: {
-                        Label("Back up prikey…", systemImage: "key.viewfinder")
-                    }
-                    if let master = backupMaster {
-                        // A master carve put the key on the chain, sealed to
-                        // that FID. The checklist counts it; saying "not
-                        // backed up" here would contradict it — and the FID
-                        // is the part worth naming, since only its prikey
-                        // opens that copy.
-                        HStack(spacing: 4) {
-                            Label("Backed up to master", systemImage: "checkmark.circle.fill")
-                                .foregroundStyle(.green)
-                                .font(.callout)
-                            CopyableText.elidingMiddle(master, font: .callout.monospaced())
-                        }
-                    } else if appState.prikeyBackedUp {
-                        Label("Backed up", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.callout)
-                    } else {
-                        Label("Not backed up yet", systemImage: "exclamationmark.circle.fill")
-                            .foregroundStyle(.orange)
-                            .font(.callout)
-                    }
-                    Spacer()
-                }
-
-                Toggle("Show every transaction before signing it", isOn: $confirmBeforeSigning)
-
-                LabeledField(
-                    "Auto-lock after (minutes)",
-                    hint: "Blank = never auto-lock. Locking closes the vault, "
-                        + "and with it any open terminals and the SSH agent."
-                ) {
-                    TextField("", text: $autoLockMinutes, prompt: Text("e.g. 10"))
-                        .fieldInputStyle()
-                        .frame(maxWidth: 240)
-                }
-            } header: {
-                Text("Security")
-            } footer: {
-                Text("The backup is the only copy of this identity that can exist off this Mac — as text you write down, or as a file sealed with your vault password. **Marking it done is your word, not ours** — it turns off the reminder, and nothing checks it.\n\nWith confirmation on, **nothing is signed until you approve it** — payments, cash merges, and the on-chain writes that panes make on your behalf (a contact, a mail, a chat key). The dialog shows the built transaction: which cashes it spends, who each output pays, the fee, and the exact bytes of any data being written. Turn it off and those all go straight to the chain.")
-                    .font(.caption)
-            }
-
-            Section {
-                HStack(spacing: 12) {
-                    Button(role: .destructive) {
-                        showPurgeConfirm = true
-                    } label: {
-                        Label("Purge cash cache", systemImage: "trash")
-                    }
-                    if purgeOk {
-                        Label("Purged", systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green)
-                            .font(.callout)
-                    }
-                    if let err = purgeError {
-                        CopyableText(err, font: .callout)
-                            .foregroundStyle(.red)
-                    }
-                }
-            } header: {
-                Text("Maintenance")
-            } footer: {
-                Text("Drops the live FID's local cash cache. The next Refresh will rebootstrap from `base.cashValid`. Use this when the wallet's pending list looks wrong or after a stuck broadcast.")
-                    .font(.caption)
-            }
+            mailSection
+            securitySection
+            maintenanceSection
 
             if let err = saveError {
                 Section {
@@ -365,6 +147,321 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
     }
+
+    // MARK: - sections
+
+    /// The server in use and why, then this Mac's own server folded
+    /// beneath it: the one it starts on and falls back to while following
+    /// the home BASE, and the only one when not.
+    @ViewBuilder
+    private var baseOnThisMac: some View {
+        LabeledField("Connected to") {
+            HStack(spacing: 6) {
+                if let connection = appState.baseConnection {
+                    CopyableText(connection.service, font: .callout.monospaced())
+                    Text(connectionSourceText(connection))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Nothing — the wallet is on the stub client")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        if let problem = appState.homeBaseProblem {
+            HStack(alignment: .top, spacing: 4) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                CopyableText(problem, font: .caption)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.orange)
+            .font(.caption)
+        }
+        DisclosureGroup(isExpanded: $serverExpanded) {
+            Toggle("Follow my home BASE", isOn: $followHomeBase)
+                .help("Connect to the BASE your main FID's home names. Off pins this Mac to the server below.")
+            serverFields
+            Text(followHomeBase
+                 ? "Used until your home is read, whenever it names no BASE, and whenever your BASE is down. Saved on this Mac only."
+                 : "The only server this Mac connects to. Saved on this Mac only.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } label: {
+            HStack {
+                Text("BASE on this Mac")
+                Spacer()
+                Text(serverSummary)
+                    .font(.callout.monospaced())
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func connectionSourceText(_ connection: BaseConnection) -> String {
+        switch connection.source {
+        case .home:     return "your home BASE"
+        case .thisMac:  return "set on this Mac"
+        case .starting: return connection.homeBaseDown ? "your home BASE is down" : "the starting server"
+        }
+    }
+
+    /// What the folded row says: whether this Mac follows the home, and
+    /// the server it starts on or is pinned to.
+    private var serverSummary: String {
+        let server: String
+        if fapiHost.isEmpty || fapiPort.isEmpty {
+            server = "not set"
+        } else if !pubkeyLooksValid(fapiPubkeyHex) {
+            server = "\(fapiHost):\(fapiPort) — no pubkey"
+        } else {
+            server = "\(fapiHost):\(fapiPort)"
+        }
+        return followHomeBase ? "Following home · starts on \(server)" : "Pinned to \(server)"
+    }
+
+    @ViewBuilder
+    private var serverFields: some View {
+        LabeledField("Host") {
+            TextField("", text: $fapiHost, prompt: Text("localhost"))
+                .fieldInputStyle()
+        }
+        LabeledField("Port") {
+            TextField("", text: $fapiPort, prompt: Text("8500"))
+                .fieldInputStyle()
+                .frame(maxWidth: 140)
+        }
+
+        LabeledField(
+            "Server pubkey",
+            hint: (!fapiPubkeyHex.isEmpty && !pubkeyLooksValid(fapiPubkeyHex))
+                ? "Pubkey must be 66 hex characters (33 SEC1-compressed bytes)."
+                : nil,
+            hintIsError: true
+        ) {
+            HStack(spacing: 8) {
+                TextField("", text: $fapiPubkeyHex, prompt: Text("03cd14…"))
+                    .font(.system(.body, design: .monospaced))
+                    .fieldInputStyle()
+
+                Button {
+                    Task { await runDiscover() }
+                } label: {
+                    if discovering {
+                        HStack(spacing: 4) {
+                            ProgressView().controlSize(.small)
+                            Text("Discovering…")
+                        }
+                    } else {
+                        Label("Discover", systemImage: "magnifyingglass")
+                    }
+                }
+                .disabled(discovering || !hostPortLooksValid)
+                .help("Send a plaintext HELLO to the host:port and auto-fill the pubkey from the reply.")
+            }
+        }
+
+        if let err = discoverError {
+            HStack(alignment: .top, spacing: 4) {
+                Image(systemName: "xmark.octagon.fill")
+                CopyableText(err, font: .caption)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .foregroundStyle(.red)
+            .font(.caption)
+        }
+
+        HStack(spacing: 12) {
+            Button {
+                Task { await runTestConnection() }
+            } label: {
+                if testing {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Testing…")
+                    }
+                } else {
+                    Label("Test connection", systemImage: "antenna.radiowaves.left.and.right")
+                }
+            }
+            .disabled(testing || !fapiFormLooksValid)
+
+            if let result = testResult {
+                switch result {
+                case .ok(let msg):
+                    HStack(alignment: .top, spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                        CopyableText(msg, font: .callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .foregroundStyle(.green)
+                case .fail(let msg):
+                    HStack(alignment: .top, spacing: 4) {
+                        Image(systemName: "xmark.octagon.fill")
+                        CopyableText(msg, font: .callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .foregroundStyle(.red)
+                }
+            }
+        }
+    }
+
+    private var mailSection: some View {
+        Section {
+            LabeledField(
+                "My notice fee",
+                hint: myNoticeFeeHint,
+                hintIsError: myNoticeFeeSats == nil && !myNoticeFee.isEmpty
+            ) {
+                HStack(spacing: 8) {
+                    TextField("", text: $myNoticeFee, prompt: Text("0"))
+                        .fieldInputStyle()
+                        .frame(maxWidth: 160)
+                    Text("F").foregroundStyle(.secondary)
+
+                    Button {
+                        Task { await carveNoticeFee() }
+                    } label: {
+                        if carvingFee {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text("Carve")
+                        }
+                    }
+                    .disabled(!canCarveNoticeFee)
+                    .help(session.canSign
+                          ? "Write this rate to the chain so senders' clients can read it"
+                          : "Watch-only identity — no key to sign a carve with")
+
+                    if loadingFee {
+                        ProgressView().controlSize(.small)
+                    }
+                }
+            }
+
+            DisclosureGroup("When I send mail", isExpanded: $sendingLimitsExpanded) {
+                LabeledField(
+                    "Most I'll pay",
+                    hint: maxPayingSats == nil && !maxPayingNoticeFee.isEmpty
+                        ? "Not a valid amount."
+                        : "Blank = \(NoticeFee.coinString(satoshis: NoticeFee.defaultMaxPayingSats)) F.",
+                    hintIsError: maxPayingSats == nil && !maxPayingNoticeFee.isEmpty
+                ) {
+                    HStack(spacing: 8) {
+                        TextField("", text: $maxPayingNoticeFee, prompt: Text("100"))
+                            .fieldInputStyle()
+                            .frame(maxWidth: 160)
+                        Text("F").foregroundStyle(.secondary)
+                    }
+                }
+
+                Toggle("Match what a sender paid me when I reply", isOn: $payBackNoticeFee)
+                    .help("If someone paid more than the rate you'd normally pay them, your reply returns the same amount — still capped by the limit above.")
+            }
+
+            if let err = feeCarveError {
+                CopyableText(err, font: .callout).foregroundStyle(.red)
+            } else if let txid = feeCarveTxid {
+                CopyableText(
+                    display: "Carved — tx \(txid.elidingMiddle(head: 8, tail: 8)). Senders see the new rate once a block confirms it.",
+                    copy: txid,
+                    font: .caption
+                )
+                .foregroundStyle(.green)
+            }
+        } header: {
+            Text("Mail")
+        } footer: {
+            FoldingFooter(
+                summary: "Your notice fee is what others pay **you** per mail; it lives on the chain.",
+                details: "Your notice fee is what other people pay **you** to land a mail in your inbox — it lives on the chain, so raising it costs a carve and only applies to mail sent after it confirms. The two sending settings are local: they bound what you spend, and never leave this device."
+            )
+        }
+    }
+
+    private var securitySection: some View {
+        Section {
+            HStack(spacing: 12) {
+                Button {
+                    appState.openBackupPrikey()
+                } label: {
+                    Label("Back up prikey…", systemImage: "key.viewfinder")
+                }
+                if let master = backupMaster {
+                    // A master carve put the key on the chain, sealed to
+                    // that FID. The checklist counts it; saying "not
+                    // backed up" here would contradict it — and the FID
+                    // is the part worth naming, since only its prikey
+                    // opens that copy.
+                    HStack(spacing: 4) {
+                        Label("Backed up to master", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.callout)
+                        CopyableText.elidingMiddle(master, font: .callout.monospaced())
+                    }
+                } else if appState.prikeyBackedUp {
+                    Label("Backed up", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                        .font(.callout)
+                } else {
+                    Label("Not backed up yet", systemImage: "exclamationmark.circle.fill")
+                        .foregroundStyle(.orange)
+                        .font(.callout)
+                }
+                Spacer()
+            }
+
+            Toggle("Show every transaction before signing it", isOn: $confirmBeforeSigning)
+
+            LabeledField(
+                "Auto-lock after (minutes)",
+                hint: "Blank = never auto-lock. Locking closes the vault, "
+                    + "and with it any open terminals and the SSH agent."
+            ) {
+                TextField("", text: $autoLockMinutes, prompt: Text("e.g. 10"))
+                    .fieldInputStyle()
+                    .frame(maxWidth: 240)
+            }
+        } header: {
+            Text("Security")
+        } footer: {
+            FoldingFooter(
+                summary: "With confirmation on, **nothing is signed until you approve it**.",
+                details: "The backup is the only copy of this identity that can exist off this Mac — as text you write down, or as a file sealed with your vault password. **Marking it done is your word, not ours** — it turns off the reminder, and nothing checks it.\n\nWith confirmation on, **nothing is signed until you approve it** — payments, cash merges, and the on-chain writes that panes make on your behalf (a contact, a mail, a chat key). The dialog shows the built transaction: which cashes it spends, who each output pays, the fee, and the exact bytes of any data being written. Turn it off and those all go straight to the chain."
+            )
+        }
+    }
+
+    private var maintenanceSection: some View {
+        Section {
+            DisclosureGroup("Maintenance", isExpanded: $maintenanceExpanded) {
+                HStack(spacing: 12) {
+                    Button(role: .destructive) {
+                        showPurgeConfirm = true
+                    } label: {
+                        Label("Purge cash cache", systemImage: "trash")
+                    }
+                    if purgeOk {
+                        Label("Purged", systemImage: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                            .font(.callout)
+                    }
+                    if let err = purgeError {
+                        CopyableText(err, font: .callout)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+        } footer: {
+            if maintenanceExpanded {
+                Text("Drops the live FID's local cash cache. The next Refresh will rebootstrap from `base.cashValid`. Use this when the wallet's pending list looks wrong or after a stuck broadcast.")
+                    .font(.caption)
+            }
+        }
+    }
+
 
     // MARK: - mail fees
 
@@ -465,6 +562,8 @@ struct SettingsView: View {
                 fapiPort = String(p)
             }
             fapiPubkeyHex = s.preferredFapiServicePubkeyHex ?? ""
+            serverExpanded = fapiHost.isEmpty || !pubkeyLooksValid(fapiPubkeyHex)
+            followHomeBase = s.followsHomeBase
             theme = s.theme ?? .system
             if let secs = s.autoLockSeconds, secs > 0 {
                 autoLockMinutes = String(secs / 60)
@@ -490,6 +589,7 @@ struct SettingsView: View {
                     s.preferredFapiService = nil
                 }
                 s.preferredFapiServicePubkeyHex = fapiPubkeyHex.isEmpty ? nil : fapiPubkeyHex
+                s.followHomeBase = followHomeBase
                 s.theme = theme
                 if let mins = Int(autoLockMinutes), mins > 0 {
                     s.autoLockSeconds = mins * 60
@@ -569,31 +669,15 @@ struct SettingsView: View {
             return
         }
 
-        let host = fapiHost
         do {
-            let fudp = try await FudpClient(
-                host: host, port: port,
-                peerPubkey: pubkey, localPrivkey: priv
-            )
-            defer { fudp.close() }
-            let client = FapiClient(fudp: fudp)
-            let reply = try await client.call(
-                api: "base.health",
-                params: nil, fcdsl: nil, binary: nil,
-                sid: nil, via: nil, maxCost: nil,
-                timeoutMs: 5_000
-            )
-            if reply.response.isSuccess {
-                testResult = .ok("Connected — server replied OK")
-                // This proves the network is back. The live client may
-                // still be sitting on a socket that died while the
-                // machine slept, so retire it: the next call reconnects.
-                appState.markFapiStale()
-            } else {
-                let code = reply.response.code ?? -1
-                let msg = reply.response.message ?? ""
-                testResult = .fail("Server replied code \(code): \(msg)")
-            }
+            try await AppState.probeBase(host: fapiHost, port: port, pubkey: pubkey, prikey: priv)
+            testResult = .ok("Connected — server replied OK")
+            // This proves the network is back. The live client may
+            // still be sitting on a socket that died while the
+            // machine slept, so retire it: the next call reconnects.
+            appState.markFapiStale()
+        } catch let failure as BaseProbeFailure {
+            testResult = .fail("Server replied code \(failure.code): \(failure.message)")
         } catch {
             testResult = .fail("Failed: \(error)")
         }
@@ -640,5 +724,24 @@ struct SettingsView: View {
             idx = next
         }
         return data
+    }
+}
+
+/// A section footer that says the gist in one line and keeps the full
+/// explanation a click away.
+struct FoldingFooter: View {
+    let summary: LocalizedStringKey
+    let details: LocalizedStringKey
+
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(expanded ? details : summary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(expanded ? "Less" : "More…") { expanded.toggle() }
+                .buttonStyle(.link)
+        }
+        .font(.caption)
     }
 }

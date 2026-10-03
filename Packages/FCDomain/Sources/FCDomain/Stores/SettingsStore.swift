@@ -41,6 +41,17 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var confirmBeforeSigning: Bool?
     public var theme: Theme?
     public var autoLockSeconds: Int?
+    /// Connect to the BASE the main FID's home names, once it is known.
+    /// Nil means on. Off pins this Mac to ``preferredFapiService`` — the
+    /// way to test a server, or to get past one that is down, without
+    /// carving anything.
+    public var followHomeBase: Bool?
+    /// The home BASE last found, verified and reached: `"<host>:<port>"`
+    /// and its pubkey. Where the next launch starts, so a FID that has
+    /// moved its BASE never touches ``preferredFapiService`` again unless
+    /// this one is down. Written only by the app, never by the form.
+    public var homeBaseService: String?
+    public var homeBaseServicePubkeyHex: String?
 
     public enum Theme: String, Codable, Sendable, CaseIterable {
         case system
@@ -57,7 +68,10 @@ public struct Preferences: Codable, Equatable, Sendable {
         payBackNoticeFee: Bool? = nil,
         confirmBeforeSigning: Bool? = nil,
         theme: Theme? = nil,
-        autoLockSeconds: Int? = nil
+        autoLockSeconds: Int? = nil,
+        followHomeBase: Bool? = nil,
+        homeBaseService: String? = nil,
+        homeBaseServicePubkeyHex: String? = nil
     ) {
         self.version = version
         self.preferredFapiService = preferredFapiService
@@ -68,6 +82,9 @@ public struct Preferences: Codable, Equatable, Sendable {
         self.confirmBeforeSigning = confirmBeforeSigning
         self.theme = theme
         self.autoLockSeconds = autoLockSeconds
+        self.followHomeBase = followHomeBase
+        self.homeBaseService = homeBaseService
+        self.homeBaseServicePubkeyHex = homeBaseServicePubkeyHex
     }
 
     /// The project's FAPI server, used until the user points the app
@@ -80,6 +97,53 @@ public struct Preferences: Codable, Equatable, Sendable {
         preferredFapiService: defaultFapiService,
         preferredFapiServicePubkeyHex: defaultFapiServicePubkeyHex
     )
+}
+
+/// A FAPI server to connect to, and why this one.
+public struct BaseEndpoint: Equatable, Sendable {
+    public enum Source: Equatable, Sendable {
+        /// The BASE the main FID's home names.
+        case home
+        /// The server set in Settings, with following turned off.
+        case thisMac
+        /// The server set in Settings, used until the home is read — and
+        /// whenever the home names no BASE, or names one that is down.
+        case starting
+    }
+
+    /// `"<host>:<port>"`.
+    public var service: String
+    public var pubkeyHex: String
+    public var source: Source
+
+    public init(service: String, pubkeyHex: String, source: Source) {
+        self.service = service
+        self.pubkeyHex = pubkeyHex
+        self.source = source
+    }
+}
+
+extension Preferences {
+    public var followsHomeBase: Bool { followHomeBase ?? true }
+
+    /// The servers to try at launch, best first. The home BASE leads when
+    /// one is known and followed; the Settings server comes after it, as
+    /// the way back in if the home BASE is down — a FID whose own server
+    /// has failed must still reach the chain to move it.
+    public var baseCandidates: [BaseEndpoint] {
+        var candidates: [BaseEndpoint] = []
+        if followsHomeBase, let service = homeBaseService, let pubkey = homeBaseServicePubkeyHex {
+            candidates.append(BaseEndpoint(service: service, pubkeyHex: pubkey, source: .home))
+        }
+        if let service = preferredFapiService, let pubkey = preferredFapiServicePubkeyHex,
+           !candidates.contains(where: { $0.service == service }) {
+            candidates.append(BaseEndpoint(
+                service: service, pubkeyHex: pubkey,
+                source: followsHomeBase ? .starting : .thisMac
+            ))
+        }
+        return candidates
+    }
 }
 
 /// Read/write the per-identity ``Preferences`` row. Single-key store

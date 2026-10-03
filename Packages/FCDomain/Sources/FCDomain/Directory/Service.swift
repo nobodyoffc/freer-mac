@@ -617,6 +617,10 @@ public struct Service: Codable, Equatable, Sendable, Identifiable {
 /// Well-known service names, as they appear as keys in an entity's
 /// `home` map.
 public enum ServiceName {
+    /// Chain queries and broadcast — the FAPI11 component every other
+    /// service leans on, and the first entry of a FID's home: the server
+    /// its owner reads the chain through. See ``HomeBase``.
+    public static let base = "BASE@No1_NrC7"
     /// Store-and-forward for messages whose recipient is offline.
     public static let dock = "DOCK@No1_NrC7"
     /// Live relay for messages whose recipient is online but

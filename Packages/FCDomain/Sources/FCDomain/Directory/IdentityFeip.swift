@@ -106,12 +106,13 @@ public enum HomeFeip {
         )
     }
 
-    /// The home map with a new DOCK, DISK and/or CALL, under the keys every
+    /// The home map with a new BASE, DOCK, DISK and/or CALL, under the keys every
     /// resolver in this app looks up (``ServiceName``). `removeCall` takes
     /// the CALL entry out, which stops calls (FIMP5 §6.1). Nil when nothing
     /// would change — a carve for that would cost a fee to say nothing.
     public static func merged(
         over stored: [String: String]?,
+        base: String? = nil,
         dock: String?,
         disk: String?,
         call: String? = nil,
@@ -119,12 +120,69 @@ public enum HomeFeip {
     ) -> [String: String]? {
         GroupHome.merged(
             over: stored,
-            changing: [ServiceName.dock: dock, ServiceName.disk: disk, ServiceName.call: removeCall ? nil : call],
+            changing: [ServiceName.base: base, ServiceName.dock: dock, ServiceName.disk: disk, ServiceName.call: removeCall ? nil : call],
             removing: removeCall ? ["CALL"] : []
         )
     }
 
-    /// Whether `home` names a service of `kind` (`"DOCK"`, `"DISK"`).
+    /// The home carved when BASE and DISK may each be kept private: the
+    /// sealed entries are sealed to `pubkey` here, and only when they
+    /// change. Nil when nothing would. See ``HomePrivacy``.
+    public static func planned(
+        over stored: [String: String]?,
+        base: HomeEntry?,
+        dock: String?,
+        disk: HomeEntry?,
+        call: String? = nil,
+        removeCall: Bool = false,
+        prikey: Data?,
+        pubkey: Data
+    ) throws -> [String: String]? {
+        try plan(over: stored, base: base, dock: dock, disk: disk, call: call, removeCall: removeCall, prikey: prikey) {
+            try HomePrivacy.seal($0, toPubkey: pubkey)
+        }
+    }
+
+    /// Whether ``planned(over:base:dock:disk:call:removeCall:prikey:pubkey:)``
+    /// would carve anything — without sealing, so a form can ask on every
+    /// keystroke. An entry that cannot be sealed counts as no carve.
+    public static func wouldChange(
+        over stored: [String: String]?,
+        base: HomeEntry?,
+        dock: String?,
+        disk: HomeEntry?,
+        call: String? = nil,
+        removeCall: Bool = false,
+        prikey: Data?
+    ) -> Bool {
+        let planned = try? plan(over: stored, base: base, dock: dock, disk: disk, call: call, removeCall: removeCall, prikey: prikey) {
+            "{sealed:\($0)}"
+        }
+        return (planned ?? nil) != nil
+    }
+
+    private static func plan(
+        over stored: [String: String]?,
+        base: HomeEntry?, dock: String?, disk: HomeEntry?,
+        call: String?, removeCall: Bool, prikey: Data?,
+        seal: (String) throws -> String
+    ) throws -> [String: String]? {
+        let baseValue = try HomePrivacy.pending(base, over: value(of: "BASE", in: stored), prikey: prikey, seal: seal)
+        let diskValue = try HomePrivacy.pending(disk, over: value(of: "DISK", in: stored), prikey: prikey, seal: seal)
+        return merged(over: stored, base: baseValue, dock: dock, disk: diskValue, call: call, removeCall: removeCall)
+    }
+
+    /// The value `home` holds for `kind`, under the key this app writes or
+    /// any key another client wrote for it. Nil when blank or absent.
+    public static func value(of kind: String, in home: [String: String]?) -> String? {
+        guard let home else { return nil }
+        let exact = "\(kind.uppercased())@No1_NrC7"
+        let raw = home[exact] ?? home.first { GroupHome.isKey($0.key, ofKind: kind) }?.value
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    /// Whether `home` names a service of `kind` (`"BASE"`, `"DOCK"`, `"DISK"`).
     ///
     /// By prefix, as Android and ``ChatGate/declaresDock(home:)`` read it: a
     /// map written by another client may use a bare `DOCK` key, and that FID

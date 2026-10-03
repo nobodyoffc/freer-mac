@@ -242,11 +242,17 @@ struct HomeCarveForm: View {
     /// Called once the carve is broadcast.
     var onCarved: () -> Void = {}
 
+    @State private var base = ""
     @State private var dock = ""
     @State private var disk = ""
+    /// Private unless the chain already shows the entry public — where
+    /// you read the chain and keep your files is yours to announce.
+    @State private var baseSealed = true
+    @State private var diskSealed = true
     @State private var call = ""
     @State private var takeCalls = false
     @State private var loadedHome = false
+    @State private var pickingBase = false
     @State private var pickingDock = false
     @State private var pickingDisk = false
     @State private var pickingCall = false
@@ -261,8 +267,9 @@ struct HomeCarveForm: View {
 
     var body: some View {
         Group {
+            serviceRow("BASE", value: $base, kind: "BASE", sealed: $baseSealed) { pickingBase = true }
             serviceRow("DOCK", value: $dock, kind: "DOCK") { pickingDock = true }
-            serviceRow("DISK", value: $disk, kind: "DISK") { pickingDisk = true }
+            serviceRow("DISK", value: $disk, kind: "DISK", sealed: $diskSealed) { pickingDisk = true }
             callRow
             HStack(spacing: 12) {
                 Button {
@@ -289,6 +296,20 @@ struct HomeCarveForm: View {
         }
         .onChange(of: info) { _, _ in loadPending() }
         .task(id: loadedHome) { await suggestConnectedServer() }
+        .sheet(isPresented: $pickingBase) {
+            ServicePickerSheet(
+                session: session,
+                component: ServiceName.base,
+                title: "Choose your BASE",
+                subtitle: "The server you read the chain through. Once it is carved, every device of yours connects here — and if it is down, falls back to the server set in Settings.",
+                initialQuery: base
+            ) { service in
+                base = service.sid
+                pickingBase = false
+            } onCancel: {
+                pickingBase = false
+            }
+        }
         .sheet(isPresented: $pickingDock) {
             ServicePickerSheet(
                 session: session,
@@ -359,19 +380,50 @@ struct HomeCarveForm: View {
     }
 
     private func serviceRow(
-        _ label: String, value: Binding<String>, kind: String, choose: @escaping () -> Void
+        _ label: String, value: Binding<String>, kind: String,
+        sealed: Binding<Bool>? = nil, choose: @escaping () -> Void
     ) -> some View {
-        LabeledField(label, hint: hint(kind, value: value.wrappedValue)) {
+        LabeledField(label, hint: hint(kind, value: value.wrappedValue, sealed: sealed?.wrappedValue)) {
             HStack(spacing: 8) {
-                TextField("", text: value, prompt: Text("Service id or URL"))
+                TextField("", text: value, prompt: Text(storedUnreadable(kind) ? "Private — sealed to another key" : "Service id or URL"))
                     .font(.system(.body, design: .monospaced))
                     .fieldInputStyle()
                 Button("Choose…", action: choose)
+                if let sealed {
+                    // An address cannot be sealed: Android's reader expects
+                    // the 32 bytes of a service id.
+                    let sealable = value.wrappedValue.isEmpty
+                        || HomeServiceResolver.extractSid(value.wrappedValue) != nil
+                    Toggle(isOn: sealable ? sealed : .constant(false)) {
+                        Label("Private", systemImage: "lock")
+                    }
+                    .toggleStyle(.checkbox)
+                    .disabled(!sealable)
+                    .help(sealable
+                          ? "Seal it to your own pubkey, so only you can read it"
+                          : "Only a service id can be kept private")
+                }
             }
         }
     }
 
-    private func hint(_ kind: String, value: String) -> String? {
+    /// The privacy line for a sealable row, after whatever the row's
+    /// state says.
+    private func hint(_ kind: String, value: String, sealed: Bool?) -> String? {
+        let base = stateHint(kind, value: value)
+        guard let sealed else { return base }
+        let privacy = sealed && (value.isEmpty || HomeServiceResolver.extractSid(value) != nil)
+            ? "Private: sealed to your pubkey, so only you can read it."
+            : "Public: anyone can read it."
+        return base.map { "\($0) \(privacy)" } ?? privacy
+    }
+
+    private func stateHint(_ kind: String, value: String) -> String? {
+        // Only the main FID's BASE moves the connection: it is the main's
+        // prikey that opens the session.
+        if kind == "BASE", session.liveFid != session.mainFid {
+            return "Only your main FID's BASE chooses the server this Mac connects to."
+        }
         guard storedValue(kind) == nil else { return nil }
         if let suggestedSid, value == suggestedSid {
             return "Not on the chain yet. Filled in with the server this app is connected to."
@@ -384,10 +436,11 @@ struct HomeCarveForm: View {
     /// record offers both, its SID goes into whichever box the chain has
     /// nothing for and the user has not typed in. A record offering only
     /// one is left out: carving half a home to the same server would be a
-    /// guess about the other half.
+    /// guess about the other half. The BASE box gets it too when the record
+    /// offers BASE — it is the server already being read through.
     private func suggestConnectedServer() async {
         guard loadedHome, storedValue("DOCK") == nil || storedValue("DISK") == nil,
-              let url = try? session.preferences.load().preferredFapiService,
+              let url = appState.baseConnection?.service,
               let service = try? await session.directory.service(
                   at: url, offering: [ServiceName.dock, ServiceName.disk]
               ),
@@ -397,23 +450,57 @@ struct HomeCarveForm: View {
         suggestedSid = sid
         if storedValue("DOCK") == nil, dock.isEmpty { dock = sid }
         if storedValue("DISK") == nil, disk.isEmpty { disk = sid }
+        if storedValue("BASE") == nil, base.isEmpty, service.offers(ServiceName.base) { base = sid }
     }
 
     /// The value the chain holds for `kind`, under the key this app writes
     /// or, failing that, any key another client wrote for it.
     private func storedValue(_ kind: String) -> String? {
         guard let home = info?.home else { return nil }
-        let exact = kind == "DOCK" ? ServiceName.dock : kind == "DISK" ? ServiceName.disk : ServiceName.call
+        let exact: String
+        switch kind {
+        case "BASE": exact = ServiceName.base
+        case "DOCK": exact = ServiceName.dock
+        case "DISK": exact = ServiceName.disk
+        default:     exact = ServiceName.call
+        }
         let value = home[exact] ?? home.first { $0.key.uppercased().hasPrefix(kind) }?.value
         guard let value, !value.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         return value
     }
 
+    /// The live FID's prikey, which opens its own sealed entries. Nil for a
+    /// watch-only identity, which cannot carve either.
+    private var prikey: Data? { try? session.livePrikey() }
+
+    /// A sealed entry this FID cannot open: shown empty, and left alone
+    /// unless the user types over it.
+    private func storedUnreadable(_ kind: String) -> Bool {
+        let stored = storedValue(kind)
+        return HomePrivacy.isSealed(stored) && HomePrivacy.open(stored, prikey: prikey) == nil
+    }
+
+    /// What a field shows for a stored entry: the service id, opened if
+    /// it was sealed.
+    private func displayed(_ kind: String) -> String {
+        HomeServiceResolver.displayValue(HomePrivacy.open(storedValue(kind), prikey: prikey))
+    }
+
     private var canCarveHome: Bool {
         guard IdentityCarve.blocker(session: session, info: info) == nil,
               !carvingHome, info != nil, !IdentityCarve.isWaiting(pendingHome) else { return false }
-        return HomeFeip.merged(over: info?.home, dock: dock, disk: disk,
-                               call: callEdit.call, removeCall: callEdit.remove) != nil
+        return HomeFeip.wouldChange(
+            over: info?.home, base: entry(base, sealed: baseSealed), dock: dock,
+            disk: entry(disk, sealed: diskSealed),
+            call: callEdit.call, removeCall: callEdit.remove, prikey: prikey
+        )
+    }
+
+    /// A sealable field as the carve means it. An address is always
+    /// public, whatever the box says, since it cannot be sealed.
+    private func entry(_ value: String, sealed: Bool) -> HomeEntry? {
+        guard !value.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return HomeEntry(value, sealed: sealed && HomeServiceResolver.extractSid(value) != nil)
     }
 
     /// The CALL part of the carve: a value to set, or the stored one to remove.
@@ -424,8 +511,13 @@ struct HomeCarveForm: View {
     private func loadHome() {
         guard !loadedHome, info != nil else { return }
         loadedHome = true
+        base = displayed("BASE")
         dock = HomeServiceResolver.displayValue(storedValue("DOCK"))
-        disk = HomeServiceResolver.displayValue(storedValue("DISK"))
+        disk = displayed("DISK")
+        // What the chain already shows decides the box; nothing there
+        // leaves it private.
+        if storedValue("BASE") != nil { baseSealed = HomePrivacy.isSealed(storedValue("BASE")) }
+        if storedValue("DISK") != nil { diskSealed = HomePrivacy.isSealed(storedValue("DISK")) }
         call = HomeServiceResolver.displayValue(storedValue("CALL"))
         takeCalls = storedValue("CALL") != nil
     }
@@ -437,7 +529,10 @@ struct HomeCarveForm: View {
         defer { carvingHome = false }
         do {
             let edit = callEdit
-            try await session.carveHomeOnChain(dock: dock, disk: disk, call: edit.call, removeCall: edit.remove)
+            try await session.carveHomeOnChain(
+                base: entry(base, sealed: baseSealed), dock: dock,
+                disk: entry(disk, sealed: diskSealed), call: edit.call, removeCall: edit.remove
+            )
             loadPending()
             await appState.refreshLiveFidInfo()
             onCarved()

@@ -242,6 +242,19 @@ final class AppState {
     @ObservationIgnored
     private var liveFapi: ReconnectingFapiClient?
 
+    /// The server the live client reads the chain through, and why that
+    /// one. Nil while on the stub. Settings shows it under Home › BASE.
+    private(set) var baseConnection: BaseConnection?
+    /// Why the main FID's home BASE is not the server in use, when it
+    /// names one this Mac declined to follow. Nil when there is nothing
+    /// to explain.
+    private(set) var homeBaseProblem: String?
+    @ObservationIgnored private var followingHomeBase = false
+    /// The session generation that has already moved to its home BASE.
+    /// One move per session: two servers that disagree about the home
+    /// would otherwise hand the client back and forth for ever.
+    @ObservationIgnored private var homeBaseSwitchGeneration: Int?
+
     /// Wake-from-sleep and network-path observers. Held for their
     /// lifetime — they live as long as the app does. Not observable:
     /// a Wi-Fi flap is no reason to redraw the UI.
@@ -1205,6 +1218,8 @@ final class AppState {
         stopFetchScheduler()
         liveFapi?.close()
         liveFapi = nil
+        baseConnection = nil
+        homeBaseProblem = nil
         activeSession?.setFapi(StubFapiClient())
     }
 
@@ -1230,12 +1245,17 @@ final class AppState {
         // all, so landing here means the stored values are malformed —
         // say so, because the alternative is every pane loading empty
         // with nothing on screen to explain why.
-        guard
-            let serviceStr = prefs.preferredFapiService,
-            let pubkeyHex = prefs.preferredFapiServicePubkeyHex,
-            let (host, port) = parseHostPort(serviceStr),
-            let pubkey = decodeHex(pubkeyHex), pubkey.count == 33
-        else {
+        // Pinned to this Mac's server, there is no move to have made; one
+        // made earlier must not stop the home being followed again once
+        // the pin is lifted.
+        if !prefs.followsHomeBase { homeBaseSwitchGeneration = nil }
+        let candidates = prefs.baseCandidates.compactMap { candidate -> (BaseEndpoint, String, UInt16, Data)? in
+            guard let (host, port) = parseHostPort(candidate.service),
+                  let pubkey = decodeHex(candidate.pubkeyHex), pubkey.count == 33
+            else { return nil }
+            return (candidate, host, port, pubkey)
+        }
+        guard !candidates.isEmpty else {
             tearDownLiveFapi()
             lastError = """
                 No FAPI server configured — nothing will load. \
@@ -1252,6 +1272,47 @@ final class AppState {
             lastError = "Couldn't read main prikey: \(error)"
             return
         }
+
+        // Connect eagerly so a bad host/port/pubkey is reported now, in
+        // Settings, rather than at the next chain sync — and so a home
+        // BASE that is down hands over to the Settings server instead of
+        // leaving the FID unable to reach the chain to move it.
+        var opened: (endpoint: BaseEndpoint, host: String, port: UInt16, pubkey: Data, fudp: FudpClient)?
+        var lastFailure: (any Error)?
+        for (endpoint, host, port, pubkey) in candidates {
+            do {
+                let fudp = try await FudpClient(
+                    host: host, port: port, peerPubkey: pubkey, localPrivkey: priv
+                )
+                opened = (endpoint, host, port, pubkey, fudp)
+                break
+            } catch {
+                lastFailure = error
+                if endpoint.source == .home {
+                    SystemLog.shared.warning(
+                        SystemSource.fapi,
+                        "Your home BASE \(host):\(port) is not answering",
+                        detail: "\(error)\nFalling back to the server set in Settings."
+                    )
+                }
+            }
+        }
+        guard let opened else {
+            // A failure that belongs to a session which has since gone
+            // is not news for the one on screen now, and tearing down
+            // "the" live transport here would tear down *its* one.
+            guard isCurrent(session, generation) else { return }
+            let (_, host, port, _) = candidates[candidates.count - 1]
+            lastError = "FAPI connect failed: \(lastFailure.map { String(describing: $0) } ?? "no server answered")"
+            SystemLog.shared.error(
+                SystemSource.fapi,
+                "Could not connect to \(host):\(port)",
+                detail: "\(lastFailure.map { String(describing: $0) } ?? "")\nWallet, chat and sync all run over this connection."
+            )
+            tearDownLiveFapi()
+            return
+        }
+        let (host, port, pubkey) = (opened.host, opened.port, opened.pubkey)
 
         // Everything the transport needs, captured once so the wrapper
         // can rebuild it later without re-reading preferences (which
@@ -1293,69 +1354,64 @@ final class AppState {
             return ReconnectingFapiClient(factory: build, initial: try await build())
         }
 
-        do {
-            // Connect eagerly so a bad host/port/pubkey is reported
-            // now, in Settings, rather than at the next chain sync.
-            let fudp = try await factory()
-            // **Nothing below may run for a session that has gone.** The
-            // connect above holds a live UDP flow keyed to the main's
-            // prikey; publishing it into a vault that was locked while it
-            // was being opened leaves exactly the socket that
-            // ``tearDownLiveFapi()`` exists to release, on a session the
-            // user believes is closed. Close it and say nothing — the
-            // lock is not an error to report.
-            guard isCurrent(session, generation) else {
-                fudp.close()
-                return
-            }
-            // Swap atomically: close old → assign new → publish.
-            liveFapi?.close()
-            let client = ReconnectingFapiClient(factory: factory, initial: fudp)
-            liveFapi = client
-            session.setFapi(client)
-            // Our own DOCK is whatever server we just connected to; the
-            // registry needs it by URL so a put aimed there is a plain
-            // store rather than a forward to ourselves.
-            await session.dockRegistry.configure(
-                ownDockUrl: "\(host):\(port)", ownClient: client, connect: connect
-            )
-            await session.refreshDockRegistry()
-            // The registry work suspends too, so the same question again
-            // before starting anything on a timer. What is closed here is
-            // the client this call built, never whatever ``liveFapi``
-            // holds now — by this point that may already belong to the
-            // identity that replaced us.
-            guard isCurrent(session, generation) else {
-                client.close()
-                if liveFapi === client { liveFapi = nil }
-                return
-            }
-            // Only now: a poller started before the registry knows where
-            // anything lives would spend its first passes fetching from
-            // nowhere.
-            startFetchScheduler(for: session, generation: generation)
-            // First moment the bar can actually get real numbers: the
-            // cached row went up at unlock, this replaces it.
-            Task { await refreshLiveFidInfo() }
-            // …and the first moment the board is reachable, for an
-            // identity that asked to be told when somebody is waiting.
-            checkFirstFchBoardIfOptedIn()
-            SystemLog.shared.info(
-                SystemSource.fapi, "Connected to \(host):\(port)"
-            )
-        } catch {
-            // A failure that belongs to a session which has since gone
-            // is not news for the one on screen now, and tearing down
-            // "the" live transport here would tear down *its* one.
-            guard isCurrent(session, generation) else { return }
-            lastError = "FAPI connect failed: \(error)"
-            SystemLog.shared.error(
-                SystemSource.fapi,
-                "Could not connect to \(host):\(port)",
-                detail: "\(error)\nWallet, chat and sync all run over this connection."
-            )
-            tearDownLiveFapi()
+        let fudp = opened.fudp
+        // **Nothing below may run for a session that has gone.** The
+        // connect above holds a live UDP flow keyed to the main's
+        // prikey; publishing it into a vault that was locked while it
+        // was being opened leaves exactly the socket that
+        // ``tearDownLiveFapi()`` exists to release, on a session the
+        // user believes is closed. Close it and say nothing — the
+        // lock is not an error to report.
+        guard isCurrent(session, generation) else {
+            fudp.close()
+            return
         }
+        // Swap atomically: close old → assign new → publish.
+        liveFapi?.close()
+        let client = ReconnectingFapiClient(factory: factory, initial: fudp)
+        liveFapi = client
+        session.setFapi(client)
+        baseConnection = BaseConnection(
+            service: "\(host):\(port)",
+            pubkeyHex: Hex.encode(pubkey).lowercased(),
+            source: opened.endpoint.source,
+            homeBaseDown: opened.endpoint.source != .home && candidates[0].0.source == .home
+        )
+        // Our own DOCK is whatever server we just connected to; the
+        // registry needs it by URL so a put aimed there is a plain
+        // store rather than a forward to ourselves.
+        await session.dockRegistry.configure(
+            ownDockUrl: "\(host):\(port)", ownClient: client, connect: connect
+        )
+        await session.refreshDockRegistry()
+        // The registry work suspends too, so the same question again
+        // before starting anything on a timer. What is closed here is
+        // the client this call built, never whatever ``liveFapi``
+        // holds now — by this point that may already belong to the
+        // identity that replaced us.
+        guard isCurrent(session, generation) else {
+            client.close()
+            if liveFapi === client { liveFapi = nil }
+            return
+        }
+        // Only now: a poller started before the registry knows where
+        // anything lives would spend its first passes fetching from
+        // nowhere.
+        startFetchScheduler(for: session, generation: generation)
+        // First moment the bar can actually get real numbers: the
+        // cached row went up at unlock, this replaces it. Living as
+        // the main, that refresh also brings the home this follows;
+        // as anyone else, the main's home is a lookup of its own.
+        Task { await refreshLiveFidInfo() }
+        if session.liveFid != session.mainFid {
+            Task { await followMainHomeBase(for: session) }
+        }
+        // …and the first moment the board is reachable, for an
+        // identity that asked to be told when somebody is waiting.
+        checkFirstFchBoardIfOptedIn()
+        SystemLog.shared.info(
+            SystemSource.fapi, "Connected to \(host):\(port)"
+        )
     }
 
     /// Whether the session a suspended operation was started for is
@@ -1384,6 +1440,161 @@ final class AppState {
         liveFapi?.markStale()
         guard let session = activeSession else { return }
         Task { await session.dockRegistry.invalidateAllClients() }
+    }
+
+    // MARK: - home BASE
+
+    /// Look up the main FID's home and follow its BASE — for a session
+    /// living as some other FID, whose own refresh brings the wrong home.
+    private func followMainHomeBase(for session: ActiveSession) async {
+        // A FID with no record yet has no home, which is an answer; a
+        // lookup that failed is not one.
+        let freer: Freer?
+        do {
+            freer = try await session.directory.freer(byId: session.mainFid)
+        } catch {
+            return
+        }
+        await followHomeBase(for: session, home: freer?.home)
+    }
+
+    /// Move the live client to the BASE the main FID's home names, if it
+    /// names one, it checks out, and this Mac follows it.
+    ///
+    /// Each refusal below leaves the client where it is and says why in
+    /// ``homeBaseProblem``: a working connection is never given up for one
+    /// that has not proved itself. A lookup that merely failed says
+    /// nothing — the next refresh asks again.
+    private func followHomeBase(for session: ActiveSession, home: [String: String]?) async {
+        let generation = sessionGeneration
+        guard isCurrent(session, generation), !followingHomeBase,
+              let prefs = try? session.preferences.load()
+        else { return }
+        followingHomeBase = true
+        defer { followingHomeBase = false }
+
+        guard prefs.followsHomeBase else {
+            homeBaseProblem = nil
+            return
+        }
+        let sid: String
+        switch HomeBase.entry(in: home, prikey: try? session.mainPrikey()) {
+        case .none:
+            homeBaseProblem = nil
+            // The home no longer names a BASE: stop starting on the old one.
+            guard prefs.homeBaseService != nil else { return }
+            try? session.preferences.update {
+                $0.homeBaseService = nil
+                $0.homeBaseServicePubkeyHex = nil
+            }
+            if baseConnection?.source == .home { await applyFapiSettings(for: session) }
+            return
+        case .address:
+            homeBaseProblem = "Your home BASE is an address, not a service id, so there is no record to check its key against. Choose the service in Home › BASE and carve again."
+            return
+        case .unreadable:
+            homeBaseProblem = "Your home BASE is private, and this FID's prikey does not open it."
+            return
+        case .serviceId(let found):
+            sid = found
+        }
+        let service: Service?
+        do {
+            service = try await session.directory.serviceById(sid)
+        } catch {
+            return
+        }
+        guard isCurrent(session, generation) else { return }
+        guard let service, let url = service.apiUrl, let endpoint = FudpUrl.hostPort(url) else {
+            homeBaseProblem = "Your home BASE \(sid.elidingMiddle(head: 6, tail: 6)) has no service record with an address on the chain."
+            return
+        }
+        let target = "\(endpoint.host):\(endpoint.port)"
+
+        // Already there — the Settings server and the home BASE are often
+        // the same machine. Check the key the session is already using,
+        // and remember the server as home so the next launch says so.
+        if let current = baseConnection, FudpUrl.normalize(current.service) == FudpUrl.normalize(target) {
+            guard let key = decodeHex(current.pubkeyHex),
+                  HomeBase.verify(helloPubkey: key, against: service) == .matches
+            else {
+                homeBaseProblem = "The server at \(target) does not hold the key your home BASE's record names."
+                return
+            }
+            homeBaseProblem = nil
+            if prefs.homeBaseService != target || prefs.homeBaseServicePubkeyHex != current.pubkeyHex {
+                try? session.preferences.update {
+                    $0.homeBaseService = target
+                    $0.homeBaseServicePubkeyHex = current.pubkeyHex
+                }
+            }
+            baseConnection?.source = .home
+            baseConnection?.homeBaseDown = false
+            return
+        }
+
+        guard homeBaseSwitchGeneration != generation else { return }
+        let key: Data
+        do {
+            key = try await FudpDiscovery.discoverPubkey(
+                host: endpoint.host, port: endpoint.port, timeoutMs: 3_000
+            )
+        } catch {
+            homeBaseProblem = "Your home BASE \(target) is not answering, so this Mac stays on \(baseConnection?.service ?? "the server set below")."
+            return
+        }
+        switch HomeBase.verify(helloPubkey: key, against: service) {
+        case .matches:
+            break
+        case .mismatch:
+            homeBaseProblem = "The server at \(target) answered with a key its service record does not name. This Mac did not switch to it."
+            SystemLog.shared.warning(
+                SystemSource.fapi, "Home BASE \(target) failed its key check",
+                detail: "Answered with \(Hex.encode(key)); the record names something else."
+            )
+            return
+        case .unverifiable:
+            homeBaseProblem = "Your home BASE's service record names no dealer, so its key cannot be checked. This Mac did not switch to it."
+            return
+        }
+        guard let priv = try? session.mainPrikey() else { return }
+        do {
+            try await Self.probeBase(host: endpoint.host, port: endpoint.port, pubkey: key, prikey: priv)
+        } catch {
+            homeBaseProblem = "Your home BASE \(target) did not pass a health check (\(error)), so this Mac stays on \(baseConnection?.service ?? "the server set below")."
+            return
+        }
+        guard isCurrent(session, generation) else { return }
+
+        homeBaseProblem = nil
+        homeBaseSwitchGeneration = generation
+        do {
+            try session.preferences.update {
+                $0.homeBaseService = target
+                $0.homeBaseServicePubkeyHex = Hex.encode(key).lowercased()
+            }
+        } catch {
+            lastError = "Couldn't save your home BASE: \(error)"
+            return
+        }
+        SystemLog.shared.info(SystemSource.fapi, "Switching to your home BASE \(target)")
+        await applyFapiSettings(for: session)
+    }
+
+    /// One `base.health` round trip on a throwaway client: a server that
+    /// completes the handshake but cannot serve is not one to move to.
+    nonisolated static func probeBase(host: String, port: UInt16, pubkey: Data, prikey: Data) async throws {
+        let fudp = try await FudpClient(host: host, port: port, peerPubkey: pubkey, localPrivkey: prikey)
+        defer { fudp.close() }
+        let reply = try await FapiClient(fudp: fudp).call(
+            api: "base.health",
+            params: nil, fcdsl: nil, binary: nil,
+            sid: nil, via: nil, maxCost: nil,
+            timeoutMs: 5_000
+        )
+        guard reply.response.isSuccess else {
+            throw BaseProbeFailure(code: reply.response.code ?? -1, message: reply.response.message ?? "")
+        }
     }
 
     // MARK: - helpers
@@ -1586,11 +1797,32 @@ final class AppState {
             // A home.CALL set or removed, here or on another device, is
             // what incoming calls are now checked against.
             callCenter.ownHomeChanged(info.home)
+            // Alongside, not inline: a HELLO and a health probe to a new
+            // server are no reason to hold the bar's spinner.
+            if session.liveFid == session.mainFid {
+                Task { await followHomeBase(for: session, home: info.home) }
+            }
         } catch {
             guard session.liveFid == fidAtStart else { return }
             liveFidInfoError = String(describing: error)
         }
     }
+}
+
+/// The server the live FAPI client reads the chain through.
+struct BaseConnection: Equatable {
+    /// `"<host>:<port>"`.
+    var service: String
+    var pubkeyHex: String
+    var source: BaseEndpoint.Source
+    /// On the Settings server only because the home BASE did not answer.
+    var homeBaseDown: Bool
+}
+
+struct BaseProbeFailure: Error, CustomStringConvertible {
+    let code: Int
+    let message: String
+    var description: String { "server replied code \(code): \(message)" }
 }
 
 /// Why a DOCK we were asked to reach could not be connected to.
