@@ -97,7 +97,7 @@ struct PublishServiceSheet: View {
         _ver = State(initialValue: s?.ver ?? "")
         _dealerPubkey = State(initialValue: s?.dealerPubkey ?? "")
         _desc = State(initialValue: s?.desc ?? "")
-        _components = State(initialValue: s?.components ?? [])
+        _components = State(initialValue: ServiceName.withDependencies(s?.components ?? []))
         _homeRows = State(initialValue: HomeRow.rows(from: s?.home))
         _localNameRows = State(initialValue: HomeRow.rows(from: s?.localNames))
         _protocols = State(initialValue: s?.protocols ?? [])
@@ -587,19 +587,25 @@ struct PublishServiceSheet: View {
 /// `DISK@No1_NrC7`, the message path searches `DOCK@No1_NrC7` — and it
 /// is matched by exact value, not by prefix or by fuzzy score. Android
 /// asks for it as a comma-separated field and accepts whatever is typed.
-/// The four the network actually looks for are one click each here, and
+/// The ones the network actually looks for are one click each here, and
 /// anything else can still be typed.
 ///
-/// FAPI is not one of the four: it is what a service *is* — the Type
+/// FAPI is not one of them: it is what a service *is* — the Type
 /// field — not something it offers alongside DOCK or DISK. A record
 /// that already lists it keeps it, as a typed extra.
+///
+/// ROAD needs MAP (``ServiceName/dependencies``): ticking ROAD ticks MAP,
+/// and MAP can't be unticked while ROAD is on. MAP is also a service in
+/// its own right, so it can be ticked alone, and unticking ROAD leaves
+/// it on.
 struct ComponentListEditor: View {
     @Binding var components: [String]
 
     @State private var typed = ""
 
     private static let wellKnown = [
-        ServiceName.dock, ServiceName.disk, ServiceName.road, ServiceName.call
+        ServiceName.dock, ServiceName.disk, ServiceName.map, ServiceName.road,
+        ServiceName.call
     ]
 
     var body: some View {
@@ -607,11 +613,14 @@ struct ComponentListEditor: View {
             HStack(spacing: 6) {
                 ForEach(Self.wellKnown, id: \.self) { name in
                     let on = components.contains(name)
+                    let neededBy = components.filter {
+                        ServiceName.dependencies[$0]?.contains(name) == true
+                    }
                     Button {
                         if on {
                             components.removeAll { $0 == name }
                         } else {
-                            components.append(name)
+                            components = ServiceName.withDependencies(components + [name])
                         }
                     } label: {
                         Text(name.split(separator: "@").first.map(String.init) ?? name)
@@ -624,7 +633,10 @@ struct ComponentListEditor: View {
                             .foregroundStyle(on ? Color.teal : Color.secondary)
                     }
                     .buttonStyle(.plain)
-                    .help(name)
+                    .disabled(on && !neededBy.isEmpty)
+                    .help(on && !neededBy.isEmpty
+                          ? "\(name) — required by \(neededBy.joined(separator: ", "))"
+                          : name)
                 }
                 Spacer()
             }
@@ -667,7 +679,7 @@ struct ComponentListEditor: View {
     private func addTyped() {
         let name = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, !components.contains(name) else { return }
-        components.append(name)
+        components = ServiceName.withDependencies(components + [name])
         typed = ""
     }
 }

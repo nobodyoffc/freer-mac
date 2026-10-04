@@ -626,6 +626,9 @@ public enum ServiceName {
     /// Live relay for messages whose recipient is online but
     /// unreachable directly.
     public static let road = "ROAD@No1_NrC7"
+    /// Where-is lookup. Offered on its own, and required by ROAD — see
+    /// ``withDependencies(_:)``.
+    public static let map = "MAP@No1_NrC7"
     /// Content-addressed file storage (Phase 8.4).
     public static let disk = "DISK@No1_NrC7"
     /// The chain-index API.
@@ -633,4 +636,24 @@ public enum ServiceName {
     /// Voice-call relay — holds a session open and forwards frames it
     /// cannot read (VOICE_SPEC §7).
     public static let call = "CALL@No1_NrC7"
+
+    /// Components that cannot run without another, keyed by the one
+    /// that needs it.
+    public static let dependencies: [String: [String]] = [
+        road: [map]
+    ]
+
+    /// `components` with every dependency of a listed component added,
+    /// each placed just before the first component that needs it.
+    /// Already-present entries are left where they are.
+    public static func withDependencies(_ components: [String]) -> [String] {
+        var out = components
+        for name in components {
+            for dep in dependencies[name] ?? [] where !out.contains(dep) {
+                let at = out.firstIndex(of: name) ?? out.endIndex
+                out.insert(dep, at: at)
+            }
+        }
+        return out
+    }
 }
