@@ -144,6 +144,48 @@ public struct TxPreview: Sendable, Equatable {
         }
     }
 
+    /// This preview as it would read spending `inputs` instead: the
+    /// same payments and payload, with the change and the fee the new
+    /// plan gives. What the input picker shows while the user ticks,
+    /// so the outputs and the cost move with the choice rather than
+    /// only after the wallet rebuilds it.
+    ///
+    /// Outputs are laid out the way ``TxBuilder`` lays them out —
+    /// payments, then change, then OP_RETURN — which is also how the
+    /// existing change output is found: anything beyond the payments
+    /// the ``reselection`` fixes is change. The rebuilt transaction is
+    /// still shown again before signing, so this is a forecast of that
+    /// dialog, never a substitute for it.
+    ///
+    /// Nil when the inputs can't be swapped; throws
+    /// ``CoinSelector/Failure`` when `inputs` can't fund it.
+    public func repriced(spending inputs: [Cash]) throws -> TxPreview? {
+        guard let plan = try plan(spending: inputs) else { return nil }
+        let payCount: Int
+        switch reselection {
+        case nil: return nil
+        case .payment: payCount = 1
+        case let .carve(_, _, payAmount): payCount = payAmount > 0 ? 1 : 0
+        }
+        let opReturns = outputs.filter(\.isOpReturn)
+        var rebuilt = Array(outputs.filter { !$0.isOpReturn }.prefix(payCount))
+        if plan.hasChange {
+            rebuilt.append(Output(fid: from, amount: plan.change, isSelf: true))
+        }
+        rebuilt += opReturns
+        return TxPreview(
+            kind: kind,
+            from: from,
+            inputs: plan.selected,
+            outputs: rebuilt,
+            fee: plan.fee,
+            estimatedSize: plan.estimatedSize,
+            feePerByte: feePerByte,
+            opReturn: opReturn,
+            reselection: reselection
+        )
+    }
+
     /// Deepest unconfirmed ancestry among the inputs. Zero means every
     /// input is confirmed; anything else means this transaction is
     /// riding on one of ours that hasn't landed yet, and will vanish

@@ -159,6 +159,11 @@ final class TxApprovalTests: XCTestCase {
         XCTAssertEqual(previews[0].inputs.map(\.id), [old.id])
         XCTAssertEqual(previews[1].inputs.map(\.id), [young.id])
         XCTAssertEqual(previews[1].coinDaysDestroyed, 0)
+        // The picker's forecast is the dialog the wallet then shows.
+        let forecast = try XCTUnwrap(try previews[0].repriced(spending: [young]))
+        XCTAssertEqual(forecast.outputs, previews[1].outputs)
+        XCTAssertEqual(forecast.fee, previews[1].fee)
+        XCTAssertEqual(forecast.estimatedSize, previews[1].estimatedSize)
         XCTAssertEqual(result.plan.selected.map(\.id), [young.id])
 
         let snap = try XCTUnwrap(try alice.cashes.snapshot(forAddress: alice.mainFid))
@@ -208,6 +213,10 @@ final class TxApprovalTests: XCTestCase {
         XCTAssertEqual(previews[0].inputs.map(\.id), [aged.id], "the aged cash alone covers the CoinDay")
         XCTAssertEqual(previews[0].requiredCd, 1)
         XCTAssertEqual(Set(previews[1].inputs.map(\.id)), [aged.id, fresh.id])
+        let forecast = try XCTUnwrap(try previews[0].repriced(spending: [heldAged, fresh]))
+        XCTAssertEqual(forecast.outputs, previews[1].outputs, "change before the OP_RETURN")
+        XCTAssertEqual(forecast.fee, previews[1].fee)
+        XCTAssertEqual(forecast.estimatedSize, previews[1].estimatedSize)
     }
 
     /// CoinDays are counted at the cached chain height, not taken from

@@ -15,9 +15,11 @@ import FCUI
 /// **Nothing is signed from here.** The choice goes back to the wallet,
 /// which releases the old claim, claims these, rebuilds the same
 /// transaction and asks again — so what gets signed is still only what
-/// the dialog showed. The footer prices the choice with
-/// ``TxPreview/plan(spending:)``, the function the wallet itself uses,
-/// so "Use these" is enabled only for a choice the wallet will build.
+/// the dialog showed. The outputs and the cost below the list are
+/// repriced on every tick with ``TxPreview/repriced(spending:)``, which
+/// prices through the function the wallet itself uses, so "Use these"
+/// is enabled only for a choice the wallet will build — and what it
+/// will build is on screen before the user commits to it.
 ///
 /// **The transaction's own inputs stay tickable** although the cache
 /// marks them `pendingSpend`: that flag is this transaction's claim,
@@ -78,15 +80,28 @@ struct InputPickerSheet: View {
     private var selectedValue: Int64 { selectedRows.reduce(0) { $0 + $1.value } }
     private var selectedCd: Int64 { selectedRows.reduce(0) { $0 + ($1.cd ?? 0) } }
 
-    /// The choice priced, or why it can't be; nil while nothing is ticked.
-    private var pricing: Result<CoinSelector.Plan, Error>? {
+    /// The transaction the choice would build, or why it can't be; nil
+    /// while nothing is ticked.
+    private var pricing: Result<TxPreview, Error>? {
         guard !selectedRows.isEmpty else { return nil }
         do {
-            guard let plan = try preview.plan(spending: selectedRows) else { return nil }
-            return .success(plan)
+            guard let repriced = try preview.repriced(spending: selectedRows) else { return nil }
+            return .success(repriced)
         } catch {
             return .failure(error)
         }
+    }
+
+    /// The last choice that priced, so the outputs and cost stay on
+    /// screen (dimmed) while the ticks are momentarily short.
+    private var shown: TxPreview {
+        if case .success(let repriced)? = pricing { return repriced }
+        return preview
+    }
+
+    private var isPriced: Bool {
+        if case .success? = pricing { return true }
+        return false
     }
 
     private var canUse: Bool {
@@ -104,9 +119,11 @@ struct InputPickerSheet: View {
             Divider()
             list
             Divider()
+            forecast
+            Divider()
             footer
         }
-        .frame(minWidth: 560, minHeight: 480)
+        .frame(minWidth: 600, minHeight: 600)
         .onAppear(perform: load)
     }
 
@@ -208,6 +225,93 @@ struct InputPickerSheet: View {
         }
     }
 
+    // MARK: - forecast
+
+    /// Outputs and cost of the transaction the ticks would build, side
+    /// by side — the two cards of the approval dialog, kept current
+    /// while the choice changes. Dimmed when the ticks can't fund it:
+    /// the numbers are then the wallet's choice, not this one.
+    private var forecast: some View {
+        HStack(alignment: .top, spacing: 12) {
+            forecastCard("Outputs", systemImage: "arrow.up.right") {
+                ForEach(Array(shown.outputs.enumerated()), id: \.offset) { _, out in
+                    outputRow(out)
+                }
+            }
+            forecastCard("Cost", systemImage: "tag") {
+                costRow("Leaves this identity", formatFch(shown.leaving),
+                        changed: shown.leaving != preview.leaving)
+                costRow("Miner fee", "\(shown.fee) sat", changed: shown.fee != preview.fee)
+                costRow("Size", "\(shown.estimatedSize) B at \(shown.feePerByte) sat/B",
+                        changed: shown.estimatedSize != preview.estimatedSize)
+                costRow(
+                    "CoinDays destroyed",
+                    shown.requiredCd > 0
+                        ? "\(shown.coinDaysDestroyed) of \(shown.requiredCd) needed"
+                        : "\(shown.coinDaysDestroyed)",
+                    changed: shown.coinDaysDestroyed != preview.coinDaysDestroyed
+                )
+            }
+        }
+        .opacity(isPriced ? 1 : 0.45)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private func outputRow(_ out: TxPreview.Output) -> some View {
+        HStack(spacing: 8) {
+            if out.isOpReturn {
+                Text("OP_RETURN — data")
+                    .font(.caption)
+                    .foregroundStyle(.purple)
+            } else if let fid = out.fid {
+                FidAvatarView(fid: fid, size: 18)
+                CopyableText.elidingMiddle(
+                    fid, head: 6, tail: 6,
+                    font: .system(.caption, design: .monospaced)
+                )
+                .lineLimit(1)
+                if out.isSelf {
+                    chip(preview.kind == .reorg ? "yours" : "change", color: .blue)
+                }
+            }
+            Spacer(minLength: 6)
+            Text(formatFch(out.amount))
+                .font(.caption.monospacedDigit().bold())
+                .foregroundStyle(out.isSelf || out.isOpReturn ? .secondary : .primary)
+        }
+    }
+
+    private func costRow(_ label: String, _ value: String, changed: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(label).font(.caption).foregroundStyle(.secondary)
+            Spacer(minLength: 6)
+            Text(value)
+                .font(.caption.monospacedDigit())
+                .fontWeight(changed ? .bold : .regular)
+                .foregroundStyle(changed ? Color.accentColor : Color.primary)
+        }
+        .help(changed ? "Differs from the transaction you were shown" : "")
+    }
+
+    @ViewBuilder
+    private func forecastCard(
+        _ title: String,
+        systemImage: String,
+        @ViewBuilder _ content: () -> some View
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+            content()
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(Color(NSColor.controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+    }
+
     private var footer: some View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
@@ -233,10 +337,10 @@ struct InputPickerSheet: View {
             Text("Tick the cash to spend.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-        case .success(let plan)?:
-            Text(plan.hasChange
-                 ? "Fee \(plan.fee) sat, \(formatFch(plan.change)) back as change"
-                 : "Fee \(plan.fee) sat, no change")
+        case .success?:
+            Text(selection == currentKeys
+                 ? "The wallet's choice, as you were shown it."
+                 : "Rebuilt from these and shown again before signing.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .failure(let error)?:
