@@ -149,14 +149,14 @@ final class TerminalSessionModel {
     /// signing oracle running.
     var onEnded: (() -> Void)?
 
-    let view: LocalProcessTerminalView
+    let view: FocusingTerminalView
     private var bridge: ProcessBridge?
 
     init(server: SshServer, kind: SshLaunch.Kind, ordinal: Int) {
         self.server = server
         self.kind = kind
         self.ordinal = ordinal
-        self.view = LocalProcessTerminalView(
+        self.view = FocusingTerminalView(
             frame: CGRect(x: 0, y: 0, width: 800, height: 480),
             font: NSFont.monospacedSystemFont(ofSize: 12, weight: .regular),
             options: TerminalOptions(termName: "xterm-256color", scrollback: 5000)
