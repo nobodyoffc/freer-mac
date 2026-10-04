@@ -244,7 +244,7 @@ struct MailComposeSheet: View {
                 .font(.body)
                 .fieldEditorStyle(minHeight: 200, isError: overLimit)
             if overLimit {
-                Text("Too long by \(bodyBytes - MailFeip.maxBodyBytes) bytes. A mail lives inside one transaction's data field; the limit is on the encrypted, encoded body, which is about a third larger than what you typed.")
+                CopyableText("Too long by \(bodyBytes - MailFeip.maxBodyBytes) bytes. A mail lives inside one transaction's data field; the limit is on the encrypted, encoded body, which is about a third larger than what you typed.")
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
@@ -255,7 +255,7 @@ struct MailComposeSheet: View {
     private var footer: some View {
         HStack {
             if !session.canSign {
-                Label("Watch-only identity — no key to sign or encrypt with", systemImage: "eye")
+                CopyableLabel("Watch-only identity — no key to sign or encrypt with", systemImage: "eye")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }

@@ -460,7 +460,7 @@ struct TxConfirmSheet: View {
     private var unconfirmedNote: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "clock.badge.exclamationmark")
-            Text("This spends cash from \(preview.unconfirmedDepth) of your own transaction(s) that haven't confirmed yet. It is valid and will normally confirm right behind them — but if one of those is ever dropped, this goes with it. The network carries at most \(Cash.maxUnconfirmedChain) such links.")
+            CopyableText("This spends cash from \(preview.unconfirmedDepth) of your own transaction(s) that haven't confirmed yet. It is valid and will normally confirm right behind them — but if one of those is ever dropped, this goes with it. The network carries at most \(Cash.maxUnconfirmedChain) such links.")
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(.caption)

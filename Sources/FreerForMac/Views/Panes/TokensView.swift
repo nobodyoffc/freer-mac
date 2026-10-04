@@ -162,7 +162,7 @@ struct TokensView: View {
 
             if let err = loadError, rowCount == 0 {
                 card {
-                    Label("Couldn't load tokens", systemImage: "exclamationmark.triangle")
+                    CopyableLabel("Couldn't load tokens", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                     Text("Nothing is shown rather than the last list that loaded — a failed query has no answer, and rows left over from a different one would be read as this one's.")

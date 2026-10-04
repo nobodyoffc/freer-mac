@@ -130,7 +130,7 @@ struct TerminalPaneView: View {
             toolbar
 
             if let loadError {
-                Label(loadError, systemImage: "exclamationmark.triangle")
+                CopyableLabel(loadError, systemImage: "exclamationmark.triangle")
                     .font(.callout)
                     .foregroundStyle(.orange)
             }
@@ -413,7 +413,7 @@ struct TerminalPaneView: View {
                 sessionHeader(server, active: active, showsKind: sessions.count <= 1)
 
                 if let connectError {
-                    Label(connectError, systemImage: "exclamationmark.triangle")
+                    CopyableLabel(connectError, systemImage: "exclamationmark.triangle")
                         .font(.callout)
                         .foregroundStyle(.orange)
                 }

@@ -74,7 +74,7 @@ struct HatDetailSheet: View {
 
                     if hat.key != nil {
                         field("Sharing key") {
-                            Label(
+                            CopyableLabel(
                                 "This record carries a plaintext key, so anyone it is shared with can open the file.",
                                 systemImage: "exclamationmark.triangle"
                             )
@@ -101,7 +101,7 @@ struct HatDetailSheet: View {
                     }
 
                     if let error {
-                        Text(error).font(.caption).foregroundStyle(.red)
+                        CopyableText(error).font(.caption).foregroundStyle(.red)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -298,7 +298,7 @@ struct HatImportSheet: View {
             }
 
             if let error {
-                Label(error, systemImage: "exclamationmark.triangle")
+                CopyableLabel(error, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)

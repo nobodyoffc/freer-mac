@@ -66,7 +66,7 @@ public struct FidAvatarSheet: View {
                 portrait
                 identityLine
                 if isNobody || NobodyRegistry.shared.isNobody(fid) {
-                    Label(
+                    CopyableLabel(
                         "Nobody FID — its prikey is public, so anyone can spend from it.",
                         systemImage: "exclamationmark.triangle.fill"
                     )

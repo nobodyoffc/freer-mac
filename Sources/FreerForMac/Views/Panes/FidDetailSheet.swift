@@ -88,7 +88,7 @@ struct FidDetailSheet: View {
                 VStack(alignment: .leading, spacing: 18) {
                     NobodyBanner(fid: fid, message: NobodyText.identity)
                     if let loadError {
-                        Text(loadError)
+                        CopyableText(loadError)
                             .font(.callout)
                             .foregroundStyle(.red)
                             .fixedSize(horizontal: false, vertical: true)
@@ -306,7 +306,7 @@ struct FidDetailSheet: View {
             if freer?.isNobody == true {
                 row("Nobody") {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("The prikey behind this FID is public").foregroundStyle(.orange)
+                        CopyableText("The prikey behind this FID is public").foregroundStyle(.orange)
                         caption("Anyone can spend from it. Never send value here.", warning: true)
                     }
                 }
@@ -520,7 +520,7 @@ struct FidDetailSheet: View {
                     Text("Reading the history…").foregroundStyle(.secondary)
                 }
             } else if let ratingsError {
-                Text(ratingsError)
+                CopyableText(ratingsError)
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)

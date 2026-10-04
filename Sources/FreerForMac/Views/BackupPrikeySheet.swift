@@ -98,7 +98,7 @@ struct BackupPrikeySheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     if let loadError {
-                        Label(loadError, systemImage: "exclamationmark.triangle")
+                        CopyableLabel(loadError, systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.red)
                             .font(.callout)
                     } else {
@@ -347,7 +347,7 @@ struct BackupPrikeySheet: View {
                     .foregroundStyle(.secondary)
             }
             if qrTarget == .plain {
-                Label(
+                CopyableLabel(
                     "The key itself, in the clear: anything that can see this screen can take the wallet. Use it only to move the key to a device in your own hands.",
                     systemImage: "exclamationmark.triangle.fill"
                 )

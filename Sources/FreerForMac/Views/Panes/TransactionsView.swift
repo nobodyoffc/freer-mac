@@ -257,7 +257,7 @@ struct TransactionsView: View {
 
     private func errorCard(_ err: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Couldn't load activity", systemImage: "exclamationmark.triangle")
+            CopyableLabel("Couldn't load activity", systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.red)
             CopyableText(err, font: .callout)
                 .foregroundStyle(.red)

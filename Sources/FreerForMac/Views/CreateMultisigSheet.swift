@@ -85,7 +85,7 @@ struct CreateMultisigSheet: View {
                     addressPanel
                     warningPanel
                     if let saveError {
-                        Label(saveError, systemImage: "xmark.octagon.fill")
+                        CopyableLabel(saveError, systemImage: "xmark.octagon.fill")
                             .font(.callout)
                             .foregroundStyle(.red)
                             .fixedSize(horizontal: false, vertical: true)
@@ -277,7 +277,7 @@ struct CreateMultisigSheet: View {
                     .fill(Color.green.opacity(0.08))
             )
         } else if let reason = blockReason {
-            Label(reason, systemImage: "exclamationmark.triangle.fill")
+            CopyableLabel(reason, systemImage: "exclamationmark.triangle.fill")
                 .font(.callout)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
@@ -288,7 +288,7 @@ struct CreateMultisigSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                Text("Everyone needs a copy of this group").font(.headline)
+                CopyableText("Everyone needs a copy of this group").font(.headline)
             }
             .foregroundStyle(.orange)
             Text("The address is public, but spending from it needs the redeem script — the members, their order, and the threshold. It is not stored on chain anywhere. If every member loses it, the coins cannot be moved by anyone, ever.")

@@ -120,7 +120,7 @@ struct FidPickerView: View {
         } else if model.exactFidUnknown {
             HStack(spacing: 6) {
                 Image(systemName: "questionmark.circle")
-                Text("That FID is valid but has no on-chain record yet. You can still pick it — messages to it can't be encrypted until it publishes a key.")
+                CopyableText("That FID is valid but has no on-chain record yet. You can still pick it — messages to it can't be encrypted until it publishes a key.")
                     .fixedSize(horizontal: false, vertical: true)
             }
             .foregroundStyle(.orange)
@@ -128,7 +128,7 @@ struct FidPickerView: View {
         } else if model.noChainMatches {
             HStack(spacing: 6) {
                 Image(systemName: "questionmark.circle")
-                Text("No CID on chain contains “\(model.searchTerm ?? "")”.")
+                CopyableText("No CID on chain contains “\(model.searchTerm ?? "")”.")
             }
             .foregroundStyle(.orange)
             .font(.caption)

@@ -186,7 +186,7 @@ struct SshServerEditorSheet: View {
                     }
 
                     if let saveError {
-                        Label(saveError, systemImage: "exclamationmark.triangle")
+                        CopyableLabel(saveError, systemImage: "exclamationmark.triangle")
                             .font(.callout)
                             .foregroundStyle(.orange)
                     }

@@ -153,7 +153,7 @@ struct InputPickerSheet: View {
     @ViewBuilder
     private var list: some View {
         if let loadError {
-            Text(loadError)
+            CopyableText(loadError)
                 .foregroundStyle(.red)
                 .padding(16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -240,7 +240,7 @@ struct InputPickerSheet: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         case .failure(let error)?:
-            Text(explain(error))
+            CopyableText(explain(error))
                 .font(.caption)
                 .foregroundStyle(.red)
         }

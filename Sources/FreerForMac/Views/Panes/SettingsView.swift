@@ -406,7 +406,7 @@ struct SettingsView: View {
                         .foregroundStyle(.green)
                         .font(.callout)
                 } else {
-                    Label("Not backed up yet", systemImage: "exclamationmark.circle.fill")
+                    CopyableLabel("Not backed up yet", systemImage: "exclamationmark.circle.fill")
                         .foregroundStyle(.orange)
                         .font(.callout)
                 }

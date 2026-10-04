@@ -127,7 +127,7 @@ struct DockTopUpSheet: View {
     private var footer: some View {
         HStack(spacing: 10) {
             if let blockReason, !paying {
-                Text(blockReason)
+                CopyableText(blockReason)
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .lineLimit(2)
@@ -209,8 +209,10 @@ struct DockTopUpSheet: View {
                 }
                 if let amountSats, amountSats >= topUp.offeredSats, topUp.localSats > 0,
                    amountSats < topUp.offeredSats + topUp.localSats {
-                    caption("This amount uses cashes from the local cache as well as the offered ones.")
-                        .foregroundStyle(.orange)
+                    // Not `caption(_:)`: its own `.secondary` would beat
+                    // an outer orange.
+                    CopyableText("This amount uses cashes from the local cache as well as the offered ones.", font: .caption, color: .orange)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if topUp.source == .chain {
@@ -238,7 +240,7 @@ struct DockTopUpSheet: View {
 
     private func lapsedPanel(txid: String, sentAt: Date) -> some View {
         panel("Earlier top-up not credited") {
-            Text("A top-up sent \(sentAt.formatted(.relative(presentation: .named))) has not been credited. Check the txid before paying again: if it confirmed, the server may just be slow to scan.")
+            CopyableText("A top-up sent \(sentAt.formatted(.relative(presentation: .named))) has not been credited. Check the txid before paying again: if it confirmed, the server may just be slow to scan.")
                 .font(.callout)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)

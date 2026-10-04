@@ -204,7 +204,7 @@ struct PublishTextComposer: View {
                 CopyableText(e, font: .caption).foregroundStyle(.red)
             }
             if !session.canSign {
-                Label("This identity is watch-only — there is no key here to sign a carve with.", systemImage: "eye")
+                CopyableLabel("This identity is watch-only — there is no key here to sign a carve with.", systemImage: "eye")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -512,7 +512,7 @@ struct TextReaderSheet: View {
                 .foregroundStyle(.secondary)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Label("The work could not be fetched", systemImage: "exclamationmark.triangle")
+                CopyableLabel("The work could not be fetched", systemImage: "exclamationmark.triangle")
                     .font(.callout)
                     .foregroundStyle(.orange)
                 if let e = bodyError {

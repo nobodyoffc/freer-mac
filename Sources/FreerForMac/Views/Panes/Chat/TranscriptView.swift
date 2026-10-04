@@ -597,7 +597,7 @@ private struct MeetingCardView: View {
                 .disabled(!here && meetings.isActive)
             }
             if let error {
-                Text(error).font(.caption).foregroundStyle(.red)
+                CopyableText(error).font(.caption).foregroundStyle(.red)
             }
         }
     }

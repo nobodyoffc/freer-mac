@@ -1,4 +1,5 @@
 import SwiftUI
+import FCUI
 import Combine
 
 /// The call card (VOICE_SPEC §10): calling, ringing and in a call, over the
@@ -23,7 +24,7 @@ struct CallView: View {
                     Text("Relayed via \(host)").font(.caption).foregroundStyle(.secondary)
                 }
                 if let fid = calls.unverifiedFid {
-                    Text("Audio claimed to be from \(CallCenter.short(fid)) could not be verified and is silenced.")
+                    CopyableText("Audio claimed to be from \(CallCenter.short(fid)) could not be verified and is silenced.")
                         .font(.caption).foregroundStyle(.red)
                 }
                 buttons

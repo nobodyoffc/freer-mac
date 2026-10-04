@@ -315,7 +315,7 @@ struct NewChatSheet: View {
                     FidAvatarView(fid: party.fid, size: 24)
                     Text(party.name).font(.callout).lineLimit(1)
                     if party.pubkey == nil {
-                        Label("no published key", systemImage: "lock.open")
+                        CopyableLabel("no published key", systemImage: "lock.open")
                             .font(.caption)
                             .foregroundStyle(.orange)
                             .help("They haven't published a pubkey, so messages to them can't be encrypted until they do.")

@@ -203,7 +203,7 @@ struct PublishServiceSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if target.isUpdate {
-                Label("An update replaces what the record says. A field left blank here is a field cleared on chain — including the endpoint under Home, which is how clients find this service.", systemImage: "exclamationmark.triangle")
+                CopyableLabel("An update replaces what the record says. A field left blank here is a field cleared on chain — including the endpoint under Home, which is how clients find this service.", systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -243,7 +243,7 @@ struct PublishServiceSheet: View {
                                 .font(.system(.body, design: .monospaced))
                                 .fieldInputStyle()
                             if dealerPubkeyIsBad {
-                                Text("Not a pubkey. The indexer would drop the whole record, not just this field.")
+                                CopyableText("Not a pubkey. The indexer would drop the whole record, not just this field.")
                                     .font(.caption2)
                                     .foregroundStyle(.red)
                             } else if let key = dealerPubkeyValue,
@@ -294,7 +294,7 @@ struct PublishServiceSheet: View {
                                 // and nothing else. A home map without it
                                 // resolves to no URL at all, which is a
                                 // silent failure at the far end.
-                                Text("No API key yet — clients read the endpoint from `API`, so a home map without one leaves this service unreachable.")
+                                CopyableText("No API key yet — clients read the endpoint from “API”, so a home map without one leaves this service unreachable.")
                                     .font(.caption2)
                                     .foregroundStyle(.orange)
                             }
@@ -398,7 +398,7 @@ struct PublishServiceSheet: View {
             }
 
             if !session.canSign {
-                Text("This identity is watch-only, so it cannot sign a carve. You can still save a draft and publish it later from an identity that holds the key.")
+                CopyableText("This identity is watch-only, so it cannot sign a carve. You can still save a draft and publish it later from an identity that holds the key.")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -657,7 +657,7 @@ struct ComponentListEditor: View {
             }
 
             if components.isEmpty {
-                Text("Nothing — a service that offers no component is invisible to every picker on the network, which all filter on this list.")
+                CopyableText("Nothing — a service that offers no component is invisible to every picker on the network, which all filter on this list.")
                     .font(.caption2)
                     .foregroundStyle(.orange)
             }
@@ -1024,7 +1024,7 @@ struct PricingEditor: View {
             if numeric, let raw = value.wrappedValue,
                !raw.trimmingCharacters(in: .whitespaces).isEmpty,
                Double(raw.trimmingCharacters(in: .whitespaces)) == nil {
-                Text("not a number")
+                CopyableText("not a number")
                     .font(.caption2)
                     .foregroundStyle(.orange)
             }
@@ -1101,7 +1101,7 @@ struct ServiceDetailSheet: View {
                                     }
                                 }
                                 if service.apiUrl == nil {
-                                    Text("No API key — clients read the endpoint from `API`, so nothing here resolves to a URL.")
+                                    CopyableText("No API key — clients read the endpoint from “API”, so nothing here resolves to a URL.")
                                         .font(.caption2)
                                         .foregroundStyle(.orange)
                                 }
@@ -1392,7 +1392,7 @@ struct CloseServiceSheet: View {
                 }
             }
 
-            Label("Closing is permanent. The record stays on the chain and stays readable, flagged closed, but there is no op that reopens it — Recover only undoes a Stop.", systemImage: "exclamationmark.triangle")
+            CopyableLabel("Closing is permanent. The record stays on the chain and stays readable, flagged closed, but there is no op that reopens it — Recover only undoes a Stop.", systemImage: "exclamationmark.triangle")
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)

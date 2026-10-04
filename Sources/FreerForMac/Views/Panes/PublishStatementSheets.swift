@@ -75,7 +75,7 @@ struct ComposeStatementSheet: View {
             Text("Make a statement")
                 .font(.title3.bold())
 
-            Label(
+            CopyableLabel(
                 "A statement cannot be edited, deleted or recovered. Once a block confirms it, it is on the chain under your FID for as long as the chain exists.",
                 systemImage: "exclamationmark.triangle"
             )
@@ -109,7 +109,7 @@ struct ComposeStatementSheet: View {
                                     .font(.caption2).foregroundStyle(.tertiary)
                             }
                             if remaining < 0 {
-                                Text("A statement is carved in full and is neither compressed nor stored off-chain. If it needs to be longer than this, publish it as a Text instead — that keeps the body on DISK and carves a hash of it.")
+                                CopyableText("A statement is carved in full and is neither compressed nor stored off-chain. If it needs to be longer than this, publish it as a Text instead — that keeps the body on DISK and carves a hash of it.")
                                     .font(.caption2)
                                     .foregroundStyle(.orange)
                             }
@@ -130,7 +130,7 @@ struct ComposeStatementSheet: View {
                 CopyableText(e, font: .caption).foregroundStyle(.red)
             }
             if !session.canSign {
-                Label("This identity is watch-only — there is no key here to sign a carve with.", systemImage: "eye")
+                CopyableLabel("This identity is watch-only — there is no key here to sign a carve with.", systemImage: "eye")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }

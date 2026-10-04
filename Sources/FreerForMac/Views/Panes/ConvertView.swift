@@ -133,7 +133,7 @@ private struct PrikeyConvertView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Prikey formats").font(.headline)
 
-            Label(
+            CopyableLabel(
                 "A prikey is the whole of an identity. Anything shown here spends "
                     + "everything the key holds — don't paste it anywhere you don't control.",
                 systemImage: "exclamationmark.triangle"

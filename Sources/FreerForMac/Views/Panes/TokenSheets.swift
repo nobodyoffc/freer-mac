@@ -220,7 +220,7 @@ struct DeployTokenSheet: View {
                     .foregroundStyle(.red)
                     .padding(.bottom, 6)
             } else if let v = validationError, !name.isEmpty {
-                Text(v).font(.caption).foregroundStyle(.orange)
+                CopyableText(v).font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.bottom, 6)
             }
@@ -452,7 +452,7 @@ struct IssueTokenSheet: View {
             if let error {
                 CopyableText(error, font: .caption).foregroundStyle(.red)
             } else if let b = buildError {
-                Text(b).font(.caption).foregroundStyle(.orange)
+                CopyableText(b).font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -651,7 +651,7 @@ struct SendTokenSheet: View {
             if let error {
                 CopyableText(error, font: .caption).foregroundStyle(.red)
             } else if let v = validationError {
-                Text(v).font(.caption).foregroundStyle(.orange)
+                CopyableText(v).font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -717,7 +717,7 @@ struct SendTokenSheet: View {
     private func warning(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 6) {
             Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-            Text(text).font(.caption).foregroundStyle(.orange)
+            CopyableText(text).font(.caption).foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }

@@ -102,7 +102,7 @@ struct FilesView: View {
             if let banner { bannerView(banner) }
             if let loadError {
                 card {
-                    Label("Couldn't load files", systemImage: "exclamationmark.triangle")
+                    CopyableLabel("Couldn't load files", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(loadError, font: .callout).foregroundStyle(.red)
                 }

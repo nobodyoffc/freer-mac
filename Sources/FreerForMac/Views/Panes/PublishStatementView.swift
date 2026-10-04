@@ -79,7 +79,7 @@ struct PublishStatementView: View {
 
             if let err = loadError, source.isEmpty {
                 card {
-                    Label("Couldn't load", systemImage: "exclamationmark.triangle")
+                    CopyableLabel("Couldn't load", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                 }

@@ -44,7 +44,7 @@ struct PasswordView: View {
                     .disabled(working != .none)
 
                 if let err = appState.lastError {
-                    Text(err)
+                    CopyableText(err)
                         .font(.callout)
                         .foregroundStyle(.red)
                         .multilineTextAlignment(.center)

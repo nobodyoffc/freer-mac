@@ -140,7 +140,7 @@ struct GroupSettingsSheet: View {
             .foregroundStyle(.tertiary)
 
             if let warning {
-                Label(warning, systemImage: "exclamationmark.triangle")
+                CopyableLabel(warning, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)

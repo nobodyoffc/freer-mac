@@ -126,7 +126,7 @@ struct AddWatchedFidSheet: View {
                     } else if lookupKnownOffChain {
                         HStack(spacing: 6) {
                             Image(systemName: "questionmark.circle")
-                            Text("No on-chain record — this FID hasn't registered a Freer yet. You can still watch it.")
+                            CopyableText("No on-chain record — this FID hasn't registered a Freer yet. You can still watch it.")
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .foregroundStyle(.orange)

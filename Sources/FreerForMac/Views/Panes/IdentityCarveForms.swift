@@ -41,7 +41,7 @@ struct CarveBlockerLabel: View {
     let text: String
 
     var body: some View {
-        Label(text, systemImage: "hourglass")
+        CopyableLabel(text, systemImage: "hourglass")
             .font(.callout)
             .foregroundStyle(.orange)
             .fixedSize(horizontal: false, vertical: true)

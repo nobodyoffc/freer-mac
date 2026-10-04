@@ -81,7 +81,7 @@ struct SignMultisigTxSheet: View {
                         exportPanel
                     }
                     if let error {
-                        Label(error, systemImage: "xmark.octagon.fill")
+                        CopyableLabel(error, systemImage: "xmark.octagon.fill")
                             .font(.callout)
                             .foregroundStyle(.red)
                             .fixedSize(horizontal: false, vertical: true)

@@ -282,7 +282,7 @@ struct AddMultisigSheet: View {
                 }
 
                 if let parseError {
-                    Label(parseError, systemImage: "xmark.octagon.fill")
+                    CopyableLabel(parseError, systemImage: "xmark.octagon.fill")
                         .font(.callout)
                         .foregroundStyle(.red)
                         .fixedSize(horizontal: false, vertical: true)
@@ -326,7 +326,7 @@ struct AddMultisigSheet: View {
                 }
             }
             if !isMember {
-                Text("This FID is not one of the members, so this Setting could never sign for the group.")
+                CopyableText("This FID is not one of the members, so this Setting could never sign for the group.")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)

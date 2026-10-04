@@ -333,7 +333,7 @@ struct PublishMediaComposer: View {
                 CopyableText(e, font: .caption).foregroundStyle(.red)
             }
             if !session.canSign {
-                Label("This identity is watch-only — there is no key here to sign a carve with.", systemImage: "eye")
+                CopyableLabel("This identity is watch-only — there is no key here to sign a carve with.", systemImage: "eye")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -731,7 +731,7 @@ struct MediaViewerSheet: View {
                 .foregroundStyle(.secondary)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                Label("The \(kind.noun) could not be fetched", systemImage: "exclamationmark.triangle")
+                CopyableLabel("The \(kind.noun) could not be fetched", systemImage: "exclamationmark.triangle")
                     .font(.callout)
                     .foregroundStyle(.orange)
                 if let e = loadError {
@@ -748,7 +748,7 @@ struct MediaViewerSheet: View {
     /// ``PublishBody/Failure/notUtf8(did:)``.
     private var undecodable: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label("Fetched, but not something macOS can show", systemImage: "questionmark.square")
+            CopyableLabel("Fetched, but not something macOS can show", systemImage: "questionmark.square")
                 .font(.callout)
                 .foregroundStyle(.orange)
             Text("The bytes hash to the carved document ID, so this is the right file — it is simply not \(kind == .image ? "an image" : "a \(kind.noun)") this Mac can decode. Open it to hand it to another app.")

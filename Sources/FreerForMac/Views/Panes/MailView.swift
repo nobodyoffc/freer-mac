@@ -94,7 +94,7 @@ struct MailView: View {
 
             if let err = loadError {
                 card {
-                    Label("Couldn't load mail", systemImage: "exclamationmark.triangle")
+                    CopyableLabel("Couldn't load mail", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                 }

@@ -64,7 +64,7 @@ struct MeetingView: View {
                     Text("Relayed via \(host)").font(.caption).foregroundStyle(.secondary)
                 }
                 if let fid = s?.unverifiedFids.first {
-                    Text("Audio claimed to be from \(names(fid)) could not be verified and is silenced.")
+                    CopyableText("Audio claimed to be from \(names(fid)) could not be verified and is silenced.")
                         .font(.caption).foregroundStyle(.red)
                 }
                 if !people.isEmpty {
@@ -79,7 +79,7 @@ struct MeetingView: View {
                     .task(id: people.map(\.fid)) { names.resolve(people.map(\.fid)) }
                 }
                 if let controlError {
-                    Text(controlError).font(.caption).foregroundStyle(.red)
+                    CopyableText(controlError).font(.caption).foregroundStyle(.red)
                 }
                 if let copied {
                     Text("Copied \(copied)").font(.caption).foregroundStyle(.secondary)
@@ -121,7 +121,7 @@ struct MeetingView: View {
             }
             Label("End-to-end encrypted", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
             if let controlError {
-                Text(controlError).font(.caption).foregroundStyle(.red)
+                CopyableText(controlError).font(.caption).foregroundStyle(.red)
             }
             HStack {
                 Button("Join") {

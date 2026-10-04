@@ -299,7 +299,7 @@ private struct SignToolView: View {
                     .fieldInputStyle()
                     .font(.system(.body, design: .monospaced))
             } else if !session.canSign {
-                Label("Watch-only — the live FID has no prikey to sign with", systemImage: "eye")
+                CopyableLabel("Watch-only — the live FID has no prikey to sign with", systemImage: "eye")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }

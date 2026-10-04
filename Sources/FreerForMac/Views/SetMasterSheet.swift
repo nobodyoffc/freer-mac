@@ -172,7 +172,7 @@ struct SetMasterSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                Text("This hands over your identity")
+                CopyableText("This hands over your identity")
                     .font(.headline)
             }
             .foregroundStyle(.red)
@@ -263,12 +263,12 @@ struct SetMasterSheet: View {
             }
 
             if let err = loadError {
-                Label(err, systemImage: "xmark.octagon.fill")
+                CopyableLabel(err, systemImage: "xmark.octagon.fill")
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
             } else if let reason = blockReason {
-                Label(reason, systemImage: "exclamationmark.triangle.fill")
+                CopyableLabel(reason, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)

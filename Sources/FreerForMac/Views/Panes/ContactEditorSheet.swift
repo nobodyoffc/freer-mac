@@ -137,7 +137,7 @@ struct ContactEditorSheet: View {
                     } else if lookupKnownOffChain {
                         HStack(spacing: 6) {
                             Image(systemName: "questionmark.circle")
-                            Text("No on-chain record — this FID hasn't registered a Freer yet. You can still save the contact locally.")
+                            CopyableText("No on-chain record — this FID hasn't registered a Freer yet. You can still save the contact locally.")
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .foregroundStyle(.orange)

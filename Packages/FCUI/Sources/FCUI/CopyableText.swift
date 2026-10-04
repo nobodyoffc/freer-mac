@@ -22,12 +22,18 @@ extension String {
 /// "FA1B…cdef" while copying the full FID).
 ///
 /// The `pointing-hand` cursor on hover signals the affordance.
+///
+/// **The resting colour is inherited** unless `color` is given, so an
+/// outer `.foregroundStyle(.orange)` on a warning reaches the text.
+/// It used to default to `.primary`, set on the inner `Text`, where it
+/// beat every outer style — warnings and errors rendered in the body
+/// colour.
 public struct CopyableText: View {
 
     private let display: String
     private let copyValue: String
     private let font: Font?
-    private let color: Color
+    private let color: Color?
     /// What the hover tip says while nothing has been copied yet. Nil
     /// gets the generic wording, which is right whenever the display
     /// string *is* the copied string. Set it when the two differ — a
@@ -42,11 +48,10 @@ public struct CopyableText: View {
     ///     visible string is exactly what the user wants on the
     ///     clipboard.
     ///   - font: optional explicit font; nil inherits.
-    ///   - color: resting text colour. Set explicitly rather than with
-    ///     an outer `.foregroundStyle` — this view sets its own so the
-    ///     copied-flash can turn green, and the inner modifier wins.
+    ///   - color: resting text colour; nil inherits the surrounding
+    ///     foreground style.
     public init(
-        _ text: String, font: Font? = nil, color: Color = .primary, help: String? = nil
+        _ text: String, font: Font? = nil, color: Color? = nil, help: String? = nil
     ) {
         self.display = text
         self.copyValue = text
@@ -63,7 +68,7 @@ public struct CopyableText: View {
         display: String,
         copy: String,
         font: Font? = nil,
-        color: Color = .primary,
+        color: Color? = nil,
         help: String? = nil
     ) {
         self.display = display
@@ -81,7 +86,7 @@ public struct CopyableText: View {
         head: Int = 8,
         tail: Int = 8,
         font: Font? = nil,
-        color: Color = .primary,
+        color: Color? = nil,
         help: String? = nil
     ) -> CopyableText {
         CopyableText(
@@ -96,30 +101,92 @@ public struct CopyableText: View {
     public var body: some View {
         Text(display)
             .font(font)
-            .foregroundStyle(copied ? Color.green : color)
+            .foregroundStyle(restingStyle)
+            .copiesOnClick(copyValue, help: help, copied: $copied)
+    }
+
+    private var restingStyle: AnyShapeStyle {
+        if copied { return AnyShapeStyle(Color.green) }
+        if let color { return AnyShapeStyle(color) }
+        // `.primary` as a hierarchical style is the first level of the
+        // *current* content style, not the fixed label colour.
+        return AnyShapeStyle(HierarchicalShapeStyle.primary)
+    }
+}
+
+/// A `Label` — icon and sentence — that copies its sentence on a
+/// single click. For warnings and errors: whatever the app says went
+/// wrong is something the user will want to paste somewhere.
+public struct CopyableLabel: View {
+    private let text: String
+    private let systemImage: String
+    private let help: String?
+
+    public init(_ text: String, systemImage: String, help: String? = nil) {
+        self.text = text
+        self.systemImage = systemImage
+        self.help = help
+    }
+
+    public var body: some View {
+        Label(text, systemImage: systemImage)
+            .copiesOnClick(text, help: help)
+    }
+}
+
+public extension View {
+    /// A single click anywhere on this view puts `value` on the
+    /// clipboard, with the same hand cursor and checkmark flash as
+    /// ``CopyableText``. For a composite — an icon beside a sentence —
+    /// where the copied string is the sentence alone.
+    func copiesOnClick(_ value: String, help: String? = nil) -> some View {
+        modifier(CopyOnClick(value: value, help: help, external: nil))
+    }
+
+    fileprivate func copiesOnClick(
+        _ value: String, help: String?, copied: Binding<Bool>
+    ) -> some View {
+        modifier(CopyOnClick(value: value, help: help, external: copied))
+    }
+}
+
+private struct CopyOnClick: ViewModifier {
+    let value: String
+    let help: String?
+    /// The owner's flag when it tints on copy (``CopyableText``); nil
+    /// keeps the flag here.
+    let external: Binding<Bool>?
+
+    @State private var local = false
+
+    private var copied: Binding<Bool> { external ?? $local }
+
+    func body(content: Content) -> some View {
+        content
             .contentShape(Rectangle())
             .onTapGesture { copy() }
             .pointingHand()
-            .help(copied ? "Copied!" : (help ?? "Click to copy"))
+            .help(copied.wrappedValue ? "Copied!" : (help ?? "Click to copy"))
             .overlay(alignment: .trailing) {
-                if copied {
+                if copied.wrappedValue {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .padding(.trailing, -18)
                         .transition(.opacity)
                 }
             }
-            .animation(.easeInOut(duration: 0.15), value: copied)
+            .animation(.easeInOut(duration: 0.15), value: copied.wrappedValue)
     }
 
     private func copy() {
         let pb = NSPasteboard.general
         pb.clearContents()
-        pb.setString(copyValue, forType: .string)
-        copied = true
+        pb.setString(value, forType: .string)
+        copied.wrappedValue = true
+        let flag = copied
         Task {
             try? await Task.sleep(nanoseconds: 1_200_000_000)
-            await MainActor.run { copied = false }
+            await MainActor.run { flag.wrappedValue = false }
         }
     }
 }

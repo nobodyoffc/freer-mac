@@ -180,7 +180,7 @@ struct GettingStartedCard: View {
                     switch item.status {
                     case .waiting:
                         if let line = statusLine(item.status) {
-                            Label(line, systemImage: "hourglass")
+                            CopyableLabel(line, systemImage: "hourglass")
                                 .font(.callout)
                                 .foregroundStyle(.orange)
                         }

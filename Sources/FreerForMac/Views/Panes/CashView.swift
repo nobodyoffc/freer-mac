@@ -271,7 +271,7 @@ struct CashView: View {
     private var content: some View {
         if let loadError {
             card {
-                Label("Couldn't load cashes", systemImage: "exclamationmark.triangle")
+                CopyableLabel("Couldn't load cashes", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.red)
                 CopyableText(loadError, font: .callout)
                     .foregroundStyle(.red)
@@ -458,7 +458,7 @@ struct CashView: View {
                 // spendable set already; they are still listed because
                 // Recover needs something to act on, and a total that
                 // silently included them would overstate the wallet.
-                Text("\(heldBack.count) held back by a broadcast in flight")
+                CopyableText("\(heldBack.count) held back by a broadcast in flight")
                     .foregroundStyle(.orange)
             }
             if let h = snapshot?.bestHeight {

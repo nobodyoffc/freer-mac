@@ -169,7 +169,7 @@ struct AppsView: View {
 
             if let err = loadError, source.isEmpty {
                 card {
-                    Label("Couldn't load the app registry", systemImage: "exclamationmark.triangle")
+                    CopyableLabel("Couldn't load the app registry", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                     Text("Nothing is shown rather than the last list that loaded — a failed query has no answer, and rows left over from a different one would be read as this one's.")

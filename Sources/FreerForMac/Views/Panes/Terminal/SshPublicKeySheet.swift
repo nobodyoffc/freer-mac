@@ -39,7 +39,7 @@ struct SshPublicKeySheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     if let error {
-                        Label(error, systemImage: "exclamationmark.triangle")
+                        CopyableLabel(error, systemImage: "exclamationmark.triangle")
                             .foregroundStyle(.orange)
                             .font(.callout)
                     } else if let key {

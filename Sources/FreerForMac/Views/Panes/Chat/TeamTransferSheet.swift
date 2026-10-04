@@ -78,7 +78,7 @@ struct TeamTransferSheet: View {
                 .padding(10)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.10)))
             } else if authorityChecked && authority == nil {
-                Text("The chain lists you as neither this team's owner nor the owner's master, so a transfer from you would be ignored.")
+                CopyableText("The chain lists you as neither this team's owner nor the owner's master, so a transfer from you would be ignored.")
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)

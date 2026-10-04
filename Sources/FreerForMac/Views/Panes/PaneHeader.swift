@@ -210,7 +210,7 @@ struct PaneHeader: View {
                 .frame(width: 260)
                 .onSubmit { commitLabel() }
             if let labelError {
-                Text(labelError)
+                CopyableText(labelError)
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)

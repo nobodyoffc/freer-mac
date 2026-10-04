@@ -160,7 +160,7 @@ struct IssueProofSheet: View {
             }
 
             if !session.canSign {
-                Text("This identity is watch-only, so it cannot sign a carve. You can still save a draft and carve it later from an identity that holds the key.")
+                CopyableText("This identity is watch-only, so it cannot sign a carve. You can still save a draft and carve it later from an identity that holds the key.")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)

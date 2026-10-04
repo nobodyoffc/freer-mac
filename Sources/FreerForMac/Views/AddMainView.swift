@@ -116,7 +116,7 @@ struct AddMainView: View {
                         Text("Old FreerForMac Argon2id (recovery)").tag(PhraseKey.Scheme.legacyFreerMacArgon2id)
                     }
                     if let advisory = phraseScheme.advisory {
-                        Text(advisory)
+                        CopyableText(advisory)
                             .font(.callout)
                             .foregroundStyle(.orange)
                     }
@@ -125,7 +125,7 @@ struct AddMainView: View {
 
             if let err = localError ?? appState.lastError {
                 Section {
-                    Text(err)
+                    CopyableText(err)
                         .foregroundStyle(.red)
                         .font(.callout)
                 }
@@ -189,7 +189,7 @@ struct AddMainView: View {
                     .help("Replace these \(Self.candidateCount) with \(Self.candidateCount) new random FIDs")
             }
             if candidates.isEmpty, let localError {
-                Text(localError).font(.callout).foregroundStyle(.red)
+                CopyableText(localError).font(.callout).foregroundStyle(.red)
             }
             ForEach(candidates) { c in
                 let chosen = c.fid == chosenFid

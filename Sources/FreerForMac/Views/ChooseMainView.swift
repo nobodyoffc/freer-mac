@@ -52,7 +52,7 @@ struct ChooseMainView: View {
             }
 
             if let err = appState.lastError {
-                Text(err)
+                CopyableText(err)
                     .font(.callout)
                     .foregroundStyle(.red)
                     .padding(.horizontal)

@@ -175,7 +175,7 @@ struct RateFreerSheet: View {
     private var footer: some View {
         HStack(spacing: 10) {
             if let blockReason, !loading {
-                Text(blockReason)
+                CopyableText(blockReason)
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .lineLimit(2)

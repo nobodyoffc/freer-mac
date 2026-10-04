@@ -242,7 +242,7 @@ struct CashReorgSheet: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
         case .failure(let error):
-            Label(describe(error), systemImage: "exclamationmark.triangle")
+            CopyableLabel(describe(error), systemImage: "exclamationmark.triangle")
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
@@ -610,7 +610,7 @@ struct CashSendSheet: View {
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
         case .failure(let error):
-            Label(describe(error), systemImage: "exclamationmark.triangle")
+            CopyableLabel(describe(error), systemImage: "exclamationmark.triangle")
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)

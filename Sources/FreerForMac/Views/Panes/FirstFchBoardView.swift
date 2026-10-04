@@ -547,7 +547,7 @@ struct FirstFchBoardView: View {
 
                 Spacer()
                 if !session.canSign {
-                    Text("Watch-only identity — no key to sign a payment with.")
+                    CopyableText("Watch-only identity — no key to sign a payment with.")
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }

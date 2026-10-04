@@ -377,7 +377,7 @@ struct ContactsView: View {
 
     private func errorCard(_ err: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label("Couldn't load contacts", systemImage: "exclamationmark.triangle")
+            CopyableLabel("Couldn't load contacts", systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.red)
             CopyableText(err, font: .callout)
                 .foregroundStyle(.red)

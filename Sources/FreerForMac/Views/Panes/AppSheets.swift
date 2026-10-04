@@ -188,7 +188,7 @@ struct PublishAppSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if target.isUpdate {
-                Label("An update replaces what the record says. A field left blank here is a field cleared on chain — downloads included.", systemImage: "exclamationmark.triangle")
+                CopyableLabel("An update replaces what the record says. A field left blank here is a field cleared on chain — downloads included.", systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -342,7 +342,7 @@ struct PublishAppSheet: View {
             }
 
             if !session.canSign {
-                Text("This identity is watch-only, so it cannot sign a carve. You can still save a draft and publish it later from an identity that holds the key.")
+                CopyableText("This identity is watch-only, so it cannot sign a carve. You can still save a draft and publish it later from an identity that holds the key.")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -535,7 +535,7 @@ struct DownloadsEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if downloads.isEmpty {
-                Text("None — nobody reading this record will know where to get the app.")
+                CopyableText("None — nobody reading this record will know where to get the app.")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -573,7 +573,7 @@ struct DownloadsEditor: View {
                         .fieldInputStyle()
                         .font(.system(.caption, design: .monospaced))
                         if (row.did ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
-                            Text("no digest — the link is unverifiable")
+                            CopyableText("no digest — the link is unverifiable")
                                 .font(.caption2)
                                 .foregroundStyle(.orange)
                         }
@@ -679,7 +679,7 @@ struct AppDetailSheet: View {
                                                 .foregroundStyle(.secondary)
                                             }
                                         } else {
-                                            Text("No digest — nothing to check the download against.")
+                                            CopyableText("No digest — nothing to check the download against.")
                                                 .font(.caption2)
                                                 .foregroundStyle(.orange)
                                         }
@@ -970,7 +970,7 @@ struct CloseAppSheet: View {
                 }
             }
 
-            Label("Closing is permanent. The record stays on the chain and stays readable, flagged closed, but there is no op that reopens it — Recover only undoes a Stop.", systemImage: "exclamationmark.triangle")
+            CopyableLabel("Closing is permanent. The record stays on the chain and stays readable, flagged closed, but there is no op that reopens it — Recover only undoes a Stop.", systemImage: "exclamationmark.triangle")
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)

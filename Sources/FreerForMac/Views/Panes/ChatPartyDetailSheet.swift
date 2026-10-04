@@ -48,7 +48,7 @@ struct ChatPartyDetailSheet: View {
                         .padding(.top, 8)
                     }
                     if let loadError {
-                        Text(loadError)
+                        CopyableText(loadError)
                             .font(.callout)
                             .foregroundStyle(.red)
                             .fixedSize(horizontal: false, vertical: true)
@@ -229,7 +229,7 @@ struct ChatPartyDetailSheet: View {
                     }
                 } else if party?.rawDock != nil {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Could not be resolved").foregroundStyle(.red)
+                        CopyableText("Could not be resolved").foregroundStyle(.red)
                         caption(
                             "The party publishes a DOCK, but it could not be turned into an address. "
                                 + "Messages to them cannot be sent or received until it resolves.",
