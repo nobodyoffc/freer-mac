@@ -584,7 +584,8 @@ struct PublishServiceSheet: View {
 ///
 /// **A mistyped component is a service nobody finds.** The component
 /// list is what every picker on the network filters on — Files searches
-/// `DISK@No1_NrC7`, the message path searches `DOCK@No1_NrC7` — and it
+/// `DISK@No1_NrC7`, the message path searches `DOCK@No1_NrC7`, the home
+/// server picker searches `BASE@No1_NrC7` — and it
 /// is matched by exact value, not by prefix or by fuzzy score. Android
 /// asks for it as a comma-separated field and accepts whatever is typed.
 /// The ones the network actually looks for are one click each here, and
@@ -604,8 +605,8 @@ struct ComponentListEditor: View {
     @State private var typed = ""
 
     private static let wellKnown = [
-        ServiceName.dock, ServiceName.disk, ServiceName.map, ServiceName.road,
-        ServiceName.call
+        ServiceName.base, ServiceName.dock, ServiceName.disk, ServiceName.map,
+        ServiceName.road, ServiceName.call
     ]
 
     var body: some View {
