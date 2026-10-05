@@ -1,5 +1,6 @@
 import SwiftUI
 import FCUI
+import FCDomain
 import Combine
 
 /// The call card (VOICE_SPEC §10): calling, ringing and in a call, over the
@@ -18,6 +19,7 @@ struct CallView: View {
                 Text(CallCenter.short(calls.peerFid ?? "")).font(.title3).bold().textSelection(.enabled)
                 Text(status).foregroundStyle(.secondary)
                 Label("End-to-end encrypted", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
+                Text(CallText.realVoiceNotice).font(.caption).foregroundStyle(.secondary)
                 if calls.direct {
                     Text("Direct").font(.caption).foregroundStyle(.secondary)
                 } else if let host = calls.relayHost {

@@ -200,6 +200,12 @@ struct MessageComposerView: View {
                 Text("Five minutes is the cap — send it or start again.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            } else {
+                Text("Voice messages carry your real voice, which can identify you.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
 
             Spacer(minLength: 0)

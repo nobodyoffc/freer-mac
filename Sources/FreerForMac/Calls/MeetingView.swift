@@ -60,6 +60,7 @@ struct MeetingView: View {
                 Text(meetings.title.isEmpty ? "Meeting" : meetings.title).font(.headline).lineLimit(1)
                 Text(status(people.count)).foregroundStyle(.secondary)
                 Label("End-to-end encrypted", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
+                Text(CallText.realVoiceNotice).font(.caption).foregroundStyle(.secondary)
                 if let host = meetings.relayHost {
                     Text("Relayed via \(host)").font(.caption).foregroundStyle(.secondary)
                 }
@@ -120,6 +121,7 @@ struct MeetingView: View {
                 Text("Only invited members").font(.caption).foregroundStyle(.secondary)
             }
             Label("End-to-end encrypted", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
+            Text(CallText.realVoiceNotice).font(.caption).foregroundStyle(.secondary)
             if let controlError {
                 CopyableText(controlError).font(.caption).foregroundStyle(.red)
             }

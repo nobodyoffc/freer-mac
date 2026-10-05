@@ -902,6 +902,10 @@ did not start, unless the host hands it over.
 
 ## 9. The media engine
 
+Audio carries the speaker's real voice. A voice mask was designed
+(VOICE_MASK_SPEC) and stopped after its model spike, 2026-10-05; the clients
+say so instead (§10).
+
 ### 9.1. Codec
 
 Opus (RFC 6716), built from libopus:
@@ -1010,6 +1014,9 @@ targets above. While a call is live:
   (Decision 21).
 - **Always shown:**
   - A lock with "End-to-end encrypted".
+  - Under it: "Others hear your real voice, which can identify you." A FID
+    hides who you are; your voice does not (VOICE_MASK_SPEC). The voice
+    message recorder says the same of voice messages.
   - The path in use: "Direct" or "Relayed via &lt;relay&gt;".
   - An estimate of the relay fee while a relayed call is running.
 - **Nobodies:** a participant whose FID is a nobody gets the skull mark

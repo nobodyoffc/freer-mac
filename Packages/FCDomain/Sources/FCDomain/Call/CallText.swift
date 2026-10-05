@@ -5,6 +5,10 @@ import Foundation
 /// INVITE that was held; its content is the record JSON Android writes too.
 public enum CallText {
 
+    /// Calls carry the speaker's real voice: a FID hides who you are, your
+    /// voice does not (VOICE_MASK_SPEC, stopped after Phase A).
+    public static let realVoiceNotice = "Others hear your real voice, which can identify you."
+
     public static func describe(_ content: String?) -> String {
         guard let data = content?.data(using: .utf8),
               let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return "Call" }
