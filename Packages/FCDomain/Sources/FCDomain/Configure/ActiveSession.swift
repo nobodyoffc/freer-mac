@@ -879,7 +879,7 @@ public final class ActiveSession {
         switch policy.decide(sender: sender, isContact: isContact) {
         case .deliver: return .ring
         case .acceptAndDeliver:
-            try? contactPolicy.mutate(liveFid: liveFid) { $0.allow(sender) }
+            _ = try? contactPolicy.mutate(liveFid: liveFid) { $0.allow(sender) }
             return .ring
         case .hold: return .missed
         case .drop: return .drop

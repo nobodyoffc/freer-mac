@@ -1483,7 +1483,7 @@ final class AppState {
             homeBaseProblem = nil
             // The home no longer names a BASE: stop starting on the old one.
             guard prefs.homeBaseService != nil else { return }
-            try? session.preferences.update {
+            _ = try? session.preferences.update {
                 $0.homeBaseService = nil
                 $0.homeBaseServicePubkeyHex = nil
             }
@@ -1523,7 +1523,7 @@ final class AppState {
             }
             homeBaseProblem = nil
             if prefs.homeBaseService != target || prefs.homeBaseServicePubkeyHex != current.pubkeyHex {
-                try? session.preferences.update {
+                _ = try? session.preferences.update {
                     $0.homeBaseService = target
                     $0.homeBaseServicePubkeyHex = current.pubkeyHex
                 }
