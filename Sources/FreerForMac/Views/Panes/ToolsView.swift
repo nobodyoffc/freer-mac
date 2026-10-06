@@ -7,6 +7,8 @@ import FCUI
 /// Crypto tools pane — the Mac port of Android's `tools/` activities:
 /// Encrypt, Decrypt, Sign, Verify, Hash, Random. Each tool is a small
 /// form over the FCCore/FCDomain primitives; results are click-to-copy.
+/// APK key (ApkKeyToolView.swift) is Mac-only: the Android signing key
+/// derived from the main FID.
 /// TOTP lives with Secrets (Phase 8.2), not here.
 struct ToolsView: View {
     let session: ActiveSession
@@ -18,6 +20,7 @@ struct ToolsView: View {
         case verify = "Verify"
         case hash = "Hash"
         case random = "Random"
+        case apkKey = "APK key"
         var id: String { rawValue }
     }
 
@@ -43,6 +46,7 @@ struct ToolsView: View {
                     case .verify:  VerifyToolView(session: session)
                     case .hash:    HashToolView()
                     case .random:  RandomToolView()
+                    case .apkKey:  ApkKeyToolView(session: session)
                     }
                 }
                 .padding(20)

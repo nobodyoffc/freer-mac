@@ -176,6 +176,18 @@ public final class ActiveSession {
         return try SshEd25519Key(mainPrikey: priv, mainFid: mainFid)
     }
 
+    // MARK: - apk signing
+
+    /// The Android app-signing identity for this vault: a P-256 key and
+    /// a deterministic certificate, derived one-way from
+    /// ``mainPrikey()``. Bound to the main FID and not cached, for the
+    /// same reasons as ``sshIdentity()`` — see ``ApkSigningKey``.
+    public func apkSigningKey() throws -> ApkSigningKey {
+        var priv = try mainPrikey()
+        defer { priv.resetBytes(in: 0 ..< priv.count) }
+        return try ApkSigningKey(mainPrikey: priv, mainFid: mainFid)
+    }
+
     // MARK: - sub-identities
 
     /// Add a watch-only sub-identity (just an FID we want to track,
