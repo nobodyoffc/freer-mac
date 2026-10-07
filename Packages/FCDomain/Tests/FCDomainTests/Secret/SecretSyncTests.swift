@@ -183,6 +183,88 @@ final class SecretSyncTests: XCTestCase {
         XCTAssertNotNil(try session.secrets.get(id: localOnly.id))
     }
 
+    /// A reorg can roll back the add that carved a secret, leaving no
+    /// record of it at all. The row keeps the secret but becomes
+    /// local-only again; a row the chain still has, and a local row,
+    /// are left alone.
+    func testSyncDemotesARowWhoseCarveVanished() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let ownerPriv = try session.livePrikey()
+        let ownPub = try Secp256k1.publicKey(fromPrivateKey: ownerPriv)
+
+        var orphaned = try Secret.createLocal(
+            type: .text, title: "orphaned", content: "keep the content", memo: nil, ownPubkey: ownPub
+        )
+        orphaned.id = "carve-orphaned"
+        orphaned.carveId = "carve-orphaned"
+        orphaned.onChain = true
+        try session.secrets.upsert(orphaned)
+        let localOnly = try Secret.createLocal(
+            type: .text, title: "local", content: "local", memo: nil, ownPubkey: ownPub
+        )
+        try session.secrets.upsert(localOnly)
+
+        let records: [[String: Any]] = [
+            try record(id: "carve-alive", ownerPriv: ownerPriv, lastHeight: 300, active: true, content: "a")
+        ]
+        mock.responder = { _ in try makeResponse(data: records) }
+
+        let result = try await session.secretService.syncOnChainSecrets(
+            owner: session.liveFid, privkey: ownerPriv, into: session.secrets
+        )
+
+        XCTAssertEqual(result.demoted, 1)
+        let demoted = try XCTUnwrap(session.secrets.get(id: "carve-orphaned"))
+        XCTAssertFalse(demoted.onChain)
+        XCTAssertNil(demoted.carveId)
+        XCTAssertEqual(try demoted.decryptContent(privkey: ownerPriv), "keep the content")
+        XCTAssertTrue(try XCTUnwrap(session.secrets.get(id: "carve-alive")).onChain)
+        XCTAssertFalse(try XCTUnwrap(session.secrets.get(id: localOnly.id)).onChain)
+    }
+
+    /// A carve the chain never confirmed is dropped once it is older
+    /// than the window, and the secret becomes local-only again; a
+    /// recent one keeps waiting; one the chain has is confirmed.
+    func testSyncExpiresAPendingCarveTheChainNeverConfirmed() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let ownerPriv = try session.livePrikey()
+        let ownPub = try Secp256k1.publicKey(fromPrivateKey: ownerPriv)
+
+        func pending(_ id: String, age: TimeInterval?) throws -> Secret {
+            var s = try Secret.createLocal(type: .text, title: id, content: id, memo: nil, ownPubkey: ownPub)
+            s.id = id
+            s.carveId = id
+            s.carvedAt = age.map { Date().addingTimeInterval(-$0) }
+            return s
+        }
+        try session.secrets.upsert(try pending("tx-dropped", age: 3 * 3600))
+        try session.secrets.upsert(try pending("tx-waiting", age: 10 * 60))
+        try session.secrets.upsert(try pending("tx-landed", age: 3 * 3600))
+        try session.secrets.upsert(try pending("tx-legacy", age: nil))
+
+        let records: [[String: Any]] = [
+            try record(id: "tx-landed", ownerPriv: ownerPriv, lastHeight: 500, active: true, content: "tx-landed")
+        ]
+        mock.responder = { _ in try makeResponse(data: records) }
+
+        let result = try await session.secretService.syncOnChainSecrets(
+            owner: session.liveFid, privkey: ownerPriv, into: session.secrets
+        )
+
+        XCTAssertEqual(result.expired, 2)
+        let dropped = try XCTUnwrap(session.secrets.get(id: "tx-dropped"))
+        XCTAssertNil(dropped.carveId)
+        XCTAssertFalse(dropped.onChain)
+        XCTAssertEqual(try dropped.decryptContent(privkey: ownerPriv), "tx-dropped")
+        XCTAssertNil(try XCTUnwrap(session.secrets.get(id: "tx-legacy")).carveId)
+        XCTAssertEqual(try XCTUnwrap(session.secrets.get(id: "tx-waiting")).carveId, "tx-waiting")
+        let landed = try XCTUnwrap(session.secrets.get(id: "tx-landed"))
+        XCTAssertTrue(landed.onChain)
+        XCTAssertNil(landed.carvedAt)
+    }
+
     func testSyncCountsUndecryptableRecords() async throws {
         let mock = MockFapiClient()
         let session = try makeSession(fapi: mock)

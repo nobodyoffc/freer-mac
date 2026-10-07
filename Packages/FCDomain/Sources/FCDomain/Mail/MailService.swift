@@ -46,6 +46,9 @@ public struct MailService {
         /// Incoming mail that was not already in the store — the badge
         /// number.
         public let newUnread: Int
+        /// Rows removed because the chain no longer has their mail — a
+        /// send a reorg rolled back.
+        public let vanished: Int
         public let total: Int
         /// First few failure descriptions, for a diagnosable UI banner.
         public let failureReasons: [String]
@@ -60,12 +63,14 @@ public struct MailService {
 
         public init(
             merged: Int, deleted: Int, undecryptable: Int, newUnread: Int,
+            vanished: Int = 0,
             total: Int, failureReasons: [String], reachedPageCap: Bool = false
         ) {
             self.merged = merged
             self.deleted = deleted
             self.undecryptable = undecryptable
             self.newUnread = newUnread
+            self.vanished = vanished
             self.total = total
             self.failureReasons = failureReasons
             self.reachedPageCap = reachedPageCap
@@ -171,6 +176,45 @@ public struct MailService {
         return (all, exhausted)
     }
 
+    /// Fetch `mail` records by id through `base.getByIds`, in batches
+    /// the server accepts. Ids the chain no longer has are absent from
+    /// the result.
+    func fetchOnChainMailsByIds(_ ids: [String], timeoutMs: Int = 15_000) async throws -> [String: Mail] {
+        var found: [String: Mail] = [:]
+        let batchSize = 100
+        var start = 0
+        while start < ids.count {
+            let batch = Array(ids[start..<min(ids.count, start + batchSize)])
+            start += batchSize
+            let dict: [String: Any] = ["entity": "mail", "ids": batch]
+            let body = try JSONSerialization.data(withJSONObject: dict, options: [.sortedKeys])
+            let reply = try await fapi.call(
+                api: "base.getByIds",
+                params: nil, fcdsl: body, binary: nil,
+                sid: nil, via: nil, maxCost: nil,
+                timeoutMs: timeoutMs
+            )
+            let resp = reply.response
+            if let code = resp.code, code != 0 {
+                if code == 404 { continue }
+                throw Failure.fapiNonZeroCode(
+                    api: "base.getByIds", code: code, message: resp.message
+                )
+            }
+            guard let data = resp.data else { continue }
+            do {
+                let page = try JSONDecoder().decode([String: Mail].self, from: data)
+                for (id, var mail) in page {
+                    if mail.id == nil { mail.id = id }
+                    found[id] = mail
+                }
+            } catch {
+                throw Failure.underlying(error)
+            }
+        }
+        return found
+    }
+
     // MARK: - sync
 
     /// Pull `fid`'s mail, decrypt each body with `privkey`, and merge
@@ -218,6 +262,7 @@ public struct MailService {
         var deleted = 0
         var undecryptable = 0
         var newUnread = 0
+        var vanished = 0
         var failureReasons: [String] = []
 
         func noteFailure(_ id: String?, _ reason: String) {
@@ -227,14 +272,14 @@ public struct MailService {
             }
         }
 
-        for record in records {
+        func apply(_ record: Mail) {
             guard let recordId = record.id, !recordId.isEmpty else {
                 noteFailure(nil, "record has no id")
-                continue
+                return
             }
             // Sorted newest-first, so the first sighting of an id is its
             // freshest state.
-            guard seen.insert(recordId).inserted else { continue }
+            guard seen.insert(recordId).inserted else { return }
 
             let existing = try? store.get(id: recordId)
             var mail = record
@@ -290,11 +335,41 @@ public struct MailService {
             }
         }
 
+        for record in records { apply(record) }
+
+        // A reorg can put a mail back to an older state: a rolled-back
+        // delete or recover leaves it at an earlier `lastHeight`, below
+        // the window the walk covered, and a rolled-back send leaves no
+        // mail at all. Either way the walk does not return it. So re-read
+        // by id every confirmed row we hold inside that window that the
+        // walk did not return, and drop the ones the chain no longer has.
+        if !reachedPageCap {
+            let floor = watermark.map { $0 - Self.reorgWindow }
+            let stale = ((try? store.all()) ?? []).compactMap { row -> String? in
+                guard let id = row.id, !seen.contains(id), row.onChain == true,
+                      let height = row.lastHeight, height != MailsStore.unconfirmedHeight
+                else { return nil }
+                if let floor, height < floor { return nil }
+                return id
+            }
+            if !stale.isEmpty {
+                let found = try await fetchOnChainMailsByIds(stale, timeoutMs: timeoutMs)
+                for id in stale {
+                    if let record = found[id] {
+                        apply(record)
+                    } else if (try? store.remove(id: id)) == true {
+                        vanished += 1
+                    }
+                }
+            }
+        }
+
         return SyncResult(
             merged: merged,
             deleted: deleted,
             undecryptable: undecryptable,
             newUnread: newUnread,
+            vanished: vanished,
             total: records.count,
             failureReasons: failureReasons,
             reachedPageCap: reachedPageCap

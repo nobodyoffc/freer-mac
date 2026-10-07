@@ -30,6 +30,7 @@ struct SecretsView: View {
     @State private var showEditor = false
     @State private var editorPresetTotp = false
     @State private var detailSecret: Secret?
+    @State private var editingSecret: Secret?
     @State private var pendingDelete: Secret?
     @State private var pendingCarve: Secret?
     @State private var carving = false
@@ -139,6 +140,22 @@ struct SecretsView: View {
             SecretDetailSheet(session: session, secret: s) {
                 detailSecret = nil
             }
+        }
+        .sheet(item: $editingSecret) { s in
+            SecretEditorSheet(
+                session: session,
+                editing: s,
+                onSaved: { txid in
+                    editingSecret = nil
+                    revealed[s.id] = nil
+                    if let txid {
+                        syncError = nil
+                        carveTxid = txid
+                    }
+                    reload()
+                },
+                onCancel: { editingSecret = nil }
+            )
         }
         .sheet(isPresented: $showEditor) {
             SecretEditorSheet(
@@ -276,6 +293,8 @@ struct SecretsView: View {
                     }
                     if s.onChain {
                         chip("On-chain", color: .blue)
+                    } else if isPendingCarve(s) {
+                        chip("Pending", color: .orange)
                     }
                 }
 
@@ -314,7 +333,21 @@ struct SecretsView: View {
                       ? (revealed[s.id] == nil ? "Reveal content" : "Hide content")
                       : "Watch-only identity — no key to decrypt with")
 
-                if session.canSign && !s.onChain {
+                Button {
+                    editingSecret = s
+                } label: {
+                    Image(systemName: "pencil")
+                }
+                .buttonStyle(.borderless)
+                .disabled(!session.canSign || carving || isPendingCarve(s))
+                .help(!session.canSign
+                      ? "Watch-only identity — no key to decrypt with"
+                      : (isPendingCarve(s) ? "Its carve has not confirmed yet — edit it once a block confirms it" : "Edit this secret"))
+
+                // Only a secret never carved is carved from here: one with a
+                // carve, confirmed or pending, is changed through Edit, which
+                // carves an update.
+                if session.canSign && !s.onChain && (s.carveId ?? "").isEmpty {
                     Button {
                         pendingCarve = s
                     } label: {
@@ -412,6 +445,9 @@ struct SecretsView: View {
                 if result.removed > 0 {
                     parts.append("\(result.removed) removed (deleted on-chain)")
                 }
+                if result.expired > 0 {
+                    parts.append("\(result.expired) unconfirmed carve\(result.expired == 1 ? "" : "s") dropped — now local-only")
+                }
                 if result.undecryptable > 0 {
                     parts.append("\(result.undecryptable) could not be decrypted")
                     parts.append(contentsOf: result.failureReasons)
@@ -432,6 +468,11 @@ struct SecretsView: View {
         } catch {
             loadError = String(describing: error)
         }
+    }
+
+    /// Carved, but no chain sync has confirmed the carve yet.
+    private func isPendingCarve(_ s: Secret) -> Bool {
+        !s.onChain && !(s.carveId ?? "").isEmpty
     }
 
     private func canDeleteOnChain(_ s: Secret) -> Bool {
@@ -455,6 +496,7 @@ struct SecretsView: View {
             var rekeyed = s
             rekeyed.id = txid
             rekeyed.carveId = txid
+            rekeyed.carvedAt = Date()
             try session.secrets.upsert(rekeyed)
             _ = try session.secrets.remove(id: s.id)
             reload()

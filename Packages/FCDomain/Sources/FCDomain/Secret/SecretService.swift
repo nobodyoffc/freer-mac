@@ -56,6 +56,12 @@ public struct SecretService {
         public let merged: Int
         public let removed: Int
         public let undecryptable: Int
+        /// Rows that claimed to be on chain but whose carve no record
+        /// mentions any more, turned back into local-only rows.
+        public let demoted: Int
+        /// Pending rows whose carve the chain still lacks after
+        /// ``CarveExpiry/window``, turned back into local-only rows.
+        public let expired: Int
         public let total: Int
         /// First few failure descriptions, for a diagnosable UI banner.
         public let failureReasons: [String]
@@ -218,6 +224,7 @@ public struct SecretService {
             secret.active = record.active
             secret.onChain = true
             secret.carveId = recordId
+            secret.carvedAt = nil
             do {
                 try store.upsert(secret)
                 merged += 1
@@ -226,10 +233,36 @@ public struct SecretService {
             }
         }
 
+        // The fetch is exhaustive for this owner (active AND deleted
+        // carves), so a row still claiming `onChain` whose carve no
+        // record mentions lost that carve — an add a reorg rolled back.
+        // Keep the secret but make it local-only again, so it can be
+        // carved afresh. Same rule as the contact sync's demotion.
+        var demoted = 0
+        var expired = 0
+        if let rows = try? store.all() {
+            for var row in rows where row.onChain && !seen.contains(row.carveId ?? row.id) {
+                row.onChain = false
+                row.carveId = nil
+                if (try? store.upsert(row)) != nil { demoted += 1 }
+            }
+            // A pending carve the chain still has no record of after the
+            // window will not confirm: make the row local-only again.
+            for var row in rows where !row.onChain {
+                guard let carveId = row.carveId, !carveId.isEmpty, !seen.contains(carveId),
+                      CarveExpiry.isExpired(row.carvedAt) else { continue }
+                row.carveId = nil
+                row.carvedAt = nil
+                if (try? store.upsert(row)) != nil { expired += 1 }
+            }
+        }
+
         return SyncResult(
             merged: merged,
             removed: removed,
             undecryptable: undecryptable,
+            demoted: demoted,
+            expired: expired,
             total: records.count,
             failureReasons: failureReasons
         )

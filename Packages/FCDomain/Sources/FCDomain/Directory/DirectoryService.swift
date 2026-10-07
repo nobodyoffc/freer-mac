@@ -677,6 +677,9 @@ public struct DirectoryService {
         /// rows saved by an old build that flipped `onChain` on a
         /// directory lookup).
         public let demoted: Int
+        /// Pending rows whose first carve the chain still lacks after
+        /// ``CarveExpiry/window``, turned back into local-only rows.
+        public var expired: Int = 0
         /// On-chain records whose cipher couldn't be decrypted (legacy
         /// algorithm, key mismatch, corrupt payload). Skipped, since
         /// without the plaintext we don't even know the contact's FID.
@@ -863,6 +866,7 @@ public struct DirectoryService {
             contact.active = record.active
             contact.onChain = true
             contact.carveId = record.id
+            contact.carvedAt = nil
             if let freer = freers[contactFid] {
                 contact = contact.merging(freer)
             }
@@ -899,7 +903,23 @@ public struct DirectoryService {
             }
         }
 
-        return ContactSyncResult(
+        // A pending first carve the chain still has no record of after the
+        // window will not confirm: make the row local-only again. Every
+        // record's id counts, decryptable or not, so a carve that did land
+        // is never mistaken for a dropped one.
+        var expired = 0
+        let recordIds = Set(records.compactMap(\.id))
+        if let rows = try? store.all() {
+            for var row in rows where row.onChain != true {
+                guard let carveId = row.carveId, !carveId.isEmpty, !recordIds.contains(carveId),
+                      CarveExpiry.isExpired(row.carvedAt) else { continue }
+                row.carveId = nil
+                row.carvedAt = nil
+                if (try? store.upsert(row)) != nil { expired += 1 }
+            }
+        }
+
+        var result = ContactSyncResult(
             merged: merged,
             removed: removed,
             demoted: demoted,
@@ -907,5 +927,7 @@ public struct DirectoryService {
             total: records.count,
             failureReasons: failureReasons
         )
+        result.expired = expired
+        return result
     }
 }

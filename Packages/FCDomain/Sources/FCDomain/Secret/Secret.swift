@@ -44,6 +44,9 @@ public struct Secret: Codable, Equatable, Sendable, Identifiable {
     /// this equals ``id`` once carved; kept separate so a local row
     /// that later carves keeps its local id until the sync merges.
     public var carveId: String?
+    /// When the carve that has not confirmed yet was broadcast; nil once
+    /// a sync has confirmed it. See ``CarveExpiry``.
+    public var carvedAt: Date? = nil
 
     // Local bookkeeping.
     public var addedAt: Date

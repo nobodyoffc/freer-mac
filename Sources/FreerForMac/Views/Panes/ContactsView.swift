@@ -243,6 +243,8 @@ struct ContactsView: View {
                     }
                     if c.onChain == true {
                         chip("On-chain", color: .blue)
+                    } else if isPendingCarve(c) {
+                        chip("Pending", color: .orange)
                     } else if c.onChain == nil && c.lastHeight == nil {
                         // never touched the chain
                     }
@@ -299,9 +301,12 @@ struct ContactsView: View {
                     Image(systemName: "pencil")
                 }
                 .buttonStyle(.borderless)
-                .help("Edit")
+                .disabled(isPendingCarve(c))
+                .help(isPendingCarve(c) ? "Its carve has not confirmed yet — edit it once a block confirms it" : "Edit")
 
-                if session.canSign {
+                // Only a contact never carved is carved from here: one with a
+                // carve is changed through Edit, which carves an update.
+                if session.canSign && (c.carveId ?? "").isEmpty {
                     Button {
                         pendingCarve = c
                     } label: {
@@ -309,9 +314,7 @@ struct ContactsView: View {
                     }
                     .buttonStyle(.borderless)
                     .disabled(carving)
-                    .help(c.onChain == true
-                          ? "Carve an update of this contact on-chain"
-                          : "Carve this contact on-chain (encrypted to your key)")
+                    .help("Carve this contact on-chain (encrypted to your key)")
                 }
 
                 Button(role: .destructive) {
@@ -329,6 +332,7 @@ struct ContactsView: View {
             Button("Show FID details") { inspectFid(c.id) }
             Button("Copy FID") { copyToPasteboard(c.id) }
             Button("Edit") { editorMode = .edit(c) }
+                .disabled(isPendingCarve(c))
         }
     }
 
@@ -416,7 +420,7 @@ struct ContactsView: View {
                 into: session.contacts
             )
             carveTxid = nil
-            if result.total == 0 && result.demoted == 0 {
+            if result.total == 0 && result.demoted == 0 && result.expired == 0 {
                 syncSummary = "No carved contacts on-chain."
             } else {
                 var parts = ["\(result.merged) on-chain contact\(result.merged == 1 ? "" : "s") synced"]
@@ -425,6 +429,9 @@ struct ContactsView: View {
                 }
                 if result.demoted > 0 {
                     parts.append("\(result.demoted) unmarked (no carve found on-chain)")
+                }
+                if result.expired > 0 {
+                    parts.append("\(result.expired) unconfirmed carve\(result.expired == 1 ? "" : "s") dropped — now local-only")
                 }
                 if result.undecryptable > 0 {
                     parts.append("\(result.undecryptable) could not be decrypted")
@@ -467,6 +474,11 @@ struct ContactsView: View {
 
     // MARK: - carving
 
+    /// Carved, but no chain sync has confirmed the carve yet.
+    private func isPendingCarve(_ c: Contact) -> Bool {
+        c.onChain != true && !(c.carveId ?? "").isEmpty
+    }
+
     private func canDeleteOnChain(_ c: Contact) -> Bool {
         session.canSign && c.onChain == true && !(c.carveId ?? "").isEmpty
     }
@@ -481,7 +493,17 @@ struct ContactsView: View {
         carveTxid = nil
         defer { carving = false }
         do {
-            carveTxid = try await session.carveContactOnChain(c)
+            let txid = try await session.carveContactOnChain(c)
+            carveTxid = txid
+            // Remember the first carve so the row reads as pending and a
+            // later edit carves an update of it, not a second add.
+            if (c.carveId ?? "").isEmpty {
+                var pending = c
+                pending.carveId = txid
+                pending.carvedAt = Date()
+                try session.contacts.upsert(pending)
+                reload()
+            }
         } catch {
             syncError = String(describing: error)
         }

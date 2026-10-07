@@ -556,6 +556,131 @@ final class MailSyncTests: XCTestCase {
         XCTAssertEqual(mock.recorded.count, 2)
     }
 
+    // MARK: - reorg reconcile
+
+    /// Stages `base.search` with `searchRows` and answers `base.getByIds`
+    /// from `byId`, recording which ids were asked for.
+    private func stageSearchAndGetByIds(
+        _ mock: MockFapiClient,
+        searchRows: [[String: Any]],
+        byId: [String: [String: Any]],
+        asked: IdBox
+    ) {
+        mock.responder = { call in
+            switch call.api {
+            case "base.search":
+                return try makeResponse(data: searchRows)
+            case "base.getByIds":
+                let dict = try XCTUnwrap(JSONSerialization.jsonObject(with: call.fcdsl!) as? [String: Any])
+                XCTAssertEqual(dict["entity"] as? String, "mail")
+                let ids = try XCTUnwrap(dict["ids"] as? [String])
+                asked.ids.append(contentsOf: ids)
+                let hits = byId.filter { ids.contains($0.key) }
+                if hits.isEmpty { return FapiResponse(code: 404, message: "Not found") }
+                return try makeResponse(data: hits)
+            default:
+                XCTFail("unexpected api \(call.api)")
+                return FapiResponse(code: 1, message: "unexpected")
+            }
+        }
+    }
+
+    /// A delete carved at height 5000 is orphaned by a reorg. The server
+    /// rebuilds the mail as it was: active, `lastHeight` back at its send
+    /// height 4000, far below the window an incremental walk covers. The
+    /// walk does not return it, so it is re-read by id and comes back.
+    func testARolledBackDeleteIsReReadById() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let me = session.mainFid
+        let peer = try fid(of: peerPrivkey)
+        let myPub = try Secp256k1.publicKey(fromPrivateKey: try session.livePrikey())
+
+        let sent = try record(id: "m1", from: peer, to: me, senderPriv: peerPrivkey,
+                              recipientPub: myPub, lastHeight: 4_000)
+        var deleted = sent
+        deleted["active"] = false
+        deleted["lastHeight"] = 5_000
+        let other = try record(id: "m2", from: peer, to: me, senderPriv: peerPrivkey,
+                               recipientPub: myPub, lastHeight: 5_010)
+        stageOnePage(mock, [other, deleted])
+        _ = try await session.mailService.syncOnChainMails(
+            fid: me, privkey: try session.livePrikey(), into: session.mails, incremental: false
+        )
+        XCTAssertTrue(try XCTUnwrap(session.mails.get(id: "m1")).isDeleted)
+
+        // After the reorg: the walk (floor 5010 - 30) returns only m2.
+        let asked = IdBox()
+        stageSearchAndGetByIds(mock, searchRows: [other], byId: ["m1": sent], asked: asked)
+        let result = try await session.mailService.syncOnChainMails(
+            fid: me, privkey: try session.livePrikey(), into: session.mails
+        )
+
+        XCTAssertEqual(asked.ids, ["m1"])
+        let m1 = try XCTUnwrap(session.mails.get(id: "m1"))
+        XCTAssertFalse(m1.isDeleted)
+        XCTAssertEqual(m1.lastHeight, 4_000)
+        XCTAssertEqual(result.vanished, 0)
+    }
+
+    /// A send orphaned by a reorg and never mined again leaves no mail on
+    /// chain. The row goes.
+    func testAMailTheChainNoLongerHasIsRemoved() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let me = session.mainFid
+        let peer = try fid(of: peerPrivkey)
+        let myPub = try Secp256k1.publicKey(fromPrivateKey: try session.livePrikey())
+
+        let kept = try record(id: "m1", from: peer, to: me, senderPriv: peerPrivkey,
+                              recipientPub: myPub, lastHeight: 5_000)
+        let orphan = try record(id: "m2", from: peer, to: me, senderPriv: peerPrivkey,
+                                recipientPub: myPub, lastHeight: 5_005)
+        stageOnePage(mock, [orphan, kept])
+        _ = try await session.mailService.syncOnChainMails(
+            fid: me, privkey: try session.livePrikey(), into: session.mails, incremental: false
+        )
+
+        let asked = IdBox()
+        stageSearchAndGetByIds(mock, searchRows: [kept], byId: [:], asked: asked)
+        let result = try await session.mailService.syncOnChainMails(
+            fid: me, privkey: try session.livePrikey(), into: session.mails
+        )
+
+        XCTAssertEqual(asked.ids, ["m2"])
+        XCTAssertNil(try session.mails.get(id: "m2"))
+        XCTAssertNotNil(try session.mails.get(id: "m1"))
+        XCTAssertEqual(result.vanished, 1)
+    }
+
+    /// Rows below the window are outside what the walk looked at, so
+    /// their absence means nothing and they are not re-read.
+    func testRowsBelowTheWindowAreNotReRead() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let me = session.mainFid
+        let peer = try fid(of: peerPrivkey)
+        let myPub = try Secp256k1.publicKey(fromPrivateKey: try session.livePrikey())
+
+        let old = try record(id: "m1", from: peer, to: me, senderPriv: peerPrivkey,
+                             recipientPub: myPub, lastHeight: 4_000)
+        let recent = try record(id: "m2", from: peer, to: me, senderPriv: peerPrivkey,
+                                recipientPub: myPub, lastHeight: 5_000)
+        stageOnePage(mock, [recent, old])
+        _ = try await session.mailService.syncOnChainMails(
+            fid: me, privkey: try session.livePrikey(), into: session.mails, incremental: false
+        )
+
+        let asked = IdBox()
+        stageSearchAndGetByIds(mock, searchRows: [recent], byId: [:], asked: asked)
+        _ = try await session.mailService.syncOnChainMails(
+            fid: me, privkey: try session.livePrikey(), into: session.mails
+        )
+
+        XCTAssertTrue(asked.ids.isEmpty)
+        XCTAssertNotNil(try session.mails.get(id: "m1"))
+    }
+
     // MARK: - paging helpers
 
     private func row(id: String, from: String, height: Int64) -> [String: Any] {
@@ -587,4 +712,8 @@ private final class PageCounter: @unchecked Sendable {
         defer { value += 1 }
         return value
     }
+}
+
+private final class IdBox: @unchecked Sendable {
+    var ids: [String] = []
 }

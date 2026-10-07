@@ -54,6 +54,22 @@ struct ContactEditorSheet: View {
         return false
     }
 
+    /// The contact being edited has a carve (confirmed or not), so it
+    /// mirrors the chain: an edit is carved as an `update`, and a
+    /// local-only save, which the next sync would overwrite, is not
+    /// offered.
+    private var isCarved: Bool {
+        if case .edit(let original) = mode { return !(original.carveId ?? "").isEmpty }
+        return false
+    }
+
+    /// Carved, but no sync has confirmed the carve yet. An update naming
+    /// an add the chain has not accepted could be rejected, so wait.
+    private var isPendingCarve: Bool {
+        if case .edit(let original) = mode { return isCarved && original.onChain != true }
+        return false
+    }
+
     private var fidLooksValid: Bool {
         (try? FchAddress(fid: fid)) != nil
     }
@@ -242,10 +258,19 @@ struct ContactEditorSheet: View {
     /// additionally broadcasts the FEIP CONTACT tx (`carveContact()`).
     private var footer: some View {
         HStack {
+            if isCarved {
+                Text(isPendingCarve
+                     ? "Its carve has not confirmed yet. Edit it once a block confirms it; one still unconfirmed after 2 hours is dropped at the next refresh."
+                     : "On chain: an edit is carved as an update (small miner fee).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
             Button("Cancel", role: .cancel) { onCancel() }
                 .keyboardShortcut(.cancelAction)
-            if session.canSign {
+            if isCarved {
+                // A carved contact can only be carved or cancelled.
+            } else if session.canSign {
                 saveButton
                     .buttonStyle(.bordered)
             } else {
@@ -265,12 +290,12 @@ struct ContactEditorSheet: View {
                         }
                         .frame(width: 120)
                     } else {
-                        Text("Save & carve").frame(width: 120)
+                        Text(isCarved ? "Carve update" : "Save & carve").frame(width: 120)
                     }
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
-                .disabled(!canSave)
+                .disabled(!canSave || isPendingCarve)
                 .help("Broadcast the contact as an encrypted FEIP CONTACT carve (small miner fee), then save it locally. Shows as On-chain once a block confirms it.")
             }
         }
@@ -489,9 +514,15 @@ struct ContactEditorSheet: View {
         saveError = nil
         defer { carving = false }
 
-        let contact = buildContact()
+        var contact = buildContact()
         do {
             let txid = try await session.carveContactOnChain(contact)
+            // A first carve: remember it, so the row reads as pending and
+            // a later edit carves an update of it, not a second add.
+            if (contact.carveId ?? "").isEmpty {
+                contact.carveId = txid
+                contact.carvedAt = Date()
+            }
             try session.contacts.upsert(contact)
             onSaved(txid)
         } catch {

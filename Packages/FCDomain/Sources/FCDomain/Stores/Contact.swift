@@ -98,6 +98,9 @@ public struct Contact: Codable, Equatable, Hashable, Sendable, Identifiable {
     /// sync; needed to target the record in `update` / `delete` /
     /// `recover` FEIP ops.
     public var carveId: String?
+    /// When the first carve, not confirmed yet, was broadcast; nil once
+    /// a sync has confirmed it. See ``CarveExpiry``.
+    public var carvedAt: Date? = nil
 
     // MARK: - Mac-local extras
 

@@ -172,6 +172,60 @@ final class ContactSyncTests: XCTestCase {
         XCTAssertNil(local.onChain)
     }
 
+    /// A first carve the chain never confirmed is dropped once it is
+    /// older than the window: the row becomes local-only again. A recent
+    /// one keeps waiting, and one the chain has is confirmed.
+    func testSyncExpiresAPendingCarveTheChainNeverConfirmed() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let ownerPriv = try session.livePrikey()
+
+        let droppedFid = try realFid(byte: 0xF1)
+        let waitingFid = try realFid(byte: 0xF2)
+        let landedFid = try realFid(byte: 0xF3)
+        let legacyFid = try realFid(byte: 0xF4)
+
+        var dropped = Contact(id: droppedFid, memo: "dropped")
+        dropped.carveId = "tx-dropped"
+        dropped.carvedAt = Date().addingTimeInterval(-3 * 3600)
+        var waiting = Contact(id: waitingFid, memo: "waiting")
+        waiting.carveId = "tx-waiting"
+        waiting.carvedAt = Date().addingTimeInterval(-10 * 60)
+        var landed = Contact(id: landedFid, memo: "landed")
+        landed.carveId = "tx-landed"
+        landed.carvedAt = Date().addingTimeInterval(-3 * 3600)
+        var legacy = Contact(id: legacyFid, memo: "legacy")
+        legacy.carveId = "tx-legacy"   // pending from before carves were timed
+        for c in [dropped, waiting, landed, legacy] { try session.contacts.upsert(c) }
+
+        let records: [[String: Any]] = [
+            try record(id: "tx-landed", contactFid: landedFid, ownerFid: session.liveFid,
+                       ownerPriv: ownerPriv, lastHeight: 500, active: true, memo: "landed")
+        ]
+        mock.responder = { call in
+            switch call.api {
+            case "base.search": return try makeResponse(data: records)
+            default: return try makeResponse(data: [String: Any]())
+            }
+        }
+
+        let result = try await session.directory.syncOnChainContacts(
+            owner: session.liveFid, privkey: ownerPriv, into: session.contacts
+        )
+
+        XCTAssertEqual(result.expired, 2)
+        let d = try XCTUnwrap(session.contacts.get(fid: droppedFid))
+        XCTAssertNil(d.carveId)
+        XCTAssertNil(d.carvedAt)
+        XCTAssertEqual(d.memo, "dropped")
+        XCTAssertNil(try XCTUnwrap(session.contacts.get(fid: legacyFid)).carveId)
+        XCTAssertEqual(try XCTUnwrap(session.contacts.get(fid: waitingFid)).carveId, "tx-waiting")
+        let l = try XCTUnwrap(session.contacts.get(fid: landedFid))
+        XCTAssertEqual(l.onChain, true)
+        XCTAssertEqual(l.carveId, "tx-landed")
+        XCTAssertNil(l.carvedAt)
+    }
+
     /// When any record fails to decrypt its contact FID is unknown, so
     /// the demote pass must not run — it could unmark a legitimately
     /// carved row.
