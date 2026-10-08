@@ -70,14 +70,18 @@ struct PublishAppSheet: View {
     }
 
     let onDone: (Result) -> Void
+    /// Set when Release Sync opens the sheet to review a carve.
+    let review: ReleaseReview<AppCarve>?
 
     init(
         session: ActiveSession,
         target: AppComposeTarget,
+        review: ReleaseReview<AppCarve>? = nil,
         onDone: @escaping (Result) -> Void
     ) {
         self.session = session
         self.target = target
+        self.review = review
         self.onDone = onDone
         let a = target.app
         _stdName = State(initialValue: a?.stdName ?? "")
@@ -171,6 +175,7 @@ struct PublishAppSheet: View {
     }
 
     private var heading: String {
+        if review != nil { return target.isUpdate ? "Review: update" : "Review: publish" }
         switch target {
         case .new:    return "Publish an app"
         case .draft:  return "Edit draft"
@@ -187,6 +192,10 @@ struct PublishAppSheet: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if review != nil {
+                ReleaseReviewNote(status: review?.status, text: "From the release. The standard name, version and download come from the GitHub release asset and are locked. Edits to the description, types, local names, code and protocols are written back to freeverse-release.json.")
+            }
+
             if target.isUpdate {
                 CopyableLabel("An update replaces what the record says. A field left blank here is a field cleared on chain — downloads included.", systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -199,10 +208,12 @@ struct PublishAppSheet: View {
                     HStack(spacing: 10) {
                         field("Standard name") {
                             TextField("What the app is called", text: $stdName)
+                                .disabled(review != nil)
                                 .fieldInputStyle()
                         }
                         field("Version") {
                             TextField("e.g. 1.4.2", text: $ver)
+                                .disabled(review != nil)
                                 .fieldInputStyle()
                         }
                         .frame(maxWidth: 140)
@@ -253,6 +264,7 @@ struct PublishAppSheet: View {
 
                     field("Downloads") {
                         DownloadsEditor(downloads: $downloads)
+                            .disabled(review != nil)
                     }
 
                     field("Where to read about it") {
@@ -348,6 +360,14 @@ struct PublishAppSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if let review {
+                ReleaseReviewButtons(
+                    canCarve: !trimmedName.isEmpty && remaining >= 0,
+                    stop: { review.decide(.stop) },
+                    skip: { review.decide(.skip) },
+                    carve: { review.decide(.carve(reviewed(review.original))) }
+                )
+            } else {
             HStack {
                 Button("Cancel") { onDone(.cancelled) }
                 Spacer()
@@ -365,6 +385,7 @@ struct PublishAppSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canCarve)
+            }
             }
         }
         .padding(20)
@@ -439,6 +460,20 @@ struct PublishAppSheet: View {
         } catch {
             self.error = "Couldn't save the draft: \(error)"
         }
+    }
+
+    /// The reviewed carve: the locked fields as offered, the rest as edited.
+    private func reviewed(_ original: AppCarve) -> AppCarve {
+        var c = original
+        c.localNames = localNames
+        c.types = types.isEmpty ? nil : types
+        c.desc = clean(desc)
+        c.home = home
+        c.waiters = waiters.isEmpty ? nil : waiters
+        c.protocols = protocols.isEmpty ? nil : protocols
+        c.codes = codes.isEmpty ? nil : codes
+        c.services = serviceIds.isEmpty ? nil : serviceIds
+        return c
     }
 
     private func carve() async {

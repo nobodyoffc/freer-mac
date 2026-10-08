@@ -70,14 +70,18 @@ struct PublishProtocolSheet: View {
     }
 
     let onDone: (Result) -> Void
+    /// Set when Release Sync opens the sheet to review a carve.
+    let review: ReleaseReview<ProtocolCarve>?
 
     init(
         session: ActiveSession,
         target: ProtocolComposeTarget,
+        review: ReleaseReview<ProtocolCarve>? = nil,
         onDone: @escaping (Result) -> Void
     ) {
         self.session = session
         self.target = target
+        self.review = review
         self.onDone = onDone
         let spec = target.spec
         _name = State(initialValue: spec?.name ?? "")
@@ -131,6 +135,7 @@ struct PublishProtocolSheet: View {
     }
 
     private var heading: String {
+        if review != nil { return target.isUpdate ? "Review: update" : "Review: publish" }
         switch target {
         case .new:    return "Publish a protocol"
         case .draft:  return "Edit draft"
@@ -147,6 +152,10 @@ struct PublishProtocolSheet: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if review != nil {
+                ReleaseReviewNote(status: review?.status, text: "From the document. Name, type, serial number, version, language, description and DID come from the .md file and are locked; to change them, edit the document and scan again.")
+            }
+
             if target.isUpdate {
                 CopyableLabel("An update replaces what the record says. A field left blank here is a field cleared on chain.", systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -158,25 +167,30 @@ struct PublishProtocolSheet: View {
                 VStack(alignment: .leading, spacing: 12) {
                     field("Name") {
                         TextField("What the protocol is called", text: $name)
+                            .disabled(review != nil)
                             .fieldInputStyle()
                     }
 
                     HStack(spacing: 10) {
                         field("Type") {
                             TextField("e.g. FEIP", text: $type)
+                                .disabled(review != nil)
                                 .fieldInputStyle()
                         }
                         field("Serial number") {
                             TextField("the protocol's own sn", text: $sn)
+                                .disabled(review != nil)
                                 .fieldInputStyle()
                         }
                         .help("The number this protocol goes by — not the FEIP envelope's sn, which is always 1 for a protocol registration.")
                         field("Version") {
                             TextField("e.g. 3", text: $ver)
+                                .disabled(review != nil)
                                 .fieldInputStyle()
                         }
                         field("Language") {
                             TextField("en", text: $lang)
+                                .disabled(review != nil)
                                 .fieldInputStyle()
                         }
                         .frame(maxWidth: 90)
@@ -185,6 +199,7 @@ struct PublishProtocolSheet: View {
                     field("Description") {
                         VStack(alignment: .leading, spacing: 4) {
                             TextEditor(text: $desc)
+                                .disabled(review != nil)
                                 .font(.body)
                                 .fieldEditorStyle(minHeight: 80, maxHeight: 160)
                             HStack {
@@ -203,6 +218,7 @@ struct PublishProtocolSheet: View {
 
                     field("Document DID") {
                         TextField("digest of the specification document", text: $did)
+                            .disabled(review != nil)
                             .fieldInputStyle()
                             .font(.system(.body, design: .monospaced))
                     }
@@ -272,6 +288,14 @@ struct PublishProtocolSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if let review {
+                ReleaseReviewButtons(
+                    canCarve: !trimmedName.isEmpty && remaining >= 0,
+                    stop: { review.decide(.stop) },
+                    skip: { review.decide(.skip) },
+                    carve: { review.decide(.carve(reviewed(review.original))) }
+                )
+            } else {
             HStack {
                 Button("Cancel") { onDone(.cancelled) }
                 Spacer()
@@ -289,6 +313,7 @@ struct PublishProtocolSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canCarve)
+            }
             }
         }
         .padding(20)
@@ -381,6 +406,15 @@ struct PublishProtocolSheet: View {
                 ? "Couldn't update: \(error)"
                 : "Couldn't publish: \(error)"
         }
+    }
+
+    /// The reviewed carve: the locked fields as offered, the rest as edited.
+    private func reviewed(_ original: ProtocolCarve) -> ProtocolCarve {
+        var c = original
+        c.preDid = clean(preDid)
+        c.home = home
+        c.waiters = waiters.isEmpty ? nil : waiters
+        return c
     }
 
     private func clean(_ s: String) -> String? {

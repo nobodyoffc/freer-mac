@@ -69,6 +69,9 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
     /// not. The pane's type keeps the old name for a reason of its own,
     /// spelled out in ``TerminalPaneView``.
     case ssh
+    /// Release Sync: carve the protocols, codes and apps of a GitHub
+    /// release. A workbench pointed at your repos, so it sits with SSH.
+    case releaseSync
 
     // System
     case logs
@@ -124,7 +127,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
             return .publish
         case .protocols, .services, .codes, .apps:
             return .construct
-        case .crypto, .convert, .ssh:
+        case .crypto, .convert, .ssh, .releaseSync:
             return .tools
         case .logs, .settings:
             return .system
@@ -163,6 +166,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .crypto:       return "Crypto"
         case .convert:      return "Converter"
         case .ssh:          return "SSH"
+        case .releaseSync:  return "Release Sync"
         case .logs:         return "Logs"
         case .settings:     return "Settings"
         }
@@ -226,7 +230,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
              .contacts, .news, .helpBeginners, .proofs, .tokens, .files,
              .publishText, .publishStatement, .publishImage, .publishSound, .publishVideo,
              .protocols, .services, .codes, .apps,
-             .crypto, .convert, .ssh, .logs, .settings:
+             .crypto, .convert, .ssh, .releaseSync, .logs, .settings:
             return false
         }
     }
@@ -271,6 +275,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .crypto:       return "wrench.and.screwdriver"
         case .convert:      return "arrow.left.arrow.right"
         case .ssh:          return "terminal"
+        case .releaseSync:  return "shippingbox"
         case .logs:         return "exclamationmark.bubble"
         case .settings:     return "gearshape"
         }

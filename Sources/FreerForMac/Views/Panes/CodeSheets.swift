@@ -71,14 +71,18 @@ struct PublishCodeSheet: View {
     }
 
     let onDone: (Result) -> Void
+    /// Set when Release Sync opens the sheet to review a carve.
+    let review: ReleaseReview<CodeCarve>?
 
     init(
         session: ActiveSession,
         target: CodeComposeTarget,
+        review: ReleaseReview<CodeCarve>? = nil,
         onDone: @escaping (Result) -> Void
     ) {
         self.session = session
         self.target = target
+        self.review = review
         self.onDone = onDone
         let code = target.code
         _name = State(initialValue: code?.name ?? "")
@@ -149,6 +153,7 @@ struct PublishCodeSheet: View {
     }
 
     private var heading: String {
+        if review != nil { return target.isUpdate ? "Review: update" : "Review: publish" }
         switch target {
         case .new:    return "Publish a code record"
         case .draft:  return "Edit draft"
@@ -165,6 +170,10 @@ struct PublishCodeSheet: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if review != nil {
+                ReleaseReviewNote(status: review?.status, text: "From the release. Name, version and DID come from the module and its archive and are locked. Edits to the description, languages and protocols are written back to freeverse-release.json.")
+            }
+
             if target.isUpdate {
                 CopyableLabel("An update replaces what the record says. A field left blank here is a field cleared on chain.", systemImage: "exclamationmark.triangle")
                     .font(.caption)
@@ -177,10 +186,12 @@ struct PublishCodeSheet: View {
                     HStack(spacing: 10) {
                         field("Name") {
                             TextField("What the implementation is called", text: $name)
+                                .disabled(review != nil)
                                 .fieldInputStyle()
                         }
                         field("Version") {
                             TextField("e.g. 1.4.2", text: $ver)
+                                .disabled(review != nil)
                                 .fieldInputStyle()
                         }
                         .frame(maxWidth: 140)
@@ -239,6 +250,7 @@ struct PublishCodeSheet: View {
 
                     field("Artefact DID") {
                         TextField("digest of the code being registered", text: $did)
+                            .disabled(review != nil)
                             .fieldInputStyle()
                             .font(.system(.body, design: .monospaced))
                     }
@@ -301,6 +313,14 @@ struct PublishCodeSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            if let review {
+                ReleaseReviewButtons(
+                    canCarve: !trimmedName.isEmpty && remaining >= 0,
+                    stop: { review.decide(.stop) },
+                    skip: { review.decide(.skip) },
+                    carve: { review.decide(.carve(reviewed(review.original))) }
+                )
+            } else {
             HStack {
                 Button("Cancel") { onDone(.cancelled) }
                 Spacer()
@@ -318,6 +338,7 @@ struct PublishCodeSheet: View {
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canCarve)
+            }
             }
         }
         .padding(20)
@@ -379,6 +400,17 @@ struct PublishCodeSheet: View {
         } catch {
             self.error = "Couldn't save the draft: \(error)"
         }
+    }
+
+    /// The reviewed carve: the locked fields as offered, the rest as edited.
+    private func reviewed(_ original: CodeCarve) -> CodeCarve {
+        var c = original
+        c.desc = clean(desc)
+        c.langs = langs.isEmpty ? nil : langs
+        c.home = home
+        c.protocols = protocols.isEmpty ? nil : protocols
+        c.waiters = waiters.isEmpty ? nil : waiters
+        return c
     }
 
     private func carve() async {

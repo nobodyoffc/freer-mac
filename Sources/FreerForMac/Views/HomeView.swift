@@ -286,6 +286,8 @@ struct HomeView: View {
             ConvertView(session: session)
         case .ssh:
             TerminalPaneView(session: session)
+        case .releaseSync:
+            ReleaseSyncPaneView(session: session)
         case .logs:
             SystemMessagesView(session: session)
         case .settings:
