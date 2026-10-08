@@ -24,8 +24,8 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
     case transactions
 
     // Society
-    case contacts
     case chat
+    case contacts
     case mail
     case news
     /// The First FCH board. Under Society rather than System because it
@@ -34,13 +34,13 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
     /// rather than the one that fills up on its own.
     case helpBeginners
 
-    // Finance
-    case proofs
-    case tokens
-
     // Personal
     case files
     case secrets
+
+    // Finance
+    case proofs
+    case tokens
 
     // Publish
     case publishText
@@ -84,11 +84,11 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case wallet = "Wallet"
         /// Everything addressed to or from other people.
         case society = "Society"
+        /// Yours alone: nothing here is sent anywhere by opening it.
+        case personal = "Personal"
         /// Value that isn't the base coin — proofs of a contract's
         /// state, and the tokens issued against them.
         case finance = "Finance"
-        /// Yours alone: nothing here is sent anywhere by opening it.
-        case personal = "Personal"
         /// Putting something on chain for everyone — one pane per kind
         /// of thing published.
         case publish = "Publish"
@@ -116,10 +116,10 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
             return .wallet
         case .contacts, .chat, .mail, .news, .helpBeginners:
             return .society
-        case .proofs, .tokens:
-            return .finance
         case .files, .secrets:
             return .personal
+        case .proofs, .tokens:
+            return .finance
         case .publishText, .publishStatement, .publishImage, .publishSound, .publishVideo:
             return .publish
         case .protocols, .services, .codes, .apps:
