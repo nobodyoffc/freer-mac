@@ -8,7 +8,7 @@ import FCTransport
 ///
 /// Not `Sendable` enough for true concurrent use across actors —
 /// fine for the synchronous test patterns we use here.
-final class MockFapiClient: FapiCalling, @unchecked Sendable {
+final class MockFapiClient: FapiCalling, PongInfoAsking, @unchecked Sendable {
 
     struct Recorded {
         let api: String
@@ -32,6 +32,16 @@ final class MockFapiClient: FapiCalling, @unchecked Sendable {
     /// Optional binary trailer per call. Keyed by api name; nil for
     /// calls that don't return binary.
     var binaryByApi: [String: Data] = [:]
+
+    /// The server's PONG service advert. Nil answers as a server that
+    /// cannot be pinged, which callers treat like one that advertised
+    /// nothing.
+    var pongInfoData: Data?
+
+    func pongInfo(timeoutMs: Int) async throws -> Data {
+        guard let pongInfoData else { throw URLError(.timedOut) }
+        return pongInfoData
+    }
 
     func call(
         api: String,

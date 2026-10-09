@@ -70,7 +70,8 @@ public enum RemarkFeip {
         lang: String? = nil,
         authors: [String]? = nil,
         format: String? = nil,
-        summary: String? = nil
+        summary: String? = nil,
+        locas: [String]? = nil
     ) throws -> String {
         var dict: [String: Any] = ["op": Op.publish.rawValue]
         put(&dict, "title", title)
@@ -80,6 +81,7 @@ public enum RemarkFeip {
         if let authors, !authors.isEmpty { dict["authors"] = authors }
         put(&dict, "format", format)
         put(&dict, "summary", summary)
+        if let locas, !locas.isEmpty { dict["locas"] = locas }
         return try jsonString(dict)
     }
 
@@ -94,7 +96,8 @@ public enum RemarkFeip {
         lang: String? = nil,
         authors: [String]? = nil,
         format: String? = nil,
-        summary: String? = nil
+        summary: String? = nil,
+        locas: [String]? = nil
     ) throws -> String {
         var dict: [String: Any] = ["op": Op.update.rawValue, "remarkId": remarkId]
         put(&dict, "title", title)
@@ -104,6 +107,7 @@ public enum RemarkFeip {
         if let authors, !authors.isEmpty { dict["authors"] = authors }
         put(&dict, "format", format)
         put(&dict, "summary", summary)
+        if let locas, !locas.isEmpty { dict["locas"] = locas }
         return try jsonString(dict)
     }
 
@@ -165,7 +169,8 @@ public enum RemarkFeip {
         lang: String? = nil,
         authors: [String]? = nil,
         format: String? = nil,
-        summary: String? = nil
+        summary: String? = nil,
+        locas: [String]? = nil
     ) throws -> String {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Failure.emptyTitle
@@ -175,7 +180,7 @@ public enum RemarkFeip {
         }
         return try sized(envelope(opJson: publishOp(
             title: title, did: did, onDid: onDid, lang: lang,
-            authors: authors, format: format, summary: summary
+            authors: authors, format: format, summary: summary, locas: locas
         )))
     }
 
@@ -187,7 +192,8 @@ public enum RemarkFeip {
         lang: String? = nil,
         authors: [String]? = nil,
         format: String? = nil,
-        summary: String? = nil
+        summary: String? = nil,
+        locas: [String]? = nil
     ) throws -> String {
         guard !remarkId.isEmpty else { throw Failure.missingRemarkId }
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -198,7 +204,7 @@ public enum RemarkFeip {
         }
         return try sized(envelope(opJson: updateOp(
             remarkId: remarkId, title: title, did: did, onDid: onDid,
-            lang: lang, authors: authors, format: format, summary: summary
+            lang: lang, authors: authors, format: format, summary: summary, locas: locas
         )))
     }
 
@@ -211,18 +217,19 @@ public enum RemarkFeip {
         lang: String? = nil,
         authors: [String]? = nil,
         format: String? = nil,
-        summary: String
+        summary: String,
+        locas: [String]? = nil
     ) -> Int {
         let probe = summary.isEmpty ? "x" : summary
         let opJson: String?
         if let remarkId, !remarkId.isEmpty {
             opJson = try? updateOp(
                 remarkId: remarkId, title: title, did: did, onDid: onDid,
-                lang: lang, authors: authors, format: format, summary: probe)
+                lang: lang, authors: authors, format: format, summary: probe, locas: locas)
         } else {
             opJson = try? publishOp(
                 title: title, did: did, onDid: onDid,
-                lang: lang, authors: authors, format: format, summary: probe)
+                lang: lang, authors: authors, format: format, summary: probe, locas: locas)
         }
         let json = opJson.map(envelope(opJson:)) ?? ""
         let used = Data(json.utf8).count - (summary.isEmpty ? 1 : 0)

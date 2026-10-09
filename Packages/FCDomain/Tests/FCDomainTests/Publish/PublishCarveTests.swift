@@ -395,6 +395,167 @@ final class PublishCarveTests: XCTestCase {
             "the carve the user just paid for must not disappear under them"
         )
     }
+
+    // MARK: - locas
+
+    private let diskA = "(sid)" + String(repeating: "aa", count: 32)
+    private let diskB = "(sid)" + String(repeating: "bb", count: 32)
+
+    /// Register `did` as a HAT the way an upload leaves it: with the
+    /// DISK it went to among its locations.
+    private func seedHat(_ session: ActiveSession, did: String, locas: [String]) throws {
+        let now = Hat.currentTimeMillis()
+        _ = try session.hats.upsert(Hat(
+            born: now, last: now, name: "body", types: ["text/plain"],
+            state: .active, locas: locas, id: did
+        ))
+    }
+
+    /// A publish lists where its body was uploaded, so a reader who
+    /// shares no DISK with the publisher can still fetch it. A local
+    /// path is nobody else's business and stays off the chain.
+    func testAPublishCarvesTheDisksItsBodyWasUploadedTo() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let broadcast = Captured()
+        try stage(mock, senderFid: session.mainFid, onBroadcast: { broadcast.value = $0 })
+        let did = String(repeating: "ab", count: 32)
+        try seedHat(session, did: did, locas: ["local:///tmp/body.txt", diskA])
+
+        let record = try await session.carveTextPublishOnChain(title: "Why Freecash", did: did)
+
+        let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
+        XCTAssertNotNil(raw.range(of: Data(#""locas":["\#(diskA)"]"#.utf8)))
+        XCTAssertNil(raw.range(of: Data("local://".utf8)))
+        XCTAssertEqual(record.locas, [diskA])
+    }
+
+    /// No body, or a body never uploaded: no `locas` key at all, rather
+    /// than an empty list spending OP_RETURN bytes on saying nothing.
+    func testAPublishWithNoUploadedBodyCarvesNoLocas() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let broadcast = Captured()
+        try stage(mock, senderFid: session.mainFid, onBroadcast: { broadcast.value = $0 })
+
+        _ = try await session.carveTextPublishOnChain(
+            title: "Why Freecash", did: String(repeating: "ab", count: 32)
+        )
+
+        let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
+        XCTAssertNil(raw.range(of: Data("locas".utf8)))
+    }
+
+    /// The parser replaces `locas` with the update's value, so an edit
+    /// that leaves the body alone must resend the list it already had —
+    /// including entries this Mac did not add — or the edit silently
+    /// strips the mirrors.
+    func testAnUpdateOfTheSameBodyResendsItsLocas() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let broadcast = Captured()
+        try stage(mock, senderFid: session.mainFid, txid: "update-txid", onBroadcast: { broadcast.value = $0 })
+        let did = String(repeating: "ab", count: 32)
+        try seedHat(session, did: did, locas: [diskA])
+        try session.texts.upsert(TextRecord(
+            id: "T1", title: "Old", ver: "1", did: did, locas: [diskB],
+            publisher: session.liveFid, onChain: true
+        ))
+
+        _ = try await session.carveTextUpdateOnChain(textId: "T1", title: "New", did: did)
+
+        let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
+        XCTAssertNotNil(raw.range(of: Data(#""locas":["\#(diskB)","\#(diskA)"]"#.utf8)))
+        XCTAssertEqual(try session.texts.get(id: "T1")?.locas, [diskB, diskA])
+    }
+
+    /// A new body is new bytes: the old list said where the *old* bytes
+    /// were, and resending it would point readers at servers that never
+    /// held the new ones.
+    func testAnUpdateWithANewBodyDropsTheOldLocas() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let broadcast = Captured()
+        try stage(mock, senderFid: session.mainFid, txid: "update-txid", onBroadcast: { broadcast.value = $0 })
+        let newDid = String(repeating: "cd", count: 32)
+        try seedHat(session, did: newDid, locas: [diskA])
+        try session.texts.upsert(TextRecord(
+            id: "T1", title: "Old", ver: "1", did: String(repeating: "ab", count: 32),
+            locas: [diskB], publisher: session.liveFid, onChain: true
+        ))
+
+        _ = try await session.carveTextUpdateOnChain(textId: "T1", title: "New", did: newDid)
+
+        let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
+        XCTAssertNotNil(raw.range(of: Data(#""locas":["\#(diskA)"]"#.utf8)))
+        XCTAssertNil(raw.range(of: Data(diskB.utf8)))
+    }
+
+    /// An upload tagged with the server's address is carved as the SID
+    /// of the DISK running there, learned from the server's own advert:
+    /// a carve is permanent, and an address goes stale when a server
+    /// moves while a SID is re-resolved.
+    func testAnAddressLocaIsCarvedAsTheSidTheServerAdvertises() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let broadcast = Captured()
+        try stage(mock, senderFid: session.mainFid, onBroadcast: { broadcast.value = $0 })
+        let server = "fudp://fapi.example.org:8500"
+        _ = try session.preferences.update { $0.preferredFapiService = server }
+        let diskSid = String(repeating: "5d", count: 32)
+        mock.pongInfoData = Data(#"{"services":[{"sid":"\#(diskSid)","type":"FAPI@No1_NrC7","components":["DISK@No1_NrC7"]}]}"#.utf8)
+        let did = String(repeating: "ab", count: 32)
+        try seedHat(session, did: did, locas: [server])
+
+        let record = try await session.carveMediaPublishOnChain(kind: .video, title: "Clip", did: did)
+
+        let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
+        XCTAssertNotNil(raw.range(of: Data(#""locas":["(sid)\#(diskSid)"]"#.utf8)))
+        XCTAssertNil(raw.range(of: Data("fudp://".utf8)))
+        XCTAssertEqual(record.locas, ["(sid)" + diskSid])
+    }
+
+    /// When nobody can say which DISK runs at the address, the address
+    /// itself is carved: less durable, still a valid location.
+    func testAnAddressWithNoKnownSidIsCarvedAsIs() async {
+        let mock = MockFapiClient()
+        guard let session = try? makeSession(fapi: mock) else { return XCTFail("session") }
+        let server = "fudp://fapi.example.org:8500"
+        _ = try? session.preferences.update { $0.preferredFapiService = server }
+        // No advert, and the chain search finds no DISK at this address.
+        mock.responder = { _ in try makeResponse(data: [[String: Any]]()) }
+
+        let carved = await session.carveFormLocas([server, diskA])
+        XCTAssertEqual(carved, [server, diskA])
+    }
+
+    /// Media and remarks carve `locas` by the same rule as text.
+    func testMediaAndRemarkPublishesCarveLocasToo() async throws {
+        let did = String(repeating: "ab", count: 32)
+        let fragment = Data(#""locas":["\#(diskA)"]"#.utf8)
+        // A session per carve: the staged cash is spent by the first.
+        func fresh() throws -> (ActiveSession, Captured) {
+            let mock = MockFapiClient()
+            let session = try makeSession(fapi: mock)
+            let broadcast = Captured()
+            try stage(mock, senderFid: session.mainFid, onBroadcast: { broadcast.value = $0 })
+            try seedHat(session, did: did, locas: [diskA])
+            return (session, broadcast)
+        }
+
+        var (session, broadcast) = try fresh()
+        let image = try await session.carveMediaPublishOnChain(kind: .image, title: "Photo", did: did)
+        XCTAssertNotNil(Data(fromHex: try XCTUnwrap(broadcast.value)).range(of: fragment))
+        XCTAssertEqual(image.locas, [diskA])
+
+        manager = try ConfigureManager(baseDirectory: baseDir.appendingPathComponent("second"))
+        (session, broadcast) = try fresh()
+        let remark = try await session.carveRemarkPublishOnChain(
+            title: "Note", onDid: String(repeating: "ef", count: 32), did: did
+        )
+        XCTAssertNotNil(Data(fromHex: try XCTUnwrap(broadcast.value)).range(of: fragment))
+        XCTAssertEqual(remark.locas, [diskA])
+    }
 }
 
 /// The broadcast raw hex, captured out of the mock's responder. One per

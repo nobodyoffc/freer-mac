@@ -43,6 +43,10 @@ public struct TextRecord: Codable, Equatable, Sendable, Identifiable {
     public var type: String?
     public var format: String?
     public var summary: String?
+    /// Where the body can be fetched: `(sid)<SID>` of a DISK service,
+    /// `fudp://host:port`, or an `https://` URL. Hints — every fetch is
+    /// checked against ``did``.
+    public var locas: [String]?
     public var publisher: String?
     public var birthTime: Int64?
     public var birthHeight: Int64?
@@ -72,7 +76,7 @@ public struct TextRecord: Codable, Equatable, Sendable, Identifiable {
     public var updatedAt: Date
 
     private enum CodingKeys: String, CodingKey {
-        case title, ver, did, authors, lang, type, format, summary
+        case title, ver, did, authors, lang, type, format, summary, locas
         case publisher, birthTime, birthHeight, lastTxId, lastTime, lastHeight
         case tCdd, tRate, deleted, id
         case onChain, addedAt, updatedAt
@@ -88,6 +92,7 @@ public struct TextRecord: Codable, Equatable, Sendable, Identifiable {
         type: String? = nil,
         format: String? = nil,
         summary: String? = nil,
+        locas: [String]? = nil,
         publisher: String? = nil,
         birthTime: Int64? = nil,
         birthHeight: Int64? = nil,
@@ -110,6 +115,7 @@ public struct TextRecord: Codable, Equatable, Sendable, Identifiable {
         self.type = type
         self.format = format
         self.summary = summary
+        self.locas = locas
         self.publisher = publisher
         self.birthTime = birthTime
         self.birthHeight = birthHeight
@@ -141,6 +147,7 @@ public struct TextRecord: Codable, Equatable, Sendable, Identifiable {
         type = try c.decodeIfPresent(String.self, forKey: .type)
         format = try c.decodeIfPresent(String.self, forKey: .format)
         summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        locas = try c.decodeIfPresent([String].self, forKey: .locas)
         publisher = try c.decodeIfPresent(String.self, forKey: .publisher)
         birthTime = try c.decodeIfPresent(Int64.self, forKey: .birthTime)
         birthHeight = try c.decodeIfPresent(Int64.self, forKey: .birthHeight)

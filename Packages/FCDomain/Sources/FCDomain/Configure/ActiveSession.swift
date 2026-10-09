@@ -548,8 +548,73 @@ public final class ActiveSession {
                       let client = await registry.client(for: url)
                 else { return nil }
                 return DiskService(fapi: client)
+            },
+            // A record's `locas` entry is a home value in all but name:
+            // `(sid)<SID>` or `fudp://host:port`, which the resolver
+            // already turns into an address. PublishBody hands over only
+            // those two forms; `https://` entries never reach here.
+            locaDisk: { loca in
+                guard let url = await resolver.resolve(loca),
+                      let client = await registry.client(for: url)
+                else { return nil }
+                return DiskService(fapi: client)
             }
         )
+    }
+
+    /// `locas` as a carve should state them: each `fudp://` DISK
+    /// address replaced by `(sid)<SID>` of the DISK service running
+    /// there, when that can be learned.
+    ///
+    /// **Why a SID and not the address.** An upload is tagged with
+    /// whatever ``HatSyncService/currentLocation`` knows, and with no
+    /// DISK provider pinned that is the FAPI server's address. That is
+    /// fine in a HAT on this Mac, but a carve is permanent: a server
+    /// that moves host or port leaves an address dead forever, while a
+    /// SID is re-resolved to wherever the service's record points now.
+    /// An address whose SID cannot be found is kept as it is — still a
+    /// valid FEIP21 location, only a less durable one.
+    public func carveFormLocas(_ locas: [String]?) async -> [String]? {
+        guard let locas, !locas.isEmpty else { return locas }
+        var out: [String] = []
+        for loca in locas {
+            var entry = loca
+            if loca.hasPrefix(Hat.fudpLocationPrefix), let sid = await diskSid(at: loca) {
+                entry = Hat.sidLocationPrefix + sid
+            }
+            if !out.contains(entry) { out.append(entry) }
+        }
+        return out
+    }
+
+    /// The SID of the DISK service at `url`, or nil.
+    ///
+    /// The server is asked first, through its PONG advert — free, and
+    /// answered below the billing gate, the same route
+    /// ``dockTopUp(for:timeoutMs:)`` takes. Then the resolver's cache,
+    /// then a chain search for a DISK record naming this address.
+    func diskSid(at rawUrl: String) async -> String? {
+        let url = FudpUrl.normalize(rawUrl) ?? rawUrl
+        let ownUrl = try? preferences.load().preferredFapiService
+        let client: (any FapiCalling)? = FudpUrl.sameEndpoint(ownUrl, url)
+            ? fapi
+            : await dockRegistry.client(for: url)
+        if let asker = client as? PongInfoAsking,
+           let info = try? await asker.pongInfo(timeoutMs: 5_000),
+           let hit = DockTopUp.services(fromPongInfo: info)
+               .first(where: { $0.offers(ServiceName.disk) && !$0.sid.isEmpty }) {
+            return hit.sid
+        }
+        if let cached = await homeServices.cachedService(url: url),
+           cached.offers(ServiceName.disk), !cached.sid.isEmpty {
+            return cached.sid
+        }
+        if let found = try? await directory.service(
+            at: url, offering: [ServiceName.disk], timeoutMs: 10_000
+        ), !found.sid.isEmpty {
+            return found.sid
+        }
+        return nil
     }
 
     /// Which DOCK each conversation lives on, and a connected client per
@@ -3258,17 +3323,20 @@ public final class ActiveSession {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
+        locas: [String]? = nil,
         draftId: String? = nil,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> TextRecord {
         let priv = try livePrikey()
         let list = (authors?.isEmpty ?? true) ? nil : authors
+        let carvedLocas = await carveFormLocas(locas ?? publishBody.carvedLocas(did: did))
         // Throws before anything is broadcast when the metadata is too
         // big for an OP_RETURN.
         let feipJson = try TextFeip.publishCarve(
             title: title, type: type, did: did, lang: lang,
-            authors: list, format: format, summary: summary
+            authors: list, format: format, summary: summary,
+            locas: carvedLocas
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
@@ -3277,7 +3345,10 @@ public final class ActiveSession {
         )
         let txid = result.remoteTxid
 
-        if let draftId, let promoted = try? texts.promoteDraft(id: draftId, toTxid: txid) {
+        if let draftId, var promoted = try? texts.promoteDraft(id: draftId, toTxid: txid) {
+            // A draft never had locations; the upload just gave it some.
+            promoted.locas = carvedLocas
+            try? texts.upsert(promoted)
             return promoted
         }
         let now = Int64(Date().timeIntervalSince1970)
@@ -3293,6 +3364,7 @@ public final class ActiveSession {
             type: type,
             format: format,
             summary: summary,
+            locas: carvedLocas,
             publisher: liveFid,
             birthTime: now,
             lastTxId: txid,
@@ -3331,14 +3403,21 @@ public final class ActiveSession {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
+        locas: [String]? = nil,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> String {
         let priv = try livePrikey()
         let list = (authors?.isEmpty ?? true) ? nil : authors
+        // An update replaces the entity's `locas`, so the current list is
+        // resent — see ``PublishBody/carvedLocas(did:keeping:previousDid:)``.
+        let existing = try? texts.get(id: textId)
+        let carvedLocas = await carveFormLocas(locas ?? publishBody.carvedLocas(
+            did: did, keeping: existing?.locas, previousDid: existing?.did))
         let feipJson = try TextFeip.updateCarve(
             textId: textId, title: title, type: type, did: did, lang: lang,
-            authors: list, format: format, summary: summary
+            authors: list, format: format, summary: summary,
+            locas: carvedLocas
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
@@ -3358,6 +3437,7 @@ public final class ActiveSession {
             record.authors = list
             record.format = format
             record.summary = summary
+            record.locas = carvedLocas
             record.ver = String(record.edition + 1)
             record.lastTxId = txid
             record.lastHeight = TextsStore.unconfirmedHeight
@@ -3435,15 +3515,18 @@ public final class ActiveSession {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
+        locas: [String]? = nil,
         draftId: String? = nil,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> Remark {
         let priv = try livePrikey()
         let list = (authors?.isEmpty ?? true) ? nil : authors
+        let carvedLocas = await carveFormLocas(locas ?? publishBody.carvedLocas(did: did))
         let feipJson = try RemarkFeip.publishCarve(
             title: title, onDid: onDid, did: did, lang: lang,
-            authors: list, format: format, summary: summary
+            authors: list, format: format, summary: summary,
+            locas: carvedLocas
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
@@ -3452,7 +3535,10 @@ public final class ActiveSession {
         )
         let txid = result.remoteTxid
 
-        if let draftId, let promoted = try? remarks.promoteDraft(id: draftId, toTxid: txid) {
+        if let draftId, var promoted = try? remarks.promoteDraft(id: draftId, toTxid: txid) {
+            // A draft never had locations; the upload just gave it some.
+            promoted.locas = carvedLocas
+            try? remarks.upsert(promoted)
             return promoted
         }
         let now = Int64(Date().timeIntervalSince1970)
@@ -3466,6 +3552,7 @@ public final class ActiveSession {
             lang: lang,
             format: format,
             summary: summary,
+            locas: carvedLocas,
             publisher: liveFid,
             birthTime: now,
             lastTxId: txid,
@@ -3492,14 +3579,21 @@ public final class ActiveSession {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
+        locas: [String]? = nil,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> String {
         let priv = try livePrikey()
         let list = (authors?.isEmpty ?? true) ? nil : authors
+        // An update replaces the entity's `locas`, so the current list is
+        // resent — see ``PublishBody/carvedLocas(did:keeping:previousDid:)``.
+        let existing = try? remarks.get(id: remarkId)
+        let carvedLocas = await carveFormLocas(locas ?? publishBody.carvedLocas(
+            did: did, keeping: existing?.locas, previousDid: existing?.did))
         let feipJson = try RemarkFeip.updateCarve(
             remarkId: remarkId, title: title, onDid: onDid, did: did,
-            lang: lang, authors: list, format: format, summary: summary
+            lang: lang, authors: list, format: format, summary: summary,
+            locas: carvedLocas
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
@@ -3516,6 +3610,7 @@ public final class ActiveSession {
             record.authors = list
             record.format = format
             record.summary = summary
+            record.locas = carvedLocas
             record.ver = String(record.edition + 1)
             record.lastTxId = txid
             record.lastHeight = RemarksStore.unconfirmedHeight
@@ -3592,15 +3687,18 @@ public final class ActiveSession {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
+        locas: [String]? = nil,
         draftId: String? = nil,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> MediaRecord {
         let priv = try livePrikey()
         let list = (authors?.isEmpty ?? true) ? nil : authors
+        let carvedLocas = await carveFormLocas(locas ?? publishBody.carvedLocas(did: did))
         let feipJson = try MediaFeip.publishCarve(
             kind: kind, title: title, did: did, lang: lang,
-            authors: list, format: format, summary: summary
+            authors: list, format: format, summary: summary,
+            locas: carvedLocas
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
@@ -3610,7 +3708,10 @@ public final class ActiveSession {
         let txid = result.remoteTxid
         let store = media(kind)
 
-        if let draftId, let promoted = try? store.promoteDraft(id: draftId, toTxid: txid) {
+        if let draftId, var promoted = try? store.promoteDraft(id: draftId, toTxid: txid) {
+            // A draft never had locations; the upload just gave it some.
+            promoted.locas = carvedLocas
+            try? store.upsert(promoted)
             return promoted
         }
         let now = Int64(Date().timeIntervalSince1970)
@@ -3624,6 +3725,7 @@ public final class ActiveSession {
             lang: lang,
             format: format,
             summary: summary,
+            locas: carvedLocas,
             publisher: liveFid,
             birthTime: now,
             lastTxId: txid,
@@ -3650,14 +3752,21 @@ public final class ActiveSession {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
+        locas: [String]? = nil,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> String {
         let priv = try livePrikey()
         let list = (authors?.isEmpty ?? true) ? nil : authors
+        // An update replaces the entity's `locas`, so the current list is
+        // resent — see ``PublishBody/carvedLocas(did:keeping:previousDid:)``.
+        let existing = try? media(kind).get(id: mediaId)
+        let carvedLocas = await carveFormLocas(locas ?? publishBody.carvedLocas(
+            did: did, keeping: existing?.locas, previousDid: existing?.did))
         let feipJson = try MediaFeip.updateCarve(
             kind: kind, imageId: mediaId, title: title, did: did, lang: lang,
-            authors: list, format: format, summary: summary
+            authors: list, format: format, summary: summary,
+            locas: carvedLocas
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
@@ -3674,6 +3783,7 @@ public final class ActiveSession {
             record.authors = list
             record.format = format
             record.summary = summary
+            record.locas = carvedLocas
             record.ver = String(record.edition + 1)
             record.lastTxId = txid
             record.lastHeight = MediaStore.unconfirmedHeight

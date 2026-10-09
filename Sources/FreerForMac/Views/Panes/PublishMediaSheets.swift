@@ -530,8 +530,8 @@ struct PublishMediaComposer: View {
 /// to it.
 ///
 /// The file is fetched the same way a text's body is, through
-/// ``PublishBody/fetchURL(did:publisher:progress:)``: this Mac, then
-/// our DISK, then the publisher's, hashed before anything is shown. So
+/// ``PublishBody/fetchURL(did:publisher:locas:progress:)``: this Mac,
+/// then our DISK, then the record's listed DISKs, then the publisher's, hashed before anything is shown. So
 /// what plays is the file the publisher committed to, or nothing.
 struct MediaViewerSheet: View {
     let session: ActiveSession
@@ -682,6 +682,7 @@ struct MediaViewerSheet: View {
                 idLine("Record", record.id)
                 if let did = record.did { idLine("Document", did) }
             }
+            PublishLocasLine(locas: record.locas)
         }
     }
 
@@ -766,7 +767,9 @@ struct MediaViewerSheet: View {
         loadError = nil
         Task {
             do {
-                let url = try await session.publishBody.fetchURL(did: did, publisher: record.publisher)
+                let url = try await session.publishBody.fetchURL(
+                    did: did, publisher: record.publisher, locas: record.locas
+                )
                 let decoded = kind == .image ? NSImage(contentsOf: url) : nil
                 await MainActor.run {
                     localURL = url

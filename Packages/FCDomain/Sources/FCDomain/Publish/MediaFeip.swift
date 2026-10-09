@@ -85,7 +85,8 @@ public enum MediaFeip {
         lang: String? = nil,
         authors: [String]? = nil,
         format: String? = nil,
-        summary: String? = nil
+        summary: String? = nil,
+        locas: [String]? = nil
     ) throws -> String {
         var dict: [String: Any] = ["op": Op.publish.rawValue]
         put(&dict, "title", title)
@@ -94,6 +95,7 @@ public enum MediaFeip {
         if let authors, !authors.isEmpty { dict["authors"] = authors }
         put(&dict, "format", format)
         put(&dict, "summary", summary)
+        if let locas, !locas.isEmpty { dict["locas"] = locas }
         return try jsonString(dict)
     }
 
@@ -114,7 +116,8 @@ public enum MediaFeip {
         lang: String? = nil,
         authors: [String]? = nil,
         format: String? = nil,
-        summary: String? = nil
+        summary: String? = nil,
+        locas: [String]? = nil
     ) throws -> String {
         var dict: [String: Any] = ["op": Op.update.rawValue, kind.subjectKey: imageId]
         put(&dict, "title", title)
@@ -123,6 +126,7 @@ public enum MediaFeip {
         if let authors, !authors.isEmpty { dict["authors"] = authors }
         put(&dict, "format", format)
         put(&dict, "summary", summary)
+        if let locas, !locas.isEmpty { dict["locas"] = locas }
         return try jsonString(dict)
     }
 
@@ -192,14 +196,15 @@ public enum MediaFeip {
         lang: String? = nil,
         authors: [String]? = nil,
         format: String? = nil,
-        summary: String? = nil
+        summary: String? = nil,
+        locas: [String]? = nil
     ) throws -> String {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Failure.emptyTitle
         }
         return try sized(envelope(kind: kind, opJson: publishOp(
             kind: kind, title: title, did: did, lang: lang,
-            authors: authors, format: format, summary: summary
+            authors: authors, format: format, summary: summary, locas: locas
         )))
     }
 
@@ -213,7 +218,8 @@ public enum MediaFeip {
         lang: String? = nil,
         authors: [String]? = nil,
         format: String? = nil,
-        summary: String? = nil
+        summary: String? = nil,
+        locas: [String]? = nil
     ) throws -> String {
         guard !imageId.isEmpty else { throw Failure.missingImageId }
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -221,7 +227,7 @@ public enum MediaFeip {
         }
         return try sized(envelope(kind: kind, opJson: updateOp(
             kind: kind, imageId: imageId, title: title, did: did, lang: lang,
-            authors: authors, format: format, summary: summary
+            authors: authors, format: format, summary: summary, locas: locas
         )))
     }
 
@@ -243,18 +249,19 @@ public enum MediaFeip {
         lang: String? = nil,
         authors: [String]? = nil,
         format: String? = nil,
-        summary: String
+        summary: String,
+        locas: [String]? = nil
     ) -> Int {
         let probe = summary.isEmpty ? "x" : summary
         let opJson: String?
         if let imageId, !imageId.isEmpty {
             opJson = try? updateOp(
                 kind: kind, imageId: imageId, title: title, did: did,
-                lang: lang, authors: authors, format: format, summary: probe)
+                lang: lang, authors: authors, format: format, summary: probe, locas: locas)
         } else {
             opJson = try? publishOp(
                 kind: kind, title: title, did: did,
-                lang: lang, authors: authors, format: format, summary: probe)
+                lang: lang, authors: authors, format: format, summary: probe, locas: locas)
         }
         let json = opJson.map { envelope(kind: kind, opJson: $0) } ?? ""
         let used = Data(json.utf8).count - (summary.isEmpty ? 1 : 0)

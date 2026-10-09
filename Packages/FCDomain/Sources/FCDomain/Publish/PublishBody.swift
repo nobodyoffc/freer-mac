@@ -31,6 +31,16 @@ public struct PublishBody {
     /// simply does not happen.
     public typealias DiskResolver = @Sendable (_ publisherFid: String) async -> DiskService?
 
+    /// A DISK client for one entry of a record's ``TextRecord/locas`` —
+    /// a `(sid)<SID>` or a `fudp://host:port`. Nil when the entry
+    /// cannot be resolved or connected to.
+    public typealias LocaResolver = @Sendable (_ loca: String) async -> DiskService?
+
+    /// The most locations a carve lists. FEIP21–25 ask for no more than
+    /// three: each `(sid)` entry is about 72 bytes of an OP_RETURN that
+    /// the title and summary also have to fit in.
+    public static let maxCarvedLocas = 3
+
     public enum Failure: Error, CustomStringConvertible {
         case emptyBody
         case notUtf8(did: String)
@@ -56,19 +66,75 @@ public struct PublishBody {
     public let sync: HatSyncService
     public let disk: DiskService
     public let foreignDisk: DiskResolver?
+    public let locaDisk: LocaResolver?
 
     public init(
         files: FileVault,
         hats: HatsStore,
         sync: HatSyncService,
         disk: DiskService,
-        foreignDisk: DiskResolver? = nil
+        foreignDisk: DiskResolver? = nil,
+        locaDisk: LocaResolver? = nil
     ) {
         self.files = files
         self.hats = hats
         self.sync = sync
         self.disk = disk
         self.foreignDisk = foreignDisk
+        self.locaDisk = locaDisk
+    }
+
+    // MARK: - locations to carve
+
+    /// The `locas` a publish or update of `did` should carry: the DISK
+    /// locations its HAT records, in the order they were added.
+    ///
+    /// **An update resends the list, it does not append to it.** The
+    /// parser replaces the entity's `locas` with whatever the op carries,
+    /// so `keeping` — the record's current list — is merged in front
+    /// when the body is unchanged; otherwise an edit to the title would
+    /// silently drop a mirror somebody else had added. When the body
+    /// changed, the old list described the old bytes and is not kept.
+    ///
+    /// Nil rather than `[]` when there is nothing to say, so the carve
+    /// omits the key and spends no bytes on it.
+    public func carvedLocas(did: String?, keeping: [String]? = nil, previousDid: String? = nil) -> [String]? {
+        guard let did, !did.isEmpty else { return nil }
+        var list: [String] = []
+        if previousDid == did { list.append(contentsOf: keeping ?? []) }
+        let hatLocas = ((try? hats.hat(id: did)) ?? nil)?.remoteLocas ?? []
+        for loca in hatLocas where !Self.isPlaceholder(loca) && !list.contains(loca) {
+            list.append(loca)
+        }
+        let capped = Array(list.prefix(Self.maxCarvedLocas))
+        return capped.isEmpty ? nil : capped
+    }
+
+    /// ``HatSyncService/currentLocation`` falls back to `fudp://unknown`
+    /// when no DISK is configured; that is a placeholder for the local
+    /// HAT store, not an address anyone else can use.
+    private static func isPlaceholder(_ loca: String) -> Bool {
+        loca == Hat.fudpLocationPrefix + "unknown"
+    }
+
+    /// The entries of a record's `locas` this app can fetch from by
+    /// itself: DISK services, by SID or by FUDP address. `https://`
+    /// entries are left to the user — see ``webLocas(_:)``.
+    public static func diskLocas(_ locas: [String]?) -> [String] {
+        (locas ?? []).filter {
+            $0.hasPrefix(Hat.sidLocationPrefix) || $0.hasPrefix(Hat.fudpLocationPrefix)
+        }
+    }
+
+    /// The `http(s)://` entries of a record's `locas`. Shown as links,
+    /// never fetched unasked (FEIP21 Locations, rule 4): a request to a
+    /// URL goes to a server nobody vouched for, and tells it who asked.
+    public static func webLocas(_ locas: [String]?) -> [URL] {
+        (locas ?? []).compactMap { loca in
+            let lower = loca.lowercased()
+            guard lower.hasPrefix("https://") || lower.hasPrefix("http://") else { return nil }
+            return URL(string: loca)
+        }
     }
 
     // MARK: - writing
@@ -202,9 +268,14 @@ public struct PublishBody {
     /// 2. **Our own DISK.** The common case for a work published on the
     ///    same server we use, which on a network with few DISKs is most
     ///    of them.
-    /// 3. **The publisher's DISK**, if `publisher` is known and the app
+    /// 3. **The record's own `locas`** — the DISK services the
+    ///    publisher said hold the body. `https://` entries are skipped
+    ///    here; the pane offers them as links.
+    /// 4. **The publisher's DISK**, if `publisher` is known and the app
     ///    shell supplied a ``DiskResolver``. Their home map is where
-    ///    their bytes are; ours has no reason to hold them.
+    ///    their bytes are; ours has no reason to hold them. Still asked
+    ///    after `locas`, because records carved before `locas` existed
+    ///    have none.
     ///
     /// Every attempt verifies the hash. A failure carries what each
     /// attempt said, because a fetch that quietly finds nothing is
@@ -214,6 +285,7 @@ public struct PublishBody {
     public func fetchURL(
         did: String,
         publisher: String? = nil,
+        locas: [String]? = nil,
         progress: (@Sendable (Int64) -> Void)? = nil
     ) async throws -> URL {
         var diagnostics: [String] = []
@@ -238,7 +310,23 @@ public struct PublishBody {
             diagnostics.append("ownDisk=\(Self.short(error))")
         }
 
-        // 3. The publisher's DISK.
+        // 3. The record's listed locations. Our own DISK was asked
+        //    above, so its entry is not asked again.
+        if let locaDisk {
+            for loca in Self.diskLocas(locas) where loca != sync.currentLocation {
+                guard let remote = await locaDisk(loca) else {
+                    diagnostics.append("\(loca.middleElided())=unresolved")
+                    continue
+                }
+                do {
+                    return try await fetch(did: did, from: remote, progress: progress)
+                } catch {
+                    diagnostics.append("\(loca.middleElided())=\(Self.short(error))")
+                }
+            }
+        }
+
+        // 4. The publisher's DISK.
         if let publisher, !publisher.isEmpty, let foreignDisk {
             if let remote = await foreignDisk(publisher) {
                 do {
@@ -254,7 +342,7 @@ public struct PublishBody {
         throw Failure.unreachable(did: did, diagnostics: diagnostics.joined(separator: "; "))
     }
 
-    /// The body as text — ``fetchURL(did:publisher:progress:)`` plus a
+    /// The body as text — ``fetchURL(did:publisher:locas:progress:)`` plus a
     /// UTF-8 decode.
     ///
     /// **The decode is deliberately not part of the retry.** Bytes that
@@ -265,9 +353,10 @@ public struct PublishBody {
     public func read(
         did: String,
         publisher: String? = nil,
+        locas: [String]? = nil,
         progress: (@Sendable (Int64) -> Void)? = nil
     ) async throws -> String {
-        let url = try await fetchURL(did: did, publisher: publisher, progress: progress)
+        let url = try await fetchURL(did: did, publisher: publisher, locas: locas, progress: progress)
         return try Self.text(at: url, did: did)
     }
 
