@@ -3,12 +3,12 @@
   "codes": [
     { "name": "FreerForMac", "path": ".", "langs": ["Swift"],
       "desc": "Freer for macOS: wallet, identity, chat, calls and publishing on Freecash.",
-      "protocols": ["FEIP0", "FIMP0", "FUDP0", "FAPI0", "FTSP0", "FVEP0"] }
+      "protocols": ["FEIP0", "FIMP0", "FUDP0", "FAPI0", "FTSP0", "FVEP0", "FVEP11"] }
   ],
   "apps": [
     { "stdName": "FreerForMac", "asset": "Freer-*.dmg", "os": "macos", "types": ["wallet", "messenger"],
       "localNames": { "en": "Freer for macOS" },
       "desc": "Freer for macOS: wallet, identity, chat, calls and publishing on Freecash.",
-      "codes": ["FreerForMac"], "protocols": ["FEIP0", "FIMP0", "FUDP0", "FAPI0"] }
+      "codes": ["FreerForMac"], "protocols": ["FEIP0", "FIMP0", "FUDP0", "FAPI0", "FVEP11"] }
   ]
 }
