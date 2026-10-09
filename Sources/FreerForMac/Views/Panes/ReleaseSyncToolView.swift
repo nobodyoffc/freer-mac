@@ -170,14 +170,14 @@ struct ReleaseSyncToolView: View {
             repos.append(RepoRow(path: url.path))
         }
         saveRepos()
-        refreshRepos()
+        Task { await refreshRepos() }
     }
 
     private func loadRepos() {
         guard repos.isEmpty else { return }
         let paths = UserDefaults.standard.stringArray(forKey: Self.reposKey) ?? []
         repos = paths.map { RepoRow(path: $0) }
-        refreshRepos()
+        Task { await refreshRepos() }
     }
 
     private func saveRepos() {
@@ -185,30 +185,33 @@ struct ReleaseSyncToolView: View {
     }
 
     /// Reads each manifest and lists its GitHub releases (via `gh`).
-    private func refreshRepos() {
-        for row in repos where row.manifest == nil && row.manifestError == nil {
+    /// `force` re-reads rows already loaded, so a manifest added or edited
+    /// since the folder was added is picked up; the chosen tag is kept
+    /// while that release still exists.
+    private func refreshRepos(force: Bool = false) async {
+        for row in repos where force || (row.manifest == nil && row.manifestError == nil) {
             let path = row.path
-            Task {
-                let result: (ReleaseManifest?, String?, [GitHubReleases.Release], String?) = await Task.detached {
+            let result: (ReleaseManifest?, String?, [GitHubReleases.Release], String?) = await Task.detached {
+                do {
+                    let m = try ReleaseManifest.load(repo: URL(fileURLWithPath: path))
+                    guard !(m.codes ?? []).isEmpty || !(m.apps ?? []).isEmpty else { return (m, nil, [], nil) }
                     do {
-                        let m = try ReleaseManifest.load(repo: URL(fileURLWithPath: path))
-                        guard !(m.codes ?? []).isEmpty || !(m.apps ?? []).isEmpty else { return (m, nil, [], nil) }
-                        do {
-                            return (m, nil, try GitHubReleases(repo: m.github).releases(), nil)
-                        } catch {
-                            return (m, nil, [], "Cannot list releases: \(error)")
-                        }
+                        return (m, nil, try GitHubReleases(repo: m.github).releases(), nil)
                     } catch {
-                        return (nil, String(describing: error), [], nil)
+                        return (m, nil, [], "Cannot list releases: \(error)")
                     }
-                }.value
-                guard let i = repos.firstIndex(where: { $0.path == path }) else { return }
-                repos[i].manifest = result.0
-                repos[i].manifestError = result.1
-                repos[i].releases = result.2
-                repos[i].releaseError = result.3
-                repos[i].tag = ReleaseScanner.defaultTag(result.2)
-            }
+                } catch {
+                    return (nil, String(describing: error), [], nil)
+                }
+            }.value
+            guard let i = repos.firstIndex(where: { $0.path == path }) else { continue }
+            let previousTag = repos[i].tag
+            repos[i].manifest = result.0
+            repos[i].manifestError = result.1
+            repos[i].releases = result.2
+            repos[i].releaseError = result.3
+            repos[i].tag = result.2.contains(where: { $0.tagName == previousTag })
+                ? previousTag : ReleaseScanner.defaultTag(result.2)
         }
     }
 
@@ -220,8 +223,10 @@ struct ReleaseSyncToolView: View {
     private func scan() async {
         error = nil
         events = []
-        busy = "Reading \(signer.elidingMiddle(head: 6, tail: 4))'s registry…"
+        busy = "Reading manifests…"
         defer { busy = nil }
+        await refreshRepos(force: true)
+        busy = "Reading \(signer.elidingMiddle(head: 6, tail: 4))'s registry…"
         do {
             let fetched = try await ReleaseChainState.fetch(owner: signer, fapi: session.fapi)
             let scanner = ReleaseScanner(workDir: workDir)
