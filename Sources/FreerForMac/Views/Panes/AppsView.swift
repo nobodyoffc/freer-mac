@@ -318,7 +318,13 @@ struct AppsView: View {
             Spacer(minLength: 8)
 
             SearchField("Search name, description, type…", text: $searchText, minWidth: 150)
-                .help("Filters the rows loaded here. Search chain looks through the whole index.")
+                .onSubmit {
+                    guard tab.isChainQuery else { return }
+                    Task { await searchChain() }
+                }
+                .help(tab.isChainQuery
+                      ? "Filters the rows loaded here. Return or Refresh searches the whole index."
+                      : "Filters the rows listed here.")
 
             if tab.isChainQuery {
                 // The state picker rides in the toolbar rather than
@@ -362,7 +368,7 @@ struct AppsView: View {
                 .help("Filter by state, and take this text to the chain index with a field and sort of your choosing")
 
                 Button {
-                    Task { await refresh() }
+                    Task { await reload() }
                 } label: {
                     if loading {
                         ProgressView().controlSize(.small)
@@ -371,6 +377,7 @@ struct AppsView: View {
                     }
                 }
                 .disabled(loading)
+                .help("Reload from the chain — with text in the search box, search the whole index for it")
             }
 
             if tab == .mine && session.canSign {
@@ -863,8 +870,24 @@ struct AppsView: View {
         }
     }
 
-    private func searchChain() async {
-        let q = searchText.trimmingCharacters(in: .whitespaces)
+    /// Refresh re-asks whatever question is on screen: text in the box
+    /// goes to the whole index, a chain search already showing runs
+    /// again, and only with neither is it the plain listing. A Refresh
+    /// that ignored the box left a match beyond the first page reading
+    /// as "nothing matches" until enough pages were loaded by hand.
+    private func reload() async {
+        let typed = searchText.trimmingCharacters(in: .whitespaces)
+        if !typed.isEmpty {
+            await searchChain(typed)
+        } else if let q = chainQuery {
+            await searchChain(q)
+        } else {
+            await refresh()
+        }
+    }
+
+    private func searchChain(_ query: String? = nil) async {
+        let q = (query ?? searchText).trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return }
         loading = true
         defer { loading = false }
@@ -1117,9 +1140,17 @@ struct AppsView: View {
         card {
             Label("No loaded row matches “\(searchText)”", systemImage: "magnifyingglass")
                 .font(.headline)
-            Text("This searched the \(source.count) row\(source.count == 1 ? "" : "s") loaded here. Chain ▸ Search chain looks through the whole index.")
+            Text("This searched the \(source.count) row\(source.count == 1 ? "" : "s") loaded here.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+            if tab.isChainQuery {
+                Button {
+                    Task { await searchChain() }
+                } label: {
+                    Label("Search the whole index", systemImage: "magnifyingglass.circle")
+                }
+                .disabled(loading)
+            }
         }
     }
 
