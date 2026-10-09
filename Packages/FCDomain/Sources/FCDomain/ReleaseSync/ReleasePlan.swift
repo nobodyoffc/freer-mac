@@ -74,8 +74,8 @@ public enum ReleaseAction: Equatable, Sendable {
     case publish
     case update(id: String)
     case unchanged(id: String)
-    /// The record exists but cannot take an update (closed, or stopped:
-    /// the parsers ignore an update to an inactive record).
+    /// The record exists but is stopped and cannot take an update: the
+    /// parsers ignore an update to an inactive record.
     case blocked(id: String, reason: String)
     /// More than one on-chain record has this key; the user must choose.
     case ambiguous(ids: [String])
@@ -199,6 +199,14 @@ public enum ReleasePlanner {
     public static func plan(scans: [RepoScan], chain: ReleaseChainState, owner: String,
                             choices: [String: String] = [:], log: ReleaseRunLog = ReleaseRunLog(),
                             now: Date = Date()) -> ReleasePlan {
+        // A closed record is gone for good: it is neither matched, nor
+        // resolved as a reference, nor listed as an orphan, so a local
+        // entity with its key is published afresh.
+        let closedIds = Set(chain.protocols.filter { $0.closed == true }.map(\.id))
+        var chain = chain
+        chain.protocols.removeAll { $0.closed == true }
+        chain.codes.removeAll { $0.closed == true }
+        chain.apps.removeAll { $0.closed == true }
         var problems = scans.flatMap(\.problems)
         func pending(_ action: ReleaseAction, key: String, did: String) -> ReleaseAction {
             guard action.carves, let entry = log.entries[key] else { return action }
@@ -243,7 +251,10 @@ public enum ReleasePlanner {
                 if let record = chainById[pid] {
                     found = [record]
                 } else {
-                    protocolItems.append(protocolItem(doc, root, scan, action: .invalid("its PID \(pid.prefix(12))… is not a protocol of \(owner)"), record: nil))
+                    let reason = closedIds.contains(pid)
+                        ? "its PID \(pid.prefix(6))…\(pid.suffix(6)) is closed on chain; clear the PID row to publish it afresh"
+                        : "its PID \(pid.prefix(6))…\(pid.suffix(6)) is not a protocol of \(owner)"
+                    protocolItems.append(protocolItem(doc, root, scan, action: .invalid(reason), record: nil))
                     continue
                 }
             } else {
@@ -394,7 +405,6 @@ public enum ReleasePlanner {
     /// that differs only by its own PID row (filled in by a previous run
     /// and not yet saved, say) is the same document.
     static func protocolAction(_ doc: ProtocolDoc, _ record: ProtocolSpec) -> ReleaseAction {
-        if record.closed == true { return .blocked(id: record.id, reason: "closed on chain") }
         if record.did == doc.did { return .unchanged(id: record.id) }
         if doc.pid == nil, let filled = try? ReleaseSyncFiles.didWithPid(record.id, doc: doc), filled == record.did {
             return .unchanged(id: record.id)
@@ -406,7 +416,6 @@ public enum ReleasePlanner {
     /// A code changes when its archive does, or when the manifest says
     /// something new about it.
     static func codeAction(_ local: LocalCode, _ refs: [IdRef], _ record: Code) -> ReleaseAction {
-        if record.closed == true { return .blocked(id: record.id, reason: "closed on chain") }
         let same = record.did == local.did
             && clean(record.desc) == clean(local.entry.desc)
             && Set(record.langs ?? []) == Set(local.entry.langs ?? [])
@@ -417,7 +426,6 @@ public enum ReleasePlanner {
     }
 
     static func appAction(_ local: LocalApp, protocols: [IdRef], codes: [IdRef], _ record: AppRecord) -> ReleaseAction {
-        if record.closed == true { return .blocked(id: record.id, reason: "closed on chain") }
         let same = Set((record.downloads ?? []).compactMap(\.did)) == [local.did]
             && clean(record.desc) == clean(local.entry.desc)
             && Set(record.types ?? []) == Set(local.entry.types ?? [])

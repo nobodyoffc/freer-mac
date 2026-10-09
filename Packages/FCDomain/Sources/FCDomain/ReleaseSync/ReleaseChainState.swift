@@ -5,8 +5,7 @@ import FCTransport
 /// every state. Release Sync diffs the local repos against this.
 ///
 /// Stopped and closed records are fetched too. A stopped record is still
-/// the one an update must target, and a closed one blocks a re-publish
-/// under the same key rather than silently forking it.
+/// the one an update must target; closed ones are dropped by the planner.
 public struct ReleaseChainState: Sendable {
     public var protocols: [ProtocolSpec]
     public var codes: [Code]

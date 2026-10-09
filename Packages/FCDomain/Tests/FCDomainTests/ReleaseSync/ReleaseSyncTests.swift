@@ -225,6 +225,7 @@ final class ReleasePlannerTests: XCTestCase {
             spec("p2", sn: "2", did: "old"),
             spec("p4", sn: "4", did: "old", active: false, closed: true),
             spec("p5", sn: "5", did: "old", active: false),
+            spec("p8", sn: "8", did: "x", active: false, closed: true),
             spec("p9", sn: "9", did: "x"),
         ])
         let plan = ReleasePlanner.plan(scans: [scan([same, changed, new, closed, stopped])], chain: chain, owner: owner)
@@ -232,10 +233,10 @@ final class ReleasePlannerTests: XCTestCase {
         XCTAssertEqual(byRef["1"]?.action, .unchanged(id: "p1"))
         XCTAssertEqual(byRef["2"]?.action, .update(id: "p2"))
         XCTAssertEqual(byRef["3"]?.action, .publish)
-        XCTAssertEqual(byRef["4"]?.action, .blocked(id: "p4", reason: "closed on chain"))
+        XCTAssertEqual(byRef["4"]?.action, .publish)
         XCTAssertEqual(byRef["5"]?.action, .blocked(id: "p5", reason: "stopped on chain; recover it first"))
         XCTAssertEqual(plan.orphanProtocols.map(\.id), ["p9"])
-        XCTAssertEqual(plan.carveCount, 2)
+        XCTAssertEqual(plan.carveCount, 3)
 
         // An update is carved with the PID filled in; a publish as-is.
         XCTAssertEqual(byRef["2"]?.carveDid, try ReleaseSyncFiles.didWithPid("p2", doc: changed))
