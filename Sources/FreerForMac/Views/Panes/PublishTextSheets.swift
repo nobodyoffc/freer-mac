@@ -6,8 +6,13 @@ import FCUI
 
 // MARK: - compose
 
-/// Write a text and publish it — or save it, or publish a new edition
-/// of one already on chain.
+/// Publish a text work from a file — or save it as a draft, or publish
+/// a new edition of one already on chain.
+///
+/// **The work is a file the writer already has**: plain text, Markdown,
+/// RTF, Word, OpenDocument or PDF (see ``PublishDocument``). It is not
+/// typed into this sheet, because a work worth carving is written in a
+/// real editor, and a PDF or a Word file cannot be typed at all.
 ///
 /// **Two things are paid for and they are paid for in that order.** The
 /// body goes to DISK first and the metadata is carved second, because a
@@ -46,7 +51,7 @@ struct PublishTextComposer: View {
         _summary = State(initialValue: editing?.summary ?? "")
         _type = State(initialValue: editing?.type ?? "")
         _lang = State(initialValue: editing?.lang ?? "")
-        _format = State(initialValue: editing?.format ?? "markdown")
+        _format = State(initialValue: editing?.format ?? "")
         _authorsText = State(initialValue: (editing?.authors ?? []).joined(separator: ", "))
     }
 
@@ -56,10 +61,10 @@ struct PublishTextComposer: View {
     @State private var lang: String
     @State private var format: String
     @State private var authorsText: String
-    @State private var body_: String = ""
-
-    @State private var loadingBody = false
-    @State private var bodyError: String?
+    /// The file picked in this sheet. Nil while editing means "keep the
+    /// current body" — the record's `did` stands.
+    @State private var pickedURL: URL?
+    @State private var pickedSize: Int64?
     @State private var busy = false
     @State private var progressNote: String?
     @State private var error: String?
@@ -91,9 +96,11 @@ struct PublishTextComposer: View {
         )
     }
 
+    private var hasBytes: Bool { pickedURL != nil || (editing?.did?.isEmpty == false) }
+
     private var canPublish: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !body_.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && hasBytes
             && remaining >= 0
             && !busy
             && session.canSign
@@ -101,7 +108,7 @@ struct PublishTextComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(isNewEdition ? "Publish a new edition" : "Write a text")
+            Text(isNewEdition ? "Publish a new edition" : "Publish a text")
                 .font(.title3.bold())
 
             if isNewEdition {
@@ -115,31 +122,11 @@ struct PublishTextComposer: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    filePicker
+
                     LabeledField("Title") {
                         TextField("What the work is called", text: $title)
                             .fieldInputStyle()
-                    }
-
-                    LabeledField("The work") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            if loadingBody {
-                                HStack(spacing: 6) {
-                                    ProgressView().controlSize(.small)
-                                    Text("Fetching the body…").font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
-                            TextEditor(text: $body_)
-                                .font(.body)
-                                .fieldEditorStyle(minHeight: 200)
-                            HStack(spacing: 8) {
-                                Text("\(Data(body_.utf8).count) bytes — stored on DISK, not on the chain")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                                if let e = bodyError {
-                                    CopyableText(e, font: .caption2).foregroundStyle(.orange)
-                                }
-                            }
-                        }
                     }
 
                     LabeledField("Summary") {
@@ -165,7 +152,7 @@ struct PublishTextComposer: View {
                                 .fieldInputStyle()
                         }
                         LabeledField("Format") {
-                            TextField("markdown, plain…", text: $format)
+                            TextField("text/markdown, application/pdf…", text: $format)
                                 .fieldInputStyle()
                         }
                     }
@@ -227,34 +214,64 @@ struct PublishTextComposer: View {
         }
         .padding(20)
         .frame(width: 640)
-        .onAppear { loadBody() }
     }
 
-    // MARK: - body
+    // MARK: - the file
 
-    /// A draft keeps its text in the HAT store under the DID it will be
-    /// published as, so reopening one is a local read. A carved record
-    /// being revised fetches its current body the same way the reader
-    /// does — including from the publisher's DISK, since the reviser is
-    /// the publisher.
-    private func loadBody() {
-        guard let did = editing?.did, !did.isEmpty, body_.isEmpty else { return }
-        loadingBody = true
-        Task {
-            do {
-                let text = try await session.publishBody.read(
-                    did: did, publisher: editing?.publisher
-                )
-                await MainActor.run {
-                    body_ = text
-                    loadingBody = false
+    @ViewBuilder
+    private var filePicker: some View {
+        LabeledField("The work") {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12))
+                    Image(systemName: pickedURL == nil && editing?.did == nil ? "doc" : "doc.text")
+                        .font(.title)
+                        .foregroundStyle(pickedURL == nil && editing?.did == nil ? .tertiary : .secondary)
                 }
-            } catch {
-                await MainActor.run {
-                    bodyError = "Couldn't load the existing body — \(error). Publishing an edition with an empty body would replace the pointer, so write it again or cancel."
-                    loadingBody = false
+                .frame(width: 72, height: 90)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Button(hasBytes ? "Choose a different file…" : "Choose a file…") { pick() }
+                    if let url = pickedURL {
+                        Text(url.lastPathComponent).font(.caption).lineLimit(1).truncationMode(.middle)
+                        if let size = pickedSize {
+                            Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                                .font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        Text("Uploaded to DISK on publish; the chain gets its hash. The file stays where it is — it is referenced, not copied.")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    } else if let did = editing?.did {
+                        Text("Currently: \(did.elidingMiddle(head: 8, tail: 8))")
+                            .font(.system(.caption2, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Text("Leave it alone to keep this file and change only the details.")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    } else {
+                        Text("Plain text, Markdown, RTF, Word, OpenDocument or PDF.")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
                 }
+                Spacer(minLength: 0)
             }
+        }
+    }
+
+    private func pick() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = PublishDocument.contentTypes
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        pickedURL = url
+        pickedSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)??.int64Value
+        if title.isEmpty {
+            title = url.deletingPathExtension().lastPathComponent
+        }
+        // Exact here, a guess later: the reader uses it to tell
+        // Markdown from plain text.
+        if let mime = PublishDocument.mimeType(for: url) {
+            format = mime
         }
     }
 
@@ -262,9 +279,12 @@ struct PublishTextComposer: View {
 
     private func saveDraft() {
         do {
-            // The body is written and registered but not uploaded: a
+            // The file is registered where it lies but not uploaded: a
             // draft costs nothing until somebody chooses to pay.
-            let did = body_.isEmpty ? nil : try session.publishBody.storeLocally(body_, name: "\(title).txt")
+            var did = editing?.did
+            if let url = pickedURL {
+                did = try session.publishBody.storeFileLocally(at: url)
+            }
             var draft = TextRecord.createLocal(
                 title: title,
                 type: type.isEmpty ? nil : type,
@@ -294,8 +314,11 @@ struct PublishTextComposer: View {
         defer { busy = false }
         error = nil
         do {
-            progressNote = "Uploading the body to DISK…"
-            let did = try await session.publishBody.store(body_, name: "\(title).txt")
+            var did = editing?.did
+            if let url = pickedURL {
+                progressNote = "Uploading the file to DISK…"
+                did = try await session.publishBody.storeFile(at: url)
+            }
 
             progressNote = "Carving the record…"
             if isNewEdition, let record = editing {
@@ -347,7 +370,8 @@ struct TextReaderSheet: View {
     let name: (String) -> String?
     let onClose: () -> Void
 
-    @State private var body_: String?
+    /// The verified body on this Mac, once fetched.
+    @State private var bodyURL: URL?
     @State private var loadingBody = true
     @State private var bodyError: String?
 
@@ -477,6 +501,7 @@ struct TextReaderSheet: View {
                 idLine("Record", record.id)
                 if let did = record.did { idLine("Document", did) }
             }
+            PublishLocasLine(locas: record.locas)
         }
     }
 
@@ -501,11 +526,11 @@ struct TextReaderSheet: View {
                 ProgressView().controlSize(.small)
                 Text("Fetching the work…").font(.callout).foregroundStyle(.secondary)
             }
-        } else if let text = body_ {
-            Text(text)
-                .font(.body)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        } else if let url = bodyURL {
+            // Text, Markdown, Word, RTF, OpenDocument or PDF — the view
+            // decides from the bytes. Records carved before texts were
+            // files are plain text and still read as such.
+            PublishDocumentView(url: url, format: record.format, title: record.name)
         } else if record.did == nil {
             Label("This record has no body", systemImage: "doc")
                 .font(.callout)
@@ -533,9 +558,11 @@ struct TextReaderSheet: View {
         bodyError = nil
         Task {
             do {
-                let text = try await session.publishBody.read(did: did, publisher: record.publisher)
+                let url = try await session.publishBody.fetchURL(
+                    did: did, publisher: record.publisher, locas: record.locas
+                )
                 await MainActor.run {
-                    body_ = text
+                    bodyURL = url
                     loadingBody = false
                 }
             } catch {

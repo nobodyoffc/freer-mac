@@ -264,12 +264,12 @@ struct PublishTextView: View {
             Button {
                 showComposer = true
             } label: {
-                Label("Write", systemImage: "square.and.pencil")
+                Label("Publish", systemImage: "doc.badge.plus")
             }
             .buttonStyle(.borderedProminent)
             .disabled(!session.canSign)
             .help(session.canSign
-                  ? "Write and publish a text"
+                  ? "Publish a text from a file — text, Markdown, Word, RTF, OpenDocument or PDF"
                   : "Watch-only identity — no key to sign a carve with")
         }
     }
@@ -820,7 +820,7 @@ struct PublishTextView: View {
             case .drafts:
                 Label("No drafts", systemImage: "tray")
                     .font(.headline)
-                Text("Write a text and choose Save draft to keep it here without paying for anything. A draft exists only on this Mac — its body has not been uploaded and its metadata has not been carved — and stays editable until you publish it.")
+                Text("Choose a file and Save draft to keep it here without paying for anything. A draft exists only on this Mac — its file has not been uploaded and its metadata has not been carved — and stays editable until you publish it.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
