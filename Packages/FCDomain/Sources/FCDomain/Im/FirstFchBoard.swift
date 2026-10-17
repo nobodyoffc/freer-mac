@@ -332,9 +332,9 @@ public struct FirstFchBoard {
     ///     ``NobodyBoard/Request`` is not shown. See the template's note.
     ///   - **Latest per asker.** Someone who posted three times is one
     ///     row, at their newest post.
-    ///   - **Still broke.** A requester with an on-chain balance was
-    ///     already helped — or is farming — and either way no longer needs
-    ///     answering. One `base.freerByIds` covers the whole page, so this
+    ///   - **Never funded.** A requester with a `guide` (or a balance)
+    ///     already got their first FCH — or is farming — and either way no
+    ///     longer needs answering. One `base.freerByIds` covers the whole page, so this
     ///     costs a single call however many rows came back.
     ///
     /// `newerThan` is the caller's cursor. It keys off the **server's**
@@ -413,14 +413,22 @@ public struct FirstFchBoard {
         )
     }
 
-    /// Which of `fids` already hold coins. A lookup that fails answers
-    /// "none of them": showing a request that turns out to be answered
-    /// wastes a helper's glance, and hiding one that is still open wastes
-    /// the newcomer's day.
+    /// Which of `fids` have already had their first FCH: a `guide` (the
+    /// FID that sent it) is set the moment one arrives and never cleared,
+    /// so it still counts an asker who has since spent down to zero —
+    /// which a balance check alone would put straight back on the board.
+    /// A lookup that fails answers "none of them": showing a request that
+    /// turns out to be answered wastes a helper's glance, and hiding one
+    /// that is still open wastes the newcomer's day.
     private func fundedFids(among fids: [String], timeoutMs: Int) async -> Set<String> {
         guard let freers = try? await directory.freerByIds(fids, timeoutMs: timeoutMs)
         else { return [] }
-        return Set(freers.filter { ($0.value.balance ?? 0) > 0 }.keys)
+        return Set(freers.filter { Self.hasHadFirstFch($0.value) }.keys)
+    }
+
+    static func hasHadFirstFch(_ freer: Freer) -> Bool {
+        if let guide = freer.guide, !guide.isEmpty { return true }
+        return (freer.balance ?? 0) > 0
     }
 
     public enum Failure: Error, CustomStringConvertible {

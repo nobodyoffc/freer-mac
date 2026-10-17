@@ -600,8 +600,8 @@ struct FirstFchBoardView: View {
     /// the login nudge needs. Fetching from it here instead would mean
     /// that opening the pane, leaving it and coming back showed an empty
     /// board: the first visit moved the watermark past everything, and
-    /// the rows only ever lived in this view's memory. Android has that
-    /// bug; this does not.
+    /// the rows only ever lived in this view's memory. Android reads the
+    /// same way.
     ///
     /// Advancing the watermark on display is still right, because
     /// display is exactly what it records. It moves past everything the

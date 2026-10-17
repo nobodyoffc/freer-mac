@@ -114,6 +114,26 @@ final class FirstFchBoardTests: XCTestCase {
         XCTAssertTrue(result.requests.isEmpty)
     }
 
+    /// Having a guide means the first FCH already arrived, even if the
+    /// asker has since spent it all: a zero balance must not put them
+    /// back on the board.
+    func testAnAskerWithAGuideIsNoLongerShownEvenAtZeroBalance() async throws {
+        let bob = try await makeSession(privkey: bobPriv, label: "bob")
+        let alice = try await makeSession(privkey: alicePriv, label: "alice")
+        try await bob.firstFchBoard.post(note: "hello", as: bob.liveFid, privkey: bobPriv)
+
+        let before = await alice.firstFchBoard.fetch()
+        XCTAssertEqual(before.requests.count, 1)
+
+        // Funded and spent between two opens of the pane: the next read
+        // re-checks the whole board and drops them.
+        chain.guideByFid[bob.liveFid] = alice.liveFid
+        chain.balanceByFid[bob.liveFid] = 0
+        let after = await alice.firstFchBoard.fetch()
+        XCTAssertNil(after.error)
+        XCTAssertTrue(after.requests.isEmpty)
+    }
+
     /// The watermark covers **everything retrieved**, not just what
     /// survived the filters. A cursor that only counted shown rows would
     /// re-read every answered ask on the board forever.
@@ -352,6 +372,7 @@ private final class FakeChain: @unchecked Sendable {
 
     var homeByFid: [String: [String: String]] = [:]
     var balanceByFid: [String: Int64] = [:]
+    var guideByFid: [String: String] = [:]
     var items: [Item] = []
     var refuseFetch = false
     /// The `createTime > …` the last fetch asked for, so a test can prove
@@ -410,6 +431,7 @@ private final class FakeServer: FapiCalling, @unchecked Sendable {
                 var record: [String: Any] = ["id": id]
                 if let home = chain.homeByFid[id] { record["home"] = home }
                 if let balance = chain.balanceByFid[id] { record["balance"] = balance }
+                if let guide = chain.guideByFid[id] { record["guide"] = guide }
                 out[id] = record
             }
             return reply(out.isEmpty ? nil : out)
