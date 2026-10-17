@@ -41,8 +41,16 @@ struct MailView: View {
     @State private var syncSummary: String?
     @State private var didAutoSync = false
 
-    @State private var showCompose = false
-    @State private var composePreset: MailComposeSheet.Preset?
+    /// Non-nil while the compose sheet is up. Presented with
+    /// `.sheet(item:)` so the sheet is built from the preset it was
+    /// opened with — `isPresented:` plus a separate preset state could
+    /// build it from a stale (nil) preset and lose the reply's To and
+    /// quote.
+    @State private var compose: ComposeRequest?
+    /// A reply asked for from the read sheet, opened once that sheet has
+    /// finished dismissing — macOS drops a sheet presented in the same
+    /// update that dismisses another.
+    @State private var pendingReply: MailComposeSheet.Preset?
     @State private var readingMail: Mail?
     @State private var pendingDelete: Mail?
     @State private var carving = false
@@ -115,33 +123,35 @@ struct MailView: View {
         }
         .onChange(of: tab) { _, _ in visibleLimit = 50 }
         .onChange(of: search) { _, _ in visibleLimit = 50 }
-        .sheet(isPresented: $showCompose) {
+        .sheet(item: $compose) { request in
             MailComposeSheet(
                 session: session,
-                preset: composePreset,
+                preset: request.preset,
                 onSent: { txid in
-                    showCompose = false
-                    composePreset = nil
+                    compose = nil
                     syncError = nil
                     carveTxid = txid
                     tab = .sent
                     reload()
                 },
                 onCancel: {
-                    showCompose = false
-                    composePreset = nil
+                    compose = nil
                 }
             )
         }
-        .sheet(item: $readingMail) { mail in
+        .sheet(item: $readingMail, onDismiss: {
+            if let preset = pendingReply {
+                pendingReply = nil
+                compose = ComposeRequest(preset: preset)
+            }
+        }) { mail in
             MailReadSheet(
                 session: session,
                 mail: withBody(mail),
                 onClose: { readingMail = nil; reload() },
                 onReply: { original in
+                    pendingReply = replyPreset(to: original)
                     readingMail = nil
-                    composePreset = replyPreset(to: original)
-                    showCompose = true
                 },
                 onDelete: { original in
                     readingMail = nil
@@ -223,8 +233,7 @@ struct MailView: View {
             .help("Pull Cmail sent to or from this FID")
 
             Button {
-                composePreset = nil
-                showCompose = true
+                compose = ComposeRequest(preset: nil)
             } label: {
                 Label("Write", systemImage: "square.and.pencil")
             }
@@ -387,8 +396,7 @@ struct MailView: View {
             HStack(spacing: 4) {
                 if !mail.isDeleted {
                     Button {
-                        composePreset = replyPreset(to: mail)
-                        showCompose = true
+                        compose = ComposeRequest(preset: replyPreset(to: mail))
                     } label: {
                         Image(systemName: "arrowshape.turn.up.left")
                     }
@@ -515,18 +523,31 @@ struct MailView: View {
         }
     }
 
-    /// Android's `MailActivity.makeReplyHead`: `Re: <first 48 chars>` +
-    /// the id of the mail being answered, then a rule. Kept identical so
-    /// a reply written here reads the same in the Android client — mail
-    /// has no threading, and this quoted head is all a reader gets.
-    /// It costs bytes from a tight budget, which the compose counter
-    /// shows immediately.
+    /// Same pattern as Android's reply head, in local time.
+    private static let replyTimeFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return f
+    }()
+
+    /// Android's `MailActivity.makeReplyHead`: `Re: <first 48 chars>`,
+    /// the time the mail being answered was sent, and its id, then a
+    /// rule. Kept identical so a reply written here reads the same in
+    /// the Android client — mail has no threading, and this quoted head
+    /// is all a reader gets. It costs bytes from a tight budget, which
+    /// the compose counter shows immediately. A line whose value we
+    /// don't have (an undecrypted body, a missing time) is left out.
     private func replyPreset(to mail: Mail) -> MailComposeSheet.Preset {
-        var head = ""
-        if let body = mail.id.flatMap({ bodies[$0] }) {
-            let brief = body.count > 48 ? String(body.prefix(48)) + "..." : body
-            head = "Re: \(brief)\nID:\(mail.id ?? "")\n----\n"
+        var lines: [String] = []
+        if let body = mail.id.flatMap({ bodies[$0] }) ?? mail.content, !body.isEmpty {
+            lines.append("Re: " + (body.count > 48 ? String(body.prefix(48)) + "..." : body))
         }
+        if let t = mail.birthTime {
+            lines.append("Time:" + Self.replyTimeFormat.string(from: Date(timeIntervalSince1970: TimeInterval(t))))
+        }
+        if let id = mail.id { lines.append("ID:" + id) }
+        let head = lines.isEmpty ? "" : lines.joined(separator: "\n") + "\n----\n"
         return MailComposeSheet.Preset(
             recipient: mail.counterparty(for: session.liveFid) ?? "",
             body: head,
@@ -600,4 +621,10 @@ struct MailView: View {
             loadError = String(describing: error)
         }
     }
+}
+
+/// One opening of the compose sheet.
+private struct ComposeRequest: Identifiable {
+    let id = UUID()
+    var preset: MailComposeSheet.Preset?
 }
