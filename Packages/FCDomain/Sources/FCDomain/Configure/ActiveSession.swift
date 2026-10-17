@@ -2068,11 +2068,11 @@ public final class ActiveSession {
         public var description: String {
             switch self {
             case .recipientHasNoPubkey(let fid):
-                return "\(fid) has never published a pubkey, so there is nothing to encrypt a mail to. They need to spend from that FID at least once."
+                return "\(fid) has never published a pubkey, so there is nothing to encrypt a Cmail to. They need to spend from that FID at least once."
             case let .feeOverLimit(requested, limit):
-                return "This FID charges \(NoticeFee.coinString(satoshis: requested)) F to receive mail, over your \(NoticeFee.coinString(satoshis: limit)) F limit."
+                return "This FID charges \(NoticeFee.coinString(satoshis: requested)) F to receive Cmail, over your \(NoticeFee.coinString(satoshis: limit)) F limit."
             case .noFee:
-                return "the mail could not be prepared for sending"
+                return "the Cmail could not be prepared for sending"
             }
         }
     }

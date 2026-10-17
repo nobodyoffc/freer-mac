@@ -106,7 +106,7 @@ struct MailComposeSheet: View {
                 pick = nil
             }
         }
-        .alert("Send this mail?", isPresented: $showConfirm) {
+        .alert("Send this Cmail?", isPresented: $showConfirm) {
             Button("Cancel", role: .cancel) {}
             Button("Send") { Task { await send() } }
         } message: {
@@ -127,7 +127,7 @@ struct MailComposeSheet: View {
 
     private var header: some View {
         HStack {
-            Label(replyingTo == nil ? "New mail" : "Reply", systemImage: "square.and.pencil")
+            Label(replyingTo == nil ? "New Cmail" : "Reply", systemImage: "square.and.pencil")
                 .font(.headline)
             Spacer()
             Text("From \(session.liveFid.elidingMiddle(head: 8, tail: 8))")
@@ -152,7 +152,7 @@ struct MailComposeSheet: View {
 
                 Button {
                     pick = .one(
-                        title: "Who is this mail for?",
+                        title: "Who is this Cmail for?",
                         subtitle: "Search your contacts, or look up a FID or CID on chain."
                     )
                 } label: {
@@ -184,7 +184,7 @@ struct MailComposeSheet: View {
             }
         } else if let err = quoteError {
             panel(color: .orange, icon: "exclamationmark.triangle") {
-                Text("Couldn't reach the chain to price this mail.")
+                Text("Couldn't reach the chain to price this Cmail.")
                     .font(.callout)
                 CopyableText(err, font: .caption).foregroundStyle(.secondary)
             }
@@ -203,14 +203,14 @@ struct MailComposeSheet: View {
                 panel(color: .red, icon: "key.slash") {
                     Text("This FID has never published a pubkey.")
                         .font(.callout)
-                    Text("A mail is encrypted to the recipient's key, so there is nothing to encrypt to. A FID publishes its key the first time it spends — ask them to send any transaction, then try again.")
+                    Text("A Cmail is encrypted to the recipient's key, so there is nothing to encrypt to. A FID publishes its key the first time it spends — ask them to send any transaction, then try again.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             case let .refuse(requested, limit):
                 panel(color: .red, icon: "hand.raised") {
-                    Text("This FID charges \(NoticeFee.coinString(satoshis: requested)) F to receive mail.")
+                    Text("This FID charges \(NoticeFee.coinString(satoshis: requested)) F to receive Cmail.")
                         .font(.callout)
                     Text("That is over your limit of \(NoticeFee.coinString(satoshis: limit)) F. Raise the limit in Settings if you mean to pay it.")
                         .font(.caption)
@@ -223,12 +223,12 @@ struct MailComposeSheet: View {
 
     private func feeExplanation(sats: Int64, published: String?) -> String {
         if let received = replyingTo?.noticeFee, received == sats, received > 0 {
-            return "Matching what they paid you on the mail you're answering. Turn that off in Settings if you'd rather always pay their published rate."
+            return "Matching what they paid you on the Cmail you're answering. Turn that off in Settings if you'd rather always pay their published rate."
         }
         if published == nil {
-            return "They publish no rate, so this is the default. It is paid to the recipient, not to miners — it is what makes the mail reach them."
+            return "They publish no rate, so this is the default. It is paid to the recipient, not to miners — it is what makes the Cmail reach them."
         }
-        return "The rate this FID publishes for receiving mail. It is paid to them, not to miners."
+        return "The rate this FID publishes for receiving Cmail. It is paid to them, not to miners."
     }
 
     private var bodyField: some View {
@@ -244,7 +244,7 @@ struct MailComposeSheet: View {
                 .font(.body)
                 .fieldEditorStyle(minHeight: 200, isError: overLimit)
             if overLimit {
-                CopyableText("Too long by \(bodyBytes - MailFeip.maxBodyBytes) bytes. A mail lives inside one transaction's data field; the limit is on the encrypted, encoded body, which is about a third larger than what you typed.")
+                CopyableText("Too long by \(bodyBytes - MailFeip.maxBodyBytes) bytes. A Cmail lives inside one transaction's data field; the limit is on the encrypted, encoded body, which is about a third larger than what you typed.")
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)

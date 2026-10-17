@@ -94,7 +94,7 @@ struct MailView: View {
 
             if let err = loadError {
                 card {
-                    CopyableLabel("Couldn't load mail", systemImage: "exclamationmark.triangle")
+                    CopyableLabel("Couldn't load Cmail", systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                 }
@@ -150,7 +150,7 @@ struct MailView: View {
             )
         }
         .alert(
-            pendingDelete?.isDeleted == true ? "Recover this mail?" : "Delete this mail?",
+            pendingDelete?.isDeleted == true ? "Recover this Cmail?" : "Delete this Cmail?",
             isPresented: Binding(
                 get: { pendingDelete != nil },
                 set: { if !$0 { pendingDelete = nil } }
@@ -176,9 +176,9 @@ struct MailView: View {
             }
         } message: {
             if pendingDelete?.isDeleted == true {
-                Text("Carves a recover record so this mail comes back on every device (small miner fee). Removing it from this device instead just hides it here — the next chain sync brings it back.")
+                Text("Carves a recover record so this Cmail comes back on every device (small miner fee). Removing it from this device instead just hides it here — the next chain sync brings it back.")
             } else {
-                Text("Carves a delete record so the mail is marked deleted on every device (small miner fee). It stays recoverable. Removing it from this device instead only hides it here — the next chain sync brings it back, because the mail still exists on the chain.")
+                Text("Carves a delete record so the Cmail is marked deleted on every device (small miner fee). It stays recoverable. Removing it from this device instead only hides it here — the next chain sync brings it back, because the Cmail still exists on the chain.")
             }
         }
     }
@@ -203,11 +203,11 @@ struct MailView: View {
             Spacer()
 
             SearchField("Search sender, body, id…", text: $search, minWidth: 140)
-                .help("Matches the correspondents, their names, the id, and the body of any mail that has been decrypted")
+                .help("Matches the correspondents, their names, the id, and the body of any Cmail that has been decrypted")
 
             if unreadCount > 0 {
                 Button("Mark all read") { markAllRead() }
-                    .help("Clears the unread count without opening each mail")
+                    .help("Clears the unread count without opening each Cmail")
             }
 
             Button {
@@ -220,7 +220,7 @@ struct MailView: View {
                 }
             }
             .disabled(syncing)
-            .help("Pull mail sent to or from this FID")
+            .help("Pull Cmail sent to or from this FID")
 
             Button {
                 composePreset = nil
@@ -231,8 +231,8 @@ struct MailView: View {
             .buttonStyle(.borderedProminent)
             .disabled(!session.canSign)
             .help(session.canSign
-                  ? "Write a new mail"
-                  : "Watch-only identity — no key to sign or encrypt a mail with")
+                  ? "Write a new Cmail"
+                  : "Watch-only identity — no key to sign or encrypt a Cmail with")
         }
     }
 
@@ -269,7 +269,7 @@ struct MailView: View {
             card {
                 Label("No matches", systemImage: "magnifyingglass")
                     .foregroundStyle(.secondary)
-                Text("Nothing in \(tab.rawValue) matches “\(search)”. Bodies are searchable once they have been decrypted; a mail sealed to a key you don't have here can only be found by its correspondent or id.")
+                Text("Nothing in \(tab.rawValue) matches “\(search)”. Bodies are searchable once they have been decrypted; a Cmail sealed to a key you don't have here can only be found by its correspondent or id.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -308,23 +308,23 @@ struct MailView: View {
         card {
             switch tab {
             case .inbox:
-                Label("No mail", systemImage: "tray")
+                Label("No Cmail", systemImage: "tray")
                     .foregroundStyle(.secondary)
-                Text("Mail sent to this FID lands here. Each one is a transaction that pays you a small notice fee — which is why the sender, the recipient and the time are public, and only the body is encrypted.")
+                Text("Cmail sent to this FID lands here. Each one is a transaction that pays you a small notice fee — which is why the sender, the recipient and the time are public, and only the body is encrypted.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             case .sent:
                 Label("Nothing sent yet", systemImage: "paperplane")
                     .foregroundStyle(.secondary)
-                Text("Mail you send is readable by you afterwards — it is encrypted to both keys, not just the recipient's.")
+                Text("Cmail you send is readable by you afterwards — it is encrypted to both keys, not just the recipient's.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             case .deleted:
                 Label("Nothing deleted", systemImage: "trash")
                     .foregroundStyle(.secondary)
-                Text("Deleted mail is kept here rather than thrown away, because a delete is a chain record you can undo.")
+                Text("Deleted Cmail is kept here rather than thrown away, because a delete is a chain record you can undo.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -549,9 +549,9 @@ struct MailView: View {
             )
             carveTxid = nil
             if result.total == 0 {
-                syncSummary = "No new mail on-chain."
+                syncSummary = "No new Cmail on-chain."
             } else {
-                var parts = ["\(result.merged) mail\(result.merged == 1 ? "" : "s") synced"]
+                var parts = ["\(result.merged) Cmail\(result.merged == 1 ? "" : "s") synced"]
                 if result.newUnread > 0 { parts.append("\(result.newUnread) new") }
                 if result.deleted > 0 { parts.append("\(result.deleted) deleted") }
                 if result.undecryptable > 0 {

@@ -281,7 +281,7 @@ struct OverviewView: View {
         }
         if unreadMail > 0 {
             tiles.append(AttentionTile(
-                id: "mail", title: "Mail", count: unreadMail,
+                id: "mail", title: "Cmail", count: unreadMail,
                 systemImage: "envelope.fill", tint: .accentColor,
                 open: { appState.selectedPane = .mail }
             ))

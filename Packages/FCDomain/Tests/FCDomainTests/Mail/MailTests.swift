@@ -226,7 +226,7 @@ final class MailTests: XCTestCase {
         XCTAssertEqual(root["type"] as? String, "FEIP")
         XCTAssertEqual(root["sn"] as? String, "7")
         XCTAssertEqual(root["ver"] as? String, "4")
-        XCTAssertEqual(root["name"] as? String, "Mail")
+        XCTAssertEqual(root["name"] as? String, "Cmail")
         let data = try XCTUnwrap(root["data"] as? [String: Any])
         XCTAssertEqual(data["op"] as? String, "send")
         XCTAssertEqual(data["cipher"] as? String, #"{"type":"AsyTwoWay","cipher":"abc"}"#)

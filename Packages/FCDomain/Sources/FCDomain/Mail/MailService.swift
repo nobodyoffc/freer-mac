@@ -251,9 +251,9 @@ public struct MailService {
         if reachedPageCap {
             SystemLog.shared.info(
                 SystemSource.mail,
-                "Mail sync stopped at its page limit",
+                "Cmail sync stopped at its page limit",
                 detail: "Fetched \(records.count) record(s) and there is more behind them; "
-                    + "older mail is not in the local store yet."
+                    + "older Cmail is not in the local store yet."
             )
         }
 

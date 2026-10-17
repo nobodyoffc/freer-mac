@@ -1,12 +1,12 @@
 import Foundation
 import FCCore
 
-/// Builders for the FEIP `Mail` protocol (sn 7, ver 4) — the OP_RETURN
+/// Builders for the FEIP `Cmail` (Crypto Mail) protocol (sn 7, ver 4) — the OP_RETURN
 /// JSON that carves a mail onto the FCH chain. Mirrors the Java
 /// `Feip.fromName(MAIL)` + `MailOpData` pair:
 ///
 /// ```json
-/// {"type":"FEIP","sn":"7","ver":"4","name":"Mail",
+/// {"type":"FEIP","sn":"7","ver":"4","name":"Cmail",
 ///  "data":{"op":"send","cipher":"<CryptoDataStr JSON>"}}
 /// ```
 ///
@@ -18,7 +18,7 @@ public enum MailFeip {
 
     public static let sn = "7"
     public static let ver = "4"
-    public static let protocolName = "Mail"
+    public static let protocolName = FeipProtocol.mail.protocolName
 
     /// The largest OP_RETURN the chain accepts. Android's compose
     /// screen checks the *body* against this number, which is far too

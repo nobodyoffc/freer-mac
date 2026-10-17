@@ -216,7 +216,7 @@ final class MailSendTests: XCTestCase {
         )
 
         // 2. The FEIP envelope, in an OP_RETURN after the pay output.
-        let feipPrefix = Data(#"{"type":"FEIP","sn":"7","ver":"4","name":"Mail","data":{"#.utf8)
+        let feipPrefix = Data(#"{"type":"FEIP","sn":"7","ver":"4","name":"Cmail","data":{"#.utf8)
         let feipRange = try XCTUnwrap(raw.range(of: feipPrefix))
         XCTAssertLessThan(payRange.lowerBound, feipRange.lowerBound,
                           "pay output comes before the OP_RETURN, per TxHandler.createTx")

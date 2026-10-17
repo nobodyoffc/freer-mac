@@ -147,7 +147,7 @@ enum WalletPane: String, Hashable, CaseIterable, Identifiable {
         case .transactions: return "Transactions"
         case .contacts:     return "Contacts"
         case .chat:         return "Chat"
-        case .mail:         return "Mail"
+        case .mail:         return "Cmail"
         case .news:         return "News"
         case .helpBeginners: return "Help beginners"
         case .proofs:       return "Proofs"

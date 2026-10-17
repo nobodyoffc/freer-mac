@@ -265,7 +265,7 @@ final class FeipProtocolTests: XCTestCase {
         XCTAssertEqual(FeipProtocol.bySn("12"), .contact)
         XCTAssertEqual(FeipProtocol.displayName(forSn: "12"), "Contact")
         XCTAssertEqual(FeipProtocol.displayName(forSn: "3"), "CID")
-        XCTAssertEqual(FeipProtocol.displayName(forSn: " 7 "), "Mail")
+        XCTAssertEqual(FeipProtocol.displayName(forSn: " 7 "), "Cmail")
     }
 
     /// The versions the carve builders in this package already write

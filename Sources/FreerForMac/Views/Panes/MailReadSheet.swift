@@ -123,7 +123,7 @@ struct MailReadSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
         } else if mail.decrypted == false {
             VStack(alignment: .leading, spacing: 6) {
-                CopyableLabel("Can't open this mail", systemImage: "lock.slash")
+                CopyableLabel("Can't open this Cmail", systemImage: "lock.slash")
                     .foregroundStyle(.orange)
                 Text(session.canSign
                      ? "It is sealed to a key this identity doesn't hold — most often it was addressed to another of your FIDs. Switch to that identity and it will open. The ciphertext is kept, so nothing is lost in the meantime."
@@ -147,7 +147,7 @@ struct MailReadSheet: View {
                     .font(.caption.bold())
                     .foregroundStyle(.secondary)
             }
-            Text("Only the message above is encrypted. Everything below was written to the chain in the clear when this mail was sent.")
+            Text("Only the message above is encrypted. Everything below was written to the chain in the clear when this Cmail was sent.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)

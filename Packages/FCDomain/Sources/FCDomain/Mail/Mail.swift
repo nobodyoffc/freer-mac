@@ -268,7 +268,7 @@ public struct Mail: Codable, Equatable, Sendable, Identifiable {
 
         public var description: String {
             switch self {
-            case .noContent: return "Mail: no content to encrypt"
+            case .noContent: return "Cmail: no content to encrypt"
             }
         }
     }

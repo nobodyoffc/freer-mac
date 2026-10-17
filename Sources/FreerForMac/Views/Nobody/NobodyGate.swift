@@ -20,7 +20,7 @@ enum NobodyConsequence {
         case .encrypt:
             return "Anyone can decrypt what you encrypt to it."
         case .mail:
-            return "Anyone can read this mail and reply as the recipient."
+            return "Anyone can read this Cmail and reply as the recipient."
         case .multisig:
             return "Anyone can sign as this member, so the multisig needs fewer real signatures than it appears."
         case .master:

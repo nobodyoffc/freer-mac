@@ -341,7 +341,7 @@ struct SettingsView: View {
                 }
             }
 
-            DisclosureGroup("When I send mail", isExpanded: $sendingLimitsExpanded) {
+            DisclosureGroup("When I send Cmail", isExpanded: $sendingLimitsExpanded) {
                 LabeledField(
                     "Most I'll pay",
                     hint: maxPayingSats == nil && !maxPayingNoticeFee.isEmpty
@@ -372,11 +372,11 @@ struct SettingsView: View {
                 .foregroundStyle(.green)
             }
         } header: {
-            Text("Mail")
+            Text("Cmail")
         } footer: {
             FoldingFooter(
-                summary: "Your notice fee is what others pay **you** per mail; it lives on the chain.",
-                details: "Your notice fee is what other people pay **you** to land a mail in your inbox — it lives on the chain, so raising it costs a carve and only applies to mail sent after it confirms. The two sending settings are local: they bound what you spend, and never leave this device."
+                summary: "Your notice fee is what others pay **you** per Cmail; it lives on the chain.",
+                details: "Your notice fee is what other people pay **you** to land a Cmail in your inbox — it lives on the chain, so raising it costs a carve and only applies to Cmail sent after it confirms. The two sending settings are local: they bound what you spend, and never leave this device."
             )
         }
     }
@@ -429,7 +429,7 @@ struct SettingsView: View {
         } footer: {
             FoldingFooter(
                 summary: "With confirmation on, **nothing is signed until you approve it**.",
-                details: "The backup is the only copy of this identity that can exist off this Mac — as text you write down, or as a file sealed with your vault password. **Marking it done is your word, not ours** — it turns off the reminder, and nothing checks it.\n\nWith confirmation on, **nothing is signed until you approve it** — payments, cash merges, and the on-chain writes that panes make on your behalf (a contact, a mail, a chat key). The dialog shows the built transaction: which cashes it spends, who each output pays, the fee, and the exact bytes of any data being written. Turn it off and those all go straight to the chain."
+                details: "The backup is the only copy of this identity that can exist off this Mac — as text you write down, or as a file sealed with your vault password. **Marking it done is your word, not ours** — it turns off the reminder, and nothing checks it.\n\nWith confirmation on, **nothing is signed until you approve it** — payments, cash merges, and the on-chain writes that panes make on your behalf (a contact, a Cmail, a chat key). The dialog shows the built transaction: which cashes it spends, who each output pays, the fee, and the exact bytes of any data being written. Turn it off and those all go straight to the chain."
             )
         }
     }

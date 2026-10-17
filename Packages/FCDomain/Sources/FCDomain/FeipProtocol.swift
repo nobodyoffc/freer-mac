@@ -96,7 +96,7 @@ public enum FeipProtocol: String, CaseIterable, Sendable {
         case .nobody:       return "Nobody"
         case .service:      return "Service"
         case .master:       return "Master"
-        case .mail:         return "Mail"
+        case .mail:         return "Cmail"
         case .statement:    return "Statement"
         case .home:         return "Home"
         case .noticeFee:    return "NoticeFee"

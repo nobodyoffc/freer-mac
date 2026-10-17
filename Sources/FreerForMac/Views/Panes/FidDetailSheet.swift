@@ -441,8 +441,8 @@ struct FidDetailSheet: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(fee) F").monospacedDigit()
                         caption(isLive
-                                ? "What this FID charges to accept mail. Change it in Settings."
-                                : "What this FID charges to accept mail — a mail to them pays it.")
+                                ? "What this FID charges to accept Cmail. Change it in Settings."
+                                : "What this FID charges to accept Cmail — a Cmail to them pays it.")
                     }
                 }
             }
@@ -467,9 +467,9 @@ struct FidDetailSheet: View {
                 caption(
                     isLive
                         ? "This FID carries no home map on chain, so nobody can look up where to reach it. "
-                            + "Publish one from the Services pane if you want mail or chat to find you."
+                            + "Publish one from the Services pane if you want Cmail or chat to find you."
                         : "This FID carries no home map on chain, so there is nowhere to look up for "
-                            + "chat delivery. Mail still reaches it — mail rests on the chain itself."
+                            + "chat delivery. Cmail still reaches it — Cmail rests on the chain itself."
                 )
             }
         }
