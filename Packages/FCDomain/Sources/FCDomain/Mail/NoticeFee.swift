@@ -24,11 +24,11 @@ public enum NoticeFee {
     /// has published no fee of its own. 0.0001 F.
     public static let defaultFeeSats: Int64 = 10_000
 
-    /// `MailManager.DEFAULT_MAX_PAYING_NOTICE_FEE` = "100", i.e. 100 F.
-    /// A ceiling this high is not really a spending limit; it is a
-    /// guard against a typo or a hostile `noticeFee` on someone's
-    /// on-chain record turning a mail into a donation.
-    public static let defaultMaxPayingSats: Int64 = 100 * satsPerCoin
+    /// `MailManager.DEFAULT_MAX_PAYING_NOTICE_FEE` = "1", i.e. 1 F —
+    /// ten thousand times the default fee. It guards against a typo or a
+    /// hostile `noticeFee` on someone's on-chain record turning a mail
+    /// into a donation. Was 100 F before Android 3.3.2.
+    public static let defaultMaxPayingSats: Int64 = 1 * satsPerCoin
 
     /// The payment cannot be smaller than this, whatever the recipient
     /// asks for, because an output below the dust threshold is not

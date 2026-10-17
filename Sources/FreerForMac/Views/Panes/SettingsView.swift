@@ -350,7 +350,7 @@ struct SettingsView: View {
                     hintIsError: maxPayingSats == nil && !maxPayingNoticeFee.isEmpty
                 ) {
                     HStack(spacing: 8) {
-                        TextField("", text: $maxPayingNoticeFee, prompt: Text("100"))
+                        TextField("", text: $maxPayingNoticeFee, prompt: Text(NoticeFee.coinString(satoshis: NoticeFee.defaultMaxPayingSats)))
                             .fieldInputStyle()
                             .frame(maxWidth: 160)
                         Text("F").foregroundStyle(.secondary)
@@ -376,7 +376,7 @@ struct SettingsView: View {
         } footer: {
             FoldingFooter(
                 summary: "Your notice fee is what others pay **you** per Cmail; it lives on the chain.",
-                details: "Your notice fee is what other people pay **you** to land a Cmail in your inbox — it lives on the chain, so raising it costs a carve and only applies to Cmail sent after it confirms. The two sending settings are local: they bound what you spend, and never leave this device."
+                details: "Your notice fee is what other people pay **you** to land a Cmail in your inbox — it lives on the chain, so raising it costs a carve and only applies to Cmail sent after it confirms. Senders refuse a fee above their own limit (1 F by default), so a higher fee means fewer Cmails reach you. The two sending settings are local: they bound what you spend, and never leave this device."
             )
         }
     }
