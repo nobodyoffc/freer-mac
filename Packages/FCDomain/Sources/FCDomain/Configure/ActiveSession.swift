@@ -3161,16 +3161,6 @@ public final class ActiveSession {
 
     // MARK: - proof carving (FEIP Proof, sn 14)
 
-    /// What a `transfer` pays the new owner.
-    ///
-    /// The transfer op names no recipient — the protocol reads it off
-    /// the transaction's output, so the payment *is* the addressing,
-    /// exactly as it is for mail. Android sends `Cash.MIN_AMOUNT`
-    /// (0.0001 F) and this matches it, because the two clients have to
-    /// agree on what an ownership change looks like on chain. It is far
-    /// above the 546-sat dust floor, so the output always relays.
-    public static let proofTransferSats: Int64 = NoticeFee.satsPerCoin / 10_000
-
     /// Issue a proof — mint a signed public statement.
     ///
     /// **The proof's id is the carve's txid**, so nothing can know the
@@ -3178,9 +3168,13 @@ public final class ActiveSession {
     /// its id as `draftId` and gets the promoted row back under the new
     /// key. Pays nobody: issuing is a statement, not a message.
     ///
+    /// `issueTo` makes another FID the first owner — named in the op,
+    /// since the protocol never reads outputs. Nil (or the live FID)
+    /// keeps the proof with its issuer.
+    ///
     /// Title and content go on chain **in the clear** — this is the one
     /// carve in the app with no cipher anywhere in it, and the reason
-    /// the size guard in ``ProofFeip/issueCarve(title:content:cosigners:transferable:allSignsRequired:)``
+    /// the size guard in ``ProofFeip/issueCarve(title:content:cosigners:transferable:allSignsRequired:issueTo:)``
     /// runs before a single satoshi is committed.
     @discardableResult
     public func carveProofIssueOnChain(
@@ -3189,19 +3183,22 @@ public final class ActiveSession {
         cosigners: [String] = [],
         transferable: Bool = false,
         allSignsRequired: Bool = false,
+        issueTo: String? = nil,
         draftId: String? = nil,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> Proof {
         let priv = try livePrikey()
         let invited = cosigners.isEmpty ? nil : cosigners
+        let firstOwner = (issueTo?.isEmpty ?? true) || issueTo == liveFid ? nil : issueTo
         // Throws before anything is broadcast when the text is too big
         // for an OP_RETURN.
         let feipJson = try ProofFeip.issueCarve(
             title: title, content: content,
             cosigners: invited,
             transferable: transferable,
-            allSignsRequired: invited == nil ? nil : allSignsRequired
+            allSignsRequired: invited == nil ? nil : allSignsRequired,
+            issueTo: firstOwner
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
@@ -3222,7 +3219,7 @@ public final class ActiveSession {
             transferable: transferable,
             destroyed: false,
             issuer: liveFid,
-            owner: liveFid,
+            owner: firstOwner ?? liveFid,
             birthTime: now,
             lastTxId: txid,
             lastTime: now,
@@ -3259,10 +3256,8 @@ public final class ActiveSession {
         return result.remoteTxid
     }
 
-    /// Hand a proof to `recipient`.
-    ///
-    /// Goes through the *paying* carve path — see ``proofTransferSats``
-    /// for why the payment is the addressing rather than a courtesy.
+    /// Hand a proof to `recipient`. Pays nobody: the new owner is the
+    /// op's `transferTo`, not an output.
     @discardableResult
     public func carveProofTransferOnChain(
         proofId: String,
@@ -3273,8 +3268,7 @@ public final class ActiveSession {
         let priv = try livePrikey()
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
-            opReturn: ProofFeip.envelope(opJson: try ProofFeip.transferOp(proofId: proofId)),
-            payTo: recipient, payAmount: Self.proofTransferSats,
+            opReturn: ProofFeip.envelope(opJson: try ProofFeip.transferOp(proofId: proofId, transferTo: recipient)),
             feePerByte: feePerByte, timeoutMs: timeoutMs
         )
         return result.remoteTxid

@@ -43,6 +43,8 @@ struct IssueProofSheet: View {
         _cosigners = State(initialValue: editing?.cosignersInvited ?? [])
         _transferable = State(initialValue: editing?.transferable ?? false)
         _allSignsRequired = State(initialValue: editing?.allSignsRequired ?? false)
+        // A draft owned by someone other than its issuer is to be issued to them.
+        _issueTo = State(initialValue: editing.flatMap { $0.owner != $0.issuer ? $0.owner : nil })
     }
 
     @State private var title: String
@@ -51,8 +53,12 @@ struct IssueProofSheet: View {
     @State private var names: [String: String] = [:]
     @State private var transferable: Bool
     @State private var allSignsRequired: Bool
+    /// The first owner, or nil for the issuer.
+    @State private var issueTo: String?
 
     @State private var pick: FidPickerRequest?
+    /// Whether ``pick`` is choosing the first owner rather than cosigners.
+    @State private var pickingOwner = false
     @State private var busy = false
     @State private var error: String?
 
@@ -61,7 +67,8 @@ struct IssueProofSheet: View {
             title: title, content: content,
             cosigners: cosigners.isEmpty ? nil : cosigners,
             transferable: transferable,
-            allSignsRequired: cosigners.isEmpty ? nil : allSignsRequired
+            allSignsRequired: cosigners.isEmpty ? nil : allSignsRequired,
+            issueTo: issueTo
         )
     }
 
@@ -134,6 +141,7 @@ struct IssueProofSheet: View {
                         }
                     }
                     Button {
+                        pickingOwner = false
                         pick = .many(
                             title: "Invite cosigners",
                             subtitle: "They will be asked to countersign this proof on chain.",
@@ -141,6 +149,42 @@ struct IssueProofSheet: View {
                         )
                     } label: {
                         Label("Add cosigners", systemImage: "person.badge.plus")
+                    }
+                    .controlSize(.small)
+                }
+            }
+
+            field("Issue to") {
+                HStack(spacing: 6) {
+                    if let issueTo {
+                        FidAvatarView(fid: issueTo, size: 20)
+                        CopyableText(
+                            display: names[issueTo] ?? issueTo.elidingMiddle(head: 8, tail: 8),
+                            copy: issueTo,
+                            font: .system(.caption, design: .monospaced)
+                        )
+                        Button {
+                            self.issueTo = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Text("Yourself — you own what you issue unless you name someone.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        pickingOwner = true
+                        pick = .one(
+                            title: "Issue to",
+                            subtitle: "They own this proof from the moment it is carved. If it is not transferable, it stays theirs.",
+                            excluded: [session.liveFid]
+                        )
+                    } label: {
+                        Label(issueTo == nil ? "Choose owner" : "Change", systemImage: "person.crop.circle.badge.plus")
                     }
                     .controlSize(.small)
                 }
@@ -181,9 +225,16 @@ struct IssueProofSheet: View {
         .frame(width: 560)
         .sheet(item: $pick) { request in
             FidPickerSheet(session: session, request: request) { picked in
-                for p in picked where !cosigners.contains(p.fid) {
-                    cosigners.append(p.fid)
-                    if let cid = p.cid, !cid.isEmpty { names[p.fid] = cid }
+                if pickingOwner {
+                    if let p = picked.first {
+                        issueTo = p.fid
+                        if let cid = p.cid, !cid.isEmpty { names[p.fid] = cid }
+                    }
+                } else {
+                    for p in picked where !cosigners.contains(p.fid) {
+                        cosigners.append(p.fid)
+                        if let cid = p.cid, !cid.isEmpty { names[p.fid] = cid }
+                    }
                 }
                 pick = nil
             } onCancel: { pick = nil }
@@ -206,6 +257,7 @@ struct IssueProofSheet: View {
             cosigners: cosigners,
             transferable: transferable,
             allSignsRequired: allSignsRequired,
+            issueTo: issueTo,
             issuer: session.liveFid
         )
         if let editing {
@@ -229,6 +281,10 @@ struct IssueProofSheet: View {
     }
 
     private func carve() async {
+        // A proof owned by a nobody is owned by anyone.
+        if let issueTo {
+            guard await NobodyGate.confirm([issueTo], .send, session: session) else { return }
+        }
         busy = true
         defer { busy = false }
         error = nil
@@ -245,6 +301,7 @@ struct IssueProofSheet: View {
                 cosigners: cosigners,
                 transferable: transferable,
                 allSignsRequired: allSignsRequired,
+                issueTo: issueTo,
                 draftId: draftId
             )
             onDone(.carved(proof))
@@ -435,9 +492,8 @@ struct ProofDetailSheet: View {
 /// Hand a proof to someone else.
 ///
 /// Its own sheet rather than a row button straight into the FID picker,
-/// because a transfer is irreversible and pays the recipient: the user
-/// should see who they picked, and what it costs, before the carve goes
-/// out. Android goes from the pay icon to the picker to the broadcast
+/// because a transfer is irreversible: the user should see who they
+/// picked before the carve goes out. Android goes from the pay icon to the picker to the broadcast
 /// with nothing in between.
 struct TransferProofSheet: View {
     let session: ActiveSession
@@ -458,7 +514,7 @@ struct TransferProofSheet: View {
                 .font(.body.bold())
                 .lineLimit(2)
 
-            Text("Ownership moves to whoever the carve pays — that payment is how the protocol addresses the transfer, not a courtesy. You will remain its issuer forever; you will no longer be able to transfer or destroy it.")
+            Text("Ownership moves to the FID you name here. You will remain its issuer forever; you will no longer be able to transfer or destroy it.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -489,10 +545,6 @@ struct TransferProofSheet: View {
                     }
                 }
             }
-
-            Text("The carve pays them \(NoticeFee.coinString(satoshis: ActiveSession.proofTransferSats)) F, plus the miner fee.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
 
             if let error {
                 CopyableText(error, font: .caption).foregroundStyle(.red)

@@ -7,9 +7,8 @@ import FCTransport
 /// holds the results.
 ///
 /// The carve assertions decode the broadcast raw hex rather than
-/// trusting the builder, because for a `transfer` the recipient output
-/// is not a detail of the transaction — it *is* the new owner, and
-/// nothing else on chain records who the proof went to.
+/// trusting the builder. No proof carve pays anyone: owners are named
+/// in the op (`issueTo`, `transferTo`), never by an output.
 final class ProofCarveTests: XCTestCase {
 
     private var baseDir: URL!
@@ -87,13 +86,9 @@ final class ProofCarveTests: XCTestCase {
         }
     }
 
-    private func payOutputBytes(to fid: String, value: Int64) throws -> Data {
-        var out = Data()
-        var le = UInt64(value).littleEndian
-        withUnsafeBytes(of: &le) { out.append(contentsOf: $0) }
-        out.append(0x19)
-        out.append(try ScriptBuilder.p2pkhOutput(hash160: FchAddress(fid: fid).hash160).bytes)
-        return out
+    /// The lock script of an output paying `fid`, whatever the amount.
+    private func lockScriptBytes(to fid: String) throws -> Data {
+        Data(try ScriptBuilder.p2pkhOutput(hash160: FchAddress(fid: fid).hash160).bytes)
     }
 
     // MARK: - issue
@@ -116,12 +111,7 @@ final class ProofCarveTests: XCTestCase {
         XCTAssertNotNil(raw.range(of: Data(#""op":"issue""#.utf8)))
         XCTAssertNotNil(raw.range(of: Data(#""title":"Lease""#.utf8)))
         XCTAssertNotNil(raw.range(of: Data(#""cosigners":["FIDA"]"#.utf8)))
-        XCTAssertNil(
-            raw.range(of: try payOutputBytes(
-                to: try recipientFid(), value: ActiveSession.proofTransferSats
-            )),
-            "issuing addresses nobody"
-        )
+        XCTAssertNil(raw.range(of: Data("issueTo".utf8)), "no issueTo: the issuer owns it")
 
         XCTAssertEqual(proof.id, "proof-txid-001")
         XCTAssertEqual(proof.issuer, session.liveFid)
@@ -130,6 +120,41 @@ final class ProofCarveTests: XCTestCase {
         XCTAssertNil(proof.onChain)
         XCTAssertEqual(proof.lastHeight, ProofsStore.unconfirmedHeight)
         XCTAssertEqual(try session.proofs.get(id: "proof-txid-001")?.title, "Lease")
+    }
+
+    /// `issueTo` names the first owner in the op; the carve pays nobody,
+    /// and the local row already shows them as the owner.
+    func testIssueToNamesTheFirstOwnerAndPaysNobody() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let broadcast = Captured()
+        try stage(mock, senderFid: session.mainFid, onBroadcast: { broadcast.value = $0 })
+
+        let owner = try recipientFid()
+        let proof = try await session.carveProofIssueOnChain(
+            title: "Diploma", content: "Completed", transferable: false, issueTo: owner
+        )
+
+        let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
+        XCTAssertNotNil(raw.range(of: Data(#""issueTo":"\#(owner)""#.utf8)))
+        XCTAssertNil(raw.range(of: try lockScriptBytes(to: owner)), "the owner is named, not paid")
+        XCTAssertEqual(proof.issuer, session.liveFid)
+        XCTAssertEqual(proof.owner, owner)
+    }
+
+    /// Naming yourself is the same as naming nobody — the bytes are not spent.
+    func testIssueToSelfIsOmitted() async throws {
+        let mock = MockFapiClient()
+        let session = try makeSession(fapi: mock)
+        let broadcast = Captured()
+        try stage(mock, senderFid: session.mainFid, onBroadcast: { broadcast.value = $0 })
+
+        let proof = try await session.carveProofIssueOnChain(
+            title: "t", content: "c", issueTo: session.liveFid
+        )
+        let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
+        XCTAssertNil(raw.range(of: Data("issueTo".utf8)))
+        XCTAssertEqual(proof.owner, session.liveFid)
     }
 
     /// `allSignsRequired` means nothing without cosigners, so it is not
@@ -201,9 +226,7 @@ final class ProofCarveTests: XCTestCase {
         let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
         XCTAssertNotNil(raw.range(of: Data(#""op":"sign""#.utf8)))
         XCTAssertNotNil(raw.range(of: Data(#""proofId":"p1""#.utf8)))
-        XCTAssertNil(raw.range(of: try payOutputBytes(
-            to: try recipientFid(), value: ActiveSession.proofTransferSats
-        )))
+        XCTAssertNil(raw.range(of: try lockScriptBytes(to: try recipientFid())))
     }
 
     /// The protocol takes a list, which for a paid op is the difference
@@ -224,10 +247,8 @@ final class ProofCarveTests: XCTestCase {
 
     // MARK: - transfer
 
-    /// The transfer op names no recipient — the payment is the
-    /// addressing. If the output were missing the carve would move the
-    /// proof to nobody.
-    func testTransferPaysTheNewOwner() async throws {
+    /// The new owner is named in the op, and the carve pays nobody.
+    func testTransferNamesTheNewOwnerAndPaysNobody() async throws {
         let mock = MockFapiClient()
         let session = try makeSession(fapi: mock)
         let broadcast = Captured()
@@ -239,20 +260,8 @@ final class ProofCarveTests: XCTestCase {
         let raw = Data(fromHex: try XCTUnwrap(broadcast.value))
         XCTAssertNotNil(raw.range(of: Data(#""op":"transfer""#.utf8)))
         XCTAssertNotNil(raw.range(of: Data(#""proofId":"p1""#.utf8)))
-        XCTAssertNotNil(
-            raw.range(of: try payOutputBytes(
-                to: recipient, value: ActiveSession.proofTransferSats
-            )),
-            "the payment is how the protocol names the new owner"
-        )
-    }
-
-    /// Android sends `Cash.MIN_AMOUNT` (0.0001 F). The two clients have
-    /// to agree on what an ownership change looks like on chain.
-    func testTransferAmountMatchesAndroid() {
-        XCTAssertEqual(ActiveSession.proofTransferSats, 10_000)
-        XCTAssertEqual(NoticeFee.coinString(satoshis: ActiveSession.proofTransferSats), "0.0001")
-        XCTAssertGreaterThan(ActiveSession.proofTransferSats, CoinSelector.dustThresholdSats)
+        XCTAssertNotNil(raw.range(of: Data(#""transferTo":"\#(recipient)""#.utf8)))
+        XCTAssertNil(raw.range(of: try lockScriptBytes(to: recipient)), "the owner is named, not paid")
     }
 
     // MARK: - store

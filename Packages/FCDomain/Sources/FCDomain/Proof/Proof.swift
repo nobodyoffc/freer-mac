@@ -49,7 +49,7 @@ public struct Proof: Codable, Equatable, Sendable, Identifiable {
 
     /// Whether every invited cosigner must sign before the proof takes
     /// force. **Draft-only, and not on the wire.** The op carries it
-    /// (see ``ProofFeip/issueOp(title:content:cosigners:transferable:allSignsRequired:)``)
+    /// (see ``ProofFeip/issueOp(title:content:cosigners:transferable:allSignsRequired:issueTo:)``)
     /// but the `proof` index does not store it — what a chain record
     /// exposes is the *result*, ``active``. It is kept here so a draft
     /// can remember the choice between being saved and being carved;
@@ -70,7 +70,7 @@ public struct Proof: Codable, Equatable, Sendable, Identifiable {
     public var onChain: Bool?
 
     /// The carve txid once carved; a locally derived digest before
-    /// that. See ``localId(title:content:cosigners:transferable:)``.
+    /// that. See ``localId(title:content:cosigners:transferable:issueTo:)``.
     public var id: String
 
     // MARK: - local bookkeeping
@@ -245,8 +245,8 @@ public struct Proof: Codable, Equatable, Sendable, Identifiable {
     ///
     /// Android hashes `Gson.toJson(proof)` over the whole object
     /// (`checkIdWithCreate`), which folds in fields a draft has no
-    /// business committing to, like `owner` and `active`. This hashes
-    /// exactly the five values the `issue` op will carve, so re-deriving
+    /// business committing to, like `active`. This hashes exactly the
+    /// values the `issue` op will carve (the owner only as `issueTo`), so re-deriving
     /// the id of an unchanged draft is stable across a save/reload — the
     /// property the id exists for. It is 32 bytes of hex either way, so
     /// it can never collide with a txid of a different preimage, and the
@@ -255,18 +255,20 @@ public struct Proof: Codable, Equatable, Sendable, Identifiable {
         title: String?,
         content: String?,
         cosigners: [String]?,
-        transferable: Bool?
+        transferable: Bool?,
+        issueTo: String? = nil
     ) -> String {
         let detail = (try? ProofFeip.issueOp(
             title: title, content: content, cosigners: cosigners,
-            transferable: transferable, allSignsRequired: nil
+            transferable: transferable, allSignsRequired: nil,
+            issueTo: issueTo
         )) ?? "\(title ?? "")\u{1F}\(content ?? "")"
         return Hex.encode(Hash.doubleSha256(Data(detail.utf8)))
     }
 
     /// A brand-new local-only proof, issued by `issuer` and not yet
-    /// carved. `owner` starts as the issuer, matching what the chain
-    /// will say once the carve confirms.
+    /// carved. `owner` is `issueTo` when given, else the issuer, matching
+    /// what the chain will say once the carve confirms.
     ///
     /// ``active`` stays nil rather than true: it is the *indexer's*
     /// verdict on whether the proof is in force, and a draft that has
@@ -279,13 +281,16 @@ public struct Proof: Codable, Equatable, Sendable, Identifiable {
         cosigners: [String],
         transferable: Bool,
         allSignsRequired: Bool = false,
+        issueTo: String? = nil,
         issuer: String
     ) -> Proof {
         let invited = cosigners.isEmpty ? nil : cosigners
+        let firstOwner = (issueTo?.isEmpty ?? true) || issueTo == issuer ? nil : issueTo
         return Proof(
             id: localId(
                 title: title, content: content,
-                cosigners: invited, transferable: transferable
+                cosigners: invited, transferable: transferable,
+                issueTo: firstOwner
             ),
             title: title,
             content: content,
@@ -293,7 +298,7 @@ public struct Proof: Codable, Equatable, Sendable, Identifiable {
             transferable: transferable,
             destroyed: false,
             issuer: issuer,
-            owner: issuer,
+            owner: firstOwner ?? issuer,
             allSignsRequired: cosigners.isEmpty ? nil : allSignsRequired,
             onChain: false
         )

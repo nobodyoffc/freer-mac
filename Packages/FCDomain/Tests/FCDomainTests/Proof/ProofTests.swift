@@ -73,11 +73,12 @@ final class ProofTests: XCTestCase {
 
         data = try XCTUnwrap(
             JSONSerialization.jsonObject(
-                with: Data(try ProofFeip.transferOp(proofId: "p1").utf8)
+                with: Data(try ProofFeip.transferOp(proofId: "p1", transferTo: "FIDB").utf8)
             ) as? [String: Any]
         )
         XCTAssertEqual(data["op"] as? String, "transfer")
         XCTAssertEqual(data["proofId"] as? String, "p1")
+        XCTAssertEqual(data["transferTo"] as? String, "FIDB")
         // The recipient is read off the transaction output, never the
         // payload — a transfer op naming one would be a different
         // protocol.

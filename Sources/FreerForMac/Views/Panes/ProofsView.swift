@@ -850,6 +850,7 @@ struct ProofsView: View {
                 cosigners: draft.cosignersInvited ?? [],
                 transferable: draft.transferable ?? false,
                 allSignsRequired: draft.allSignsRequired ?? false,
+                issueTo: draft.owner != draft.issuer ? draft.owner : nil,
                 draftId: draft.id
             )
             actionNote = "Issued — tx \(proof.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it."

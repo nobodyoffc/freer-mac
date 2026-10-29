@@ -345,7 +345,7 @@ public enum TokenFeip {
     /// entered.
     ///
     /// Measured on the encoded envelope rather than estimated, for the
-    /// same reason ``ProofFeip/remainingContentBytes(title:content:cosigners:transferable:allSignsRequired:)``
+    /// same reason ``ProofFeip/remainingContentBytes(title:content:cosigners:transferable:allSignsRequired:issueTo:)``
     /// is: a FID is 34 characters but a JSON line holding one is not,
     /// and the amount's own digits vary. Returns nil when the lines
     /// already there do not encode at all — the form has a validation

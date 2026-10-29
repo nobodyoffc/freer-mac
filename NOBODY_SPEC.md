@@ -156,7 +156,8 @@ is a nobody:
 |---|---|---|---|
 | Send FCH | Anything sent to it can be taken by anyone. | `SendTxActivity` (every tx) | `TxConfirmSheet` banners (every tx) |
 | Send / issue tokens | same | `SendTokenActivity.handleSend` | `TokenSheets` `send` / `issue` |
-| Transfer a proof | same | `ProofActivity` (the recipient is an output, so `SendTxActivity` asks) | `ProofSheets.transfer` |
+| Issue a proof to someone (`issueTo`) | same | `IssueProofActivity` carve, `ProofActivity` draft carve | `IssueProofSheet.carve` |
+| Transfer a proof | same | `ProofActivity` (the owner is named in the op, not paid, so it asks itself) | `ProofSheets.transfer` |
 | Encrypt to a pubkey | Anyone can decrypt what you encrypt to it. | `EncryptActivity` | Tools › Encrypt |
 | Mail | Anyone can read this mail and reply as the recipient. | `CreateMailActivity` | `MailComposeSheet.send` |
 | Multisig member | Anyone can sign as this member, so the multisig needs fewer real signatures than it appears. | `CreateMultisigIdActivity` | `CreateMultisigSheet` |

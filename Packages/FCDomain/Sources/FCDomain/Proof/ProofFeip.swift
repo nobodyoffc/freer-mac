@@ -8,12 +8,12 @@ import Foundation
 /// {"type":"FEIP","sn":"14","ver":"1","name":"Proof",
 ///  "data":{"op":"issue","title":"…","content":"…",
 ///          "cosigners":["…"],"transferable":true,
-///          "allSignsRequired":false}}
+///          "allSignsRequired":false,"issueTo":"…"}}
 /// ```
 ///
 /// **Nothing here is encrypted.** A proof is a public statement; the
 /// title and body go on the chain in the clear, which is why
-/// ``issueCarve(title:content:cosigners:transferable:allSignsRequired:)``
+/// ``issueCarve(title:content:cosigners:transferable:allSignsRequired:issueTo:)``
 /// enforces the OP_RETURN size limit *before* anything is signed and
 /// why the UI says so before the user types.
 public enum ProofFeip {
@@ -64,6 +64,9 @@ public enum ProofFeip {
 
     /// `{"op":"issue",…}` — mint a proof.
     ///
+    /// `issueTo` names the first owner; absent, the issuer owns it. It is
+    /// the only way an untransferable proof can belong to anyone else.
+    ///
     /// Empty cosigner lists are omitted rather than sent as `[]`: an
     /// absent key and an empty array read the same to the indexer, and
     /// every omitted byte is OP_RETURN budget the content can use.
@@ -72,7 +75,8 @@ public enum ProofFeip {
         content: String?,
         cosigners: [String]?,
         transferable: Bool?,
-        allSignsRequired: Bool?
+        allSignsRequired: Bool?,
+        issueTo: String? = nil
     ) throws -> String {
         var dict: [String: Any] = ["op": Op.issue.rawValue]
         if let title, !title.isEmpty { dict["title"] = title }
@@ -80,6 +84,7 @@ public enum ProofFeip {
         if let cosigners, !cosigners.isEmpty { dict["cosigners"] = cosigners }
         if let transferable { dict["transferable"] = transferable }
         if let allSignsRequired { dict["allSignsRequired"] = allSignsRequired }
+        if let issueTo, !issueTo.isEmpty { dict["issueTo"] = issueTo }
         return try jsonString(dict)
     }
 
@@ -89,12 +94,11 @@ public enum ProofFeip {
         try jsonString(["op": Op.sign.rawValue, "proofId": proofId])
     }
 
-    /// `{"op":"transfer","proofId":…}` — hand ownership to whoever the
-    /// carve pays. The recipient is *not* in this payload: the protocol
-    /// reads it off the transaction's output, which is why a transfer
-    /// must go through the paying carve path.
-    public static func transferOp(proofId: String) throws -> String {
-        try jsonString(["op": Op.transfer.rawValue, "proofId": proofId])
+    /// `{"op":"transfer","proofId":…,"transferTo":…}` — hand ownership
+    /// to `transferTo`. The new owner is named here, not by a payment:
+    /// the protocol never reads the transaction's outputs.
+    public static func transferOp(proofId: String, transferTo: String) throws -> String {
+        try jsonString(["op": Op.transfer.rawValue, "proofId": proofId, "transferTo": transferTo])
     }
 
     /// `{"op":"destroy","proofIds":[…]}` — retire proofs you own. Takes
@@ -115,7 +119,8 @@ public enum ProofFeip {
         content: String,
         cosigners: [String]? = nil,
         transferable: Bool? = nil,
-        allSignsRequired: Bool? = nil
+        allSignsRequired: Bool? = nil,
+        issueTo: String? = nil
     ) throws -> String {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Failure.emptyTitle
@@ -125,7 +130,8 @@ public enum ProofFeip {
         }
         let json = envelope(opJson: try issueOp(
             title: title, content: content, cosigners: cosigners,
-            transferable: transferable, allSignsRequired: allSignsRequired
+            transferable: transferable, allSignsRequired: allSignsRequired,
+            issueTo: issueTo
         ))
         let bytes = Data(json.utf8).count
         guard bytes <= maxOpReturnSize else { throw Failure.tooLarge(bytes: bytes) }
@@ -144,7 +150,7 @@ public enum ProofFeip {
     /// mark costs two bytes, an emoji four before escaping.
     ///
     /// **Measured with the `content` key present even when the content
-    /// is empty.** ``issueOp(title:content:cosigners:transferable:allSignsRequired:)``
+    /// is empty.** ``issueOp(title:content:cosigners:transferable:allSignsRequired:issueTo:)``
     /// omits empty fields, so measuring an empty draft directly would
     /// count the `"content":""` overhead as free and promise a dozen
     /// bytes that the first keystroke immediately spends — a budget
@@ -154,12 +160,14 @@ public enum ProofFeip {
         content: String,
         cosigners: [String]? = nil,
         transferable: Bool? = nil,
-        allSignsRequired: Bool? = nil
+        allSignsRequired: Bool? = nil,
+        issueTo: String? = nil
     ) -> Int {
         let probe = content.isEmpty ? "x" : content
         let json = (try? envelope(opJson: issueOp(
             title: title, content: probe, cosigners: cosigners,
-            transferable: transferable, allSignsRequired: allSignsRequired
+            transferable: transferable, allSignsRequired: allSignsRequired,
+            issueTo: issueTo
         ))) ?? ""
         let used = Data(json.utf8).count - (content.isEmpty ? 1 : 0)
         return maxOpReturnSize - used
