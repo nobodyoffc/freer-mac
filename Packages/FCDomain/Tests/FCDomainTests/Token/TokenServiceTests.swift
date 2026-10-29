@@ -266,7 +266,7 @@ final class TokenServiceTests: XCTestCase {
         terms = try XCTUnwrap(
             (try body(mock.recorded[1])["query"] as? [String: Any])?["terms"] as? [String: Any]
         )
-        XCTAssertEqual(terms["fields"] as? [String], ["signer", "recipient"])
+        XCTAssertEqual(terms["fields"] as? [String], ["signer", "issueTo.fid", "transferTo.fid"])
         XCTAssertEqual(terms["values"] as? [String], ["ME"])
     }
 

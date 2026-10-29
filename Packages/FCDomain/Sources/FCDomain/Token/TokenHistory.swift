@@ -47,11 +47,6 @@ public struct TokenHistory: Codable, Equatable, Sendable, Identifiable {
     /// Who signed the carve. For `issue` this is the issuer, for
     /// `transfer` the sender, for `deploy` the deployer.
     public var signer: String?
-    /// The counterparty the indexer attributed the op to, when there is
-    /// exactly one. Multi-recipient ops put everyone in ``transferTo`` /
-    /// ``issueTo`` instead, so this can be nil on a perfectly ordinary
-    /// row.
-    public var recipient: String?
     /// Coin-days destroyed by the carve — what `minCddPerIssue` is
     /// measured against.
     public var cdd: Int64?
@@ -78,7 +73,7 @@ public struct TokenHistory: Codable, Equatable, Sendable, Identifiable {
     public var id: String
 
     private enum CodingKeys: String, CodingKey {
-        case tokenIds, height, index, time, signer, recipient, cdd
+        case tokenIds, height, index, time, signer, cdd
         case tokenId, op, name, desc, consensusId, capacity, decimal
         case transferable, closable, openIssue
         case maxAmtPerIssue, minCddPerIssue, maxIssuesPerAddr
@@ -92,7 +87,6 @@ public struct TokenHistory: Codable, Equatable, Sendable, Identifiable {
         index: Int? = nil,
         time: Int64? = nil,
         signer: String? = nil,
-        recipient: String? = nil,
         cdd: Int64? = nil,
         tokenId: String? = nil,
         op: String? = nil,
@@ -116,7 +110,6 @@ public struct TokenHistory: Codable, Equatable, Sendable, Identifiable {
         self.index = index
         self.time = time
         self.signer = signer
-        self.recipient = recipient
         self.cdd = cdd
         self.tokenId = tokenId
         self.op = op
@@ -143,7 +136,6 @@ public struct TokenHistory: Codable, Equatable, Sendable, Identifiable {
         index = try c.decodeIfPresent(Int.self, forKey: .index)
         time = try c.decodeIfPresent(Int64.self, forKey: .time)
         signer = try c.decodeIfPresent(String.self, forKey: .signer)
-        recipient = try c.decodeIfPresent(String.self, forKey: .recipient)
         cdd = try c.decodeIfPresent(Int64.self, forKey: .cdd)
         tokenId = try c.decodeIfPresent(String.self, forKey: .tokenId)
         op = try c.decodeIfPresent(String.self, forKey: .op)
@@ -216,10 +208,11 @@ public struct TokenHistory: Codable, Equatable, Sendable, Identifiable {
     }
 
     /// Whether `fid` is a party to this op — either they signed it or
-    /// it paid them. The condition behind the scoped history query in
+    /// it named them in ``issueTo`` / ``transferTo``, the only
+    /// recipients the protocol has. The condition behind the scoped history query in
     /// ``TokenService/fetchHistory(tokenId:fid:ascending:after:size:timeoutMs:)``.
     public func involves(_ fid: String) -> Bool {
-        if signer == fid || recipient == fid { return true }
+        if signer == fid { return true }
         return allocations.contains { $0.fid == fid }
     }
 
@@ -230,7 +223,7 @@ public struct TokenHistory: Codable, Equatable, Sendable, Identifiable {
             guard let s else { return false }
             return s.lowercased().contains(needle)
         }
-        if hit(op) || hit(name) || hit(signer) || hit(recipient) || hit(id) { return true }
+        if hit(op) || hit(name) || hit(signer) || hit(id) { return true }
         if affectedTokenIds.contains(where: { hit($0) }) { return true }
         return allocations.contains { hit($0.fid) }
     }

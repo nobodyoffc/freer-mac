@@ -118,7 +118,10 @@ public struct TokenService {
     public enum HistoryField: String, Sendable {
         case tokenId
         case signer
-        case recipient
+        /// `issueTo` / `transferTo` are mapped as `object`, not `nested`,
+        /// so a term on the dotted path finds a party to the op.
+        case issueToFid = "issueTo.fid"
+        case transferToFid = "transferTo.fid"
         case time
         case height
         case id
@@ -394,7 +397,7 @@ public struct TokenService {
         } else if let fid, !fid.isEmpty {
             dict["query"] = [
                 "terms": [
-                    "fields": [HistoryField.signer.wire, HistoryField.recipient.wire],
+                    "fields": [HistoryField.signer.wire, HistoryField.issueToFid.wire, HistoryField.transferToFid.wire],
                     "values": [fid]
                 ]
             ]
