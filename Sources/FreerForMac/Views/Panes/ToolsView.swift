@@ -284,12 +284,56 @@ private struct SignToolView: View {
     @State private var symkeyHex = ""
     @State private var result = ""
     @State private var error: String?
+    /// A file being signed; the signature goes next to it.
+    @State private var file: URL?
+    @State private var fileIsText = true
+    @State private var savedTo: URL?
+    @State private var replacing: URL?
+    @State private var dropping = false
+
+    /// A text file up to this size is signed as it is; a larger or binary
+    /// file is signed as its DID. Signed messages carry a 2-byte length.
+    private static let maxTextBytes = 60_000
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Sign a message").font(.headline)
+            Text("Sign a message or a file").font(.headline)
 
             ToolTextEditor(placeholder: "Text to be signed", text: $message)
+                .disabled(file != nil)
+
+            // Its own target: the text view above takes a dropped file
+            // itself, inserting its contents, and never passes the drop on.
+            HStack(spacing: 12) {
+                Button { pickFile() } label: {
+                    Label(file?.lastPathComponent ?? "Sign a File…", systemImage: "doc")
+                }
+                if file != nil {
+                    Button("Use text instead") { file = nil; message = ""; savedTo = nil }
+                }
+                Label(dropping ? "Release to sign this file" : "or drop a file here", systemImage: "arrow.down.doc")
+                    .font(.callout)
+                    .foregroundStyle(dropping ? Color.accentColor : .secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(dropping ? Color.accentColor : Color.secondary.opacity(0.5),
+                                      style: StrokeStyle(lineWidth: dropping ? 2 : 1, dash: [5, 4])))
+                    .contentShape(Rectangle())
+                    .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
+                        guard let provider = providers.first else { return false }
+                        _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                            guard let url, url.isFileURL else { return }
+                            Task { @MainActor in load(url) }
+                        }
+                        return true
+                    }
+            }
+            if let file {
+                Text(fileIsText
+                     ? "The file's text is signed as it is. The signature is saved as \(Self.signatureURL(for: file).lastPathComponent) in the same folder."
+                     : "Not a text file of up to 60 KB, so its DID (sha256x2) is signed. The signature is saved as \(Self.signatureURL(for: file).lastPathComponent) in the same folder.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
 
             Picker("Algorithm", selection: $alg) {
                 Text("ECDSA").tag(MsgSignature.Alg.ecdsa)
@@ -309,23 +353,75 @@ private struct SignToolView: View {
             }
 
             HStack {
-                Button("Sign", action: sign)
+                Button(file == nil ? "Sign" : "Sign and Save", action: sign)
                     .keyboardShortcut(.defaultAction)
                     .disabled(message.isEmpty || (alg != .symkey && !session.canSign))
                 Button("Clear") {
                     message = ""; symkeyHex = ""; result = ""; error = nil; alg = .ecdsa
+                    file = nil; savedTo = nil
                 }
             }
 
             if let error {
                 CopyableText(error, font: .caption).foregroundStyle(.red)
             }
+            if let savedTo {
+                HStack {
+                    Label("Saved \(savedTo.lastPathComponent)", systemImage: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([savedTo]) }
+                }
+                .font(.callout)
+            }
             ToolResult(label: "Signature JSON", text: result)
+        }
+        .alert("Replace \(replacing?.lastPathComponent ?? "")?", isPresented: Binding(
+            get: { replacing != nil }, set: { if !$0 { replacing = nil } })) {
+            Button("Replace", role: .destructive) {
+                if let url = replacing { save(to: url) }
+                replacing = nil
+            }
+            Button("Cancel", role: .cancel) { replacing = nil }
+        } message: {
+            Text("A signature file of that name is already in the folder.")
+        }
+    }
+
+    /// `DIDS.txt` → `DIDS.sig.json`, beside it.
+    static func signatureURL(for file: URL) -> URL {
+        file.deletingPathExtension().appendingPathExtension("sig.json")
+    }
+
+    private func pickFile() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.prompt = "Choose"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        load(url)
+    }
+
+    private func load(_ url: URL) {
+        result = ""; error = nil; savedTo = nil
+        do {
+            let data = try Data(contentsOf: url)
+            if data.count <= Self.maxTextBytes, let text = String(data: data, encoding: .utf8), !text.isEmpty {
+                message = text
+                fileIsText = true
+            } else {
+                // The same line a DIDS.txt has, so the same tools check it.
+                let did = Hex.encode(Hash.doubleSha256(data)).lowercased()
+                message = "# DID = sha256x2 (FVEP11)\n\(did)  \(url.lastPathComponent)\n"
+                fileIsText = false
+            }
+            file = url
+        } catch {
+            self.error = "Failed to read the file: \(error.localizedDescription)"
         }
     }
 
     private func sign() {
-        result = ""; error = nil
+        result = ""; error = nil; savedTo = nil
         do {
             let signature: MsgSignature
             if alg == .symkey {
@@ -341,6 +437,23 @@ private struct SignToolView: View {
             result = signature.toJson()
         } catch {
             self.error = "Failed to sign: \(errorText(error))"
+            return
+        }
+        guard let file else { return }
+        let target = Self.signatureURL(for: file)
+        if FileManager.default.fileExists(atPath: target.path) {
+            replacing = target
+        } else {
+            save(to: target)
+        }
+    }
+
+    private func save(to url: URL) {
+        do {
+            try Data((result + "\n").utf8).write(to: url, options: .atomic)
+            savedTo = url
+        } catch {
+            self.error = "Signed, but could not save \(url.lastPathComponent): \(error.localizedDescription)"
         }
     }
 }
