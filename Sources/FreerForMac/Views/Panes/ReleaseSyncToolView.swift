@@ -13,7 +13,10 @@ struct ReleaseSyncPaneView: View {
             PaneHeader(session: session)
             Divider()
             ScrollView {
+                // Each live FID has its own folders, log and work; a fresh
+                // view per vault and FID keeps one's state out of another's.
                 ReleaseSyncToolView(session: session)
+                    .id(session.dataDirectory.path + "/" + session.liveFid)
                     .padding(20)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(Color(NSColor.controlBackgroundColor))
@@ -46,6 +49,9 @@ struct ReleaseSyncToolView: View {
     }
 
     @State private var repos: [RepoRow] = []
+    /// Folders from before lists were kept per FID, offered once to a FID
+    /// that has no list of its own yet.
+    @State private var legacyPaths: [String] = []
     @State private var busy: String?
     @State private var plan: ReleasePlan?
     @State private var scans: [RepoScan] = []
@@ -56,16 +62,20 @@ struct ReleaseSyncToolView: View {
     @State private var events: [ReleaseRunEvent] = []
     @State private var confirming = false
     @State private var runTask: Task<Void, Never>?
+    /// Scans again while carves are pending, so they turn unchanged on
+    /// their own once a block takes them.
+    @State private var pendingWatch: Task<Void, Never>?
     @StateObject private var reviews = ReleaseReviewCoordinator()
     @AppStorage("releaseSync.reviewEach") private var reviewEach = true
 
-    private static let reposKey = "releaseSync.repos"
+    /// Where folders were kept when one list served every vault and FID.
+    private static let legacyReposKey = "releaseSync.repos"
     private var signer: String { session.liveFid }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Release Sync").font(.headline)
-            Text("Publishes or updates the protocols, codes and apps of your repos on chain, signed by \(signer.elidingMiddle(head: 8, tail: 6)). Each repo needs a \(ReleaseManifest.fileName) at its root.")
+            Text("Publishes or updates the protocols, codes, apps and works of your repos on chain, signed by \(signer.elidingMiddle(head: 8, tail: 6)). Each repo needs a \(ReleaseManifest.fileName) at its root.")
                 .font(.callout).foregroundStyle(.secondary)
             if !session.canSign {
                 CopyableLabel("This identity is watch-only, so it can scan but not carve.", systemImage: "eye")
@@ -75,7 +85,7 @@ struct ReleaseSyncToolView: View {
             reposSection
 
             HStack {
-                Button(plan == nil ? "Scan" : "Scan again") { Task { await scan() } }
+                Button(plan == nil ? "Scan" : "Scan again") { Task { await scan(); watchPending() } }
                     .disabled(busy != nil || repos.isEmpty || runTask != nil)
                 if let busy {
                     ProgressView().controlSize(.small)
@@ -89,6 +99,7 @@ struct ReleaseSyncToolView: View {
             if !events.isEmpty { runLog }
         }
         .onAppear(perform: loadRepos)
+        .onDisappear { pendingWatch?.cancel() }
         // One sheet for the whole reviewed run: a review page, or what the
         // carve just approved is doing. The approval dialog is its own
         // window, so it opens on top.
@@ -109,7 +120,7 @@ struct ReleaseSyncToolView: View {
             Button("Carve", role: .destructive) { startRun() }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Each is a transaction signed by \(signer) and paid in miner fees. With “Confirm before signing” on, each one is shown for approval before it is signed and broadcast; declining one skips it. Documents and code archives are carved onto DISK permanently, and archives are uploaded to their GitHub releases.")
+            Text("Each is a transaction signed by \(signer) and paid in miner fees. With “Confirm before signing” on, each one is shown for approval before it is signed and broadcast; declining one skips it. Documents, code archives and works marked \"disk\" are carved onto DISK permanently, and archives are uploaded to their GitHub releases.")
         }
     }
 
@@ -122,8 +133,21 @@ struct ReleaseSyncToolView: View {
                 Spacer()
                 Button("Add Folder…", action: addRepo).disabled(runTask != nil)
             }
-            if repos.isEmpty {
-                Text("Add the folders of your local clones: Freeverse, FreerForMac, Freer, FreeverseExplorer.")
+            if !legacyPaths.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Folders are now kept for each FID. Before, one list served every FID: \(legacyPaths.map { URL(fileURLWithPath: $0).lastPathComponent }.joined(separator: ", ")).")
+                        .font(.caption).foregroundStyle(.secondary)
+                    HStack {
+                        Button("Use Them for \(signer.elidingMiddle(head: 6, tail: 4))") {
+                            repos = legacyPaths.map { RepoRow(path: $0) }
+                            saveRepos()
+                            Task { await refreshRepos() }
+                        }
+                        Button("Start Empty") { saveRepos() }
+                    }
+                }
+            } else if repos.isEmpty {
+                Text("Add the folders of your local clones that \(signer.elidingMiddle(head: 6, tail: 4)) releases, such as Freeverse, FreerForMac, Freer, FreeverseExplorer.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             ForEach($repos) { $repo in
@@ -131,8 +155,12 @@ struct ReleaseSyncToolView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(URL(fileURLWithPath: repo.path).lastPathComponent).bold()
                         if let m = repo.manifest {
-                            Text("\(m.github) · \(m.codes?.count ?? 0) codes · \(m.apps?.count ?? 0) apps · protocols in \((m.protocolDirs ?? []).joined(separator: ", ").ifEmpty("—"))")
+                            Text("\(m.github) · \(m.codes?.count ?? 0) codes · \(m.apps?.count ?? 0) apps · \(m.works?.count ?? 0) works · protocols in \((m.protocolDirs ?? []).joined(separator: ", ").ifEmpty("—"))")
                                 .font(.caption).foregroundStyle(.secondary)
+                            if let required = m.owner, required != signer {
+                                Text("Signed by \(required.elidingMiddle(head: 8, tail: 6)): switch to that FID to carve this repo.")
+                                    .font(.caption).foregroundStyle(.orange)
+                            }
                         } else if let e = repo.manifestError {
                             Text(e).font(.caption).foregroundStyle(.orange)
                         }
@@ -173,15 +201,28 @@ struct ReleaseSyncToolView: View {
         Task { await refreshRepos() }
     }
 
+    /// This FID's folder list, in this vault's data folder.
+    private var reposURL: URL { session.dataDirectory.appendingPathComponent("release-sync/\(signer).repos.json") }
+
     private func loadRepos() {
         guard repos.isEmpty else { return }
-        let paths = UserDefaults.standard.stringArray(forKey: Self.reposKey) ?? []
+        guard let data = try? Data(contentsOf: reposURL),
+              let paths = try? JSONDecoder().decode([String].self, from: data) else {
+            legacyPaths = UserDefaults.standard.stringArray(forKey: Self.legacyReposKey) ?? []
+            return
+        }
         repos = paths.map { RepoRow(path: $0) }
         Task { await refreshRepos() }
     }
 
     private func saveRepos() {
-        UserDefaults.standard.set(repos.map(\.path), forKey: Self.reposKey)
+        legacyPaths = []
+        do {
+            try FileManager.default.createDirectory(at: reposURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(repos.map(\.path)).write(to: reposURL, options: .atomic)
+        } catch {
+            self.error = "Could not save the folder list: \(error)"
+        }
     }
 
     /// Reads each manifest and lists its GitHub releases (via `gh`).
@@ -194,7 +235,9 @@ struct ReleaseSyncToolView: View {
             let result: (ReleaseManifest?, String?, [GitHubReleases.Release], String?) = await Task.detached {
                 do {
                     let m = try ReleaseManifest.load(repo: URL(fileURLWithPath: path))
-                    guard !(m.codes ?? []).isEmpty || !(m.apps ?? []).isEmpty else { return (m, nil, [], nil) }
+                    guard !(m.codes ?? []).isEmpty || !(m.apps ?? []).isEmpty || !(m.works ?? []).isEmpty else {
+                        return (m, nil, [], nil)
+                    }
                     do {
                         return (m, nil, try GitHubReleases(repo: m.github).releases(), nil)
                     } catch {
@@ -217,18 +260,23 @@ struct ReleaseSyncToolView: View {
 
     // MARK: - scan
 
-    private var workDir: URL { session.dataDirectory.appendingPathComponent("release-sync/work") }
+    private var workDir: URL { session.dataDirectory.appendingPathComponent("release-sync/work/\(signer)") }
     private var logURL: URL { session.dataDirectory.appendingPathComponent("release-sync/\(signer).json") }
 
-    private func scan() async {
-        error = nil
-        events = []
+    /// - Parameter keepLog: keep the run log and notes on screen: the
+    ///   scan after a run, or one while carves are pending.
+    private func scan(keepLog: Bool = false) async {
+        if !keepLog {
+            error = nil
+            events = []
+        }
         busy = "Reading manifests…"
         defer { busy = nil }
         await refreshRepos(force: true)
         busy = "Reading \(signer.elidingMiddle(head: 6, tail: 4))'s registry…"
         do {
-            let fetched = try await ReleaseChainState.fetch(owner: signer, fapi: session.fapi)
+            let hasWorks = repos.contains { !($0.manifest?.works ?? []).isEmpty }
+            let fetched = try await ReleaseChainState.fetch(owner: signer, fapi: session.fapi, works: hasWorks)
             let scanner = ReleaseScanner(workDir: workDir)
             var out: [RepoScan] = []
             for row in repos where row.manifest != nil {
@@ -240,7 +288,27 @@ struct ReleaseSyncToolView: View {
             chain = fetched
             replan()
         } catch {
-            self.error = "Scan failed: \(error)"
+            self.error = [self.error, "Scan failed: \(error)"].compactMap { $0 }.joined(separator: "\n")
+        }
+    }
+
+    /// While carves are pending and confirm normally, scan again each
+    /// minute (a block's time) for up to half an hour. A stale pending
+    /// carve needs the user, so it does not keep the watch going.
+    private func watchPending() {
+        pendingWatch?.cancel()
+        pendingWatch = Task { @MainActor in
+            for _ in 0..<30 {
+                guard let plan, runTask == nil else { return }
+                let waiting = rows(plan).contains {
+                    if case .pending(_, _, _, let stale) = $0.action { return !stale }
+                    return false
+                }
+                guard waiting else { return }
+                try? await Task.sleep(for: .seconds(60))
+                guard !Task.isCancelled, runTask == nil, busy == nil else { return }
+                await scan(keepLog: true)
+            }
         }
     }
 
@@ -272,6 +340,9 @@ struct ReleaseSyncToolView: View {
                                action: $0.action) }
         + plan.apps.map { Row(key: ReleasePlanner.choiceKey(app: $0.local.entry.stdName), kind: "App",
                               title: "\($0.local.entry.stdName) \($0.local.tag)", detail: $0.local.asset.name, action: $0.action) }
+        + plan.works.map { Row(key: $0.key, kind: $0.local.entry.kind.label, title: $0.local.entry.title,
+                               detail: $0.local.fileName + ($0.local.size.map { ", " + ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? ""),
+                               action: $0.action) }
     }
 
     private func carvable(_ plan: ReleasePlan) -> [Row] { rows(plan).filter { $0.action.carves } }
@@ -288,6 +359,9 @@ struct ReleaseSyncToolView: View {
             }
             if let item = plan.apps.first(where: { ReleasePlanner.choiceKey(app: $0.local.entry.stdName) == key }) {
                 return (try ReleaseCarves.appCarve(item, ids: nil).json(), nil)
+            }
+            if let item = plan.works.first(where: { $0.key == key }) {
+                return (try ReleaseCarves.workCarve(item, ids: nil).json(), nil)
             }
         } catch {
             return (nil, String(describing: error))
@@ -337,13 +411,13 @@ struct ReleaseSyncToolView: View {
 
         Toggle("Review each record before carving", isOn: $reviewEach)
             .disabled(runTask != nil)
-            .help("Open the Publish or Update page for each record, with the fields that come from the repo locked. Edits to codes and apps are written back to freeverse-release.json.")
+            .help("Open the Publish or Update page for each record, with the fields that come from the repo locked. Edits to codes, apps and works are written back to freeverse-release.json.")
 
         ForEach(todo) { row in carveRow(row, plan) }
 
         if !pendingRows.isEmpty {
             Text("Pending").font(.subheadline.bold()).padding(.top, 6)
-            Text("Carved, not on chain yet. Scan again after the next block.")
+            Text("Carved, not on chain yet. Scanned again each minute until a block takes them.")
                 .font(.caption).foregroundStyle(.secondary)
             ForEach(pendingRows) { row in pendingRow(row) }
         }
@@ -499,6 +573,7 @@ struct ReleaseSyncToolView: View {
         guard let plan else { return }
         let keys = selected
         events = []
+        pendingWatch?.cancel()
         runTask = Task { @MainActor in
             defer { runTask = nil }
             var runner = ReleaseRunner(backend: SessionReleaseBackend(session: session), logURL: logURL)
@@ -523,8 +598,8 @@ struct ReleaseSyncToolView: View {
             } catch {
                 self.error = "Run stopped: \(error)"
             }
-            // What went out is pending now; the chain state is the
-            // scan's, so this needs no new fetch.
+            // What went out is pending until the chain shows it, so the
+            // chain is read again now and then each block while it is.
             replan()
             let manifests = Set(events.compactMap { if case .manifestUpdated(let f) = $0 { return f }; return nil })
             let written = events.compactMap { if case .pidWritten(let f) = $0 { return f }; return nil }
@@ -536,6 +611,9 @@ struct ReleaseSyncToolView: View {
                 notes.append("Review edits were written into \(manifests.sorted().joined(separator: ", ")). Commit them too.")
             }
             if !notes.isEmpty { self.error = notes.joined(separator: "\n") }
+            runTask = nil
+            await scan(keepLog: true)
+            watchPending()
         }
     }
 
@@ -603,6 +681,16 @@ struct ReleaseSyncToolView: View {
                     }
                 }
             ) { _ in }
+        case .work(let c):
+            WorkReviewSheet(review: ReleaseReview(original: c, status: reviews.status) { decision in
+                switch decision {
+                case .carve(let edited): reviews.answer(.success(.work(edited)))
+                case .skip: reviews.answer(.success(nil))
+                case .stop: reviews.answer(.failure(CancellationError()))
+                }
+            })
+            // A new page per record: the sheet's fields start from its carve.
+            .id(c.did + (c.targetId ?? ""))
         }
     }
 
@@ -632,6 +720,7 @@ private extension ReleaseRunEvent {
         case .skipped(let k, let s): return "\(k): skipped, \(s)"
         case .failed(let k, let s): return "\(k): FAILED \(s)"
         case .waiting(let n): return "waiting for a block: \(n) carves unconfirmed"
+        case .confirmCheckFailed(let why): return "cannot check confirmations: \(why)"
         case .pidWritten(let f): return "wrote PID into \(f)"
         case .manifestUpdated(let f): return "wrote review edits into \(f)"
         }
@@ -704,7 +793,9 @@ final class ReleaseReviewCoordinator: ObservableObject {
         guard let open = pending else { return }
         // Show the working state before the sheet would otherwise sit on
         // a page whose button has already been pressed.
-        if case .success(let draft?) = result {
+        if case .success(.work(let c)?) = result {
+            working = Working(title: "\(c.kind.label) \(c.title)", step: "Preparing…")
+        } else if case .success(let draft?) = result {
             working = Working(title: titles[Self.key(of: draft)] ?? "Carving", step: "Preparing…")
         } else {
             working = Working(title: "Next record", step: "Preparing…")
@@ -733,6 +824,10 @@ final class ReleaseReviewCoordinator: ObservableObject {
         case .waiting(let n):
             working = Working(title: "Waiting for a block",
                               step: "\(n) carves are unconfirmed. The run goes on when some confirm; it checks every 30 seconds.")
+        case .confirmCheckFailed(let why):
+            isWaitingForBlock = true
+            working = Working(title: "Waiting for a block",
+                              step: "The server cannot look the carves up, so the run cannot tell whether they confirmed. It keeps retrying every 30 seconds. \(why)")
         case .pidWritten, .manifestUpdated:
             break
         }
@@ -750,6 +845,9 @@ final class ReleaseReviewCoordinator: ObservableObject {
         case .protocol(let c): return ReleasePlanner.choiceKey(protocol: ProtocolRef(type: c.type, sn: c.sn))
         case .code(let c): return ReleasePlanner.choiceKey(code: c.name)
         case .app(let c): return ReleasePlanner.choiceKey(app: c.stdName)
+        // Works are keyed by repo and file, which the carve does not carry;
+        // ``answer(_:)`` titles them from the carve itself.
+        case .work(let c): return "work-title:\(c.title)"
         }
     }
 }

@@ -83,7 +83,8 @@ public enum TextFeip {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
-        locas: [String]? = nil
+        locas: [String]? = nil,
+        cover: String? = nil
     ) throws -> String {
         var dict: [String: Any] = ["op": Op.publish.rawValue]
         put(&dict, "title", title)
@@ -94,6 +95,7 @@ public enum TextFeip {
         put(&dict, "format", format)
         put(&dict, "summary", summary)
         if let locas, !locas.isEmpty { dict["locas"] = locas }
+        put(&dict, "cover", cover)
         return try jsonString(dict)
     }
 
@@ -115,7 +117,8 @@ public enum TextFeip {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
-        locas: [String]? = nil
+        locas: [String]? = nil,
+        cover: String? = nil
     ) throws -> String {
         var dict: [String: Any] = ["op": Op.update.rawValue, "textId": textId]
         put(&dict, "title", title)
@@ -126,6 +129,7 @@ public enum TextFeip {
         put(&dict, "format", format)
         put(&dict, "summary", summary)
         if let locas, !locas.isEmpty { dict["locas"] = locas }
+        put(&dict, "cover", cover)
         return try jsonString(dict)
     }
 
@@ -202,14 +206,15 @@ public enum TextFeip {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
-        locas: [String]? = nil
+        locas: [String]? = nil,
+        cover: String? = nil
     ) throws -> String {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Failure.emptyTitle
         }
         return try sized(envelope(opJson: publishOp(
             title: title, type: type, did: did, lang: lang,
-            authors: authors, format: format, summary: summary, locas: locas
+            authors: authors, format: format, summary: summary, locas: locas, cover: cover
         )))
     }
 
@@ -224,7 +229,8 @@ public enum TextFeip {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
-        locas: [String]? = nil
+        locas: [String]? = nil,
+        cover: String? = nil
     ) throws -> String {
         guard !textId.isEmpty else { throw Failure.missingTextId }
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -232,7 +238,7 @@ public enum TextFeip {
         }
         return try sized(envelope(opJson: updateOp(
             textId: textId, title: title, type: type, did: did, lang: lang,
-            authors: authors, format: format, summary: summary, locas: locas
+            authors: authors, format: format, summary: summary, locas: locas, cover: cover
         )))
     }
 

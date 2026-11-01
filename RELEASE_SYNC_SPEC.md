@@ -1,7 +1,8 @@
 # Release Sync — spec
 
-After a GitHub release, Release Sync publishes or updates the protocols, codes
-and apps that changed, signed by the session's identity. It lives in the Mac
+After a GitHub release, Release Sync publishes or updates the protocols, codes,
+apps and works (texts, images, sounds, videos) that changed, signed by the
+session's identity. It lives in the Mac
 app's sidebar, under Tools below SSH (Release Sync). Its logic is in FCDomain (`ReleaseSync/`) and is
 covered by `FCDomainTests/ReleaseSync`.
 
@@ -210,6 +211,32 @@ stamps the current time. Release Sync writes the zip itself
 `testTheBytesArePinned` pins one archive's DID, so a macOS update that changed
 the encoder would fail that test before it changed every code's DID.
 
+## Works
+
+A manifest's `works` (FVEP11 section 5) are scanned with the release tag:
+an asset's DID comes from GitHub's digest, so a video is not downloaded unless
+GitHub has no digest or the entry sets `"disk": true`; a repo `path` is read
+with `git cat-file blob <tag>:<path>` into the work folder.
+
+- **Matching**: by the entry's `id`, else by kind + title among the signer's
+  texts and media (fetched only when some manifest has works, deleted ones
+  included). Two records with that title need a choice, as for duplicates.
+- **Unchanged**: same DID, same manifest fields, same `https://` locations, and
+  a DISK location present when `disk` is set.
+- **Run**: after apps, images first. A `disk` work is stored on DISK first and
+  its `(sid)` put first in `locas`; the carve then goes through the session's
+  usual text/media carve, so it also shows under My Texts / Images / Sounds /
+  Videos. After a publish the new id is written into the entry as `"id"`,
+  with any review edits; commit the manifest afterwards.
+- **Cover**: an entry's `cover` names an image work of the manifest (by its
+  `asset`/`path`) or an `imageId`. Images are carved first and their new id
+  goes into the work's carve; a cover that now names another id, or was
+  dropped from the manifest, makes the work an update.
+- **Review**: `WorkReviewSheet` edits title, type, language, authors, format and
+  summary; the file, DID and locations are locked.
+- **Signer**: a manifest with `"owner"` is carved only by that FID; with any
+  other, its entries show as invalid and the repo row says whom to switch to.
+
 ## Run log and resume
 
 Each carve is appended to `<dataDirectory>/release-sync/<FID>.json` with its
@@ -218,6 +245,16 @@ it is skipped and the logged id is used, so an interrupted run resumes
 without carving anything twice. The same log marks entities as
 **pending** until the chain shows the carve. Delete the file to forget the
 log.
+
+## Folders per FID
+
+Each live FID has its own repo folders, kept in
+`<dataDirectory>/release-sync/<FID>.repos.json` beside its run log, with its
+own work folder `release-sync/work/<FID>/`. `dataDirectory` belongs to the
+vault's main identity, so neither vaults nor the FIDs of one vault share a
+list. Builds before 2026-11-01 kept one list in the app's preferences
+(`releaseSync.repos`); a FID without its own list is offered those folders
+once, or can start empty.
 
 ## Files
 
@@ -231,6 +268,7 @@ log.
 | Chain | `ReleaseChainState.swift` |
 | Plan | `ReleasePlan.swift` |
 | Run | `ReleaseRunner.swift`, `SessionReleaseBackend.swift` |
-| UI | `Sources/FreerForMac/Views/Panes/ReleaseSyncToolView.swift` (`WalletPane.releaseSync`) |
-| Tests | `FCDomainTests/ReleaseSync/ReleaseSyncTests.swift` |
+| Works | `ReleaseWorks.swift` |
+| UI | `Sources/FreerForMac/Views/Panes/ReleaseSyncToolView.swift` (`WalletPane.releaseSync`), `WorkReviewSheet.swift` |
+| Tests | `FCDomainTests/ReleaseSync/ReleaseSyncTests.swift`, `ReleaseWorksTests.swift` |
 | Live tests | `ReleaseSyncLiveTests.swift` (`RELEASE_SYNC_FAPI`, `RELEASE_SYNC_OWNER`, `RELEASE_SYNC_REPO(S)`) |

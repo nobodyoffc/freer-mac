@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 import FCCore
 import FCStorage
 import FCTransport
@@ -1178,16 +1179,47 @@ public final class ActiveSession {
     /// `NOBODY_SPEC.md`.
     private var effectiveApprover: TxApprover? {
         guard let txApprover else { return nil }
-        if confirmBeforeSigning { return txApprover }
-        let directory = self.directory
-        return { preview in
-            let registry = NobodyRegistry.shared
-            await registry.resolve(preview.nobodyCandidates, retryFailed: true) { fids in
-                await directory.nobodyFids(among: fids)
+        let base: TxApprover
+        if confirmBeforeSigning {
+            base = txApprover
+        } else {
+            let directory = self.directory
+            base = { preview in
+                let registry = NobodyRegistry.shared
+                await registry.resolve(preview.nobodyCandidates, retryFailed: true) { fids in
+                    await directory.nobodyFids(among: fids)
+                }
+                guard preview.involvesNobody(in: registry) else { return .approve }
+                return await txApprover(preview)
             }
-            guard preview.involvesNobody(in: registry) else { return .approve }
-            return await txApprover(preview)
         }
+        let gate = approvalGate
+        return { preview in await gate.decide(preview, base) }
+    }
+
+    /// Holds the grant of ``carveTogether(then:note:_:)`` while it runs.
+    private let approvalGate = PairedApprovalGate()
+
+    /// Runs two carves under one approval: the first transaction `body`
+    /// signs is shown as usual, with `note`; once it is approved, the next
+    /// one is signed without asking, provided it carves the FEIP protocol
+    /// `then` and pays no one. Anything else in between is asked as usual.
+    /// For a work and the cover image it names.
+    public func carveTogether<T>(then follower: FeipProtocol, note: String,
+                                 _ body: () async throws -> T) async throws -> T {
+        let grant = approvalGate.open(follower: follower.protocolName, note: note)
+        defer { approvalGate.close(grant) }
+        return try await body()
+    }
+
+    /// Publishes `file` as a FEIP24 Image to be another work's cover:
+    /// onto DISK first, then carved. Returns the Image's id, the carve's
+    /// txid, which is known as soon as it is broadcast.
+    public func publishCoverImage(at file: URL, title: String, lang: String?, authors: [String]?) async throws -> String {
+        let did = try await publishBody.storeFile(at: file)
+        let mime = UTType(filenameExtension: file.pathExtension)?.preferredMIMEType
+        return try await carveMediaPublishOnChain(kind: .image, title: title, did: did, lang: lang,
+                                                  authors: authors, format: mime).id
     }
 
     /// Computed (not lazy) so ``setFapi(_:)`` is picked up the next
@@ -3318,6 +3350,7 @@ public final class ActiveSession {
         format: String? = nil,
         summary: String? = nil,
         locas: [String]? = nil,
+        cover: String? = nil,
         draftId: String? = nil,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
@@ -3330,7 +3363,7 @@ public final class ActiveSession {
         let feipJson = try TextFeip.publishCarve(
             title: title, type: type, did: did, lang: lang,
             authors: list, format: format, summary: summary,
-            locas: carvedLocas
+            locas: carvedLocas, cover: cover
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
@@ -3342,6 +3375,7 @@ public final class ActiveSession {
         if let draftId, var promoted = try? texts.promoteDraft(id: draftId, toTxid: txid) {
             // A draft never had locations; the upload just gave it some.
             promoted.locas = carvedLocas
+            promoted.cover = cover
             try? texts.upsert(promoted)
             return promoted
         }
@@ -3359,6 +3393,7 @@ public final class ActiveSession {
             format: format,
             summary: summary,
             locas: carvedLocas,
+            cover: cover,
             publisher: liveFid,
             birthTime: now,
             lastTxId: txid,
@@ -3398,6 +3433,7 @@ public final class ActiveSession {
         format: String? = nil,
         summary: String? = nil,
         locas: [String]? = nil,
+        cover: String? = nil,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> String {
@@ -3408,10 +3444,12 @@ public final class ActiveSession {
         let existing = try? texts.get(id: textId)
         let carvedLocas = await carveFormLocas(locas ?? publishBody.carvedLocas(
             did: did, keeping: existing?.locas, previousDid: existing?.did))
+        // nil keeps the record's cover, as an update must resend it; "" clears it.
+        let carvedCover = cover.map { $0.isEmpty ? nil : $0 } ?? existing?.cover
         let feipJson = try TextFeip.updateCarve(
             textId: textId, title: title, type: type, did: did, lang: lang,
             authors: list, format: format, summary: summary,
-            locas: carvedLocas
+            locas: carvedLocas, cover: carvedCover
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
@@ -3432,6 +3470,7 @@ public final class ActiveSession {
             record.format = format
             record.summary = summary
             record.locas = carvedLocas
+            record.cover = carvedCover
             record.ver = String(record.edition + 1)
             record.lastTxId = txid
             record.lastHeight = TextsStore.unconfirmedHeight
@@ -3682,6 +3721,7 @@ public final class ActiveSession {
         format: String? = nil,
         summary: String? = nil,
         locas: [String]? = nil,
+        cover: String? = nil,
         draftId: String? = nil,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
@@ -3692,7 +3732,7 @@ public final class ActiveSession {
         let feipJson = try MediaFeip.publishCarve(
             kind: kind, title: title, did: did, lang: lang,
             authors: list, format: format, summary: summary,
-            locas: carvedLocas
+            locas: carvedLocas, cover: cover
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
@@ -3705,6 +3745,7 @@ public final class ActiveSession {
         if let draftId, var promoted = try? store.promoteDraft(id: draftId, toTxid: txid) {
             // A draft never had locations; the upload just gave it some.
             promoted.locas = carvedLocas
+            promoted.cover = cover
             try? store.upsert(promoted)
             return promoted
         }
@@ -3720,6 +3761,7 @@ public final class ActiveSession {
             format: format,
             summary: summary,
             locas: carvedLocas,
+            cover: cover,
             publisher: liveFid,
             birthTime: now,
             lastTxId: txid,
@@ -3747,6 +3789,7 @@ public final class ActiveSession {
         format: String? = nil,
         summary: String? = nil,
         locas: [String]? = nil,
+        cover: String? = nil,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> String {
@@ -3757,10 +3800,12 @@ public final class ActiveSession {
         let existing = try? media(kind).get(id: mediaId)
         let carvedLocas = await carveFormLocas(locas ?? publishBody.carvedLocas(
             did: did, keeping: existing?.locas, previousDid: existing?.did))
+        // nil keeps the record's cover, as an update must resend it; "" clears it.
+        let carvedCover = cover.map { $0.isEmpty ? nil : $0 } ?? existing?.cover
         let feipJson = try MediaFeip.updateCarve(
             kind: kind, imageId: mediaId, title: title, did: did, lang: lang,
             authors: list, format: format, summary: summary,
-            locas: carvedLocas
+            locas: carvedLocas, cover: carvedCover
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
@@ -3778,6 +3823,7 @@ public final class ActiveSession {
             record.format = format
             record.summary = summary
             record.locas = carvedLocas
+            record.cover = carvedCover
             record.ver = String(record.edition + 1)
             record.lastTxId = txid
             record.lastHeight = MediaStore.unconfirmedHeight
@@ -4916,4 +4962,54 @@ public final class ActiveSession {
         return result.remoteTxid
     }
 
+}
+
+/// The one-approval grant of ``ActiveSession/carveTogether(then:note:_:)``.
+final class PairedApprovalGate: @unchecked Sendable {
+    final class Grant {
+        let follower: String
+        let note: String
+        var approved = false
+        var used = false
+        init(follower: String, note: String) {
+            self.follower = follower
+            self.note = note
+        }
+    }
+
+    private let lock = NSLock()
+    private var grant: Grant?
+
+    func open(follower: String, note: String) -> Grant {
+        let g = Grant(follower: follower, note: note)
+        lock.withLock { grant = g }
+        return g
+    }
+
+    func close(_ g: Grant) {
+        lock.withLock { if grant === g { grant = nil } }
+    }
+
+    func decide(_ preview: TxPreview, _ ask: TxApprover) async -> TxDecision {
+        enum Step { case plain, first(Grant), follow }
+        let step: Step = lock.withLock {
+            guard let g = grant, !g.used else { return .plain }
+            if !g.approved { return .first(g) }
+            guard preview.payments.isEmpty, preview.feipName == g.follower else { return .plain }
+            g.used = true
+            return .follow
+        }
+        switch step {
+        case .plain:
+            return await ask(preview)
+        case .follow:
+            return .approve
+        case .first(let g):
+            var shown = preview
+            shown.note = g.note
+            let decision = await ask(shown)
+            if decision == .approve { lock.withLock { g.approved = true } }
+            return decision
+        }
+    }
 }

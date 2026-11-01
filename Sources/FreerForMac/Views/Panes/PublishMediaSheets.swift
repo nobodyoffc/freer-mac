@@ -204,6 +204,7 @@ struct PublishMediaComposer: View {
         _lang = State(initialValue: editing?.lang ?? "")
         _format = State(initialValue: editing?.format ?? "")
         _authorsText = State(initialValue: (editing?.authors ?? []).joined(separator: ", "))
+        _cover = State(initialValue: editing?.cover.map { CoverChoice.image(id: $0) } ?? .none)
     }
 
     @State private var title: String
@@ -212,6 +213,7 @@ struct PublishMediaComposer: View {
     @State private var format: String
     @State private var authorsText: String
 
+    @State private var cover: CoverChoice
     @State private var pickedURL: URL?
     @State private var preview: NSImage?
     @State private var pickedSize: Int64?
@@ -242,8 +244,11 @@ struct PublishMediaComposer: View {
             authors: authors.isEmpty ? nil : authors,
             format: format.isEmpty ? nil : format,
             summary: summary
-        )
+        ) - (hasCover && cover != .none ? CoverChoice.carveBytes : 0)
     }
+
+    /// An image is a cover; it has none of its own.
+    private var hasCover: Bool { kind != .image }
 
     private var hasBytes: Bool { pickedURL != nil || (editing?.did?.isEmpty == false) }
 
@@ -272,6 +277,10 @@ struct PublishMediaComposer: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     filePicker
+
+                    if hasCover {
+                        CoverField(session: session, choice: $cover)
+                    }
 
                     LabeledField("Title") {
                         TextField("What the work is called", text: $title)
@@ -450,6 +459,16 @@ struct PublishMediaComposer: View {
 
     // MARK: - actions
 
+    /// A cover image carved before a failed publish stays on the draft.
+    private func keepCoverOnDraft(_ id: String) {
+        guard let editing, editing.onChain == false else { return }
+        let store = session.media(kind)
+        if var draft = try? store.get(id: editing.id) {
+            draft.cover = id
+            try? store.upsert(draft)
+        }
+    }
+
     private func saveDraft() {
         do {
             var did = effectiveDid
@@ -466,6 +485,7 @@ struct PublishMediaComposer: View {
                 summary: summary.isEmpty ? nil : summary,
                 publisher: session.liveFid
             )
+            draft.cover = hasCover ? cover.imageId : nil
             let store = session.media(kind)
             if let editing, editing.onChain == false, editing.id != draft.id {
                 _ = try? store.remove(id: editing.id)
@@ -489,33 +509,55 @@ struct PublishMediaComposer: View {
                 did = try await session.publishBody.storeFile(at: url)
             }
 
-            progressNote = "Carving the record…"
-            if isNewEdition, let record = editing {
-                let txid = try await session.carveMediaUpdateOnChain(
-                    kind: kind,
-                    mediaId: record.id,
-                    title: title,
-                    did: did,
-                    lang: lang.isEmpty ? nil : lang,
-                    authors: authors.isEmpty ? nil : authors,
-                    format: format.isEmpty ? nil : format,
-                    summary: summary.isEmpty ? nil : summary
-                )
-                progressNote = nil
-                onDone(.updated(txid))
+            let carve = { (coverId: String?) async throws in
+                progressNote = "Carving the record…"
+                if isNewEdition, let record = editing {
+                    let txid = try await session.carveMediaUpdateOnChain(
+                        kind: kind,
+                        mediaId: record.id,
+                        title: title,
+                        did: did,
+                        lang: lang.isEmpty ? nil : lang,
+                        authors: authors.isEmpty ? nil : authors,
+                        format: format.isEmpty ? nil : format,
+                        summary: summary.isEmpty ? nil : summary,
+                        // "" removes a cover the record had.
+                        cover: hasCover ? (coverId ?? "") : nil
+                    )
+                    progressNote = nil
+                    onDone(.updated(txid))
+                } else {
+                    let record = try await session.carveMediaPublishOnChain(
+                        kind: kind,
+                        title: title,
+                        did: did,
+                        lang: lang.isEmpty ? nil : lang,
+                        authors: authors.isEmpty ? nil : authors,
+                        format: format.isEmpty ? nil : format,
+                        summary: summary.isEmpty ? nil : summary,
+                        cover: hasCover ? coverId : nil,
+                        draftId: editing?.onChain == false ? editing?.id : nil
+                    )
+                    progressNote = nil
+                    onDone(.carved(record))
+                }
+            }
+            if hasCover, case .newFile(let file) = cover {
+                try await session.carveTogether(
+                    then: kind.feip,
+                    note: "Approving this also signs the \(kind.noun) carve that names this image as its cover."
+                ) {
+                    progressNote = "Publishing the cover image…"
+                    let id = try await session.publishCoverImage(
+                        at: file, title: "\(title) — cover", lang: lang.isEmpty ? nil : lang,
+                        authors: authors.isEmpty ? nil : authors)
+                    // A retry names this image rather than carving another.
+                    cover = .image(id: id)
+                    keepCoverOnDraft(id)
+                    try await carve(id)
+                }
             } else {
-                let record = try await session.carveMediaPublishOnChain(
-                    kind: kind,
-                    title: title,
-                    did: did,
-                    lang: lang.isEmpty ? nil : lang,
-                    authors: authors.isEmpty ? nil : authors,
-                    format: format.isEmpty ? nil : format,
-                    summary: summary.isEmpty ? nil : summary,
-                    draftId: editing?.onChain == false ? editing?.id : nil
-                )
-                progressNote = nil
-                onDone(.carved(record))
+                try await carve(cover.imageId)
             }
         } catch {
             progressNote = nil
@@ -555,6 +597,10 @@ struct MediaViewerSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    if kind != .image, let cover = record.cover {
+                        CoverView(session: session, imageId: cover)
+                        Divider()
+                    }
                     presentation
                     Divider()
                     // The ★ in the header is the CDD-weighted mean and

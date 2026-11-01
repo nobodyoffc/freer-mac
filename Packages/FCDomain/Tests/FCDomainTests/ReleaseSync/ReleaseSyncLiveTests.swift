@@ -29,6 +29,50 @@ final class ReleaseSyncLiveTests: XCTestCase {
         for (id, p) in found { print("ID", id, p.owner ?? "-", p.type ?? "-", p.sn ?? "-", p.ver ?? "-", p.name ?? "-") }
     }
 
+    /// `RELEASE_SYNC_WORKS=<file of "kind id" lines>`: which carved works
+    /// the server has indexed, and with which cover.
+    func testLookUpWorks() async throws {
+        let env = ProcessInfo.processInfo.environment
+        guard let url = env["RELEASE_SYNC_FAPI"], let file = env["RELEASE_SYNC_WORKS"] else {
+            throw XCTSkip("set RELEASE_SYNC_FAPI and RELEASE_SYNC_WORKS to run")
+        }
+        let (fudp, fapi) = try await connect(url)
+        defer { fudp.close() }
+        let lines = try String(contentsOfFile: file).split(separator: "\n").map { $0.split(separator: " ").map(String.init) }
+        let publish = PublishService(fapi: fapi)
+        for kind in [MediaKind.sound, .video, .image] {
+            do {
+                let page = try await publish.fetchMedia(kind: kind, deleted: nil, size: 3)
+                print("BROWSE", kind.rawValue, "rows", page.rows.count, "best", page.bestHeight ?? -1)
+            } catch {
+                print("BROWSE", kind.rawValue, "FAILED", error)
+            }
+        }
+        do {
+            let page = try await publish.fetchTexts(deleted: nil, size: 3)
+            print("BROWSE text rows", page.rows.count)
+        } catch {
+            print("BROWSE text FAILED", error)
+        }
+        for kind in [MediaKind.image, .video] {
+            let ids = lines.filter { $0.count == 2 && $0[0] == kind.rawValue }.map { $0[1] }
+            var found: [String: MediaRecord] = [:]
+            for chunk in stride(from: 0, to: ids.count, by: 10).map({ Array(ids[$0..<min($0 + 10, ids.count)]) }) {
+                do {
+                    found.merge(try await publish.mediaByIds(kind: kind, chunk)) { a, _ in a }
+                } catch {
+                    print("BYIDS", kind.rawValue, "FAILED", error)
+                    break
+                }
+            }
+            let imageIds = Set(lines.filter { $0.count == 2 && $0[0] == "image" }.map { $0[1] })
+            print("COVERS", kind.rawValue, "naming a carved image", found.values.filter { $0.cover.map(imageIds.contains) ?? false }.count)
+            print("WORKS", kind.rawValue, "carved", ids.count, "indexed", found.count,
+                  "with cover", found.values.filter { $0.cover != nil }.count,
+                  "missing", ids.filter { found[$0] == nil }.map { String($0.prefix(8)) })
+        }
+    }
+
     func testDumpOwnedRecords() async throws {
         let env = ProcessInfo.processInfo.environment
         guard let url = env["RELEASE_SYNC_FAPI"], let owner = env["RELEASE_SYNC_OWNER"] else {
@@ -92,7 +136,7 @@ final class ReleaseSyncLiveTests: XCTestCase {
         }
         let (fudp, fapi) = try await connect(url)
         defer { fudp.close() }
-        let chain = try await ReleaseChainState.fetch(owner: owner, fapi: fapi)
+        let chain = try await ReleaseChainState.fetch(owner: owner, fapi: fapi, works: true)
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("rs-dry")
         let scanner = ReleaseScanner(workDir: work)
         var scans: [RepoScan] = []
@@ -114,6 +158,10 @@ final class ReleaseSyncLiveTests: XCTestCase {
             line("code", c.local.entry.name, c.action) { try ReleaseCarves.codeCarve(c, ids: nil).json() }
         }
         for a in plan.apps { line("app", a.local.entry.stdName, a.action) { try ReleaseCarves.appCarve(a, ids: nil).json() } }
+        for w in plan.works {
+            line(w.local.entry.kind.rawValue, w.local.entry.title, w.action) { try ReleaseCarves.workCarve(w).json() }
+        }
+        if let w = plan.works.first(where: { $0.action.carves }) { print("SAMPLE", try ReleaseCarves.workCarve(w).json()) }
         plan.problems.forEach { print("PROBLEM", $0) }
         print("ORPHANS", plan.orphanProtocols.count, plan.orphanCodes.count, plan.orphanApps.map { $0.stdName ?? "" })
         print("CARVES", plan.carveCount)

@@ -53,6 +53,7 @@ struct PublishTextComposer: View {
         _lang = State(initialValue: editing?.lang ?? "")
         _format = State(initialValue: editing?.format ?? "")
         _authorsText = State(initialValue: (editing?.authors ?? []).joined(separator: ", "))
+        _cover = State(initialValue: editing?.cover.map { CoverChoice.image(id: $0) } ?? .none)
     }
 
     @State private var title: String
@@ -63,6 +64,7 @@ struct PublishTextComposer: View {
     @State private var authorsText: String
     /// The file picked in this sheet. Nil while editing means "keep the
     /// current body" — the record's `did` stands.
+    @State private var cover: CoverChoice
     @State private var pickedURL: URL?
     @State private var pickedSize: Int64?
     @State private var busy = false
@@ -93,7 +95,7 @@ struct PublishTextComposer: View {
             authors: authors.isEmpty ? nil : authors,
             format: format.isEmpty ? nil : format,
             summary: summary
-        )
+        ) - (cover != .none ? CoverChoice.carveBytes : 0)
     }
 
     private var hasBytes: Bool { pickedURL != nil || (editing?.did?.isEmpty == false) }
@@ -156,6 +158,8 @@ struct PublishTextComposer: View {
                                 .fieldInputStyle()
                         }
                     }
+
+                    CoverField(session: session, choice: $cover)
 
                     LabeledField("Authors") {
                         VStack(alignment: .leading, spacing: 4) {
@@ -302,6 +306,7 @@ struct PublishTextComposer: View {
                 _ = try? session.texts.remove(id: editing.id)
             }
             draft.addedAt = editing?.addedAt ?? Date()
+            draft.cover = cover.imageId
             try session.texts.upsert(draft)
             onDone(.draft)
         } catch {
@@ -320,33 +325,58 @@ struct PublishTextComposer: View {
                 did = try await session.publishBody.storeFile(at: url)
             }
 
-            progressNote = "Carving the record…"
-            if isNewEdition, let record = editing {
-                let txid = try await session.carveTextUpdateOnChain(
-                    textId: record.id,
-                    title: title,
-                    type: type.isEmpty ? nil : type,
-                    did: did,
-                    lang: lang.isEmpty ? nil : lang,
-                    authors: authors.isEmpty ? nil : authors,
-                    format: format.isEmpty ? nil : format,
-                    summary: summary.isEmpty ? nil : summary
-                )
-                progressNote = nil
-                onDone(.updated(txid))
+            let carve = { (coverId: String?) async throws in
+                progressNote = "Carving the record…"
+                if isNewEdition, let record = editing {
+                    let txid = try await session.carveTextUpdateOnChain(
+                        textId: record.id,
+                        title: title,
+                        type: type.isEmpty ? nil : type,
+                        did: did,
+                        lang: lang.isEmpty ? nil : lang,
+                        authors: authors.isEmpty ? nil : authors,
+                        format: format.isEmpty ? nil : format,
+                        summary: summary.isEmpty ? nil : summary,
+                        // "" removes a cover the record had.
+                        cover: coverId ?? ""
+                    )
+                    progressNote = nil
+                    onDone(.updated(txid))
+                } else {
+                    let record = try await session.carveTextPublishOnChain(
+                        title: title,
+                        type: type.isEmpty ? nil : type,
+                        did: did,
+                        lang: lang.isEmpty ? nil : lang,
+                        authors: authors.isEmpty ? nil : authors,
+                        format: format.isEmpty ? nil : format,
+                        summary: summary.isEmpty ? nil : summary,
+                        cover: coverId,
+                        draftId: editing?.onChain == false ? editing?.id : nil
+                    )
+                    progressNote = nil
+                    onDone(.carved(record))
+                }
+            }
+            if case .newFile(let file) = cover {
+                try await session.carveTogether(
+                    then: .text,
+                    note: "Approving this also signs the text carve that names this image as its cover."
+                ) {
+                    progressNote = "Publishing the cover image…"
+                    let id = try await session.publishCoverImage(
+                        at: file, title: "\(title) — cover", lang: lang.isEmpty ? nil : lang,
+                        authors: authors.isEmpty ? nil : authors)
+                    // A retry names this image rather than carving another.
+                    cover = .image(id: id)
+                    if let editing, editing.onChain == false, var draft = try? session.texts.get(id: editing.id) {
+                        draft.cover = id
+                        try? session.texts.upsert(draft)
+                    }
+                    try await carve(id)
+                }
             } else {
-                let record = try await session.carveTextPublishOnChain(
-                    title: title,
-                    type: type.isEmpty ? nil : type,
-                    did: did,
-                    lang: lang.isEmpty ? nil : lang,
-                    authors: authors.isEmpty ? nil : authors,
-                    format: format.isEmpty ? nil : format,
-                    summary: summary.isEmpty ? nil : summary,
-                    draftId: editing?.onChain == false ? editing?.id : nil
-                )
-                progressNote = nil
-                onDone(.carved(record))
+                try await carve(cover.imageId)
             }
         } catch {
             progressNote = nil
@@ -386,6 +416,10 @@ struct TextReaderSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    if let cover = record.cover {
+                        CoverView(session: session, imageId: cover)
+                        Divider()
+                    }
                     bodySection
                     Divider()
                     // The ★ in the header is the CDD-weighted mean and

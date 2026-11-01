@@ -46,6 +46,9 @@ public struct MediaRecord: Codable, Equatable, Sendable, Identifiable {
     /// `fudp://host:port`, or an `https://` URL. Hints — every fetch is
     /// checked against ``did``.
     public var locas: [String]?
+    /// Record id (`imageId`) of the FEIP24 Image shown as the cover.
+    /// An id, not a DID, so it follows updates of that Image.
+    public var cover: String?
     public var publisher: String?
     public var birthTime: Int64?
     public var birthHeight: Int64?
@@ -80,7 +83,7 @@ public struct MediaRecord: Codable, Equatable, Sendable, Identifiable {
     public var updatedAt: Date
 
     private enum CodingKeys: String, CodingKey {
-        case title, ver, did, authors, lang, format, summary, locas
+        case title, ver, did, authors, lang, format, summary, locas, cover
         case publisher, birthTime, birthHeight, lastTxId, lastTime, lastHeight
         case tCdd, tRate, deleted, id
         case kind, onChain, addedAt, updatedAt
@@ -97,6 +100,7 @@ public struct MediaRecord: Codable, Equatable, Sendable, Identifiable {
         format: String? = nil,
         summary: String? = nil,
         locas: [String]? = nil,
+        cover: String? = nil,
         publisher: String? = nil,
         birthTime: Int64? = nil,
         birthHeight: Int64? = nil,
@@ -120,6 +124,7 @@ public struct MediaRecord: Codable, Equatable, Sendable, Identifiable {
         self.format = format
         self.summary = summary
         self.locas = locas
+        self.cover = cover
         self.publisher = publisher
         self.birthTime = birthTime
         self.birthHeight = birthHeight
@@ -156,6 +161,7 @@ public struct MediaRecord: Codable, Equatable, Sendable, Identifiable {
         format = try c.decodeIfPresent(String.self, forKey: .format)
         summary = try c.decodeIfPresent(String.self, forKey: .summary)
         locas = try c.decodeIfPresent([String].self, forKey: .locas)
+        cover = try c.decodeIfPresent(String.self, forKey: .cover)
         publisher = try c.decodeIfPresent(String.self, forKey: .publisher)
         birthTime = try c.decodeIfPresent(Int64.self, forKey: .birthTime)
         birthHeight = try c.decodeIfPresent(Int64.self, forKey: .birthHeight)

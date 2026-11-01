@@ -76,6 +76,9 @@ public struct TxPreview: Sendable, Equatable {
     /// other cash. Nil for a reorg or a composed transaction, whose
     /// inputs are the instruction itself.
     public let reselection: Reselection?
+    /// A line for the dialog from whoever asked, such as that approving
+    /// this carve also approves the one that depends on it.
+    public var note: String?
 
     public init(
         kind: Kind,

@@ -86,7 +86,8 @@ public enum MediaFeip {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
-        locas: [String]? = nil
+        locas: [String]? = nil,
+        cover: String? = nil
     ) throws -> String {
         var dict: [String: Any] = ["op": Op.publish.rawValue]
         put(&dict, "title", title)
@@ -96,6 +97,8 @@ public enum MediaFeip {
         put(&dict, "format", format)
         put(&dict, "summary", summary)
         if let locas, !locas.isEmpty { dict["locas"] = locas }
+        // An image is the cover, it has none of its own.
+        if kind != .image { put(&dict, "cover", cover) }
         return try jsonString(dict)
     }
 
@@ -117,7 +120,8 @@ public enum MediaFeip {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
-        locas: [String]? = nil
+        locas: [String]? = nil,
+        cover: String? = nil
     ) throws -> String {
         var dict: [String: Any] = ["op": Op.update.rawValue, kind.subjectKey: imageId]
         put(&dict, "title", title)
@@ -127,6 +131,8 @@ public enum MediaFeip {
         put(&dict, "format", format)
         put(&dict, "summary", summary)
         if let locas, !locas.isEmpty { dict["locas"] = locas }
+        // An image is the cover, it has none of its own.
+        if kind != .image { put(&dict, "cover", cover) }
         return try jsonString(dict)
     }
 
@@ -197,14 +203,15 @@ public enum MediaFeip {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
-        locas: [String]? = nil
+        locas: [String]? = nil,
+        cover: String? = nil
     ) throws -> String {
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Failure.emptyTitle
         }
         return try sized(envelope(kind: kind, opJson: publishOp(
             kind: kind, title: title, did: did, lang: lang,
-            authors: authors, format: format, summary: summary, locas: locas
+            authors: authors, format: format, summary: summary, locas: locas, cover: cover
         )))
     }
 
@@ -219,7 +226,8 @@ public enum MediaFeip {
         authors: [String]? = nil,
         format: String? = nil,
         summary: String? = nil,
-        locas: [String]? = nil
+        locas: [String]? = nil,
+        cover: String? = nil
     ) throws -> String {
         guard !imageId.isEmpty else { throw Failure.missingImageId }
         guard !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -227,7 +235,7 @@ public enum MediaFeip {
         }
         return try sized(envelope(kind: kind, opJson: updateOp(
             kind: kind, imageId: imageId, title: title, did: did, lang: lang,
-            authors: authors, format: format, summary: summary, locas: locas
+            authors: authors, format: format, summary: summary, locas: locas, cover: cover
         )))
     }
 

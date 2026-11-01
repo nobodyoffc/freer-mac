@@ -112,6 +112,11 @@ public struct GitRepo: Sendable {
         return !out.isEmpty
     }
 
+    /// The bytes of one file at `tag`, exactly as committed.
+    public func file(tag: String, path: String) throws -> Data {
+        try git(["cat-file", "blob", "\(tag):\(path)"])
+    }
+
     /// The files under `path` at `tag`, as zip entries named
     /// `<prefix>/<path relative to the module>`. Submodules are left out;
     /// a symlink is stored as a file holding its target.
@@ -229,4 +234,9 @@ public struct GitHubReleases: Sendable {
         path == "." || path.isEmpty ? "https://github.com/\(repo)/tree/\(tag)" : "https://github.com/\(repo)/tree/\(tag)/\(path)"
     }
     public func blobLink(ref: String, path: String) -> String { "https://github.com/\(repo)/blob/\(ref)/\(path)" }
+    /// The file's bytes at `tag`, served as is: what a work's `locas` names.
+    public func rawLink(tag: String, path: String) -> String {
+        let encoded = path.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? path
+        return "https://raw.githubusercontent.com/\(repo)/\(tag)/\(encoded)"
+    }
 }

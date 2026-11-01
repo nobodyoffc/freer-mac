@@ -70,8 +70,45 @@ public struct SessionReleaseBackend: ReleaseSyncBackend, @unchecked Sendable {
             protocols: c.protocols, codes: c.codes, services: c.services).id
     }
 
+    public func carveWork(_ c: WorkCarve) async throws -> String {
+        // The locations are passed as built: nil would make the session
+        // derive them from the HAT, which a release asset has none of.
+        let locas = c.locas ?? []
+        guard let media = c.kind.media else {
+            if let textId = c.targetId {
+                return try await session.carveTextUpdateOnChain(
+                    textId: textId, title: c.title, type: c.type, did: c.did, lang: c.lang,
+                    authors: c.authors, format: c.format, summary: c.summary, locas: locas,
+                    cover: c.cover ?? "")
+            }
+            return try await session.carveTextPublishOnChain(
+                title: c.title, type: c.type, did: c.did, lang: c.lang,
+                authors: c.authors, format: c.format, summary: c.summary, locas: locas, cover: c.cover).id
+        }
+        // An update's nil cover would keep the record's; the manifest is
+        // the source here, so no cover clears it.
+        if let mediaId = c.targetId {
+            return try await session.carveMediaUpdateOnChain(
+                kind: media, mediaId: mediaId, title: c.title, did: c.did, lang: c.lang,
+                authors: c.authors, format: c.format, summary: c.summary, locas: locas,
+                cover: c.cover ?? "")
+        }
+        return try await session.carveMediaPublishOnChain(
+            kind: media, title: c.title, did: c.did, lang: c.lang,
+            authors: c.authors, format: c.format, summary: c.summary, locas: locas, cover: c.cover).id
+    }
+
+    public func diskLocas(did: String) async -> [String] {
+        await session.carveFormLocas(session.publishBody.carvedLocas(did: did)) ?? []
+    }
+
     public func isConfirmed(kind: ReleaseEntityKind, id: String, txid: String) async throws -> Bool {
         switch kind {
+        case .text:
+            return try await session.publish.textsByIds([id])[id]?.lastTxId == txid
+        case .image, .sound, .video:
+            let media: MediaKind = kind == .image ? .image : kind == .sound ? .sound : .video
+            return try await session.publish.mediaByIds(kind: media, [id])[id]?.lastTxId == txid
         case .protocol:
             return try await session.protocolService.fetchProtocolsByIds([id])[id]?.lastTxId == txid
         case .code:

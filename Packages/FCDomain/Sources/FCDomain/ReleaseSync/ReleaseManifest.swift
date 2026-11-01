@@ -12,10 +12,16 @@ public struct ReleaseManifest: Codable, Equatable, Sendable {
     /// `owner/repo` on GitHub. Release assets, archive uploads and `home`
     /// links all hang off it.
     public var github: String
+    /// The FID that must sign this repo's carves, when the repo is not
+    /// released by the usual owner (a course signed by its teacher, say).
+    /// A scan signed by any other FID marks the repo's entries invalid.
+    public var owner: String?
     /// Folders, relative to the repo root, searched for protocol documents.
     public var protocolDirs: [String]?
     public var codes: [CodeEntry]?
     public var apps: [AppEntry]?
+    /// Published works: texts, images, sounds and videos (FEIP21, 23–25).
+    public var works: [WorkEntry]?
 
     public struct CodeEntry: Codable, Equatable, Sendable {
         /// The code's on-chain `name`, and its key: one name, one code.
@@ -66,11 +72,63 @@ public struct ReleaseManifest: Codable, Equatable, Sendable {
         }
     }
 
-    public init(github: String, protocolDirs: [String]? = nil, codes: [CodeEntry]? = nil, apps: [AppEntry]? = nil) {
+    /// One work, published from a release asset or from a file in the repo.
+    public struct WorkEntry: Codable, Equatable, Sendable {
+        public var kind: WorkKind
+        /// The record id, written back after the work is first published,
+        /// so a later title change still updates the same record.
+        public var id: String?
+        public var title: String
+        /// Release asset name; `*` matches any run of characters.
+        public var asset: String?
+        /// File in the repo at the release tag, relative to the root.
+        public var path: String?
+        /// FEIP21 Text's `type`; texts only.
+        public var type: String?
+        public var lang: String?
+        public var authors: [String]?
+        public var format: String?
+        public var summary: String?
+        /// Further `https://` places that serve the bytes. `{tag}` and
+        /// `{name}` are replaced by the release tag and the file name.
+        public var mirrors: [String]?
+        /// Also carve the file onto DISK permanently and list that DISK.
+        public var disk: Bool?
+        /// The cover: the `asset` or `path` of an image work in this
+        /// manifest, or a 64-hex `imageId`. Not for an image.
+        public var cover: String?
+
+        public init(kind: WorkKind, id: String? = nil, title: String, asset: String? = nil, path: String? = nil,
+                    type: String? = nil, lang: String? = nil, authors: [String]? = nil, format: String? = nil,
+                    summary: String? = nil, mirrors: [String]? = nil, disk: Bool? = nil, cover: String? = nil) {
+            self.kind = kind
+            self.id = id
+            self.title = title
+            self.asset = asset
+            self.path = path
+            self.type = type
+            self.lang = lang
+            self.authors = authors
+            self.format = format
+            self.summary = summary
+            self.mirrors = mirrors
+            self.disk = disk
+            self.cover = cover
+        }
+
+        /// Where the bytes come from: the asset pattern or the repo path.
+        /// Unique within a manifest; with the repo name, a work's key.
+        public var source: String { asset ?? path ?? "" }
+    }
+
+    public init(github: String, owner: String? = nil, protocolDirs: [String]? = nil, codes: [CodeEntry]? = nil,
+                apps: [AppEntry]? = nil, works: [WorkEntry]? = nil) {
         self.github = github
+        self.owner = owner
         self.protocolDirs = protocolDirs
         self.codes = codes
         self.apps = apps
+        self.works = works
     }
 
     public enum Failure: Error, Equatable, CustomStringConvertible {
@@ -120,6 +178,35 @@ public struct ReleaseManifest: Codable, Equatable, Sendable {
             guard !app.stdName.isEmpty else { throw Failure.invalid("an app has an empty stdName") }
             guard stdNames.insert(app.stdName).inserted else { throw Failure.invalid("app \"\(app.stdName)\" is listed twice") }
             guard !app.asset.isEmpty else { throw Failure.invalid("app \"\(app.stdName)\" has no asset") }
+        }
+        var sources = Set<String>()
+        for work in works ?? [] {
+            let label = "work \"\(work.title)\""
+            guard !work.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw Failure.invalid("a \(work.kind.rawValue) work has an empty title")
+            }
+            guard (work.asset == nil) != (work.path == nil), !work.source.isEmpty else {
+                throw Failure.invalid("\(label) needs exactly one of asset and path")
+            }
+            guard sources.insert(work.source).inserted else { throw Failure.invalid("\(work.source) is listed as two works") }
+            if let path = work.path, path.hasPrefix("/") || path.split(separator: "/").contains("..") {
+                throw Failure.invalid("\(label) path must stay inside the repo")
+            }
+            if work.type != nil, work.kind != .text { throw Failure.invalid("\(label): only a text has a type") }
+            if let id = work.id, !Self.isRawId(id) { throw Failure.invalid("\(label): id must be 64 hex digits") }
+            for mirror in work.mirrors ?? [] where !mirror.hasPrefix("https://") {
+                throw Failure.invalid("\(label): mirror \(mirror) is not an https:// URL")
+            }
+        }
+        for work in works ?? [] {
+            guard let cover = work.cover else { continue }
+            let label = "work \"\(work.title)\""
+            if work.kind == .image { throw Failure.invalid("\(label): an image has no cover") }
+            if Self.isRawId(cover) { continue }
+            guard let target = works?.first(where: { $0.source == cover }) else {
+                throw Failure.invalid("\(label): cover \(cover) is neither a work here nor a 64-hex imageId")
+            }
+            guard target.kind == .image else { throw Failure.invalid("\(label): cover \(cover) is not an image") }
         }
         for ref in (codes ?? []).flatMap({ $0.protocols ?? [] }) + (apps ?? []).flatMap({ $0.protocols ?? [] }) {
             guard ProtocolRef(ref) != nil || Self.isRawId(ref) else {

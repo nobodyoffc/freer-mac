@@ -42,6 +42,12 @@ struct TxConfirmSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     headline
+                    if let note = preview.note {
+                        Label(note, systemImage: "link")
+                            .font(.callout)
+                            .foregroundStyle(.blue)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     nobodyWarnings
                     outputsCard
                     costCard

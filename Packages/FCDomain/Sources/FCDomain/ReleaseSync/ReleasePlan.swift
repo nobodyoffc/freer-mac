@@ -13,12 +13,13 @@ public struct RepoScan: Sendable {
     public var protocols: [ProtocolDoc]
     public var codes: [LocalCode]
     public var apps: [LocalApp]
+    public var works: [LocalWork]
     /// Files or entries skipped, with the reason.
     public var problems: [String]
 
     public init(root: URL, manifest: ReleaseManifest, tag: String?, branch: String,
                 protocols: [ProtocolDoc] = [], codes: [LocalCode] = [], apps: [LocalApp] = [],
-                problems: [String] = []) {
+                works: [LocalWork] = [], problems: [String] = []) {
         self.root = root
         self.manifest = manifest
         self.tag = tag
@@ -26,6 +27,7 @@ public struct RepoScan: Sendable {
         self.protocols = protocols
         self.codes = codes
         self.apps = apps
+        self.works = works
         self.problems = problems
     }
 
@@ -108,6 +110,8 @@ public enum IdRef: Hashable, Sendable, CustomStringConvertible {
     case known(String)
     case protocolInRun(ProtocolRef)
     case codeInRun(String)
+    /// An image work published earlier in the run, by its choice key.
+    case workInRun(String)
     /// Named in a manifest but found neither on chain nor in this run.
     case unresolved(String)
 
@@ -116,6 +120,7 @@ public enum IdRef: Hashable, Sendable, CustomStringConvertible {
         case .known(let id): return id
         case .protocolInRun(let ref): return "‹pid of \(ref)›"
         case .codeInRun(let name): return "‹codeId of \(name)›"
+        case .workInRun(let key): return "‹imageId of \(key)›"
         case .unresolved(let name): return "‹unknown \(name)›"
         }
     }
@@ -167,7 +172,9 @@ public struct ReleasePlan: Sendable {
     public var protocols: [ProtocolPlanItem]
     public var codes: [CodePlanItem]
     public var apps: [AppPlanItem]
-    /// On-chain records of the owner that no local entity claims.
+    public var works: [WorkPlanItem] = []
+    /// On-chain records of the owner that no local entity claims. Works
+    /// are not listed: an owner's other texts and media are no orphans.
     public var orphanProtocols: [ProtocolSpec]
     public var orphanCodes: [Code]
     public var orphanApps: [AppRecord]
@@ -177,6 +184,7 @@ public struct ReleasePlan: Sendable {
         protocols.filter { $0.action.carves }.count
             + codes.filter { $0.action.carves }.count
             + apps.filter { $0.action.carves }.count
+            + works.filter { $0.action.carves }.count
     }
 }
 
@@ -373,7 +381,19 @@ public enum ReleasePlanner {
             }
         }
 
-        return ReleasePlan(owner: owner, protocols: protocolItems, codes: codeItems, apps: appItems,
+        var workItems = planWorks(scans: scans, chain: chain, owner: owner, choices: choices, log: log, now: now)
+
+        // A repo that names its signer is carved by that FID only.
+        for scan in scans {
+            guard let required = scan.manifest.owner, required != owner else { continue }
+            let why = ReleaseAction.invalid("\(scan.manifest.repoName) is signed by \(required), not \(owner)")
+            for i in protocolItems.indices where protocolItems[i].repo == scan.root { protocolItems[i].action = why }
+            for i in codeItems.indices where codeItems[i].repo.root == scan.root { codeItems[i].action = why }
+            for i in appItems.indices where appItems[i].repo.root == scan.root { appItems[i].action = why }
+            for i in workItems.indices where workItems[i].repo.root == scan.root { workItems[i].action = why }
+        }
+
+        return ReleasePlan(owner: owner, protocols: protocolItems, codes: codeItems, apps: appItems, works: workItems,
                            orphanProtocols: orphanProtocols, orphanCodes: orphanCodes, orphanApps: orphanApps,
                            problems: problems)
     }

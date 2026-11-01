@@ -391,6 +391,7 @@ final class FakeBackend: ReleaseSyncBackend, @unchecked Sendable {
     var confirmed = Set<String>()
     var counter = 0
     var failCodeCarve = false
+    var failConfirmChecks = 0
 
     func note(_ s: String) { lock.withLock { calls.append(s) } }
     func nextTxid() -> String { lock.withLock { counter += 1; return String(format: "%064d", counter) } }
@@ -407,8 +408,20 @@ final class FakeBackend: ReleaseSyncBackend, @unchecked Sendable {
     func carveApp(_ c: AppCarve) async throws -> String {
         let t = nextTxid(); note("A \(c.stdName) codes=\((c.codes ?? []).map { String($0.suffix(2)) })"); return t
     }
+    func carveWork(_ c: WorkCarve) async throws -> String {
+        let t = nextTxid()
+        note("W \(c.kind.rawValue) \(c.title) \(c.targetId == nil ? "publish" : "update") locas=\(c.locas ?? [])")
+        return t
+    }
+    func diskLocas(did: String) async -> [String] { ["(sid)disk"] }
     func isConfirmed(kind: ReleaseEntityKind, id: String, txid: String) async throws -> Bool {
-        lock.withLock { confirmed.insert(txid); return true }
+        try lock.withLock {
+            if failConfirmChecks > 0 {
+                failConfirmChecks -= 1
+                throw URLError(.badServerResponse)
+            }
+            confirmed.insert(txid); return true
+        }
     }
 }
 

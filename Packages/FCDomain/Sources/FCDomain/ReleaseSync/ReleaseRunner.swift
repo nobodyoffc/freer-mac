@@ -10,6 +10,9 @@ public protocol ReleaseSyncBackend: Sendable {
     func carveProtocol(_ fields: ProtocolCarve) async throws -> String
     func carveCode(_ fields: CodeCarve) async throws -> String
     func carveApp(_ fields: AppCarve) async throws -> String
+    func carveWork(_ fields: WorkCarve) async throws -> String
+    /// Where a file put on DISK can be fetched, as `locas` entries.
+    func diskLocas(did: String) async -> [String]
     /// Whether the record `id` has absorbed the carve `txid` on chain.
     func isConfirmed(kind: ReleaseEntityKind, id: String, txid: String) async throws -> Bool
 }
@@ -20,6 +23,7 @@ public enum ReleaseDraft: Sendable, Equatable {
     case `protocol`(ProtocolCarve)
     case code(CodeCarve)
     case app(AppCarve)
+    case work(WorkCarve)
 }
 
 /// Shows each carve to the user before it goes out.
@@ -31,6 +35,7 @@ public protocol ReleaseReviewer: Sendable {
 
 public enum ReleaseEntityKind: String, Codable, Sendable {
     case `protocol`, code, app
+    case text, image, sound, video
 }
 
 /// The fields of one carve, ids resolved. `targetId` nil means publish.
@@ -185,10 +190,13 @@ public enum RunFailure: Error, CustomStringConvertible, Equatable {
     case unresolved(String)
     case didChanged(String)
 
+    case noFile(String)
+
     public var description: String {
         switch self {
         case .unresolved(let what): return "\(what) has no id: its own carve did not go out"
         case .didChanged(let file): return "\(file) changed after the scan; scan again"
+        case .noFile(let name): return "\(name) was not downloaded, so it cannot go onto DISK; scan again"
         }
     }
 }
@@ -235,6 +243,9 @@ public enum ReleaseRunEvent: Sendable, Equatable {
     case skipped(key: String, String)
     case failed(key: String, String)
     case waiting(unconfirmed: Int)
+    /// The server could not say whether carves confirmed: the run waits on
+    /// and retries, but it may never go on until the server is fixed.
+    case confirmCheckFailed(String)
     case pidWritten(file: String)
     /// Review edits written back to a repo's manifest.
     case manifestUpdated(file: String)
@@ -277,9 +288,17 @@ public struct ReleaseRunner: Sendable {
                 events(.waiting(unconfirmed: pending.count))
                 try await Task.sleep(for: pollInterval)
                 var still: [Pending] = []
+                var failures: [String] = []
                 for p in pending {
-                    let done = (try? await backend.isConfirmed(kind: p.kind, id: p.id, txid: p.txid)) ?? false
-                    if !done { still.append(p) }
+                    do {
+                        if try await !backend.isConfirmed(kind: p.kind, id: p.id, txid: p.txid) { still.append(p) }
+                    } catch {
+                        still.append(p)
+                        failures.append("\(p.kind.rawValue): \(error)")
+                    }
+                }
+                if let first = failures.first {
+                    events(.confirmCheckFailed("\(failures.count) of \(pending.count) lookups failed, e.g. \(first)"))
                 }
                 pending = still
             }
@@ -423,6 +442,54 @@ public struct ReleaseRunner: Sendable {
                 events(.skipped(key: key, "skipped in review"))
             } catch {
                 events(.failed(key: key, String(describing: error)))
+            }
+        }
+
+        // MARK: works
+        for item in plan.works where item.action.carves {
+            if let entry = alreadyCarved(item.key, did: item.local.did) { ids[.workInRun(item.key)] = entry.id }
+        }
+        for kind in WorkKind.carveOrder {
+            for item in plan.works where item.local.entry.kind == kind && item.action.carves {
+                let key = item.key
+                guard selected.contains(key) else { continue }
+                if let entry = alreadyCarved(key, did: item.local.did) {
+                    events(.skipped(key: key, "already carved in \(entry.txid.prefix(12))…"))
+                    continue
+                }
+                do {
+                    try Task.checkCancellation()
+                    var reviewed = try ReleaseCarves.workCarve(item, ids: ids)
+                    let original = reviewed
+                    if let reviewer {
+                        guard case .work(let edited)? = try await reviewer.review(.work(reviewed)) else {
+                            throw ReviewSkipped()
+                        }
+                        reviewed = edited
+                    }
+                    var carve = reviewed
+                    if carve.disk {
+                        guard let file = item.local.fileURL else { throw RunFailure.noFile(item.local.fileName) }
+                        events(.step(key: key, "storing \(item.local.fileName) on DISK"))
+                        try await backend.storeOnDisk(file, name: item.local.fileName)
+                        carve = carve.withDisk(await backend.diskLocas(did: carve.did))
+                    }
+                    try await waitForRoom()
+                    events(.step(key: key, "carving"))
+                    let txid = try await backend.carveWork(carve)
+                    ids[.workInRun(key)] = item.action.targetId ?? txid
+                    try record(key, kind.entityKind, id: item.action.targetId ?? txid, txid: txid, did: item.local.did)
+                    if try ReleaseManifestEditor.writeBack(original: original, reviewed: reviewed, item: item,
+                                                           publishedId: item.action.targetId == nil ? txid : nil) {
+                        events(.manifestUpdated(file: item.repo.root.appendingPathComponent(ReleaseManifest.fileName).path))
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch is ReviewSkipped {
+                    events(.skipped(key: key, "skipped in review"))
+                } catch {
+                    events(.failed(key: key, String(describing: error)))
+                }
             }
         }
     }

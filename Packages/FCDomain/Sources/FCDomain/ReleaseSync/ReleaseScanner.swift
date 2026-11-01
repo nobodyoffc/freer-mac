@@ -30,15 +30,17 @@ public struct ReleaseScanner: Sendable {
         (scan.protocols, scan.problems) = Self.protocolDocs(root: root, dirs: manifest.protocolDirs ?? [])
 
         let hasCodes = !(manifest.codes ?? []).isEmpty, hasApps = !(manifest.apps ?? []).isEmpty
-        guard hasCodes || hasApps else { return scan }
+        let hasWorks = !(manifest.works ?? []).isEmpty
+        guard hasCodes || hasApps || hasWorks else { return scan }
         guard let tag else {
-            scan.problems.append("\(manifest.repoName): no release tag chosen, so its codes and apps were skipped")
+            scan.problems.append("\(manifest.repoName): no release tag chosen, so its codes, apps and works were skipped")
             return scan
         }
         if !git.hasTag(tag) { try? git.fetchTags() }
         guard git.hasTag(tag) else {
-            scan.problems.append("\(manifest.repoName): tag \(tag) is not in the local clone; codes skipped")
-            return try await withApps(scan, manifest, tag, progress)
+            scan.problems.append("\(manifest.repoName): tag \(tag) is not in the local clone; codes and repo files skipped")
+            scan = try await withApps(scan, manifest, tag, progress)
+            return await withWorks(scan, manifest, tag, git: nil, progress)
         }
 
         for entry in manifest.codes ?? [] {
@@ -49,7 +51,85 @@ public struct ReleaseScanner: Sendable {
                 scan.problems.append("code \(entry.name): \(error)")
             }
         }
-        return try await withApps(scan, manifest, tag, progress)
+        scan = try await withApps(scan, manifest, tag, progress)
+        return await withWorks(scan, manifest, tag, git: git, progress)
+    }
+
+    /// Each work's file and DID. A release asset's DID comes from GitHub's
+    /// SHA-256 when it has one; the file is downloaded only when it has
+    /// not, or when it goes onto DISK. A repo file is read at the tag.
+    private func withWorks(_ scan: RepoScan, _ manifest: ReleaseManifest, _ tag: String, git: GitRepo?,
+                           _ progress: @Sendable (String) -> Void) async -> RepoScan {
+        var scan = scan
+        guard let entries = manifest.works, !entries.isEmpty else { return scan }
+        let github = GitHubReleases(repo: manifest.github)
+        var assets: [GitHubReleases.Asset]?
+        if entries.contains(where: { $0.asset != nil }) {
+            progress("Listing the assets of \(manifest.github) \(tag)…")
+            do {
+                assets = try github.assets(tag: tag)
+            } catch {
+                scan.problems.append("\(manifest.repoName): cannot list release assets for its works: \(error)")
+            }
+        }
+        for entry in entries {
+            do {
+                let fileName: String, link: String, did: String
+                var file: URL?, size: Int64?
+                if let pattern = entry.asset {
+                    guard let assets else { continue }
+                    let matches = assets.filter { ReleaseManifest.assetMatches(pattern: pattern, name: $0.name) }
+                    guard matches.count == 1, let asset = matches.first else {
+                        scan.problems.append("work \(entry.title): \(matches.isEmpty ? "no" : "\(matches.count)") release assets match \"\(pattern)\"")
+                        continue
+                    }
+                    fileName = asset.name
+                    link = asset.url
+                    size = asset.size
+                    if let fromDigest = asset.did, entry.disk != true {
+                        did = fromDigest
+                    } else {
+                        progress("Downloading \(asset.name)…")
+                        let local = workDir.appendingPathComponent("assets/\(manifest.repoName)/\(tag)/\(asset.name)")
+                        try FileManager.default.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        if !FileManager.default.fileExists(atPath: local.path) {
+                            try await downloader(URL(string: asset.url)!, local)
+                        }
+                        did = Hex.encode(try Hash.doubleSha256(fileAt: local)).lowercased()
+                        if let fromDigest = asset.did, fromDigest != did {
+                            throw RunFailure.didChanged(asset.name)
+                        }
+                        file = local
+                    }
+                } else if let path = entry.path {
+                    guard let git else {
+                        scan.problems.append("work \(entry.title): \(path) cannot be read without tag \(tag) in the local clone")
+                        continue
+                    }
+                    progress("Reading \(path) at \(tag)…")
+                    let data = try git.file(tag: tag, path: path)
+                    let local = workDir.appendingPathComponent("files/\(manifest.repoName)/\(tag)/\(path)")
+                    try FileManager.default.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try data.write(to: local, options: .atomic)
+                    fileName = (path as NSString).lastPathComponent
+                    link = github.rawLink(tag: tag, path: path)
+                    size = Int64(data.count)
+                    did = Hex.encode(Hash.doubleSha256(data)).lowercased()
+                    file = local
+                } else {
+                    continue
+                }
+                let (locas, dropped) = LocalWork.locas(link: link, entry: entry, tag: tag, fileName: fileName)
+                if !dropped.isEmpty {
+                    scan.problems.append("work \(entry.title): at most \(LocalWork.maxLocas) locations, so \(dropped.joined(separator: ", ")) is left out")
+                }
+                scan.works.append(LocalWork(entry: entry, tag: tag, fileName: fileName, fileURL: file,
+                                            did: did, size: size, locas: locas))
+            } catch {
+                scan.problems.append("work \(entry.title): \(error)")
+            }
+        }
+        return scan
     }
 
     private func withApps(_ scan: RepoScan, _ manifest: ReleaseManifest, _ tag: String,
