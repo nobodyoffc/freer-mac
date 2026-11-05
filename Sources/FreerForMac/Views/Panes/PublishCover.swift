@@ -203,7 +203,9 @@ struct CoverView: View {
             return
         }
         self.did = did
-        if let url = try? await session.publishBody.fetchURL(did: did, publisher: record.publisher, locas: record.locas),
+        if let url = try? await session.publishBody.fetchURL(
+            did: did, publisher: record.publisher, locas: record.locas, work: try? Hat.fromMedia(record)
+        ),
            let shown = NSImage(contentsOf: url) {
             image = shown
             return

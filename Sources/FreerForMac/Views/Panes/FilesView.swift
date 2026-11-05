@@ -33,6 +33,16 @@ struct FilesView: View {
     @State private var showImport = false
     @State private var exportHat: Hat?
     @State private var isDropTargeted = false
+    @State private var publishTarget: PublishTarget?
+
+    /// A file being published as a work: its HAT's prefill, the local
+    /// copy the composer uploads, and the protocol chosen.
+    private struct PublishTarget: Identifiable {
+        let id = UUID()
+        let kind: Hat.WorkKind
+        let draft: Hat.WorkDraft
+        let file: URL
+    }
 
     /// Where a row's bytes live right now — recomputed on load, and
     /// after anything that could move them.
@@ -131,6 +141,9 @@ struct FilesView: View {
         }
         .sheet(item: $exportHat) { hat in
             HatExportSheet(hat: hat) { exportHat = nil }
+        }
+        .sheet(item: $publishTarget) { target in
+            publishSheet(target)
         }
         .sheet(isPresented: $showImport) {
             HatImportSheet(session: session) { imported in
@@ -370,6 +383,8 @@ struct FilesView: View {
                     .help("Fetch a copy from DISK")
                 }
 
+                publishMenu(hat, status: status)
+
                 Button { exportHat = hat } label: { Image(systemName: "square.and.arrow.up") }
                     .buttonStyle(.borderless)
                     .help("Share this record — the JSON another device needs to fetch the file")
@@ -382,6 +397,105 @@ struct FilesView: View {
             }
         }
         .foregroundStyle(.secondary)
+    }
+
+    // MARK: - publish
+
+    /// Publish this file as a FEIP21/23/24/25 work. The kind its type
+    /// suggests is listed first; the rest stay available, because a PDF
+    /// may be a book and a GIF may be a video to its owner.
+    @ViewBuilder
+    private func publishMenu(_ hat: Hat, status: RowStatus) -> some View {
+        let local = status == .localOnly || status == .bothPlaces
+        let guess = (try? hat.toWorkDraft())?.kind
+        let kinds = (guess.map { [$0] } ?? []) + Hat.WorkKind.allCases.filter { $0 != guess }
+        Menu {
+            ForEach(kinds, id: \.self) { kind in
+                Button(Self.label(kind) + (kind == guess ? " (suggested)" : "")) {
+                    startPublish(hat, as: kind)
+                }
+            }
+        } label: {
+            Image(systemName: "megaphone")
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .disabled(!local || !session.canSign)
+        .help(!session.canSign ? "Watch-only identity — no key to sign a carve with"
+              : local ? "Publish this file on chain as a text, image, sound or video"
+              : "Download the file first — publishing uploads it from this Mac")
+    }
+
+    private static func label(_ kind: Hat.WorkKind) -> String {
+        switch kind {
+        case .text:  return "Publish as Text…"
+        case .image: return "Publish as Image…"
+        case .sound: return "Publish as Sound…"
+        case .video: return "Publish as Video…"
+        }
+    }
+
+    private func startPublish(_ hat: Hat, as kind: Hat.WorkKind) {
+        guard let id = hat.id else { return }
+        do {
+            let draft = try hat.toWorkDraft()
+            guard case .available(let url) = try session.files.resolve(hatId: id) else {
+                banner = Banner(kind: .failure, text: "The file is no longer on this Mac. Download it, then publish.")
+                refreshStatuses()
+                return
+            }
+            publishTarget = PublishTarget(kind: kind, draft: draft, file: url)
+        } catch {
+            banner = Banner(kind: .failure, text: String(describing: error))
+        }
+    }
+
+    @ViewBuilder
+    private func publishSheet(_ target: PublishTarget) -> some View {
+        switch target.kind {
+        case .text:
+            PublishTextComposer(session: session, draft: target.draft, file: target.file) { result in
+                switch result {
+                case .carved(let record): published(record.title, id: record.id)
+                case .updated(let txid):  published(nil, id: txid)
+                case .draft:              savedDraft()
+                case .cancelled:          publishTarget = nil
+                }
+            }
+        case .image, .sound, .video:
+            PublishMediaComposer(session: session, kind: Self.mediaKind(target.kind),
+                                 draft: target.draft, file: target.file) { result in
+                switch result {
+                case .carved(let record): published(record.title, id: record.id)
+                case .updated(let txid):  published(nil, id: txid)
+                case .draft:              savedDraft()
+                case .cancelled:          publishTarget = nil
+                }
+            }
+        }
+    }
+
+    private static func mediaKind(_ kind: Hat.WorkKind) -> MediaKind {
+        switch kind {
+        case .image: return .image
+        case .sound: return .sound
+        default:     return .video
+        }
+    }
+
+    private func published(_ title: String?, id: String) {
+        publishTarget = nil
+        banner = Banner(kind: .success,
+                        text: "Published “\(title ?? "the work")”. It is on DISK unencrypted and carved on chain.",
+                        copyValue: id)
+        reload()
+    }
+
+    private func savedDraft() {
+        publishTarget = nil
+        banner = Banner(kind: .info, text: "Saved as a draft in Publish. Nothing was uploaded or carved.")
+        reload()
     }
 
     // MARK: - loading

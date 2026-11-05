@@ -88,6 +88,19 @@ final class PublishLocasTests: XCTestCase {
         XCTAssertNil(body.carvedLocas(did: String(repeating: "ee", count: 32)), "never uploaded")
     }
 
+    /// A HAT that came over IM carries the sender's DISK — where the
+    /// *encrypted* copy lives — and the plaintext key. Publishing it
+    /// names only our own DISK, which the publish gave the plaintext.
+    func testCarvedLocasSkipTheCipherDisksOfAHatReceivedOverIm() async throws {
+        let body = try makeBody()
+        let did = try await body.store("forwarded essay")
+        var hat = try XCTUnwrap(try body.hats.hat(id: did))
+        hat.key = String(repeating: "0f", count: 32)
+        hat.locas = [diskA] + (hat.locas ?? [])
+        _ = try body.hats.upsert(hat)
+        XCTAssertEqual(body.carvedLocas(did: did), ["(sid)" + ownSid])
+    }
+
     func testCarvedLocasKeepTheOldListOnlyForTheSameBodyAndCapAtThree() async throws {
         let body = try makeBody()
         let did = try await body.store("an essay")
@@ -129,6 +142,34 @@ final class PublishLocasTests: XCTestCase {
         XCTAssertEqual(got, text)
         XCTAssertNil(asked.value, "the publisher's home is the fallback, not the first resort")
         XCTAssertTrue(body.isLocal(did: did))
+    }
+
+    /// Fetched with its work, the body's HAT describes the work — title
+    /// and format, not a did-prefix placeholder — and a placeholder HAT
+    /// already held is upgraded on the next fetch.
+    func testAFetchedWorkGetsAHatDescribingIt() async throws {
+        let theirs = FakeDiskServer()
+        let did = theirs.seed(Data("# Notes".utf8))
+        let body = try makeBody(locaDisk: { [diskA] loca in loca == diskA ? DiskService(fapi: theirs) : nil })
+        let record = TextRecord(id: "T1", title: "Notes", did: did, format: "text/markdown",
+                                summary: "my notes", locas: [diskA])
+
+        _ = try await body.read(did: did, locas: record.locas, work: try Hat.fromText(record))
+        let hat = try XCTUnwrap(try body.hats.hat(id: did))
+        XCTAssertEqual(hat.name, "Notes.md")
+        XCTAssertEqual(hat.types, ["text/markdown"])
+        XCTAssertEqual(hat.desc, "my notes")
+        XCTAssertEqual(hat.pids, [Hat.WorkKind.text.pid])
+        XCTAssertTrue(hat.locas?.contains(diskA) ?? false)
+
+        // A copy fetched without the work keeps the placeholder name...
+        let other = theirs.seed(Data("plain".utf8))
+        _ = try await body.read(did: other, locas: [diskA])
+        XCTAssertEqual(try body.hats.hat(id: other)?.name, String(other.prefix(8)))
+        // ...until it is read again with its work.
+        let late = TextRecord(id: "T2", title: "Later", did: other, locas: [diskA])
+        _ = try await body.read(did: other, locas: [diskA], work: try Hat.fromText(late))
+        XCTAssertEqual(try body.hats.hat(id: other)?.name, "Later.txt")
     }
 
     /// A listed DISK is a hint: when it serves the wrong bytes, the

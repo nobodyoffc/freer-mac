@@ -102,7 +102,12 @@ public struct PublishBody {
         guard let did, !did.isEmpty else { return nil }
         var list: [String] = []
         if previousDid == did { list.append(contentsOf: keeping ?? []) }
-        let hatLocas = ((try? hats.hat(id: did)) ?? nil)?.remoteLocas ?? []
+        let hat = (try? hats.hat(id: did)) ?? nil
+        var hatLocas = hat?.remoteLocas ?? []
+        // A HAT carrying a plaintext key came over IM: its DISK entries
+        // are where the *encrypted* copy lives. Only our own DISK, which
+        // a publish has just given the plaintext, is safe to name.
+        if hat?.key != nil { hatLocas = hatLocas.filter { $0 == sync.currentLocation } }
         for loca in hatLocas where !Self.isPlaceholder(loca) && !list.contains(loca) {
             list.append(loca)
         }
@@ -286,9 +291,18 @@ public struct PublishBody {
         did: String,
         publisher: String? = nil,
         locas: [String]? = nil,
+        work: Hat? = nil,
         progress: (@Sendable (Int64) -> Void)? = nil
     ) async throws -> URL {
         var diagnostics: [String] = []
+
+        // A HAT already held for this DID still learns the work's
+        // name, type and locations — a copy fetched before this existed
+        // carries only the did-prefix placeholder.
+        if let work, let existing = try hats.hat(id: did) {
+            let merged = try Hat.mergeWork(existing, work)
+            if merged != existing { _ = try hats.upsert(merged) }
+        }
 
         // 1. Local.
         if (try? hats.exists(id: did)) == true {
@@ -304,7 +318,7 @@ public struct PublishBody {
         //    client whatever the locations say, so the HAT needs a
         //    remote location for the direct path to be attempted at all.
         do {
-            try ensureRemoteHat(did: did)
+            try ensureRemoteHat(did: did, work: work)
             return try await sync.download(hatId: did, progress: progress)
         } catch {
             diagnostics.append("ownDisk=\(Self.short(error))")
@@ -319,7 +333,7 @@ public struct PublishBody {
                     continue
                 }
                 do {
-                    return try await fetch(did: did, from: remote, progress: progress)
+                    return try await fetch(did: did, from: remote, work: work, progress: progress)
                 } catch {
                     diagnostics.append("\(loca.middleElided())=\(Self.short(error))")
                 }
@@ -330,7 +344,7 @@ public struct PublishBody {
         if let publisher, !publisher.isEmpty, let foreignDisk {
             if let remote = await foreignDisk(publisher) {
                 do {
-                    return try await fetch(did: did, from: remote, progress: progress)
+                    return try await fetch(did: did, from: remote, work: work, progress: progress)
                 } catch {
                     diagnostics.append("publisherDisk=\(Self.short(error))")
                 }
@@ -354,9 +368,10 @@ public struct PublishBody {
         did: String,
         publisher: String? = nil,
         locas: [String]? = nil,
+        work: Hat? = nil,
         progress: (@Sendable (Int64) -> Void)? = nil
     ) async throws -> String {
-        let url = try await fetchURL(did: did, publisher: publisher, locas: locas, progress: progress)
+        let url = try await fetchURL(did: did, publisher: publisher, locas: locas, work: work, progress: progress)
         return try Self.text(at: url, did: did)
     }
 
@@ -376,12 +391,19 @@ public struct PublishBody {
     ///
     /// A record we are reading for the first time has no HAT at all;
     /// one we published has a local location and possibly no remote.
-    private func ensureRemoteHat(did: String) throws {
+    /// Given the work (``Hat/fromWork(kind:did:title:format:summary:locas:nowMs:)``),
+    /// a new HAT describes it; without one, a did-prefix placeholder.
+    private func ensureRemoteHat(did: String, work: Hat? = nil) throws {
         let now = Hat.currentTimeMillis()
         if let existing = try hats.hat(id: did) {
             if existing.remoteLocas.isEmpty {
                 _ = try hats.addLoca(sync.currentLocation, toId: did)
             }
+            return
+        }
+        if var work {
+            if work.remoteLocas.isEmpty { work.addLoca(sync.currentLocation, nowMs: now) }
+            _ = try hats.upsert(work)
             return
         }
         _ = try hats.upsert(Hat(
@@ -400,6 +422,7 @@ public struct PublishBody {
     private func fetch(
         did: String,
         from remote: DiskService,
+        work: Hat? = nil,
         progress: (@Sendable (Int64) -> Void)?
     ) async throws -> URL {
         let destination = files.defaultLocalURL(did: did)
@@ -414,7 +437,7 @@ public struct PublishBody {
                 did: did, diagnostics: "publisher's DISK served \(String(got.prefix(12)))…"
             )
         }
-        try ensureRemoteHat(did: did)
+        try ensureRemoteHat(did: did, work: work)
         _ = try files.adoptAppCopy(hatId: did, at: destination)
         return destination
     }

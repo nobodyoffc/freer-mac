@@ -193,19 +193,30 @@ struct PublishMediaComposer: View {
         session: ActiveSession,
         kind: MediaKind,
         editing: MediaRecord? = nil,
+        draft: Hat.WorkDraft? = nil,
+        file: URL? = nil,
         onDone: @escaping (Result) -> Void
     ) {
         self.session = session
         self.kind = kind
         self.editing = editing
         self.onDone = onDone
-        _title = State(initialValue: editing?.title ?? "")
-        _summary = State(initialValue: editing?.summary ?? "")
+        self.fromFiles = draft != nil
+        _title = State(initialValue: editing?.title ?? draft?.title ?? "")
+        _summary = State(initialValue: editing?.summary ?? draft?.summary ?? "")
         _lang = State(initialValue: editing?.lang ?? "")
-        _format = State(initialValue: editing?.format ?? "")
+        _format = State(initialValue: editing?.format ?? draft?.format ?? "")
         _authorsText = State(initialValue: (editing?.authors ?? []).joined(separator: ", "))
         _cover = State(initialValue: editing?.cover.map { CoverChoice.image(id: $0) } ?? .none)
+        _pickedURL = State(initialValue: file)
+        _pickedSize = State(initialValue: file.flatMap {
+            (try? FileManager.default.attributesOfItem(atPath: $0.path)[.size] as? NSNumber)??.int64Value
+        })
+        _preview = State(initialValue: kind == .image ? file.flatMap(NSImage.init(contentsOf:)) : nil)
     }
+
+    /// Opened from the Files pane on a file the user holds.
+    private let fromFiles: Bool
 
     @State private var title: String
     @State private var summary: String
@@ -264,6 +275,15 @@ struct PublishMediaComposer: View {
         VStack(alignment: .leading, spacing: 14) {
             Text(isNewEdition ? "Publish a new edition" : "Publish \(kind == .image ? "an" : "a") \(kind.noun)")
                 .font(.title3.bold())
+
+            if fromFiles {
+                Label(
+                    "Publishing makes this file public. It is uploaded to DISK unencrypted, so anyone can fetch it by its hash, and the chain records it for good. Your encrypted backup is not affected.",
+                    systemImage: "globe"
+                )
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
 
             if isNewEdition {
                 Label(
@@ -814,7 +834,8 @@ struct MediaViewerSheet: View {
         Task {
             do {
                 let url = try await session.publishBody.fetchURL(
-                    did: did, publisher: record.publisher, locas: record.locas
+                    did: did, publisher: record.publisher, locas: record.locas,
+                    work: try? Hat.fromMedia(record)
                 )
                 let decoded = kind == .image ? NSImage(contentsOf: url) : nil
                 await MainActor.run {
