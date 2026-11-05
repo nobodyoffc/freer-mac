@@ -90,6 +90,32 @@ final class TokenCarveTests: XCTestCase {
         XCTAssertThrowsError(try TokenFeip.deployCarve(name: "   "))
     }
 
+    // MARK: - cover
+
+    func testDeployCarriesACoverAsALowercaseImageId() throws {
+        let id = String(repeating: "AB", count: 32)
+        let d = try data(from: try TokenFeip.deployCarve(name: "Gold", cover: id))
+        XCTAssertEqual(d["cover"] as? String, id.lowercased())
+        XCTAssertNil(try data(from: try TokenFeip.deployCarve(name: "Gold", cover: "  "))["cover"])
+    }
+
+    /// The parser would drop it, and a token cannot be deployed twice.
+    func testDeployRefusesACoverThatIsNotAnImageId() {
+        XCTAssertThrowsError(try TokenFeip.deployCarve(name: "Gold", cover: "https://example.org/logo.png"))
+    }
+
+    func testTheLogoIsShownOnlyWhenTheDeployerPublishedTheImage() throws {
+        let id = String(repeating: "ab", count: 32)
+        let token = Token(id: "T1", cover: id, deployer: "FA")
+        XCTAssertTrue(token.showsCover(publishedBy: "FA"))
+        XCTAssertFalse(token.showsCover(publishedBy: "FB"))
+        XCTAssertFalse(token.showsCover(publishedBy: nil))
+        XCTAssertFalse(Token(id: "T2", deployer: "FA").showsCover(publishedBy: "FA"))
+        XCTAssertFalse(Token(id: "T3", cover: id).showsCover(publishedBy: "FA"))
+        let decoded = try JSONDecoder().decode(Token.self, from: Data(#"{"id":"T4","cover":"\#(id)"}"#.utf8))
+        XCTAssertEqual(decoded.cover, id)
+    }
+
     // MARK: - issue and transfer
 
     func testIssueAndTransferUseTheirOwnAllocationKeys() throws {

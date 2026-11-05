@@ -170,11 +170,14 @@ public enum TokenFeip {
         case invalidAmount(fid: String, reason: TokenTransfer.Invalid)
         case duplicateRecipient(fid: String)
         case tooLarge(bytes: Int)
+        case badCover(String)
 
         public var description: String {
             switch self {
             case .encoding(let e):
                 return "TokenFeip: JSON encoding failed — \(e)"
+            case .badCover(let cover):
+                return "TokenFeip: cover \(cover) is not an Image record id (64 hex digits)"
             case .emptyName:
                 return "TokenFeip: a token needs a name"
             case .noTokenId:
@@ -220,7 +223,8 @@ public enum TokenFeip {
         openIssue: Bool? = nil,
         maxAmtPerIssue: String? = nil,
         minCddPerIssue: String? = nil,
-        maxIssuesPerAddr: String? = nil
+        maxIssuesPerAddr: String? = nil,
+        cover: String? = nil
     ) throws -> String {
         var dict: [String: Any] = ["op": Op.deploy.rawValue]
         func put(_ key: String, _ value: String?) {
@@ -241,6 +245,11 @@ public enum TokenFeip {
             put("maxAmtPerIssue", maxAmtPerIssue)
             put("minCddPerIssue", minCddPerIssue)
             put("maxIssuesPerAddr", maxIssuesPerAddr)
+        }
+        if let cover = cover?.trimmingCharacters(in: .whitespacesAndNewlines), !cover.isEmpty {
+            // The parser drops anything else, and the deploy cannot be redone.
+            guard cover.count == 64, cover.allSatisfy(\.isHexDigit) else { throw Failure.badCover(cover) }
+            dict["cover"] = cover.lowercased()
         }
         return try jsonString(dict)
     }
@@ -306,7 +315,8 @@ public enum TokenFeip {
         openIssue: Bool? = nil,
         maxAmtPerIssue: String? = nil,
         minCddPerIssue: String? = nil,
-        maxIssuesPerAddr: String? = nil
+        maxIssuesPerAddr: String? = nil,
+        cover: String? = nil
     ) throws -> String {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw Failure.emptyName
@@ -316,7 +326,7 @@ public enum TokenFeip {
             capacity: capacity, decimal: decimal,
             transferable: transferable, closable: closable, openIssue: openIssue,
             maxAmtPerIssue: maxAmtPerIssue, minCddPerIssue: minCddPerIssue,
-            maxIssuesPerAddr: maxIssuesPerAddr
+            maxIssuesPerAddr: maxIssuesPerAddr, cover: cover
         )))
     }
 

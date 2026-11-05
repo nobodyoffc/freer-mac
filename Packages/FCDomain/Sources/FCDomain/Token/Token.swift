@@ -52,6 +52,11 @@ public struct Token: Codable, Equatable, Sendable, Identifiable {
     public var maxAmtPerIssue: String?
     public var minCddPerIssue: String?
     public var maxIssuesPerAddr: String?
+    /// The record id of a FEIP24 Image shown as the token's logo, set at
+    /// deploy. Shown only when ``showsCover(publishedBy:)`` says so: a
+    /// token can never be updated, so an Image someone else published
+    /// would be a logo they control, or one borrowed from another token.
+    public var cover: String?
     /// Closed for good. The one field of the rule set that moves, and
     /// only from false to true.
     public var closed: Bool?
@@ -80,7 +85,7 @@ public struct Token: Codable, Equatable, Sendable, Identifiable {
     private enum CodingKeys: String, CodingKey {
         case name, desc, consensusId, capacity, decimal
         case transferable, closable, openIssue
-        case maxAmtPerIssue, minCddPerIssue, maxIssuesPerAddr, closed
+        case maxAmtPerIssue, minCddPerIssue, maxIssuesPerAddr, cover, closed
         case deployer, circulating
         case birthTime, birthHeight, lastTxId, lastTime, lastHeight
         case id
@@ -100,6 +105,7 @@ public struct Token: Codable, Equatable, Sendable, Identifiable {
         maxAmtPerIssue: String? = nil,
         minCddPerIssue: String? = nil,
         maxIssuesPerAddr: String? = nil,
+        cover: String? = nil,
         closed: Bool? = nil,
         deployer: String? = nil,
         circulating: Double? = nil,
@@ -123,6 +129,7 @@ public struct Token: Codable, Equatable, Sendable, Identifiable {
         self.maxAmtPerIssue = maxAmtPerIssue
         self.minCddPerIssue = minCddPerIssue
         self.maxIssuesPerAddr = maxIssuesPerAddr
+        self.cover = cover
         self.closed = closed
         self.deployer = deployer
         self.circulating = circulating
@@ -151,6 +158,7 @@ public struct Token: Codable, Equatable, Sendable, Identifiable {
         maxAmtPerIssue = try Self.looseString(c, .maxAmtPerIssue)
         minCddPerIssue = try Self.looseString(c, .minCddPerIssue)
         maxIssuesPerAddr = try Self.looseString(c, .maxIssuesPerAddr)
+        cover = try? c.decodeIfPresent(String.self, forKey: .cover)
         closed = try Self.looseBool(c, .closed)
         deployer = try c.decodeIfPresent(String.self, forKey: .deployer)
         circulating = try c.decodeIfPresent(Double.self, forKey: .circulating)
@@ -161,6 +169,14 @@ public struct Token: Codable, Equatable, Sendable, Identifiable {
         lastHeight = try c.decodeIfPresent(Int64.self, forKey: .lastHeight)
         addedAt = (try c.decodeIfPresent(Date.self, forKey: .addedAt)) ?? Date()
         updatedAt = (try c.decodeIfPresent(Date.self, forKey: .updatedAt)) ?? Date()
+    }
+
+    /// Whether the Image named by ``cover`` may be shown as this token's
+    /// logo, given that Image's publisher (FEIP20 Cover rule 3): only an
+    /// Image the deployer published. The caller still hides a deleted one.
+    public func showsCover(publishedBy imagePublisher: String?) -> Bool {
+        guard cover != nil, let deployer, !deployer.isEmpty, let imagePublisher else { return false }
+        return imagePublisher == deployer
     }
 
     /// A wire field the protocol carves as a string but that reaches

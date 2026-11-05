@@ -3958,7 +3958,7 @@ public final class ActiveSession {
     /// has no such button.
     ///
     /// The rules go on chain **in the clear** and can never be changed.
-    /// The size guard in ``TokenFeip/deployCarve(name:desc:consensusId:capacity:decimal:transferable:closable:openIssue:maxAmtPerIssue:minCddPerIssue:maxIssuesPerAddr:)``
+    /// The size guard in ``TokenFeip/deployCarve(name:desc:consensusId:capacity:decimal:transferable:closable:openIssue:maxAmtPerIssue:minCddPerIssue:maxIssuesPerAddr:cover:)``
     /// runs before a single satoshi is committed.
     @discardableResult
     public func carveTokenDeployOnChain(
@@ -3973,6 +3973,7 @@ public final class ActiveSession {
         maxAmtPerIssue: String? = nil,
         minCddPerIssue: String? = nil,
         maxIssuesPerAddr: String? = nil,
+        cover: String? = nil,
         feePerByte: Int64 = 1,
         timeoutMs: Int = 10_000
     ) async throws -> Token {
@@ -3984,7 +3985,7 @@ public final class ActiveSession {
             capacity: capacity, decimal: decimal,
             transferable: transferable, closable: closable, openIssue: openIssue,
             maxAmtPerIssue: maxAmtPerIssue, minCddPerIssue: minCddPerIssue,
-            maxIssuesPerAddr: maxIssuesPerAddr
+            maxIssuesPerAddr: maxIssuesPerAddr, cover: cover
         )
         let result = try await wallet.carve(
             fromAddress: liveFid, privkey: priv,
@@ -4016,6 +4017,7 @@ public final class ActiveSession {
             maxAmtPerIssue: openIssue ? clean(maxAmtPerIssue) : nil,
             minCddPerIssue: openIssue ? clean(minCddPerIssue) : nil,
             maxIssuesPerAddr: openIssue ? clean(maxIssuesPerAddr) : nil,
+            cover: clean(cover)?.lowercased(),
             closed: false,
             deployer: liveFid,
             circulating: 0,

@@ -28,10 +28,14 @@ enum CoverChoice: Equatable {
 struct CoverField: View {
     let session: ActiveSession
     @Binding var choice: CoverChoice
+    /// "Cover" for a work; a token calls it its logo.
+    var label = "Cover"
+    /// What names the image, for the captions: "work" or "token".
+    var subject = "work"
     @State private var picking = false
 
     var body: some View {
-        LabeledField("Cover") {
+        LabeledField(label) {
             HStack(alignment: .top, spacing: 12) {
                 thumbnail
                     .frame(width: 72, height: 72)
@@ -41,7 +45,7 @@ struct CoverField: View {
                         Button("Choose Image File…", action: pickFile)
                         Button("My Images…") { picking = true }
                         if choice != .none {
-                            Button("Remove Cover") { choice = .none }
+                            Button("Remove \(label)") { choice = .none }
                         }
                     }
                     Text(caption).font(.caption2).foregroundStyle(.tertiary)
@@ -51,7 +55,7 @@ struct CoverField: View {
             }
         }
         .sheet(isPresented: $picking) {
-            MyImagesPicker(session: session) { id in
+            MyImagesPicker(session: session, title: "Choose a \(label.lowercased())") { id in
                 if let id { choice = .image(id: id) }
                 picking = false
             }
@@ -80,9 +84,9 @@ struct CoverField: View {
     private var caption: String {
         switch choice {
         case .none:
-            return "Optional. The cover is one of your Images, named by its id: update that Image later and the cover changes with it."
+            return "Optional. The \(label.lowercased()) is one of your Images, named by its id: update that Image later and the \(label.lowercased()) changes with it."
         case .newFile(let url):
-            return "\(url.lastPathComponent) is published as an Image first, then this work names it. One approval covers both carves."
+            return "\(url.lastPathComponent) is published as an Image first, then this \(subject) names it. One approval covers both carves."
         case .image(let id):
             let title = (try? session.media(.image).get(id: id))?.title
             return "Image \(title.map { "“\($0)” " } ?? "")\(id.elidingMiddle(head: 8, tail: 6))"
@@ -103,6 +107,7 @@ struct CoverField: View {
 /// The identity's published images, to pick one as a cover.
 struct MyImagesPicker: View {
     let session: ActiveSession
+    var title = "Choose a cover"
     let done: (String?) -> Void
 
     private var images: [MediaRecord] {
@@ -113,7 +118,7 @@ struct MyImagesPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Choose a cover").font(.title3.bold())
+            Text(title).font(.title3.bold())
             let list = images
             if list.isEmpty {
                 Text("You have no published images yet. Choose an image file instead: it is published as an Image with the work.")
@@ -153,6 +158,10 @@ struct MyImagesPicker: View {
 struct CoverView: View {
     let session: ActiveSession
     let imageId: String
+    var title = "Cover"
+    /// Given the Image's publisher, whether it may be shown at all, with
+    /// the reason when not. A token's logo must be its deployer's Image.
+    var refusal: ((String?) -> String?)? = nil
 
     @State private var image: NSImage?
     @State private var did: String?
@@ -165,7 +174,7 @@ struct CoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Cover").font(.headline)
+            Text(title).font(.headline)
             if let image {
                 Image(nsImage: image)
                     .resizable()
@@ -199,7 +208,11 @@ struct CoverView: View {
             return
         }
         guard !record.isDeleted else {
-            note = "The cover image was deleted by its publisher."
+            note = "The \(title.lowercased()) image was deleted by its publisher."
+            return
+        }
+        if let why = refusal?(record.publisher) {
+            note = why
             return
         }
         self.did = did

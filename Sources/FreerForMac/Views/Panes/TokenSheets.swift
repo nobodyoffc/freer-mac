@@ -69,10 +69,14 @@ struct DeployTokenSheet: View {
     @State private var maxAmtPerIssue = ""
     @State private var minCddPerIssue = ""
     @State private var maxIssuesPerAddr = ""
+    /// The logo: one of the live FID's Images, or a file published as one
+    /// first. Only an Image the deployer published is shown (FEIP20 Cover).
+    @State private var cover: CoverChoice = .none
 
     @State private var busy = false
     @State private var error: String?
     @State private var confirming = false
+    @State private var progressNote: String?
 
     /// Local validation, in the order the fields appear, so the first
     /// complaint is about the first bad field rather than whichever
@@ -112,7 +116,9 @@ struct DeployTokenSheet: View {
             capacity: capacity, decimal: decimal,
             transferable: transferable, closable: closable, openIssue: openIssue,
             maxAmtPerIssue: maxAmtPerIssue, minCddPerIssue: minCddPerIssue,
-            maxIssuesPerAddr: maxIssuesPerAddr
+            maxIssuesPerAddr: maxIssuesPerAddr,
+            // A file not yet published as an Image costs the same as an id.
+            cover: cover == .none ? nil : String(repeating: "0", count: 64)
         ) else { return 0 }
         return Data(json.utf8).count
     }
@@ -140,6 +146,8 @@ struct DeployTokenSheet: View {
                         TextField("What it is for (optional)", text: $desc)
                             .fieldInputStyle()
                     }
+
+                    CoverField(session: session, choice: $cover, label: "Logo", subject: "token")
 
                     field("Consensus FID") {
                         TextField("Whose word settles disputes (optional)", text: $consensusId)
@@ -219,6 +227,9 @@ struct DeployTokenSheet: View {
                 CopyableText(error, font: .caption)
                     .foregroundStyle(.red)
                     .padding(.bottom, 6)
+            } else if let progressNote {
+                Text(progressNote).font(.caption).foregroundStyle(.secondary)
+                    .padding(.bottom, 6)
             } else if let v = validationError, !name.isEmpty {
                 CopyableText(v).font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -252,17 +263,39 @@ struct DeployTokenSheet: View {
         busy = true
         defer { busy = false }
         error = nil
-        do {
-            let token = try await session.carveTokenDeployOnChain(
-                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let carve = { (coverId: String?) async throws -> Token in
+            progressNote = "Deploying the token…"
+            return try await session.carveTokenDeployOnChain(
+                name: trimmedName,
                 desc: desc, consensusId: consensusId,
                 capacity: capacity, decimal: decimal,
                 transferable: transferable, closable: closable, openIssue: openIssue,
                 maxAmtPerIssue: maxAmtPerIssue, minCddPerIssue: minCddPerIssue,
-                maxIssuesPerAddr: maxIssuesPerAddr
+                maxIssuesPerAddr: maxIssuesPerAddr, cover: coverId
             )
+        }
+        do {
+            let token: Token
+            if case .newFile(let file) = cover {
+                token = try await session.carveTogether(
+                    then: .token,
+                    note: "Approving this also signs the deploy that names this image as the token's logo."
+                ) {
+                    progressNote = "Publishing the logo image…"
+                    let id = try await session.publishCoverImage(
+                        at: file, title: "\(trimmedName) — logo", lang: nil, authors: nil)
+                    // A retry names this image rather than carving another.
+                    cover = .image(id: id)
+                    return try await carve(id)
+                }
+            } else {
+                token = try await carve(cover.imageId)
+            }
+            progressNote = nil
             onDone(token)
         } catch {
+            progressNote = nil
             self.error = "Couldn't deploy: \(error)"
         }
     }
@@ -819,6 +852,15 @@ struct TokenDetailSheet: View {
 
     private var rulesView: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if let cover = token.cover {
+                // FEIP20 Cover rule 3: only the deployer's own Image is the logo.
+                CoverView(session: session, imageId: cover, title: "Logo") { publisher in
+                    token.showsCover(publishedBy: publisher)
+                        ? nil
+                        : "Not shown: the logo image \(cover.elidingMiddle(head: 8, tail: 6)) was not published by this token's deployer."
+                }
+                .padding(.bottom, 8)
+            }
             fidRow("Deployer", token.deployer)
             row("Consensus FID", token.consensusId, mono: true)
             row("Capacity", token.capacity?.isEmpty == false ? token.capacity : "no cap")
