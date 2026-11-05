@@ -399,8 +399,12 @@ struct PublishMediaView: View {
 
             // The picture leads the row, not the publisher's avatar: a
             // gallery is browsed by what the thing looks like. Only
-            // local bytes are drawn — see ``ImageThumbnail``.
-            MediaThumbnail(session: session, kind: kind, did: record.did, side: 44)
+            // local bytes are drawn — see ``ImageThumbnail``. A Video or
+            // Sound shows its cover first: the work's own bytes are
+            // rarely here, and a sound has no picture of its own.
+            CoverThumbnail(session: session, coverId: kind == .image ? nil : record.cover, side: 44) {
+                MediaThumbnail(session: session, kind: kind, did: record.did, side: 44)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {

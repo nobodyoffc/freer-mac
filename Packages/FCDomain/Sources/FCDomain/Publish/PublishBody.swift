@@ -375,6 +375,41 @@ public struct PublishBody {
         return try Self.text(at: url, did: did)
     }
 
+    /// Keep bytes that arrived by some other road — a website the reader
+    /// chose to load — as an app-managed copy, so the next read, and a
+    /// list's thumbnail, find them here. Refused unless they hash to
+    /// `did`. The HAT is `work` (merged into one already held), or a
+    /// did-prefix placeholder; no DISK location is claimed for it.
+    @discardableResult
+    public func keepVerified(_ data: Data, did: String, work: Hat? = nil) throws -> URL {
+        let did = did.lowercased()
+        let got = Hex.encode(Hash.doubleSha256(data)).lowercased()
+        guard got == did else {
+            throw Failure.unreachable(did: did, diagnostics: "bytes hash to \(String(got.prefix(12)))…")
+        }
+        let destination = files.defaultLocalURL(did: did)
+        do {
+            try FileManager.default.createDirectory(at: files.dataDirectory, withIntermediateDirectories: true)
+            try data.write(to: destination, options: .atomic)
+            if let existing = try hats.hat(id: did) {
+                if let work {
+                    let merged = try Hat.mergeWork(existing, work)
+                    if merged != existing { _ = try hats.upsert(merged) }
+                }
+            } else {
+                let now = Hat.currentTimeMillis()
+                _ = try hats.upsert(work ?? Hat(
+                    born: now, last: now, name: String(did.prefix(8)),
+                    types: ["application/octet-stream"], state: .active, id: did
+                ))
+            }
+            _ = try files.adoptAppCopy(hatId: did, at: destination)
+        } catch {
+            throw Failure.underlying(error)
+        }
+        return destination
+    }
+
     /// Whether a body is already on this machine — what a list uses to
     /// decide between showing the text and offering to fetch it.
     public func isLocal(did: String) -> Bool {

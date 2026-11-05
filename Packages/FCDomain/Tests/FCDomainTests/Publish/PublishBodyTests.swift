@@ -135,6 +135,27 @@ final class PublishBodyTests: XCTestCase {
         XCTAssertEqual(server.getCount, 1, "the second read is local")
     }
 
+    /// A cover the reader loaded from a website is kept, so the next read
+    /// — and the list row — is local and never asks a server; bytes that
+    /// do not hash to the DID are not kept.
+    func testBytesFromAWebsiteAreKeptOnlyWhenTheyHashToTheDid() async throws {
+        let (body, session) = try makeBody()
+        let bytes = Data([0x89, 0x50, 0x4E, 0x47, 1, 2, 3])
+        let did = Hex.encode(Hash.doubleSha256(bytes)).lowercased()
+        let work = try Hat.fromWork(kind: .image, did: did, title: "U1-01 cover", format: "image/png",
+                                    summary: nil, locas: ["https://example.org/U1-01-cover.png"])
+
+        XCTAssertThrowsError(try body.keepVerified(Data("not it".utf8), did: did, work: work))
+        XCTAssertFalse(body.isLocal(did: did))
+
+        try body.keepVerified(bytes, did: did, work: work)
+        XCTAssertTrue(body.isLocal(did: did))
+        XCTAssertEqual(try session.hats.hat(id: did)?.locas?.contains("https://example.org/U1-01-cover.png"), true)
+        let url = try await body.fetchURL(did: did)
+        XCTAssertEqual(try Data(contentsOf: url), bytes)
+        XCTAssertEqual(server.getCount, 0, "kept bytes are read locally")
+    }
+
     /// The whole point of hashing rather than naming: a server that
     /// serves the wrong bytes is caught, and the caller is told what
     /// each attempt said rather than being handed an empty answer.

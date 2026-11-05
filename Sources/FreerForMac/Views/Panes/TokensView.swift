@@ -473,10 +473,15 @@ struct TokensView: View {
         let token = holder.tokenId.flatMap { tokensById[$0] }
         let busy = busyId == holder.id
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "circlebadge.2")
-                .font(.title2)
-                .foregroundStyle(token?.isClosed == true ? Color.secondary : Color.blue)
-                .frame(width: 34)
+            CoverThumbnail(
+                session: session, coverId: token?.cover, side: 34,
+                accepts: { image in token?.showsCover(publishedBy: image.publisher) == true }
+            ) {
+                Image(systemName: "circlebadge.2")
+                    .font(.title2)
+                    .foregroundStyle(token?.isClosed == true ? Color.secondary : Color.blue)
+                    .frame(width: 34)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -573,11 +578,18 @@ struct TokensView: View {
     private func tokenRow(_ token: Token) -> some View {
         let busy = busyId == token.id
         HStack(alignment: .top, spacing: 12) {
-            Button { inspectFid(token.deployer ?? "") } label: {
-                FidAvatarView(fid: token.deployer ?? "", size: 36)
+            // FEIP20 Cover rule 3, as in the detail sheet: only the
+            // deployer's own Image is the logo.
+            CoverThumbnail(
+                session: session, coverId: token.cover, side: 36,
+                accepts: { token.showsCover(publishedBy: $0.publisher) }
+            ) {
+                Button { inspectFid(token.deployer ?? "") } label: {
+                    FidAvatarView(fid: token.deployer ?? "", size: 36)
+                }
+                .buttonStyle(.plain)
+                .help("Show this FID's details, standing and ratings")
             }
-            .buttonStyle(.plain)
-            .help("Show this FID's details, standing and ratings")
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {

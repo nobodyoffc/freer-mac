@@ -388,11 +388,15 @@ struct PublishTextView: View {
                 .help("Only the publisher can delete or recover a record")
             }
 
-            Button { inspectFid(record.publisher ?? "") } label: {
-                FidAvatarView(fid: record.publisher ?? "", size: 40)
+            // A cover leads the row when it has one; the publisher stays
+            // one click away on the "By" line.
+            CoverThumbnail(session: session, coverId: record.cover, side: 40) {
+                Button { inspectFid(record.publisher ?? "") } label: {
+                    FidAvatarView(fid: record.publisher ?? "", size: 40)
+                }
+                .buttonStyle(.plain)
+                .help("Show this FID's details, standing and ratings")
             }
-            .buttonStyle(.plain)
-            .help("Show this FID's details, standing and ratings")
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {

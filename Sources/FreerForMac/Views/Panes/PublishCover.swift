@@ -165,6 +165,8 @@ struct CoverView: View {
 
     @State private var image: NSImage?
     @State private var did: String?
+    /// The Image as a HAT, so bytes loaded from a website are kept described.
+    @State private var work: Hat?
     @State private var web: [URL] = []
     @State private var note: String?
     @State private var loading = false
@@ -216,6 +218,7 @@ struct CoverView: View {
             return
         }
         self.did = did
+        work = try? Hat.fromMedia(record)
         if let url = try? await session.publishBody.fetchURL(
             did: did, publisher: record.publisher, locas: record.locas, work: try? Hat.fromMedia(record)
         ),
@@ -246,6 +249,11 @@ struct CoverView: View {
                 }
                 if let shown = NSImage(data: data) {
                     image = shown
+                    // Kept, so this work's row in a list shows it from
+                    // now on without asking the website again.
+                    if (try? session.publishBody.keepVerified(data, did: did, work: work)) != nil {
+                        CoverRecords.shared.kept.insert(did)
+                    }
                     return
                 }
                 problems.append("\(url.host ?? "?") served no image")
@@ -254,5 +262,114 @@ struct CoverView: View {
             }
         }
         note = "Not shown: " + problems.joined(separator: "; ")
+    }
+}
+
+// MARK: - list rows
+
+/// The Image records that list rows' covers name, looked up for rows as
+/// they appear. Ids asked for within a short window go to the index as
+/// one `mediaByIds`, so a page of rows costs one call, not one per row.
+/// Answers are kept a few minutes: a cover follows updates of its Image,
+/// and a list reopened later should see them.
+@MainActor
+final class CoverRecords: ObservableObject {
+    static let shared = CoverRecords()
+
+    /// Cover DIDs a reader loaded from a website and kept since launch,
+    /// so a row already on screen picks its cover up without a reload.
+    @Published var kept: Set<String> = []
+
+    private struct Entry {
+        let record: MediaRecord?
+        let at: Date
+    }
+
+    private static let ttl: TimeInterval = 300
+    private static let window: UInt64 = 80_000_000
+
+    private var cache: [String: Entry] = [:]
+    private var waiters: [String: [CheckedContinuation<MediaRecord?, Never>]] = [:]
+    private var flushing = false
+
+    /// The Image record `id` names: this identity's own copy when it has
+    /// one with a DID, else the index's. Nil when the index has none or
+    /// could not be asked.
+    func record(_ id: String, session: ActiveSession) async -> MediaRecord? {
+        if let own = try? session.media(.image).get(id: id), own.did != nil { return own }
+        if let hit = cache[id], Date().timeIntervalSince(hit.at) < Self.ttl { return hit.record }
+        return await withCheckedContinuation { continuation in
+            waiters[id, default: []].append(continuation)
+            guard !flushing else { return }
+            flushing = true
+            Task {
+                try? await Task.sleep(nanoseconds: Self.window)
+                await flush(session: session)
+            }
+        }
+    }
+
+    private func flush(session: ActiveSession) async {
+        let batch = waiters
+        waiters = [:]
+        flushing = false
+        let ids = Array(batch.keys)
+        let found: [String: MediaRecord]?
+        do {
+            found = try await session.publish.mediaByIds(kind: .image, ids)
+        } catch {
+            found = nil
+        }
+        let now = Date()
+        for (id, continuations) in batch {
+            let record = found?[id]
+            // A failed call is not an answer: the next row asks again.
+            if found != nil { cache[id] = Entry(record: record, at: now) }
+            for continuation in continuations { continuation.resume(returning: record) }
+        }
+    }
+}
+
+/// What leads a row: the cover its record names, when that Image's bytes
+/// are on this Mac; otherwise `fallback`. A list never downloads for a
+/// thumbnail: the reader fetches a cover — from a website only when asked
+/// — keeps it, and from then on the row shows it. A deleted Image, one `accepts` refuses, or one whose record the
+/// index cannot find, falls back without a word.
+struct CoverThumbnail<Fallback: View>: View {
+    let session: ActiveSession
+    let coverId: String?
+    var side: CGFloat = 44
+    /// Whether this Image may stand for the row at all; a token's logo
+    /// must be its deployer's own Image.
+    var accepts: ((MediaRecord) -> Bool)? = nil
+    @ViewBuilder let fallback: () -> Fallback
+
+    @ObservedObject private var records = CoverRecords.shared
+    /// The cover's DID once it passed every check but locality.
+    @State private var coverDid: String?
+    @State private var isLocal = false
+
+    var body: some View {
+        Group {
+            if let coverDid, isLocal || records.kept.contains(coverDid) {
+                MediaThumbnail(session: session, kind: .image, did: coverDid, side: side)
+            } else {
+                fallback()
+            }
+        }
+        .task(id: coverId) { await resolve() }
+    }
+
+    private func resolve() async {
+        coverDid = nil
+        isLocal = false
+        guard let coverId, !coverId.isEmpty,
+              let record = await CoverRecords.shared.record(coverId, session: session),
+              !record.isDeleted,
+              let did = record.did, did.count == 64,
+              accepts?(record) ?? true
+        else { return }
+        isLocal = session.publishBody.isLocal(did: did)
+        coverDid = did
     }
 }
