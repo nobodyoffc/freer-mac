@@ -192,7 +192,7 @@ extension Hat {
     }
 
     /// Ordered union of non-blank, trimmed entries; nil when empty.
-    private static func union(_ first: [String]?, _ second: [String]?) -> [String]? {
+    static func union(_ first: [String]?, _ second: [String]?) -> [String]? {
         var seen = Set<String>()
         var out: [String] = []
         for s in (first ?? []) + (second ?? []) {
@@ -202,7 +202,7 @@ extension Hat {
         return out.isEmpty ? nil : out
     }
 
-    private static func blankToNil(_ s: String?) -> String? {
+    static func blankToNil(_ s: String?) -> String? {
         guard let t = s?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
         return t
     }

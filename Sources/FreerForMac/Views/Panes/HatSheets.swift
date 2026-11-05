@@ -354,7 +354,12 @@ struct HatImportSheet: View {
             do {
                 // An id-less record gets the DID Android would derive,
                 // so the same import lands on the same id on both.
-                try session.hats.upsert(hat, touch: false)
+                var incoming = hat
+                incoming.checkIdWithCreate()
+                // Merge, never replace: the held record may carry the
+                // cipherIds and key that reach the user's backups.
+                let held = try incoming.id.flatMap { try session.hats.hat(id: $0) }
+                try session.hats.upsert(Hat.mergeImport(held, incoming), touch: false)
                 imported += 1
             } catch {
                 failures.append(String(describing: error))
