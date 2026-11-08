@@ -191,10 +191,11 @@ public struct WalletService {
         pageSize: Int = WalletService.defaultCashPageSize,
         timeoutMs: Int = 5_000
     ) async throws -> CashSnapshot {
+        var synced: CashSnapshot?
         if let cached = try? cashes?.snapshot(forAddress: fid),
            cached.watermarkHeight != nil {
             do {
-                return try await refreshCashesIncremental(
+                synced = try await refreshCashesIncremental(
                     forFid: fid, base: cached,
                     pageSize: pageSize, timeoutMs: timeoutMs
                 )
@@ -204,9 +205,103 @@ public struct WalletService {
                 // can retry incremental from a fresh watermark.
             }
         }
-        return try await bootstrapCashes(
-            forFid: fid, pageSize: pageSize, timeoutMs: timeoutMs
-        )
+        if synced == nil {
+            synced = try await bootstrapCashes(
+                forFid: fid, pageSize: pageSize, timeoutMs: timeoutMs
+            )
+        }
+        return await settleLocalMints(forFid: fid, synced: synced!, timeoutMs: timeoutMs)
+    }
+
+    /// Ask the server, by id, about every cash we minted ourselves that
+    /// the sync just run still could not account for.
+    ///
+    /// **Neither sync can see a mint that was spent.** A bootstrap lists
+    /// only *spendable* cashes, so change our broadcast minted — which
+    /// then confirmed, and was spent by our next transaction — is simply
+    /// absent, and ``mergeLocalAnnotations(into:from:)`` keeps it as
+    /// "not indexed yet". An incremental sync would have seen the spend,
+    /// but only while it sits inside the reorg window; once the
+    /// watermark moves past it, nothing ever revisits the row. Each such
+    /// row stayed `.unknown` forever: a permanent "Pending" entry on the
+    /// Overview, for a transaction that confirmed long ago. A chain of
+    /// carves — every one spending the last one's change — left one per
+    /// link.
+    ///
+    /// The index's answer per id is authoritative: spent rows go, live
+    /// rows become `.onchain` (keeping a local `pendingSpend`, since our
+    /// spend of it may still be in the mempool), and ids it has never
+    /// seen stay as they are — those really are unconfirmed, or were
+    /// dropped and are the user's to recover.
+    ///
+    /// Best effort: a failed lookup leaves the snapshot as synced.
+    private func settleLocalMints(
+        forFid fid: String,
+        synced: CashSnapshot,
+        timeoutMs: Int
+    ) async -> CashSnapshot {
+        let ids = synced.cashes
+            .filter { $0.localState == .unknown }
+            .compactMap { $0.id ?? (try? Cash.makeId(birthTxId: $0.birthTxId, birthIndex: $0.birthIndex)) }
+        guard !ids.isEmpty, let store = self.cashes else { return synced }
+
+        var known: [String: Cash] = [:]
+        let batchSize = 100
+        var start = 0
+        while start < ids.count {
+            let batch = Array(ids[start..<min(ids.count, start + batchSize)])
+            start += batchSize
+            guard
+                let body = try? JSONSerialization.data(
+                    withJSONObject: ["entity": "cash", "ids": batch], options: [.sortedKeys]
+                ),
+                let reply = try? await fapi.call(
+                    api: "base.getByIds",
+                    params: nil, fcdsl: body, binary: nil,
+                    sid: nil, via: nil, maxCost: nil,
+                    timeoutMs: timeoutMs
+                )
+            else { return synced }
+            let resp = reply.response
+            if resp.code == 404 { continue }
+            guard resp.code == nil || resp.code == 0 else { return synced }
+            guard
+                let data = resp.data,
+                let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else { continue }
+            for (id, row) in object {
+                guard let dict = row as? [String: Any], let cash = try? Cash(dict: dict) else { continue }
+                known[id] = cash
+            }
+        }
+        guard !known.isEmpty else { return synced }
+
+        // Re-read under the lock: a send may have claimed or minted
+        // while the lookup was out, and its rows must survive the save.
+        do {
+            return try CashLedgerLock.withLock {
+                guard var snap = try store.snapshot(forAddress: fid) else { return synced }
+                for row in snap.cashes where row.localState == .unknown {
+                    let id = row.id ?? (try? Cash.makeId(birthTxId: row.birthTxId, birthIndex: row.birthIndex))
+                    guard let id, let server = known[id] else { continue }
+                    if server.valid == false {
+                        snap.remove(id: row.id, birthTxId: row.birthTxId, birthIndex: row.birthIndex)
+                    } else {
+                        var settled = server
+                        settled.localState = .onchain
+                        settled.pendingSpend = row.pendingSpend
+                        let confirmed = (server.birthHeight ?? 0) > 0 || (server.lastHeight ?? 0) > 0
+                        settled.unconfirmedDepth = confirmed ? 0 : row.unconfirmedDepth
+                        snap.upsert(settled)
+                    }
+                }
+                snap.refreshCd()
+                try store.save(snap)
+                return snap
+            }
+        } catch {
+            return synced
+        }
     }
 
     /// First-time sync: query `base.cashValid` mode 2 (params = `{fid}`)

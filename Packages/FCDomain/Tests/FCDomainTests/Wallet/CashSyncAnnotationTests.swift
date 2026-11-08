@@ -195,6 +195,9 @@ final class CashSyncAnnotationTests: XCTestCase {
                     data: [try self.wireRow(flagged, owner: alice.mainFid)],
                     bestHeight: 1_000
                 )
+            case "base.getByIds":
+                // Asked about the minted cash: never heard of it.
+                return FapiResponse(code: 404, message: "not found")
             default:
                 XCTFail("unexpected api: \(call.api)"); return FapiResponse(code: 1)
             }
@@ -317,5 +320,76 @@ final class CashSyncAnnotationTests: XCTestCase {
 
         let snap = try await alice.wallet.refreshCashes(forFid: alice.mainFid)
         XCTAssertEqual(try XCTUnwrap(snap.cashes.first { $0.id == minted.id }).unconfirmedDepth, 4)
+    }
+
+    // MARK: - mints the sync cannot see
+
+    /// **The reported bug.** Our send minted change; it confirmed, and
+    /// our next carve spent it. A bootstrap lists only spendable cashes,
+    /// so the change was absent and kept as "not indexed yet" — forever,
+    /// one permanent Pending row per link of a carve chain. The by-id
+    /// lookup settles it; a mint the index has never seen stays.
+    func testAMintSpentSinceIsClearedAndAnUnseenOneStays() async throws {
+        let mock = MockFapiClient()
+        let alice = try makeSessions(passwords: ["ghost-mint"], fapi: mock)[0]
+
+        var spentMint = try cash(owner: alice.mainFid, txidByte: 0x71, index: 0, value: 500_000)
+        spentMint.localState = .unknown
+        spentMint.pendingSpend = true
+        spentMint.unconfirmedDepth = 1
+        spentMint.birthHeight = nil
+
+        var liveMint = try cash(owner: alice.mainFid, txidByte: 0x72, index: 0, value: 400_000)
+        liveMint.localState = .unknown
+        liveMint.pendingSpend = true
+        liveMint.unconfirmedDepth = 2
+        liveMint.birthHeight = nil
+
+        var unseenMint = try cash(owner: alice.mainFid, txidByte: 0x73, index: 0, value: 300_000)
+        unseenMint.localState = .unknown
+        unseenMint.unconfirmedDepth = 3
+        unseenMint.birthHeight = nil
+
+        try alice.cashes.save(CashSnapshot(
+            addr: alice.mainFid, cashes: [spentMint, liveMint, unseenMint],
+            bestHeight: 1_000, watermarkHeight: 1_000
+        ))
+
+        var asked: [String] = []
+        mock.responder = { call in
+            switch call.api {
+            case "base.search":
+                return FapiResponse(code: 1, message: "search unavailable")
+            case "base.cashValid":
+                return FapiResponse(code: 404, message: "no cashes")
+            case "base.getByIds":
+                let body = try JSONSerialization.jsonObject(with: call.fcdsl!) as! [String: Any]
+                XCTAssertEqual(body["entity"] as? String, "cash")
+                asked = body["ids"] as? [String] ?? []
+                var spentRow = try self.wireRow(spentMint, owner: alice.mainFid, lastHeight: 950)
+                spentRow["valid"] = false
+                let liveRow = try self.wireRow(liveMint, owner: alice.mainFid)
+                return try makeResponse(data: [spentMint.id!: spentRow, liveMint.id!: liveRow])
+            default:
+                XCTFail("unexpected api: \(call.api)"); return FapiResponse(code: 1)
+            }
+        }
+
+        let snap = try await alice.wallet.refreshCashes(forFid: alice.mainFid)
+
+        XCTAssertEqual(Set(asked), [spentMint.id!, liveMint.id!, unseenMint.id!])
+        XCTAssertNil(snap.cashes.first { $0.id == spentMint.id }, "a mint the chain has spent is not pending")
+
+        let live = try XCTUnwrap(snap.cashes.first { $0.id == liveMint.id })
+        XCTAssertEqual(live.localState, .onchain)
+        XCTAssertEqual(live.unconfirmedDepth, 0)
+        XCTAssertTrue(live.pendingSpend, "our spend of it may still be in the mempool")
+
+        let unseen = try XCTUnwrap(snap.cashes.first { $0.id == unseenMint.id })
+        XCTAssertEqual(unseen.localState, .unknown)
+        XCTAssertEqual(unseen.unconfirmedDepth, 3)
+
+        let stored = try XCTUnwrap(try alice.cashes.snapshot(forAddress: alice.mainFid))
+        XCTAssertEqual(stored.cashes.count, 2)
     }
 }
