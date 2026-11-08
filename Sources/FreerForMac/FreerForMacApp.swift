@@ -31,6 +31,7 @@ struct FreerForMacApp: App {
                         appState?.tearDownSshAgent()
                     }
                 }
+                .background(OpenWindowCapture(appDelegate: appDelegate))
         }
         .windowResizability(.contentSize)
         // Available for calls: Freer stays in the menu bar with its window closed (§11.2).
@@ -38,6 +39,7 @@ struct FreerForMacApp: App {
             MenuBarMenu(appState: appState)
         } label: {
             RingWatcher(appState: appState)
+                .background(OpenWindowCapture(appDelegate: appDelegate))
         }
         .commands {
             CommandGroup(replacing: .appInfo) {
@@ -87,6 +89,20 @@ extension FreerForMacApp {
     }
 }
 
+/// Hands the scene's `openWindow` to the app delegate, so a Dock click can
+/// reopen the window after it was closed. Mounted in the window and in the
+/// menu-bar label: with the window closed, the label is the one still alive.
+private struct OpenWindowCapture: View {
+    let appDelegate: AppDelegate
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Color.clear.onAppear { [openWindow] in
+            appDelegate.openMainWindow = { FreerForMacApp.showOrOpenMainWindow(openWindow) }
+        }
+    }
+}
+
 /// The menu-bar icon's menu.
 private struct MenuBarMenu: View {
     let appState: AppState
@@ -120,6 +136,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// process-lifetime resources that outlive SwiftUI teardown — at
     /// present the ssh-agent's socket and runtime directory.
     var onTerminate: (() -> Void)?
+
+    /// Set by the scene: brings the main window forward, opening one if none is left.
+    var openMainWindow: (() -> Void)?
+
+    /// A Dock click with the window closed. The menu-bar icon's status-item
+    /// window confuses SwiftUI's own reopen handling, so it never makes a new
+    /// main window; do it here, as the menu's Open Freer does.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard let openMainWindow else { return true }
+        Task { @MainActor in openMainWindow() }
+        return false
+    }
 
     func applicationWillTerminate(_ notification: Notification) {
         onTerminate?()
