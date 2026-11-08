@@ -61,6 +61,7 @@ struct FidLine: View {
                     help: name == nil ? nil : "Copy the FID behind this name"
                 )
                 .foregroundStyle(.secondary)
+                ContactLabelText(fid: fid, font: .caption2)
 
                 Button {
                     inspectFid(fid)

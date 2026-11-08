@@ -222,11 +222,20 @@ struct TranscriptView: View {
             }
             VStack(alignment: mine ? .trailing : .leading, spacing: 3) {
                 if !mine, opensRun, let sender {
-                    ChatIdentityTag(
-                        fid: sender,
-                        cid: names.cid(of: sender) ?? message.senderName,
-                        tint: style.tint
-                    )
+                    HStack(spacing: 6) {
+                        ChatIdentityTag(
+                            fid: sender,
+                            cid: names.cid(of: sender) ?? message.senderName,
+                            tint: style.tint
+                        )
+                        // Who the user knows the sender as, beside the tag
+                        if let label = names.contactLabel(of: sender) {
+                            Text(label)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
                     .contextMenu {
                         Button("Show FID details") { inspectFid(sender) }
                     }

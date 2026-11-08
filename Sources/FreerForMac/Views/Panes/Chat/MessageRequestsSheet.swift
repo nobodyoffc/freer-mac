@@ -92,6 +92,7 @@ struct MessageRequestsSheet: View {
                                 Text(names.label(for: request.fid))
                                     .font(.body.weight(.bold))
                                     .lineLimit(1)
+                                ContactLabelText(fid: request.fid, names: names, font: .callout)
                                 Text("\(request.count)")
                                     .font(.caption2.bold())
                                     .padding(.horizontal, 5)

@@ -11,9 +11,12 @@ struct MeetingNames {
     let book: ChatNameBook
     let session: ActiveSession?
 
-    /// The CID where one is known; the FID, shortened, where not.
+    /// The CID where one is known; the FID, shortened, where not — with
+    /// the user's Contacts label after it in parentheses.
     func callAsFunction(_ fid: String) -> String {
-        book.cid(of: fid) ?? CallCenter.short(fid)
+        let shown = book.cid(of: fid) ?? CallCenter.short(fid)
+        guard let label = book.contactLabel(of: fid) else { return shown }
+        return "\(shown) (\(label))"
     }
 
     /// Ask after these FIDs' CIDs; each row redraws as its answer lands.
@@ -164,11 +167,14 @@ struct MeetingView: View {
                 .help(talking ? "Speaking" : "")
             VStack(alignment: .leading, spacing: 1) {
                 // A click on the CID or FID copies it.
-                Text((cid ?? p.fid) + (p.me ? " (you)" : ""))
-                    .fontWeight(talking ? .bold : .regular)
-                    .lineLimit(1).truncationMode(.middle)
-                    .onTapGesture { copy(cid ?? p.fid) }
-                    .help(cid != nil ? "Click to copy the CID" : "Click to copy the FID")
+                HStack(spacing: 6) {
+                    Text((cid ?? p.fid) + (p.me ? " (you)" : ""))
+                        .fontWeight(talking ? .bold : .regular)
+                        .lineLimit(1).truncationMode(.middle)
+                        .onTapGesture { copy(cid ?? p.fid) }
+                        .help(cid != nil ? "Click to copy the CID" : "Click to copy the FID")
+                    ContactLabelText(fid: p.fid, names: names.book)
+                }
                 if cid != nil {
                     Text(p.fid).font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.middle)

@@ -77,6 +77,8 @@ struct MailReadSheet: View {
                         copy: mail.counterparty(for: me) ?? "",
                         font: .headline
                     )
+                    // Who the user knows this FID as, beside the name the Cmail claims
+                    ContactLabelText(fid: counterparty, font: .headline)
                     Button { inspectFid(counterparty) } label: {
                         Image(systemName: "info.circle").font(.caption)
                     }

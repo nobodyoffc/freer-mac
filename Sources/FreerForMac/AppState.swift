@@ -57,7 +57,13 @@ final class AppState {
 
     let manager: ConfigureManager
     private(set) var configureSession: ConfigureSession?
-    private(set) var activeSession: ActiveSession?
+    private(set) var activeSession: ActiveSession? {
+        // The labels follow the identity; the CIDs in the book do not need to
+        didSet {
+            chatNames.contactLabels = activeSession?.contacts.labels
+            ContactLabels.current = activeSession?.contacts.labels
+        }
+    }
     /// Calls for the live identity (VOICE_SPEC §10): attached with its poller.
     let callCenter = CallCenter()
     @ObservationIgnored private(set) lazy var meetingCenter: MeetingCenter = {

@@ -106,7 +106,7 @@ struct SendPaymentView: View {
                 Task { await runSend() }
             }
         } message: {
-            Text("To: \(recipientFid)\nFee rate: \(feePerByte) sat/byte\n\nThis broadcasts immediately and cannot be undone.")
+            Text("To: \(recipientFid)\(recipientContactLabel.map { " (\($0))" } ?? "")\nFee rate: \(feePerByte) sat/byte\n\nThis broadcasts immediately and cannot be undone.")
         }
         .sheet(isPresented: $showScan) {
             QrScanSheet(title: "Scan recipient FID") { scanned in
@@ -152,8 +152,8 @@ struct SendPaymentView: View {
                     "Recipient FID",
                     hint: (!recipientFid.isEmpty && !recipientLooksValid)
                         ? "Not a valid FCH mainnet address."
-                        : nil,
-                    hintIsError: true
+                        : recipientContactLabel.map { "In your contacts as: \($0)" },
+                    hintIsError: !recipientFid.isEmpty && !recipientLooksValid
                 ) {
                     HStack(spacing: 8) {
                         TextField("", text: $recipientFid, prompt: Text("F…"))
@@ -322,6 +322,12 @@ struct SendPaymentView: View {
     }
 
     // MARK: - validation
+
+    /// The label the recipient has in Contacts, checked against before a payment that cannot be undone.
+    private var recipientContactLabel: String? {
+        let fid = recipientFid.trimmingCharacters(in: .whitespacesAndNewlines)
+        return fid.isEmpty ? nil : ContactLabels.current?.label(for: fid)
+    }
 
     private var recipientLooksValid: Bool {
         (try? FchAddress(fid: recipientFid)) != nil

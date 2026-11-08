@@ -939,7 +939,7 @@ struct ChatView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         HStack(spacing: 4) {
                             NobodyChip(fid: invite.from)
-                            Text("\(invite.name ?? "A room") — invitation from \(invite.from.elidingMiddle(head: 6, tail: 6))")
+                            Text("\(invite.name ?? "A room") — invitation from \(names.labelWithContact(for: invite.from))")
                         }
                         NobodyBanner(fid: invite.from, message: NobodyText.inviter)
                         Text("Nothing about a room is on the chain, so this claim cannot be checked against anything. Accept only if you expected it.")
@@ -1053,7 +1053,7 @@ struct ChatView: View {
         let who = ask.askedFids.map { fid -> String in
             fid == session.liveFid
                 ? "your other devices"
-                : (names.cid(of: fid) ?? fid.elidingMiddle(head: 6, tail: 6))
+                : names.labelWithContact(for: fid)
         }
         let asked = who.isEmpty ? "nobody yet" : who.formatted(.list(type: .and))
         let ago = Date(timeIntervalSince1970: Double(ask.lastAskedAt) / 1000)
@@ -1132,7 +1132,7 @@ struct ChatView: View {
     private func historyAskTitle(_ request: IncomingHistoryRequest) -> String {
         let who = request.from == session.liveFid
             ? "Your other device"
-            : (names.cid(of: request.from) ?? request.from.elidingMiddle(head: 6, tail: 6))
+            : names.labelWithContact(for: request.from)
         let thread = historyThreadName(request.conversationId, type: request.type, targetId: request.targetId)
         return request.type == .p2p
             ? "\(who) asks for your conversation with \(request.from == session.liveFid ? thread : "them")"
@@ -1285,6 +1285,15 @@ struct ChatView: View {
                 // badge, elided two different ways, which reads as two
                 // different identities.
                 identityTag(conversation, size: .large)
+            }
+            // Who the user knows this FID as, beside its CID or FID —
+            // never instead of it.
+            if conversation.type == .p2p,
+               let label = names.contactLabel(of: conversation.targetId) {
+                Text(label)
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
             if conversation.leftGroup == true {
                 ChatChip(conversation.type == .room ? "closed" : "left", color: .secondary)

@@ -213,6 +213,14 @@ struct TxConfirmSheet: View {
                                     .font(.callout.bold())
                                     .lineLimit(1)
                                     .truncationMode(.tail)
+                                // Who the user knows this payee as, unless that is already the name above
+                                if !out.isSelf, let label = ContactLabels.current?.label(for: fid),
+                                   label != nameFor(fid, isSelf: false) {
+                                    Text(label)
+                                        .font(.callout)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
                                 NobodyChip(fid: fid)
                                 if out.isSelf {
                                     chip(preview.kind == .reorg ? "yours" : "change", color: .blue)

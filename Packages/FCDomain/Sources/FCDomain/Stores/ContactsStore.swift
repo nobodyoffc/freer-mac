@@ -27,8 +27,15 @@ public struct ContactsStore {
 
     private let inner: TypedStore<Contact>
 
+    /// The labels the user gave these contacts, for showing beside a FID
+    /// anywhere in the app. Shared by every copy of this store and
+    /// cleared on each write below.
+    public let labels: ContactLabels
+
     public init(kv: EncryptedKVStore) {
-        self.inner = TypedStore(kv: kv, namespace: Self.namespace)
+        let inner = TypedStore<Contact>(kv: kv, namespace: Self.namespace)
+        self.inner = inner
+        self.labels = ContactLabels(load: { (try? inner.all().map(\.value)) ?? [] })
     }
 
     /// Insert or replace a contact. `updatedAt` is bumped so callers
@@ -45,6 +52,7 @@ public struct ContactsStore {
         var c = contact
         c.updatedAt = Date()
         try inner.put(c, key: c.id)
+        labels.invalidate()
     }
 
     public func get(fid: String) throws -> Contact? {
@@ -57,6 +65,7 @@ public struct ContactsStore {
     public func remove(fid: String) throws -> Bool {
         guard try inner.exists(fid) else { return false }
         try inner.delete(fid)
+        labels.invalidate()
         return true
     }
 

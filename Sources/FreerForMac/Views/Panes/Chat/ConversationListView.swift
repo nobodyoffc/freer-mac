@@ -158,6 +158,16 @@ struct ConversationListView: View {
                         .font(.body.weight(.bold))
                         .foregroundStyle(nameColor)
                         .lineLimit(1)
+                        .layoutPriority(1)
+                    // Who the user knows this FID as, beside its CID —
+                    // never instead of it. Truncates before the name does.
+                    if conversation.type == .p2p,
+                       let label = names.contactLabel(of: conversation.targetId) {
+                        Text(label)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                     // The time belongs to the first line and only to
                     // the first line. Standing in a column beside all
                     // three, it was narrowing the id and the preview by

@@ -896,6 +896,9 @@ struct TokenDetailSheet: View {
                             h.fid ?? "—", head: 8, tail: 8,
                             font: .system(.caption, design: .monospaced)
                         )
+                        if let fid = h.fid, fid != session.liveFid {
+                            ContactLabelText(fid: fid)
+                        }
                         if h.fid == session.liveFid { chip("You", color: .blue) }
                         Spacer()
                         Text(TokenAmount.string(h.balance, scale: token.decimalPlaces))

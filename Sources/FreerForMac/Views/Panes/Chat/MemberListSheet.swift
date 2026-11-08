@@ -239,6 +239,7 @@ struct MemberListSheet: View {
                         .buttonStyle(.plain)
                         .help("Show this FID's details, standing and ratings")
                         FidBadge(fid, name: names.cid(of: fid), font: .callout)
+                        ContactLabelText(fid: fid, names: names, font: .callout)
                         if fid == owner { ChatChip("owner", color: style.tint) }
                         if managers.contains(fid) { ChatChip("manager", color: .secondary) }
                         if namers.contains(fid) { ChatChip("named it", color: .secondary) }

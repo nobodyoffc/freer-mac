@@ -186,11 +186,15 @@ struct TransactionsView: View {
                         .font(.callout.monospacedDigit().bold())
                 }
                 if let cp = counterparty, !cp.isEmpty {
-                    CopyableText.elidingMiddle(
-                        cp, head: 8, tail: 8,
-                        font: .system(.body, design: .monospaced)
-                    )
-                    .lineLimit(1)
+                    HStack(spacing: 6) {
+                        CopyableText.elidingMiddle(
+                            cp, head: 8, tail: 8,
+                            font: .system(.body, design: .monospaced)
+                        )
+                        .lineLimit(1)
+                        // Who the user knows the payer or payee as
+                        ContactLabelText(fid: cp, font: .callout)
+                    }
                 }
                 CopyableText(
                     display: "\(cash.birthTxId.elidingMiddle()):\(cash.birthIndex)",

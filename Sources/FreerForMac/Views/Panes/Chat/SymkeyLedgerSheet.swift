@@ -201,7 +201,7 @@ struct SymkeyLedgerSheet: View {
 
     private func display(_ fid: String) -> String {
         if fid == session.liveFid { return "your other devices" }
-        return names.cid(of: fid) ?? fid.elidingMiddle(head: 6, tail: 6)
+        return names.labelWithContact(for: fid)
     }
 
     /// A ledger timestamp is milliseconds; ``SymkeyVersionText`` speaks

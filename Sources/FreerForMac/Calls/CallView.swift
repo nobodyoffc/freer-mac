@@ -17,6 +17,10 @@ struct CallView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text(title).font(.headline)
                 Text(CallCenter.short(calls.peerFid ?? "")).font(.title3).bold().textSelection(.enabled)
+                if let fid = calls.peerFid, let label = calls.contactLabel(of: fid) {
+                    Text(label).foregroundStyle(.secondary).lineLimit(1)
+                        .help("Your label for this FID in Contacts")
+                }
                 Text(status).foregroundStyle(.secondary)
                 Label("End-to-end encrypted", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
                 Text(CallText.realVoiceNotice).font(.caption).foregroundStyle(.secondary)
@@ -26,7 +30,7 @@ struct CallView: View {
                     Text("Relayed via \(host)").font(.caption).foregroundStyle(.secondary)
                 }
                 if let fid = calls.unverifiedFid {
-                    CopyableText("Audio claimed to be from \(CallCenter.short(fid)) could not be verified and is silenced.")
+                    CopyableText("Audio claimed to be from \(calls.contactLabel(of: fid).map { "\(CallCenter.short(fid)) (\($0))" } ?? CallCenter.short(fid)) could not be verified and is silenced.")
                         .font(.caption).foregroundStyle(.red)
                 }
                 buttons

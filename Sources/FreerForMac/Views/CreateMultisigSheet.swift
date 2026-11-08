@@ -181,6 +181,9 @@ struct CreateMultisigSheet: View {
                 HStack(spacing: 6) {
                     Text(member.cid?.isEmpty == false ? member.name : "No CID")
                         .lineLimit(1)
+                    if member.fid != session.mainFid {
+                        ContactLabelText(fid: member.fid)
+                    }
                     if member.fid == session.mainFid {
                         Text("you")
                             .font(.caption2)

@@ -367,6 +367,9 @@ struct MailView: View {
                         .font(mail.unread == true ? .body.bold() : .body)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    if let party = mail.counterparty(for: me) {
+                        ContactLabelText(fid: party, font: .callout)
+                    }
 
                     if mail.lastHeight == MailsStore.unconfirmedHeight {
                         chip("Pending", color: .orange)

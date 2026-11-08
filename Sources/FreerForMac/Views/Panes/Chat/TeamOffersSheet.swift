@@ -290,6 +290,7 @@ struct TeamOffersSheet: View {
                 .buttonStyle(.plain)
             NobodyChip(fid: fid)
             FidBadge(fid, font: .callout)
+            ContactLabelText(fid: fid, font: .callout)
         }
     }
 

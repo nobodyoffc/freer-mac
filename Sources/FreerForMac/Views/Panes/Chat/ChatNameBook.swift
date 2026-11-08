@@ -41,6 +41,22 @@ final class ChatNameBook {
     /// The CID for `fid`, or nil when the chain has published none.
     func cid(of fid: String) -> String? { cids[fid] }
 
+    /// The live identity's Contacts labels; set by ``AppState`` with the session.
+    var contactLabels: ContactLabels?
+
+    /// The label the user gave `fid` in Contacts, shown *beside* its CID —
+    /// never instead of it: a CID is chosen by its owner, so one that
+    /// reads like a friend's proves nothing. Nil when it has none.
+    func contactLabel(of fid: String) -> String? { contactLabels?.label(for: fid) }
+
+    /// ``label(for:head:tail:)`` with the contact label after it in
+    /// parentheses — for menus, sentences and notifications.
+    func labelWithContact(for fid: String, head: Int = 6, tail: Int = 6) -> String {
+        let shown = label(for: fid, head: head, tail: tail)
+        guard let contact = contactLabel(of: fid) else { return shown }
+        return "\(shown) (\(contact))"
+    }
+
     /// Whether `fid`'s private key is public. The app-wide
     /// ``NobodyRegistry`` answers, so a chat marks the same identities
     /// every other pane does — and redraws when a lookup elsewhere learns one.
@@ -94,6 +110,25 @@ final class ChatNameBook {
             for (fid, freer) in found {
                 if let cid = freer.cid, !cid.isEmpty { cids[fid] = cid }
             }
+        }
+    }
+}
+
+/// The label the user gave a FID in Contacts, muted, for placing right
+/// after its CID or FID. Draws nothing when the FID has none.
+struct ContactLabelText: View {
+    let fid: String
+    /// The chat's book when at hand; else the live identity's labels.
+    var names: ChatNameBook? = nil
+    var font: Font = .caption
+
+    var body: some View {
+        if let label = names?.contactLabel(of: fid) ?? ContactLabels.current?.label(for: fid) {
+            Text(label)
+                .font(font)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .help("Your label for this FID in Contacts")
         }
     }
 }

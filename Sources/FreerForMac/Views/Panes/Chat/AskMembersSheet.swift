@@ -255,6 +255,7 @@ struct AskMembersSheet: View {
                                 FidAvatarView(fid: fid, size: 22)
                                 Text(names.label(for: fid, head: 8, tail: 8))
                                     .font(.callout)
+                                ContactLabelText(fid: fid, names: names, font: .callout)
                                 if fid == owner { ChatChip("owner", color: style.tint) }
                                 if fid == session.liveFid { ChatChip("your other devices", color: style.tint) }
                                 Spacer(minLength: 0)

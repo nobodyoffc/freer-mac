@@ -110,6 +110,7 @@ struct RequestHistorySheet: View {
                                 Text(fid.elidingMiddle(head: 8, tail: 8))
                                     .font(.callout)
                                     .foregroundStyle(names.cid(of: fid) == nil ? .primary : .secondary)
+                                ContactLabelText(fid: fid, names: names, font: .callout)
                                 NobodyChip(fid: fid)
                                 if fid == owner { ChatChip("owner", color: style.tint) }
                                 if fid == session.liveFid { ChatChip("your other devices", color: style.tint) }

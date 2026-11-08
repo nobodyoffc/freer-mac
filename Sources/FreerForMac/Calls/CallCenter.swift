@@ -433,6 +433,11 @@ final class CallCenter {
         FudpUrl.hostPort(url).map { "\($0.host):\($0.port)" } ?? url
     }
 
+    /// The label the user gave `fid` in Contacts, for showing beside it.
+    func contactLabel(of fid: String) -> String? {
+        active?.contacts.labels.label(for: fid)
+    }
+
     nonisolated static func short(_ fid: String) -> String {
         fid.count > 14 ? String(fid.prefix(6)) + "…" + String(fid.suffix(6)) : fid
     }
