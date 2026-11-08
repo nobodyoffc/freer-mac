@@ -294,6 +294,37 @@ final class SignalRouterTests: XCTestCase {
         XCTAssertTrue(outcome.outbound.isEmpty)
     }
 
+    /// A room is not on the chain, so a refusal there has nothing to be
+    /// rechecked against.
+    func testARoomRefusalAsksForNoRecheck() throws {
+        try bobsRoom()
+        _ = try session.symkeys.store(
+            Data(repeating: 0x5A, count: 32), for: roomId, version: 1
+        )
+        let outcome = try router().route(request(for: roomId, from: mallory), as: me, now: at(10))
+        XCTAssertNil(outcome.recheckMembership)
+    }
+
+    /// **A team refusal is made on this device's copy of the team**, which
+    /// only the team sync refreshes. So it names the team for a recheck,
+    /// and once the copy lists the asker the same request is answered.
+    func testATeamRefusalOnAStaleRosterIsAnsweredOnceTheRosterCatchesUp() throws {
+        let teamId = "team_5e1d02d4"
+        try session.teams.upsert(Team(owner: bob, members: [bob, me], active: true, id: teamId))
+        _ = try session.symkeys.store(Data(repeating: 0x6B, count: 32), for: teamId, version: 7)
+        let asked = request(for: teamId, from: carol)
+
+        let refused = try router().route(asked, as: me, now: at(10))
+        XCTAssertTrue(refused.outbound.isEmpty)
+        XCTAssertEqual(refused.recheckMembership, teamId)
+
+        // What the team sync would store once the chain lists Carol.
+        try session.teams.upsert(Team(owner: bob, members: [bob, me, carol], active: true, id: teamId))
+        let answered = try router().route(asked, as: me, now: at(11))
+        XCTAssertEqual(answered.outbound.first?.targetId, carol)
+        XCTAssertNil(answered.recheckMembership)
+    }
+
     /// Being asked for something we do not have is silence, not an
     /// error: two members answering the same request is the normal case.
     func testBeingAskedForAKeyWeDoNotHoldAnswersNothing() throws {

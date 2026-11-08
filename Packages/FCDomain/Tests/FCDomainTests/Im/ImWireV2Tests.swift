@@ -59,6 +59,19 @@ final class ImWireV2Tests: XCTestCase {
     // MARK: - body framing
 
     /// Both payloads travel in one field, and both come back.
+    /// A verified envelope hands over its author's pubkey — the one that
+    /// derives the sender's FID — which is what a key request from a
+    /// non-contact is sealed to.
+    func testAVerifiedEnvelopeYieldsItsSignersPubkey() throws {
+        let wire = try text().toWireBytes(signingWith: alicePriv)
+        _ = try ImMessage.fromWireBytes(wire)
+
+        let pubkey = try XCTUnwrap(ImMessage.signerPubkey(ofVerifiedWire: wire))
+        XCTAssertEqual(pubkey, try Secp256k1.publicKey(fromPrivateKey: alicePriv))
+        XCTAssertEqual(try FchAddress(publicKey: pubkey).fid, alice)
+        XCTAssertNil(ImMessage.signerPubkey(ofVerifiedWire: Data(repeating: 0, count: 10)))
+    }
+
     func testContentAndDataRoundTripTogether() throws {
         var m = ImMessage.voice(
             type: .p2p, from: alice, to: bob,

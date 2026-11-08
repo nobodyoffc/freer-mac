@@ -715,7 +715,28 @@ public final class ActiveSession {
             },
             prikeyFor: { fid in prikeys[fid] },
             seen: seenMessages,
-            keyAsks: keyAsks
+            keyAsks: keyAsks,
+            learnSigner: { [keys] fid, pubkey in
+                // Written only when new or changed, so a busy DOCK does
+                // not rewrite the same row on every message. `upsert`
+                // re-derives the FID, so a mismatch cannot be stored.
+                guard (try? keys.pubkey(forFid: fid)) != pubkey else { return }
+                try? keys.upsert(PubkeyRecord(fid: fid, pubkey: pubkey))
+            },
+            refreshMembership: { [groups, teams, conversations, consensusSignatures, membershipRecheck, liveFid] _ in
+                // The same incremental sync the Teams tab runs, not a
+                // fetch of the one team: storing one team at a newer
+                // height would step the sync's watermark over changes
+                // to the others (see `GroupService.fetchTeamOffers`).
+                // A member added since the last sync moved the team's
+                // height, so incremental is enough to see them.
+                guard membershipRecheck.claim(now: Date()) else { return false }
+                let result = try? await groups.syncTeams(
+                    fid: liveFid, into: teams, conversations: conversations,
+                    signatures: consensusSignatures, timeoutMs: 10_000
+                )
+                return (result?.merged ?? 0) > 0
+            }
         )
     }
 
@@ -794,6 +815,7 @@ public final class ActiveSession {
         let symkeys = self.symkeys
         let invites = self.roomInvites
         let contacts = self.contacts
+        let keys = self.keys
         let roomConversations = self.roomConversations
         let historyShares = self.historyShares
         let squares = self.squares
@@ -822,7 +844,13 @@ public final class ActiveSession {
                     if fid == liveFid, fid == ownFid {
                         return try? Secp256k1.publicKey(fromPrivateKey: privkey)
                     }
-                    return try contacts.get(fid: fid)?.pubkey
+                    // Then the address book, then whatever a verified
+                    // envelope from them taught us. A team member need
+                    // not be a contact, and a key request from one used
+                    // to be dropped as "no pubkey" though the request
+                    // itself carried the pubkey, signed.
+                    if let known = try contacts.get(fid: fid)?.pubkey { return known }
+                    return try keys.pubkey(forFid: fid)
                 },
                 historyShares: historyShares,
                 squares: squares,
@@ -1099,7 +1127,8 @@ public final class ActiveSession {
     /// A member's public key, as fresh as this device can answer without
     /// a round-trip — what a key share is sealed to.
     public func knownPubkey(of fid: String) throws -> Data? {
-        try contacts.get(fid: fid)?.pubkey
+        if let known = try contacts.get(fid: fid)?.pubkey { return known }
+        return try keys.pubkey(forFid: fid)
     }
 
     /// A FID's public key from wherever it can be had: our own key for
@@ -3033,6 +3062,10 @@ public final class ActiveSession {
         }
         return (queued, unreachable)
     }
+
+    /// Paces the team sync a refused key request may trigger. Held here
+    /// because the courier is built per use and would forget.
+    lazy var membershipRecheck = Cooldown(interval: 30)
 
     /// When ``refreshTeamAnswers(now:timeoutMs:)`` last reconciled, so
     /// bouncing between panes does not re-query the chain each time.

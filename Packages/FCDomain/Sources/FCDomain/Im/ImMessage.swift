@@ -502,6 +502,20 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     /// pubkey and a 64-byte Schnorr signature. Mandatory, so it has no flag.
     public static let signatureTrailerSize = 33 + 64
 
+    /// The author's pubkey, read off an envelope's trailer.
+    ///
+    /// **Only for bytes ``fromWireBytes(_:)`` has accepted.** That call is
+    /// what proves the pubkey derives the sender's FID and that the
+    /// signature over the rest verifies with it; read off anything else,
+    /// this is just 33 bytes somebody wrote. It exists because a verified
+    /// envelope is the one place a stranger's pubkey arrives for free, and
+    /// a key request from a member who is not in the address book has
+    /// nothing else to be sealed to.
+    public static func signerPubkey(ofVerifiedWire bytes: Data) -> Data? {
+        guard bytes.count >= signatureTrailerSize else { return nil }
+        return Data(Data(bytes.suffix(signatureTrailerSize)).prefix(33))
+    }
+
     /// Prefixed to the signed bytes, so a message signature is never valid
     /// for anything else signed with the same key.
     static let signatureTag = Data("FIMP-SIG".utf8)

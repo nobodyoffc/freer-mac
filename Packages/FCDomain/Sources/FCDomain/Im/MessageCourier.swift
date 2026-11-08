@@ -70,6 +70,14 @@ public struct MessageCourier {
     /// The asks this device has outstanding. Nil turns automatic asking
     /// off, which is what a courier built for sending alone wants.
     private let keyAsks: KeyAsksStore?
+    /// Told the pubkey of every sender whose envelope verified. Nil
+    /// learns nothing. See ``ImMessage/signerPubkey(ofVerifiedWire:)``.
+    private let learnSigner: (@Sendable (_ fid: String, _ pubkey: Data) -> Void)?
+    /// Bring this device's copy of a team up to date with the chain.
+    /// True when it ran, so a refusal made on the old copy is worth
+    /// routing again. Nil never refreshes. See
+    /// ``SignalRouter/Outcome/recheckMembership``.
+    private let refreshMembership: (@Sendable (_ entityId: String) async -> Bool)?
 
     /// ``outbox`` and ``messages`` must be over the same
     /// ``EncryptedKVStore``: a delivery writes to both in one
@@ -88,8 +96,12 @@ public struct MessageCourier {
         squareSender: (@Sendable (_ sender: String, _ squareId: String, _ storedAt: Int64?) async -> SquareRoster.Answer)? = nil,
         prikeyFor: (@Sendable (_ fid: String) -> Data?)? = nil,
         seen: SeenMessagesStore? = nil,
-        keyAsks: KeyAsksStore? = nil
+        keyAsks: KeyAsksStore? = nil,
+        learnSigner: (@Sendable (_ fid: String, _ pubkey: Data) -> Void)? = nil,
+        refreshMembership: (@Sendable (_ entityId: String) async -> Bool)? = nil
     ) {
+        self.learnSigner = learnSigner
+        self.refreshMembership = refreshMembership
         self.prikeyFor = prikeyFor
         self.seen = seen
         self.keyAsks = keyAsks
@@ -170,9 +182,21 @@ public struct MessageCourier {
     /// drain, exactly like a message the user typed. A collect that also
     /// sent would be two loops in one, and the second would be the one
     /// nobody remembered to retry.
-    private func route(_ signal: ImMessage, as liveFid: String, now: Date) -> Int {
+    private func route(_ signal: ImMessage, as liveFid: String, now: Date) async -> Int {
         guard let routeSignal else { return 0 }
-        guard let outcome = try? routeSignal(signal, liveFid, now) else { return 0 }
+        guard var outcome = try? routeSignal(signal, liveFid, now) else { return 0 }
+
+        // **A refusal on a stale roster is retried once, not dropped.**
+        // Membership is read from this device's copy of the team, which
+        // only the team sync refreshes — so a member added since, asking
+        // for the key, was refused as a non-member and the request was
+        // gone for good. Refresh, and route the same request again; a
+        // second refusal stands. The refresh is the session's to pace.
+        if let entityId = outcome.recheckMembership, let refreshMembership,
+           await refreshMembership(entityId),
+           let again = try? routeSignal(signal, liveFid, now) {
+            outcome = again
+        }
 
         for reply in outcome.outbound {
             guard let to = reply.targetId else { continue }
@@ -859,6 +883,14 @@ public struct MessageCourier {
                     other += 1
                     continue
                 }
+                // Verified just now, so the trailer's pubkey is the
+                // sender's. Learned before any filtering below: a key
+                // request is answered by sealing to it, and the router
+                // otherwise only knows the pubkeys of contacts.
+                if let learnSigner, let sender = message.senderId, !sender.isEmpty,
+                   let pubkey = ImMessage.signerPubkey(ofVerifiedWire: payload) {
+                    learnSigner(sender, pubkey)
+                }
                 var named = message
                 if !named.hasFudpId, let dockId = item.id {
                     // A message that reached us without its own id is
@@ -938,7 +970,7 @@ public struct MessageCourier {
                     // a room invitation never arrived and a rotated key
                     // never landed: the protocol was implemented and
                     // nothing called it.
-                    routed += route(signal, as: liveFid, now: now)
+                    routed += await route(signal, as: liveFid, now: now)
                     other += 1
                 case .receipt, .ignored: other += 1
                 }

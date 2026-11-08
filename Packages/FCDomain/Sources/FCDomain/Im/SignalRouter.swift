@@ -104,6 +104,13 @@ public struct SignalRouter {
         /// A team invitation or transfer this device had not heard of.
         /// Only a hint — see ``TeamNotice``.
         public var teamNotice: TeamNotice?
+        /// A team whose key request was refused as "not a member" on the
+        /// strength of this device's copy of it — which only the team
+        /// sync refreshes, so a member added since then is refused for
+        /// nothing. The caller may refresh it and route the same request
+        /// again. Never set for a room: rooms are not on the chain, and
+        /// there is nothing to refresh them from.
+        public var recheckMembership: String?
         public var note: String?
 
         public init(
@@ -113,8 +120,10 @@ public struct SignalRouter {
             historyRequest: IncomingHistoryRequest? = nil,
             historyReceived: ReceivedHistoryShare? = nil,
             teamNotice: TeamNotice? = nil,
+            recheckMembership: String? = nil,
             note: String? = nil
         ) {
+            self.recheckMembership = recheckMembership
             self.outbound = outbound
             self.invitation = invitation
             self.learnedKeyFor = learnedKeyFor
@@ -140,6 +149,7 @@ public struct SignalRouter {
                 && a.historyRequest == b.historyRequest
                 && a.historyReceived == b.historyReceived
                 && a.teamNotice == b.teamNotice
+                && a.recheckMembership == b.recheckMembership
                 && a.note == b.note
         }
 
@@ -450,7 +460,10 @@ public struct SignalRouter {
                 counterparty: senderFid, direction: .sent, outcome: .notAMember,
                 solicited: true, requestId: requestId, now: now
             )
-            return Outcome(note: "key request from a non-member")
+            return Outcome(
+                recheckMembership: recheckable(entityId),
+                note: "key request from a non-member"
+            )
         }
         guard let pubkey = try pubkeys(senderFid) else {
             try note(
@@ -509,7 +522,10 @@ public struct SignalRouter {
                 counterparty: senderFid, direction: .sent, outcome: .notAMember,
                 solicited: true, requestId: requestId, now: now
             )
-            return Outcome(note: "key history request from a non-member")
+            return Outcome(
+                recheckMembership: recheckable(entityId),
+                note: "key history request from a non-member"
+            )
         }
         guard let pubkey = try pubkeys(senderFid) else {
             try note(
@@ -728,6 +744,14 @@ public struct SignalRouter {
             return team.isOwner(fid) || team.isMember(fid)
         }
         return false
+    }
+
+    /// The entity to put in ``Outcome/recheckMembership``: anything that
+    /// is not a room we hold. A team we hold may be stale; one we do not
+    /// hold at all may be a team we joined since the last sync.
+    private func recheckable(_ entityId: String) -> String? {
+        if (try? rooms.get(id: entityId)) != nil { return nil }
+        return entityId
     }
 
     private func isOwner(of entityId: String, fid: String) -> Bool {
