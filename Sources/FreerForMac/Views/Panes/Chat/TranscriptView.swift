@@ -26,6 +26,9 @@ struct TranscriptView: View {
     let names: ChatNameBook
 
     let onLoadOlder: () -> Void
+    /// Files being fetched or that failed to, by data id. The pane runs
+    /// the transfers; the card only draws where each one stands.
+    let downloads: [String: ChatFileDownload]
     let onDownload: (ImMessage) -> Void
     /// Ask the members for one symkey version. The pane owns the sheet,
     /// so the row only names what it needs.
@@ -475,58 +478,109 @@ struct TranscriptView: View {
     /// The ⓘ carries everything the row deliberately does not say: the
     /// DID, where the bytes are, what the sender described it as.
     private func fileBubble(_ offer: FileShareService.Offer, message: ImMessage) -> some View {
-        HStack(spacing: 8) {
-            Button {
-                if let url = offer.localURL {
-                    FileOpening.open(url, named: offer.name)
-                } else {
-                    onDownload(message)
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: offer.isDownloaded ? "doc.fill" : "arrow.down.doc")
-                        .font(.title3)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(offer.name).lineLimit(1).truncationMode(.middle)
-                        HStack(spacing: 6) {
-                            if let size = offer.size {
-                                Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
-                            }
-                            Text(offer.isDownloaded ? "Click to open" : "Click to download")
-                            if !offer.hasKey {
-                                Text("no key — only fetchable if public")
+        let state = offer.isDownloaded ? nil : downloads[offer.hatId]
+        let running: Int64? = if case .running(let received) = state { received } else { nil }
+        let failure: String? = if case .failed(let reason) = state { reason } else { nil }
+
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Button {
+                    if let url = offer.localURL {
+                        FileOpening.open(url, named: offer.name)
+                    } else if running == nil {
+                        onDownload(message)
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Group {
+                            if running != nil {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: offer.isDownloaded ? "doc.fill" : "arrow.down.doc")
+                                    .font(.title3)
                             }
                         }
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .frame(width: 22)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(offer.name).lineLimit(1).truncationMode(.middle)
+                            if let received = running {
+                                downloadProgress(received: received, size: offer.size)
+                            } else {
+                                HStack(spacing: 6) {
+                                    if let size = offer.size {
+                                        Text(Self.bytes(size))
+                                    }
+                                    Text(offer.isDownloaded ? "Click to open"
+                                         : failure != nil ? "Click to retry" : "Click to download")
+                                    if !offer.hasKey {
+                                        Text("no key — only fetchable if public")
+                                    }
+                                }
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                    // Without this the gaps between icon and text are dead
+                    // space, and half the bubble would not answer a click.
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .pointingHand()
+                .help(offer.isDownloaded
+                      ? "Open \(offer.name) in the app that reads it"
+                      : running != nil ? "Fetching \(offer.name)…"
+                      : "Fetch \(offer.name) to this Mac")
+                .contextMenu {
+                    if let url = offer.localURL {
+                        Button("Show in Finder") { FileOpening.reveal(url, named: offer.name) }
+                    }
+                    Button("Copy data id") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(offer.hatId, forType: .string)
                     }
                 }
-                // Without this the gaps between icon and text are dead
-                // space, and half the bubble would not answer a click.
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .pointingHand()
-            .help(offer.isDownloaded
-                  ? "Open \(offer.name) in the app that reads it"
-                  : "Fetch \(offer.name) to this Mac")
-            .contextMenu {
-                if let url = offer.localURL {
-                    Button("Show in Finder") { FileOpening.reveal(url, named: offer.name) }
+
+                Button { inspecting = offer.hat } label: {
+                    Image(systemName: "info.circle")
                 }
-                Button("Copy data id") {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(offer.hatId, forType: .string)
-                }
+                .buttonStyle(.borderless)
+                .pointingHand()
+                .help("What this file record says — its data id, size and where the bytes are")
             }
 
-            Button { inspecting = offer.hat } label: {
-                Image(systemName: "info.circle")
+            // Outside the card's button, so a click copies the reason
+            // instead of retrying.
+            if let failure {
+                CopyableText("Download failed: \(failure)", font: .caption2, color: .red)
+                    .lineLimit(3)
+                    .padding(.leading, 30)
             }
-            .buttonStyle(.borderless)
-            .pointingHand()
-            .help("What this file record says — its data id, size and where the bytes are")
         }
+    }
+
+    /// The bar and the count under a file that is on its way. With no
+    /// size in the record there is nothing to measure against, so the
+    /// count is all it shows.
+    @ViewBuilder
+    private func downloadProgress(received: Int64, size: Int64?) -> some View {
+        HStack(spacing: 6) {
+            if let size, size > 0 {
+                // The wire carries ciphertext, which runs a little past
+                // the plaintext size the record gives.
+                let fraction = min(Double(received) / Double(size), 1)
+                ChatTrack(fraction: fraction, width: 110, color: style.tint)
+                Text("\(Int(fraction * 100))% of \(Self.bytes(size))")
+            } else {
+                Text(received > 0 ? "Downloading \(Self.bytes(received))…" : "Downloading…")
+            }
+        }
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(.secondary)
+    }
+
+    private static func bytes(_ count: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: count, countStyle: .file)
     }
 
     /// The delivery state, told straight. "Sent" means the DOCK took it
@@ -557,8 +611,15 @@ struct TranscriptView: View {
     }
 }
 
-/// The one bar shape both playback progress and the recording level are
-/// drawn with.
+/// Where one chat file's fetch stands while it is not finished. A
+/// finished one needs no entry: the card reads that off the store.
+enum ChatFileDownload: Equatable {
+    case running(received: Int64)
+    case failed(String)
+}
+
+/// The one bar shape playback progress, the recording level and a chat
+/// file's download are drawn with.
 struct ChatTrack: View {
     let fraction: Double
     let width: CGFloat

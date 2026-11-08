@@ -159,6 +159,11 @@ struct ChatView: View {
     @State private var delivering = false
     @State private var attaching = false
     @State private var attachProgress: (sent: Int64, total: Int64)?
+    /// The chat files being fetched or that failed to fetch, by data id.
+    /// Keyed by the HAT rather than the message so the same file
+    /// forwarded twice shows one transfer, and a second click on either
+    /// card cannot start another.
+    @State private var downloads: [String: ChatFileDownload] = [:]
 
     /// One recorder and one player for the whole pane. The player is
     /// shared on purpose — see ``VoicePlayer``: two notes talking over
@@ -1225,6 +1230,7 @@ struct ChatView: View {
                     player: player,
                     names: names,
                     onLoadOlder: loadOlder,
+                    downloads: downloads,
                     onDownload: download,
                     onAskForKey: { version in asking = .symkey(version: version) }
                 )
@@ -1850,14 +1856,30 @@ struct ChatView: View {
         }
     }
 
+    /// Fetch a chat file, reporting on its own card rather than the
+    /// composer's error line — with several files in a thread, a shared
+    /// error cannot say which one failed.
     private func download(_ message: ImMessage) {
-        sendError = nil
+        guard let hatId = session.fileShare.offer(in: message)?.hatId else { return }
+        if case .running = downloads[hatId] { return }
+        downloads[hatId] = .running(received: 0)
         Task {
             do {
-                _ = try await session.fileShare.download(message)
-                await MainActor.run { openSelected() }
+                _ = try await session.fileShare.download(message, progress: { received in
+                    Task { @MainActor in
+                        // A tick queued behind the finish must not bring
+                        // a done or failed card back to "downloading".
+                        if case .running = downloads[hatId] {
+                            downloads[hatId] = .running(received: received)
+                        }
+                    }
+                })
+                await MainActor.run {
+                    downloads[hatId] = nil
+                    openSelected()
+                }
             } catch {
-                await MainActor.run { sendError = String(describing: error) }
+                await MainActor.run { downloads[hatId] = .failed(String(describing: error)) }
             }
         }
     }
