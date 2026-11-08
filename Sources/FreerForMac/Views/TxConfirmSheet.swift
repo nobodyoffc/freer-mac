@@ -31,6 +31,7 @@ struct TxConfirmSheet: View {
 
     @State private var showInputs = false
     @State private var showPicker = false
+    @State private var showCoinDaysInfo = false
     /// FID → the name we can show for it. Seeded synchronously from
     /// local contacts on appear, then topped up from the chain.
     @State private var names: [String: String] = [:]
@@ -42,6 +43,9 @@ struct TxConfirmSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     headline
+                    if preview.coinDaysDestroyed > 0 || preview.requiredCd > 0 {
+                        coinDaysCard
+                    }
                     if let note = preview.note {
                         Label(note, systemImage: "link")
                             .font(.callout)
@@ -144,6 +148,81 @@ struct TxConfirmSheet: View {
                 .foregroundStyle(.secondary)
             Spacer()
         }
+    }
+
+    // MARK: - coin days
+
+    /// CoinDays get their own panel right under the amount, not a row
+    /// in Cost. They are the one cost of spending that money can't buy
+    /// back: they're the identity's weight on chain (ratings, squares,
+    /// FEIP carves), they took real days to build, and every input
+    /// spent here starts from zero again. A row beside a few hundred
+    /// sats of miner fee read like small change; this is the number to
+    /// notice before approving.
+    private var coinDaysCard: some View {
+        let destroyed = preview.coinDaysDestroyed
+        let required = preview.requiredCd
+        let short = required > 0 && destroyed < required
+        let tint: Color = short ? .red : .orange
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "hourglass")
+                    .font(.title3)
+                    .foregroundStyle(tint)
+                Text("\(destroyed)")
+                    .font(.system(.title, design: .rounded).monospacedDigit().bold())
+                    .foregroundStyle(tint)
+                Text("CoinDays destroyed")
+                    .font(.callout.bold())
+                Spacer(minLength: 8)
+                if required > 0 {
+                    chip(short ? "\(required) required — not enough"
+                               : "\(required) required",
+                         color: short ? .red : .green)
+                }
+                // The why lives behind a click: worth reading once,
+                // noise on every send after that.
+                Button {
+                    showCoinDaysInfo.toggle()
+                } label: {
+                    Image(systemName: "info.circle").foregroundStyle(tint)
+                }
+                .buttonStyle(.borderless)
+                .help("What are CoinDays?")
+                .popover(isPresented: $showCoinDaysInfo, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text(required > 0 && destroyed > required
+                             ? "This carve needs \(required), but the chosen inputs destroy \(destroyed). Spent coins restart aging from zero. Once destroyed they take days to earn back.\n\nYou decide how many are destroyed: use Choose other cash… under Inputs to spend different cashes, such as newer ones that hold fewer CoinDays."
+                             : "Spent coins restart aging from zero, and CoinDays are your weight on chain. Once destroyed they take days to earn back.\n\nYou decide how many are destroyed: use Choose other cash… under Inputs to spend different cashes, such as newer ones that hold fewer CoinDays.")
+                            .font(.callout)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(width: 300, alignment: .leading)
+                        // Same action as the button under Inputs, offered
+                        // where the reason for it is read.
+                        if preview.reselection != nil, session != nil {
+                            Button {
+                                showCoinDaysInfo = false
+                                showPicker = true
+                            } label: {
+                                Label("Choose other cash…", systemImage: "arrow.triangle.2.circlepath")
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                    .padding(12)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(tint.opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(tint.opacity(0.45), lineWidth: 1)
+        )
     }
 
     // MARK: - nobodies
@@ -316,12 +395,6 @@ struct TxConfirmSheet: View {
         card("Cost", systemImage: "tag") {
             row("Miner fee", "\(preview.fee) sat")
             row("Size", "\(preview.estimatedSize) B at \(preview.feePerByte) sat/B")
-            if preview.coinDaysDestroyed > 0 {
-                row("CoinDays destroyed", "\(preview.coinDaysDestroyed)")
-            }
-            if preview.requiredCd > 0 {
-                row("CoinDays required", "\(preview.requiredCd)")
-            }
             HStack(spacing: 8) {
                 Text("From").font(.callout).foregroundStyle(.secondary)
                 Spacer(minLength: 8)
