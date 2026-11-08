@@ -68,7 +68,7 @@ struct SymkeyLedgerSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 620, height: 480)
+        .frame(width: 660, height: 480)
         .onAppear(perform: load)
     }
 
@@ -102,10 +102,12 @@ struct SymkeyLedgerSheet: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            Text("When").frame(width: 122, alignment: .leading)
+            Text("When").frame(width: 140, alignment: .leading)
             Text("").frame(width: 16)
             Text("Who").frame(width: 150, alignment: .leading)
-            Text("Symkey").frame(width: 122, alignment: .leading)
+            // The version *is* the mint time, so it reads as a date —
+            // beside "When" it has to say which date it is.
+            Text("Symkey created").frame(width: 140, alignment: .leading)
             Text("What happened").frame(maxWidth: .infinity, alignment: .leading)
         }
         .font(.caption2.bold())
@@ -121,7 +123,7 @@ struct SymkeyLedgerSheet: View {
                         // compared character by character.
                         Text(SymkeyVersionText.inTable(stampVersion(row.lastAt)))
                             .font(.caption.monospacedDigit())
-                            .frame(width: 122, alignment: .leading)
+                            .frame(width: 140, alignment: .leading)
                         Image(systemName: row.direction == .sent ? "arrow.up.right" : "arrow.down.left")
                             .font(.caption)
                             .foregroundStyle(row.direction == .sent ? .orange : style.tint)
@@ -141,9 +143,11 @@ struct SymkeyLedgerSheet: View {
                             copy: SymkeyVersionText.raw(row.version),
                             font: .caption.monospacedDigit(),
                             color: .secondary,
-                            help: "Copy this symkey's version number"
+                            help: SymkeyVersionText.mintDate(row.version, withTime: true).map {
+                                "Created \($0). Click to copy its version number, \(SymkeyVersionText.raw(row.version))."
+                            } ?? "Copy this symkey's version number"
                         )
-                        .frame(width: 122, alignment: .leading)
+                        .frame(width: 140, alignment: .leading)
                         HStack(spacing: 5) {
                             ChatChip(outcomeText(row), color: outcomeColor(row))
                             if !row.solicited, row.outcome == .shared || row.outcome == .stored {

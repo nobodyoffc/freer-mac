@@ -19,7 +19,7 @@ public enum SymkeyVersionText {
 
     // MARK: - prose
 
-    /// `the symkey from 19 Sep`, for a sealed row, a banner or a toast.
+    /// `the symkey from 2026-09-19`, for a sealed row, a banner or a toast.
     ///
     /// `withTime` adds the clock, and the caller decides: two keys minted
     /// on one day are told apart only by it, and a date alone would then
@@ -27,52 +27,58 @@ public enum SymkeyVersionText {
     public static func inProse(
         _ version: Int64,
         withTime: Bool = false,
-        locale: Locale = .autoupdatingCurrent,
         timeZone: TimeZone = .current
     ) -> String {
         if version == current { return "the current symkey" }
-        guard SymkeyStore.isTimestamp(version) else { return legacy(version) }
+        guard let minted = mintDate(version, withTime: withTime, timeZone: timeZone)
+        else { return legacy(version) }
+        return "the symkey from " + minted
+    }
 
-        let formatter = DateFormatter()
-        formatter.locale = locale
-        formatter.timeZone = timeZone
-        formatter.dateStyle = .medium
-        formatter.timeStyle = withTime ? .short : .none
-        return "the symkey from " + formatter.string(from: date(of: version))
+    /// `2026-09-19`, or `2026-09-19 18:01` with the clock: just the mint
+    /// time, for a caller that writes its own sentence around it. Nil for
+    /// the current-key sentinel and for a pre-spec counter, neither of
+    /// which is a time.
+    ///
+    /// **One numeric form in every language, year always included.** A
+    /// localised date put the month name in one language's order and the
+    /// day in another's ("21 9月"), and dropping the year made a key from
+    /// last September read as this one. ISO order is the same on the Mac
+    /// and on Android, in Chinese and in English, so two members comparing
+    /// keys read the same text.
+    public static func mintDate(
+        _ version: Int64,
+        withTime: Bool = false,
+        timeZone: TimeZone = .current
+    ) -> String? {
+        guard version != current, SymkeyStore.isTimestamp(version) else { return nil }
+        return format(version, withTime ? "yyyy-MM-dd HH:mm" : "yyyy-MM-dd", timeZone)
     }
 
     // MARK: - tables
 
-    /// `09-19 18:01:59`, or `2025-12-04 09:12:40` outside the current
-    /// year — fixed-width, year-first, and meant to be set in monospaced
-    /// digits.
+    /// `2026-09-19 18:01:59` — fixed-width, year-first, and meant to be
+    /// set in monospaced digits.
     ///
-    /// Year-first rather than `19-09-26`, because a leading `26` reads as
-    /// a day to half the world and this app has users in both halves. The
-    /// current year is dropped because every row in a list will share it,
-    /// and seconds are kept because two keys of one entity are minted
-    /// seconds apart in exactly the case where telling them apart matters.
+    /// Seconds are kept because two keys of one entity are minted seconds
+    /// apart in exactly the case where telling them apart matters.
     public static func inTable(
         _ version: Int64,
-        now: Date = Date(),
         timeZone: TimeZone = .current
     ) -> String {
         if version == current { return "current" }
         guard SymkeyStore.isTimestamp(version) else { return legacy(version) }
+        return format(version, "yyyy-MM-dd HH:mm:ss", timeZone)
+    }
 
-        let minted = date(of: version)
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let sameYear = calendar.component(.year, from: minted)
-            == calendar.component(.year, from: now)
-
+    private static func format(_ version: Int64, _ pattern: String, _ timeZone: TimeZone) -> String {
         let formatter = DateFormatter()
-        // Fixed, not localised: the point of this form is that two rows
-        // line up and can be compared character by character.
+        // Fixed, not localised: the same digits in every language.
         formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
         formatter.timeZone = timeZone
-        formatter.dateFormat = sameYear ? "MM-dd HH:mm:ss" : "yyyy-MM-dd HH:mm:ss"
-        return formatter.string(from: minted)
+        formatter.dateFormat = pattern
+        return formatter.string(from: date(of: version))
     }
 
     /// What a click copies: the version itself, which is what goes into a

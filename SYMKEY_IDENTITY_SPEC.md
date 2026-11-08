@@ -325,16 +325,19 @@ Implemented as `SymkeyVersionText` in FCDomain, with tests.
 
 | Where | Form | Example |
 |---|---|---|
-| Sealed row, banners, toasts | The mint time in prose. Add `HH:mm` only when the entity has more than one key from that day | `Sealed with the symkey from 19 Sep — not held here` |
-| Key list, ledger rows, ask rows | Fixed-width, year-first, monospaced digits so a column diffs by eye. Current year's `2026-` is dropped | `09-19 18:01:59` |
-| Not the current year | Year kept | `2025-12-04 09:12:40` |
+| Sealed row, banners, toasts | The mint date, `yyyy-MM-dd`. Add ` HH:mm` only when the entity has more than one key from that day | `Sealed with the symkey from 2026-09-19 — not held here` |
+| Key list, ledger rows, ask rows | `yyyy-MM-dd HH:mm:ss`, monospaced digits so a column diffs by eye. The year is always kept | `2026-09-19 18:01:59` |
 | On click | Copies the raw integer — what goes into a log or a message to another member | `1789813689` |
 | Legacy value (`< 1e9`) | The counter, marked | `v3` + a `legacy` chip |
 | Age | A secondary line, never the only rendering | `3 days ago` |
 | Never | `v1789813689`, a truncated hash tail, or a bare epoch | |
 
-Year-first rather than `26-09-19`, because `26` reads as a day in half the
-world and this app has users in both halves. Seconds, because two keys of
+**One numeric form in every language and on both clients**, never a
+localised one: a localised date read `21 9月` in Chinese and `Sep 21` in
+English, and two members comparing keys have to read the same digits. The
+year is always shown, because a key from last September must not read as
+this one. Year-first rather than `26-09-19`, because `26` reads as a day in
+half the world and this app has users in both halves. Seconds, because two keys of
 one entity are minted seconds apart in exactly the case where telling them
 apart matters. And a date beats a hash tag here for the reason the whole
 design rests on: the id genuinely *is* a time, and a time tells a person

@@ -8,58 +8,48 @@ final class SymkeyVersionTextTests: XCTestCase {
     /// Fixed so the assertions are about the formatter and not about
     /// where the test is run.
     private let utc = TimeZone(identifier: "UTC")!
-    private let english = Locale(identifier: "en_US")
 
     /// 2026-09-19 18:01:59 UTC.
     private let version: Int64 = 1_789_840_919
 
     func testProseNamesTheDayTheKeyWasMinted() {
         XCTAssertEqual(
-            SymkeyVersionText.inProse(version, locale: english, timeZone: utc),
-            "the symkey from Sep 19, 2026"
+            SymkeyVersionText.inProse(version, timeZone: utc),
+            "the symkey from 2026-09-19"
         )
     }
 
     /// Two keys minted on one day are told apart only by the clock, and a
     /// date alone would name both.
     func testProseAddsTheClockWhenAsked() {
-        let withTime = SymkeyVersionText.inProse(
-            version, withTime: true, locale: english, timeZone: utc
+        XCTAssertEqual(
+            SymkeyVersionText.inProse(version, withTime: true, timeZone: utc),
+            "the symkey from 2026-09-19 18:01"
         )
-        XCTAssertTrue(withTime.contains("6:01"), withTime)
     }
 
     /// **Never the raw number.** `v1789813689` is the literal truth and
     /// tells a reader nothing they can act on.
     func testProseNeverShowsTheNumber() {
         XCTAssertFalse(
-            SymkeyVersionText.inProse(version, locale: english, timeZone: utc)
+            SymkeyVersionText.inProse(version, timeZone: utc)
                 .contains("\(version)")
         )
     }
 
-    func testTableFormIsFixedWidthAndDropsTheCurrentYear() {
-        let inYear = SymkeyVersionText.inTable(
-            version, now: Date(timeIntervalSince1970: TimeInterval(version)), timeZone: utc
-        )
-        XCTAssertEqual(inYear, "09-19 18:01:59")
-
-        // Read a year later, the year comes back: a row that is not from
-        // this year must not read as if it were.
-        let laterOn = SymkeyVersionText.inTable(
-            version, now: Date(timeIntervalSince1970: TimeInterval(version) + 400 * 86_400),
-            timeZone: utc
-        )
-        XCTAssertEqual(laterOn, "2026-09-19 18:01:59")
+    /// Year always, seconds always: a row from this year and one from
+    /// last year must not read alike, and two keys minted seconds apart
+    /// must not either.
+    func testTableFormIsFixedWidthYearFirstWithSeconds() {
+        XCTAssertEqual(SymkeyVersionText.inTable(version, timeZone: utc), "2026-09-19 18:01:59")
     }
 
-    /// Year-first, because a leading `26` reads as a day to half the
-    /// world and this app has users in both halves.
-    func testTableFormIsYearFirst() {
-        let text = SymkeyVersionText.inTable(
-            version, now: Date(timeIntervalSince1970: 0), timeZone: utc
-        )
-        XCTAssertTrue(text.hasPrefix("2026-"), text)
+    /// **The same text in every language.** A localised date read
+    /// "21 9月" in Chinese and "Sep 21" in English; a member comparing
+    /// keys with another must read the same digits.
+    func testTheMintDateIgnoresTheLocale() {
+        XCTAssertEqual(SymkeyVersionText.mintDate(version, timeZone: utc), "2026-09-19")
+        XCTAssertNil(SymkeyVersionText.mintDate(KeyAsksStore.currentVersion))
     }
 
     /// Pre-spec counters cannot be shown as times — a 1970 date on a key
