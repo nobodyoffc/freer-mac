@@ -305,6 +305,42 @@ final class GroupServiceTests: XCTestCase {
 
     // MARK: - team sync
 
+    /// A thread deleted here comes back at the next sync while we are
+    /// still a member — even though the incremental fetch returns nothing.
+    func testSyncRecreatesADeletedThreadForATeamWeAreStillIn() async throws {
+        stageSearch(rows: [teamRow(members: [alice, me], memberNum: 2)])
+        _ = try await service.syncTeams(fid: me, into: session.teams, conversations: session.conversations)
+        let convId = Conversation.id(type: .team, targetId: teamId)
+        _ = try session.conversations.remove(id: convId)
+
+        stageSearch(rows: [])
+        let result = try await service.syncTeams(
+            fid: me, into: session.teams, conversations: session.conversations
+        )
+
+        XCTAssertEqual(result.joined, 1)
+        let conv = try XCTUnwrap(try session.conversations.get(id: convId))
+        XCTAssertEqual(conv.leftGroup, false)
+    }
+
+    /// A thread marked left stays left: the leave may still be confirming.
+    func testSyncDoesNotReopenAThreadMarkedLeft() async throws {
+        stageSearch(rows: [teamRow(members: [alice, me], memberNum: 2)])
+        _ = try await service.syncTeams(fid: me, into: session.teams, conversations: session.conversations)
+        let convId = Conversation.id(type: .team, targetId: teamId)
+        var conv = try XCTUnwrap(try session.conversations.get(id: convId))
+        conv.leftGroup = true
+        try session.conversations.upsert(conv)
+
+        stageSearch(rows: [])
+        let result = try await service.syncTeams(
+            fid: me, into: session.teams, conversations: session.conversations
+        )
+
+        XCTAssertEqual(result.joined, 0)
+        XCTAssertEqual(try session.conversations.get(id: convId)?.leftGroup, true)
+    }
+
     func testSyncOpensAConversationForATeamWeAreIn() async throws {
         stageSearch(rows: [teamRow(members: [alice, me], memberNum: 2)])
         let result = try await service.syncTeams(

@@ -388,6 +388,34 @@ public struct GroupService {
             case .unchanged: break
             }
         }
+
+        // A thread deleted on this Mac, for a team we are still in. The
+        // incremental fetch above never returns a team whose record has
+        // not changed since, so without this its thread would stay gone
+        // until the team next changes on chain — while the delete alert
+        // promises it reappears at the next sync. Only a *missing* thread
+        // is recreated: one marked left stays left, so a leave still on
+        // its way to the chain is not undone.
+        if let conversations {
+            for team in try store.joined(by: fid) {
+                guard let id = team.id, !id.isEmpty,
+                      try conversations.get(id: Conversation.id(type: .team, targetId: id)) == nil
+                else { continue }
+                if case .joined = try updateConversation(
+                    id: Conversation.id(type: .team, targetId: id),
+                    type: .team, targetId: id,
+                    displayName: team.displayName,
+                    avatarDid: team.owner,
+                    memberNum: team.memberNum ?? Int64(team.members?.count ?? 0),
+                    createdAt: team.birthTime,
+                    belongs: true,
+                    tCdd: team.tCdd, tRate: team.tRate,
+                    in: conversations
+                ) {
+                    joined += 1
+                }
+            }
+        }
         return SyncResult(
             merged: merged, joined: joined, left: left,
             total: teams.count, awaitingSignature: awaiting
