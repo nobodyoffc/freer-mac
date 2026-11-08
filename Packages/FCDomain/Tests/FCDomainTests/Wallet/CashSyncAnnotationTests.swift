@@ -105,6 +105,12 @@ final class CashSyncAnnotationTests: XCTestCase {
                     data: [try self.wireRow(input, owner: alice.mainFid, lastHeight: 995)],
                     bestHeight: 1_000
                 )
+            case "base.getByIds":
+                // Asked by id, the index tells the same story: the input
+                // is live and the change unheard of.
+                return try makeResponse(data: [
+                    input.id!: try self.wireRow(input, owner: alice.mainFid, lastHeight: 995)
+                ])
             default:
                 XCTFail("unexpected api: \(call.api)"); return FapiResponse(code: 1)
             }
@@ -391,5 +397,55 @@ final class CashSyncAnnotationTests: XCTestCase {
 
         let stored = try XCTUnwrap(try alice.cashes.snapshot(forAddress: alice.mainFid))
         XCTAssertEqual(stored.cashes.count, 2)
+    }
+
+    /// **The second reported bug.** We spent two confirmed cashes; the
+    /// watermark moved past the spend before the index recorded it, so
+    /// no incremental page ever reported them `valid: false` and both
+    /// stayed "Spending" forever. The by-id lookup clears the spent one
+    /// and keeps the flag on one the index still calls live — that
+    /// spend may still be in the mempool.
+    func testASpentInputPastTheWatermarkIsCleared() async throws {
+        let mock = MockFapiClient()
+        let alice = try makeSessions(passwords: ["ghost-spend"], fapi: mock)[0]
+
+        var spent = try cash(owner: alice.mainFid, txidByte: 0x81, index: 0, value: 500_000)
+        spent.localState = .onchain
+        spent.pendingSpend = true
+
+        var inFlight = try cash(owner: alice.mainFid, txidByte: 0x82, index: 0, value: 400_000)
+        inFlight.localState = .onchain
+        inFlight.pendingSpend = true
+
+        try alice.cashes.save(CashSnapshot(
+            addr: alice.mainFid, cashes: [spent, inFlight],
+            bestHeight: 2_000, watermarkHeight: 2_000
+        ))
+
+        var asked: [String] = []
+        mock.responder = { call in
+            switch call.api {
+            case "base.search":
+                // Nothing moved inside the reorg window.
+                return try makeResponse(data: [], bestHeight: 2_010)
+            case "base.getByIds":
+                let body = try JSONSerialization.jsonObject(with: call.fcdsl!) as! [String: Any]
+                asked = body["ids"] as? [String] ?? []
+                var spentRow = try self.wireRow(spent, owner: alice.mainFid, lastHeight: 1_500)
+                spentRow["valid"] = false
+                let liveRow = try self.wireRow(inFlight, owner: alice.mainFid)
+                return try makeResponse(data: [spent.id!: spentRow, inFlight.id!: liveRow])
+            default:
+                XCTFail("unexpected api: \(call.api)"); return FapiResponse(code: 1)
+            }
+        }
+
+        let snap = try await alice.wallet.refreshCashes(forFid: alice.mainFid)
+
+        XCTAssertEqual(Set(asked), [spent.id!, inFlight.id!])
+        XCTAssertNil(snap.cashes.first { $0.id == spent.id }, "an input the chain has spent is not pending")
+        let live = try XCTUnwrap(snap.cashes.first { $0.id == inFlight.id })
+        XCTAssertTrue(live.pendingSpend, "the index still calls it live; our spend may be in the mempool")
+        XCTAssertEqual(try alice.cashes.snapshot(forAddress: alice.mainFid)?.cashes.count, 1)
     }
 }

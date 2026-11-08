@@ -42,6 +42,17 @@ public struct Cash: Codable, Equatable, Hashable, Sendable {
     /// stable identifier across snapshots.
     public var id: String?
 
+    /// The cash's identity: ``id`` when the row carries one, otherwise
+    /// derived from the outpoint it was born at. The same before and
+    /// after its transaction confirms, and the key the server's cash
+    /// index is searched by — so every match, update and removal in the
+    /// local cache goes through this alone. Nil only for a row whose
+    /// `birthTxId` is not a txid.
+    public var cashId: String? {
+        if let id, !id.isEmpty { return id }
+        return try? Cash.makeId(birthTxId: birthTxId, birthIndex: birthIndex)
+    }
+
     /// Address that owns this cash. For P2PKH it's the recipient FID;
     /// for P2SH it's the script-hash address.
     public var owner: String

@@ -75,8 +75,8 @@ final class CashTests: XCTestCase {
     }
 
     /// `CashSnapshot.upsert` replaces an existing row by id; otherwise
-    /// appends. `CashSnapshot.remove` deletes by id (or by `(birthTxId,
-    /// birthIndex)` when id is missing).
+    /// appends. `CashSnapshot.remove` deletes by cashId — which a row
+    /// without an `id` still has, derived from its outpoint.
     func testSnapshotUpsertAndRemove() {
         var snap = CashSnapshot(addr: "F", cashes: [])
         let a = Cash(id: "A", owner: "F", value: 100,
@@ -95,14 +95,22 @@ final class CashTests: XCTestCase {
         XCTAssertEqual(snap.cashes.first(where: { $0.id == "A" })?.value, 999)
 
         // Remove by id.
-        XCTAssertTrue(snap.remove(id: "B"))
+        XCTAssertTrue(snap.remove(cashId: "B"))
         XCTAssertEqual(snap.cashes.count, 1)
-        // Remove by (birthTxId, birthIndex) when id-only matching fails.
-        XCTAssertTrue(snap.remove(
-            id: nil,
-            birthTxId: String(repeating: "11", count: 32),
-            birthIndex: 0
-        ))
+        XCTAssertFalse(snap.remove(cashId: "B"))
+
+        // A row without an id answers to the id its outpoint derives.
+        let txid = String(repeating: "33", count: 32)
+        let bare = Cash(id: nil, owner: "F", value: 300, birthTxId: txid, birthIndex: 1)
+        let derived = try! Cash.makeId(birthTxId: txid, birthIndex: 1)
+        snap.upsert(bare)
+        var named = bare
+        named.id = derived
+        named.value = 301
+        snap.upsert(named)
+        XCTAssertEqual(snap.cashes.count, 2, "the server's copy replaces the id-less row")
+        XCTAssertTrue(snap.remove(cashId: derived))
+        XCTAssertTrue(snap.remove(cashId: "A"))
         XCTAssertTrue(snap.cashes.isEmpty)
     }
 }

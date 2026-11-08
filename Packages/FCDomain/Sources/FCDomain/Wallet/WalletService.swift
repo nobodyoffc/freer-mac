@@ -210,11 +210,12 @@ public struct WalletService {
                 forFid: fid, pageSize: pageSize, timeoutMs: timeoutMs
             )
         }
-        return await settleLocalMints(forFid: fid, synced: synced!, timeoutMs: timeoutMs)
+        return await settleUnresolvedRows(forFid: fid, synced: synced!, timeoutMs: timeoutMs)
     }
 
-    /// Ask the server, by id, about every cash we minted ourselves that
-    /// the sync just run still could not account for.
+    /// Ask the server, by id, about every row the sync just run still
+    /// could not account for: cashes we minted ourselves (`.unknown`)
+    /// and cashes we spent ourselves (`pendingSpend`).
     ///
     /// **Neither sync can see a mint that was spent.** A bootstrap lists
     /// only *spendable* cashes, so change our broadcast minted — which
@@ -228,6 +229,14 @@ public struct WalletService {
     /// carves — every one spending the last one's change — left one per
     /// link.
     ///
+    /// **A spent input has the same blind spot.** Incremental sync drops
+    /// a `pendingSpend` row only when a page reports it `valid: false`,
+    /// and a page only reaches back a reorg window from the watermark.
+    /// If the watermark passed the spend's height before the index had
+    /// recorded the spend — the server's best height runs ahead of its
+    /// cash index — the row stayed "Spending" forever, though its
+    /// transaction had long confirmed.
+    ///
     /// The index's answer per id is authoritative: spent rows go, live
     /// rows become `.onchain` (keeping a local `pendingSpend`, since our
     /// spend of it may still be in the mempool), and ids it has never
@@ -235,14 +244,14 @@ public struct WalletService {
     /// dropped and are the user's to recover.
     ///
     /// Best effort: a failed lookup leaves the snapshot as synced.
-    private func settleLocalMints(
+    private func settleUnresolvedRows(
         forFid fid: String,
         synced: CashSnapshot,
         timeoutMs: Int
     ) async -> CashSnapshot {
         let ids = synced.cashes
-            .filter { $0.localState == .unknown }
-            .compactMap { $0.id ?? (try? Cash.makeId(birthTxId: $0.birthTxId, birthIndex: $0.birthIndex)) }
+            .filter(Self.isUnsettled)
+            .compactMap(\.cashId)
         guard !ids.isEmpty, let store = self.cashes else { return synced }
 
         var known: [String: Cash] = [:]
@@ -281,11 +290,10 @@ public struct WalletService {
         do {
             return try CashLedgerLock.withLock {
                 guard var snap = try store.snapshot(forAddress: fid) else { return synced }
-                for row in snap.cashes where row.localState == .unknown {
-                    let id = row.id ?? (try? Cash.makeId(birthTxId: row.birthTxId, birthIndex: row.birthIndex))
-                    guard let id, let server = known[id] else { continue }
+                for row in snap.cashes where Self.isUnsettled(row) {
+                    guard let id = row.cashId, let server = known[id] else { continue }
                     if server.valid == false {
-                        snap.remove(id: row.id, birthTxId: row.birthTxId, birthIndex: row.birthIndex)
+                        snap.remove(cashId: id)
                     } else {
                         var settled = server
                         settled.localState = .onchain
@@ -302,6 +310,13 @@ public struct WalletService {
         } catch {
             return synced
         }
+    }
+
+    /// A row only this device's own broadcasts explain: change we
+    /// minted, or an input we spent. Exactly what the Overview lists as
+    /// Pending.
+    private static func isUnsettled(_ cash: Cash) -> Bool {
+        cash.localState == .unknown || cash.pendingSpend
     }
 
     /// First-time sync: query `base.cashValid` mode 2 (params = `{fid}`)
@@ -431,11 +446,7 @@ public struct WalletService {
                         : (working.row(matching: cash)?.unconfirmedDepth ?? 0)
                     working.upsert(stamped)
                 } else {
-                    working.remove(
-                        id: cash.id,
-                        birthTxId: cash.birthTxId,
-                        birthIndex: cash.birthIndex
-                    )
+                    working.remove(cashId: cash.cashId)
                 }
             }
         }
@@ -657,7 +668,7 @@ public struct WalletService {
         guard let store = self.cashes else { return false }
         return try CashLedgerLock.withLock {
             guard var snap = try store.snapshot(forAddress: fid) else { return false }
-            guard let idx = snap.cashes.firstIndex(where: { $0.id == cashId && $0.pendingSpend }) else {
+            guard let idx = snap.cashes.firstIndex(where: { $0.cashId == cashId && $0.pendingSpend }) else {
                 return false
             }
             var row = snap.cashes[idx]
@@ -1735,7 +1746,7 @@ public struct WalletService {
         // being traded, not a reason to refuse them.
         let inputs = withFreshCd(replacement, owner: ownerFid).map { cash -> Cash in
             var cash = cash
-            if previous.contains(where: { $0.birthTxId == cash.birthTxId && $0.birthIndex == cash.birthIndex }) {
+            if let id = cash.cashId, previous.contains(where: { $0.cashId == id }) {
                 cash.pendingSpend = false
             }
             return cash
@@ -2021,8 +2032,8 @@ public struct WalletService {
     /// Match an in-cache cash row to a freshly-spent input. Prefer id
     /// when both sides have one; fall back to `(birthTxId, birthIndex)`.
     private func matches(_ row: Cash, _ spent: Cash) -> Bool {
-        if let lhs = row.id, let rhs = spent.id, !lhs.isEmpty, !rhs.isEmpty { return lhs == rhs }
-        return row.birthTxId == spent.birthTxId && row.birthIndex == spent.birthIndex
+        guard let id = row.cashId else { return false }
+        return id == spent.cashId
     }
 }
 

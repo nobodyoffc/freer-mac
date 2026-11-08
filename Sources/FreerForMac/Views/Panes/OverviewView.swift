@@ -157,15 +157,17 @@ struct OverviewView: View {
                     Text(formatBch(cash.value))
                         .font(.callout.monospacedDigit())
                 }
-                CopyableText(
-                    display: "\(cash.birthTxId.elidingMiddle()):\(cash.birthIndex)",
-                    copy: "\(cash.birthTxId):\(cash.birthIndex)",
-                    font: .caption.monospaced()
-                )
-                .foregroundStyle(.secondary)
+                if let cashId = cash.cashId {
+                    CopyableText(
+                        display: cashId.elidingMiddle(),
+                        copy: cashId,
+                        font: .caption.monospaced()
+                    )
+                    .foregroundStyle(.secondary)
+                }
             }
             Spacer()
-            if cash.pendingSpend, let id = cash.id {
+            if cash.pendingSpend, let id = cash.cashId {
                 Button("Recover") {
                     recover(cashId: id)
                 }
@@ -640,11 +642,8 @@ struct OverviewView: View {
 }
 
 private extension Cash {
-    /// Stable key for SwiftUI list iteration. Prefers the cash id;
-    /// falls back to (birthTxId, birthIndex) for any row whose id is
-    /// missing (server omission for very old cashes).
+    /// Stable key for SwiftUI list iteration: the cash id.
     var compositeKey: String {
-        if let id, !id.isEmpty { return id }
-        return "\(birthTxId):\(birthIndex)"
+        cashId ?? "\(birthTxId):\(birthIndex)"
     }
 }

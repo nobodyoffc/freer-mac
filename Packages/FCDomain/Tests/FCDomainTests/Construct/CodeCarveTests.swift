@@ -75,6 +75,10 @@ final class CodeCarveTests: XCTestCase {
                 // new since the first, which is true: the change output
                 // is already spendable from the local snapshot.
                 return try makeResponse(data: [] as [Any], bestHeight: 3_500_000)
+            case "base.getByIds":
+                // The sync asking after the first carve's spent input
+                // and change: the index has not seen that carve yet.
+                return FapiResponse(code: 404, message: "not found")
             case "base.broadcastTx":
                 let params = try JSONSerialization.jsonObject(with: call.params!) as? [String: Any]
                 onBroadcast((params?["rawTx"] as? String) ?? "")

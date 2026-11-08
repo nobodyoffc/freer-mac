@@ -62,12 +62,9 @@ public struct CashSnapshot: Codable, Equatable, Sendable {
 
     // MARK: - mutators
 
-    /// Insert or replace `cash` by id. If the snapshot has no cash
-    /// with that id, append; otherwise overwrite the matching row in
-    /// place (preserving array order). Falls back to `(birthTxId,
-    /// birthIndex)` matching when either side has a nil id, since
-    /// optimistically-inserted rows always set id but server
-    /// responses might in theory omit it.
+    /// Insert or replace `cash` by ``Cash/cashId``. If the snapshot has
+    /// no cash with that id, append; otherwise overwrite the matching
+    /// row in place (preserving array order).
     public mutating func upsert(_ cash: Cash) {
         if let idx = indexOf(cash) {
             cashes[idx] = cash
@@ -76,17 +73,13 @@ public struct CashSnapshot: Codable, Equatable, Sendable {
         }
     }
 
-    /// Remove the cash with `id` (or matching `birthTxId+birthIndex`
-    /// when id is nil). No-op if not present.
+    /// Remove the cash whose ``Cash/cashId`` is `cashId`. No-op if not
+    /// present.
     @discardableResult
-    public mutating func remove(id: String?, birthTxId: String? = nil, birthIndex: Int? = nil) -> Bool {
+    public mutating func remove(cashId: String?) -> Bool {
+        guard let cashId else { return false }
         let before = cashes.count
-        cashes.removeAll { c in
-            if let id, let cid = c.id, cid == id { return true }
-            if let birthTxId, let birthIndex,
-               c.birthTxId == birthTxId, c.birthIndex == birthIndex { return true }
-            return false
-        }
+        cashes.removeAll { $0.cashId == cashId }
         return cashes.count < before
     }
 
@@ -100,15 +93,10 @@ public struct CashSnapshot: Codable, Equatable, Sendable {
     }
 
     /// Locate the index of an existing row that should be replaced
-    /// when upserting `cash`. Matches by id first, then by
-    /// `(birthTxId, birthIndex)` as a fallback.
+    /// when upserting `cash`: the one with the same ``Cash/cashId``.
     private func indexOf(_ cash: Cash) -> Int? {
-        if let cid = cash.id, !cid.isEmpty {
-            if let idx = cashes.firstIndex(where: { $0.id == cid }) { return idx }
-        }
-        return cashes.firstIndex {
-            $0.birthTxId == cash.birthTxId && $0.birthIndex == cash.birthIndex
-        }
+        guard let cashId = cash.cashId else { return nil }
+        return cashes.firstIndex { $0.cashId == cashId }
     }
 }
 
