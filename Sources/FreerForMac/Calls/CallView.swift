@@ -16,11 +16,7 @@ struct CallView: View {
         if calls.phase != .idle {
             VStack(alignment: .leading, spacing: 10) {
                 Text(title).font(.headline)
-                Text(CallCenter.short(calls.peerFid ?? "")).font(.title3).bold().textSelection(.enabled)
-                if let fid = calls.peerFid, let label = calls.contactLabel(of: fid) {
-                    Text(label).foregroundStyle(.secondary).lineLimit(1)
-                        .help("Your label for this FID in Contacts")
-                }
+                peer
                 Text(status).foregroundStyle(.secondary)
                 Label("End-to-end encrypted", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
                 Text(CallText.realVoiceNotice).font(.caption).foregroundStyle(.secondary)
@@ -44,6 +40,28 @@ struct CallView: View {
             .onChange(of: calls.phase) { _, phase in
                 if phase == .ended && !calls.failed {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) { calls.dismiss() }
+                }
+            }
+        }
+    }
+
+    /// Avatar, CID (or short FID), the FID under a CID — a CID is chosen by
+    /// its owner, so it proves nothing alone — and the Contacts label.
+    @ViewBuilder private var peer: some View {
+        if let fid = calls.peerFid {
+            HStack(spacing: 12) {
+                FidAvatarView(fid: fid, size: 48)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(calls.peerCid ?? CallCenter.short(fid)).font(.title3).bold()
+                        .lineLimit(1).textSelection(.enabled)
+                    if calls.peerCid != nil {
+                        Text(CallCenter.short(fid)).font(.caption).foregroundStyle(.secondary)
+                            .textSelection(.enabled).help(fid)
+                    }
+                    if let label = calls.contactLabel(of: fid) {
+                        Text(label).foregroundStyle(.secondary).lineLimit(1)
+                            .help("Your label for this FID in Contacts")
+                    }
                 }
             }
         }

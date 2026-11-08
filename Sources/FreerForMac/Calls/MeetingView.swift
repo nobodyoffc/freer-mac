@@ -114,12 +114,35 @@ struct MeetingView: View {
         }
     }
 
+    /// Who started a ringing meeting: avatar, CID (or short FID), the FID
+    /// under a CID — chosen by its owner, a CID proves nothing alone — and
+    /// the Contacts label.
+    private func host(_ fid: String) -> some View {
+        let cid = names.book.cid(of: fid)
+        return HStack(spacing: 12) {
+            FidAvatarView(fid: fid, size: 48)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(cid ?? CallCenter.short(fid)).font(.title3).bold()
+                    .lineLimit(1).textSelection(.enabled)
+                if cid != nil {
+                    Text(CallCenter.short(fid)).font(.caption).foregroundStyle(.secondary)
+                        .textSelection(.enabled).help(fid)
+                }
+                if let label = names.book.contactLabel(of: fid) {
+                    Text(label).foregroundStyle(.secondary).lineLimit(1)
+                        .help("Your label for this FID in Contacts")
+                }
+            }
+        }
+    }
+
     /// A new meeting ringing: who started what, and Join or Decline.
     private func ringingPanel(_ m: MeetingBoard.Meeting) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Incoming meeting").font(.headline)
-            Text(meetings.ringText(m, names: names.callAsFunction)).font(.title3).bold().lineLimit(2)
+            host(m.hostFid)
                 .task(id: m.hostFid) { names.resolve([m.hostFid]) }
+            Text(meetings.ringText(m, names: names.callAsFunction)).lineLimit(2)
             if m.invited {
                 Text("Only invited members").font(.caption).foregroundStyle(.secondary)
             }

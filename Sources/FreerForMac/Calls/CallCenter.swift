@@ -23,6 +23,10 @@ final class CallCenter {
 
     private(set) var phase: Phase = .idle
     private(set) var peerFid: String?
+    /// The peer's CID, from Contacts or the chain; nil until known or when it has none.
+    private(set) var peerCid: String?
+    /// The CIDs learned this run, so a second call from the same FID names it at once.
+    @ObservationIgnored private var cids: [String: String] = [:]
     private(set) var connectedAtMs: Int64 = -1
     private(set) var endReason: String?
     private(set) var unverifiedFid: String?
@@ -210,6 +214,7 @@ final class CallCenter {
         }
         phase = .calling
         peerFid = fid
+        learnCid(of: fid)
         Task {
             let test = testRelay
             let relay = test.isEmpty ? await Self.callRelay(of: fid, in: session) : (test, nil, nil)
@@ -286,6 +291,7 @@ final class CallCenter {
         reset()
         call = c
         peerFid = c.peerFid
+        learnCid(of: c.peerFid)
         relayHost = c.relayUrl.map(Self.host)
         phase = .ringingIn
         onIncoming()
@@ -431,6 +437,27 @@ final class CallCenter {
 
     static func host(_ url: String) -> String {
         FudpUrl.hostPort(url).map { "\($0.host):\($0.port)" } ?? url
+    }
+
+    /// Name the peer: Contacts first, which costs nothing, then the chain.
+    /// Never waited for — the card draws with the FID and redraws when the
+    /// CID arrives, if the same peer is still on it.
+    private func learnCid(of fid: String) {
+        peerCid = cids[fid]
+        guard peerCid == nil, let session = active else { return }
+        if let contact = (try? session.contacts.get(fid: fid)) ?? nil,
+           let cid = contact.cid, !cid.isEmpty {
+            cids[fid] = cid
+            peerCid = cid
+            return
+        }
+        let directory = session.directory
+        Task { @MainActor [weak self] in
+            guard let cid = (try? await directory.freerByIds([fid]))?[fid]?.cid, !cid.isEmpty,
+                  let self else { return }
+            cids[fid] = cid
+            if peerFid == fid { peerCid = cid }
+        }
     }
 
     /// The label the user gave `fid` in Contacts, for showing beside it.
