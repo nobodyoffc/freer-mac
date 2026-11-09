@@ -194,6 +194,7 @@ public struct Conversation: Codable, Equatable, Sendable, Identifiable {
     /// disagreement about the same cached field.
     public static func preview(for message: ImMessage) -> String? {
         guard let contentType = message.contentType else { return message.content }
+        if message.isWithdrawn { return "[Withdrawn]" }
         switch contentType {
         case .text:     return message.content
         case .hat:      return "[File]"
@@ -208,7 +209,7 @@ public struct Conversation: Codable, Equatable, Sendable, Identifiable {
         case .presence: return ""
         case .reaction: return "[Reaction]"
         case .edit:     return message.content
-        case .delete:   return "[Deleted]"
+        case .delete:   return "[Withdrawn]"
         case .forward:  return "[Forwarded] " + (message.content ?? "")
         case .voice:    return "[Voice]"
         case .call:     return "[Call]"

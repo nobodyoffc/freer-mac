@@ -105,6 +105,42 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
     /// Soft delete. Local-only.
     public var deleted: Bool?
 
+    // Edit / withdraw state — local-only, never on the wire. See
+    // ``MessageAmend``. Kept on the *original*, so a history file carries
+    // the folded result and nobody has to replay the operations.
+
+    /// When the version now in ``content`` was signed: the latest edit's
+    /// timestamp. Nil for a message never edited.
+    public var editedAt: Int64?
+    /// The EDIT that produced the version now in ``content``.
+    public var editId: String?
+    /// Earlier versions, oldest first. The original has a nil `editId`.
+    public var editHistory: [Edition]?
+    /// Its author withdrew it: content, data and every earlier version
+    /// are gone.
+    public var withdrawn: Bool?
+    public var withdrawnAt: Int64?
+    /// The DOCK holding this message's item, so its author can delete it
+    /// there on a withdraw.
+    public var dockUrl: String?
+
+    /// One earlier version of an edited message. Fields in Android's
+    /// declaration order, for the history file.
+    public struct Edition: Codable, Equatable, Sendable {
+        public var content: String?
+        public var at: Int64?
+        public var editId: String?
+
+        public init(content: String?, at: Int64?, editId: String?) {
+            self.content = content
+            self.at = at
+            self.editId = editId
+        }
+    }
+
+    public var isWithdrawn: Bool { withdrawn == true }
+    public var isEdited: Bool { editedAt != nil }
+
     /// 16 lowercase hex chars — see the type's note. `nil` until the FUDP
     /// layer names it.
     public var id: String?
@@ -134,6 +170,12 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         unread: Bool? = nil,
         pinned: Bool? = nil,
         deleted: Bool? = nil,
+        editedAt: Int64? = nil,
+        editId: String? = nil,
+        editHistory: [Edition]? = nil,
+        withdrawn: Bool? = nil,
+        withdrawnAt: Int64? = nil,
+        dockUrl: String? = nil,
         id: String? = nil
     ) {
         self.type = type
@@ -160,6 +202,12 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         self.unread = unread
         self.pinned = pinned
         self.deleted = deleted
+        self.editedAt = editedAt
+        self.editId = editId
+        self.editHistory = editHistory
+        self.withdrawn = withdrawn
+        self.withdrawnAt = withdrawnAt
+        self.dockUrl = dockUrl
         self.id = id
     }
 
@@ -427,7 +475,9 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         case roadIds, dockId, deliveryMethod, status, deliveredAt, readAt
         case body
         case symkeyVersion, replyToId, threadId
-        case senderName, unread, pinned, deleted, id
+        case senderName, unread, pinned, deleted
+        case editedAt, editId, editHistory, withdrawn, withdrawnAt, dockUrl
+        case id
     }
 
     /// Declaration order: `ImMessage`'s own fields, then `FcEntity`'s
@@ -469,6 +519,20 @@ public struct ImMessage: Codable, Equatable, Sendable, Identifiable {
         put("unread", unread)
         put("pinned", pinned)
         put("deleted", deleted)
+        put("editedAt", editedAt)
+        put("editId", editId)
+        if let editHistory {
+            out.append(("editHistory", .objectArray(editHistory.map { v in
+                var fields: [(String, GsonCompatibleWriter.Value)] = []
+                if let c = v.content { fields.append(("content", .string(c))) }
+                if let a = v.at { fields.append(("at", .int(a))) }
+                if let e = v.editId { fields.append(("editId", .string(e))) }
+                return fields
+            })))
+        }
+        put("withdrawn", withdrawn)
+        put("withdrawnAt", withdrawnAt)
+        put("dockUrl", dockUrl)
         put("id", id)
         return out
     }

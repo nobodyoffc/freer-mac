@@ -304,6 +304,9 @@ public struct HistoryShareService {
             if row.isSealed, row.type == .team || row.type == .room, let entity = row.targetId {
                 if (try? symkeys.open(&row, for: entity)) == true { row.body = nil }
             }
+            // The sharer's copy is already folded; an edit or withdraw that
+            // reached us before the history did still applies on top of it.
+            try AmendmentsStore(kv: messages.kv).applyHeld(to: &row, in: share.conversationId)
             try messages.put(row, in: share.conversationId)
             try conversations.record(row, myFid: liveFid)
             known.insert(id)

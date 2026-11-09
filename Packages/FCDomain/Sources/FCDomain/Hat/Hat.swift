@@ -367,6 +367,9 @@ enum GsonCompatibleWriter {
         /// only `Hat` derives an id from its own JSON, and it has no
         /// map fields.
         case stringMap([String: String])
+        /// An array of objects, each written in the field order given —
+        /// Gson's order for a list of a declared class.
+        case objectArray([[(String, Value)]])
     }
 
     static func object(_ fields: [(String, Value)], htmlSafe: Bool) -> String {
@@ -397,6 +400,8 @@ enum GsonCompatibleWriter {
                     + escape(map[key] ?? "", htmlSafe: htmlSafe) + "\""
             }
             return "{" + items.joined(separator: ",") + "}"
+        case .objectArray(let objects):
+            return "[" + objects.map { object($0, htmlSafe: htmlSafe) }.joined(separator: ",") + "]"
         }
     }
 

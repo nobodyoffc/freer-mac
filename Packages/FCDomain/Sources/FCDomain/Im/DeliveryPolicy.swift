@@ -50,6 +50,16 @@ public enum DeliveryPolicy {
             case .recipientDock, .ownDockForward: return .dockStored
             }
         }
+
+        /// The DOCK an envelope this route delivered ends up on. For a
+        /// forward that is the recipient's, under our DOCK's identity.
+        public var dockUrl: String? {
+            switch self {
+            case .fudpDirect, .roadRelay: return nil
+            case .recipientDock(let url): return url
+            case .ownDockForward(let url): return url
+            }
+        }
     }
 
     /// What the sender currently knows it can do. Every field is a fact

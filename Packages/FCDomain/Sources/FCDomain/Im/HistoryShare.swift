@@ -234,6 +234,7 @@ public enum HistoryFile {
         out.sequence = nil
         out.roadIds = nil
         out.dockId = nil
+        out.dockUrl = nil
         out.deliveryMethod = nil
         out.deliveredAt = nil
         out.readAt = nil

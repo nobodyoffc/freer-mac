@@ -33,6 +33,10 @@ struct TranscriptView: View {
     /// Ask the members for one symkey version. The pane owns the sheet,
     /// so the row only names what it needs.
     let onAskForKey: (Int64) -> Void
+    /// Put one of our sent messages in the composer for editing.
+    var onEdit: (ImMessage) -> Void = { _ in }
+    /// Ask to withdraw one of our sent messages. The pane confirms.
+    var onWithdraw: (ImMessage) -> Void = { _ in }
 
     /// The empty row pinned under the last bubble. Scrolling to a bubble
     /// would stop at the top of a tall one; scrolling here always lands
@@ -53,6 +57,9 @@ struct TranscriptView: View {
     /// The file record the ⓘ is showing, if any.
     @State private var inspecting: Hat?
 
+    /// The message whose earlier versions are showing, by id.
+    @State private var historyFor: String?
+
     /// The speaker's circle, and the gutter every bubble in their run
     /// is indented by. One constant so the two cannot drift apart and
     /// leave a run stepping sideways at its second message.
@@ -68,7 +75,11 @@ struct TranscriptView: View {
                             .font(.caption)
                     }
                     ForEach(Array(page.messages.enumerated()), id: \.element.id) { index, message in
-                        bubble(message, after: index > 0 ? page.messages[index - 1] : nil)
+                        if message.isWithdrawn {
+                            withdrawnRow(message)
+                        } else {
+                            bubble(message, after: index > 0 ? page.messages[index - 1] : nil)
+                        }
                     }
                     if page.messages.isEmpty {
                         Text("Nothing said here yet.")
@@ -251,11 +262,44 @@ struct TranscriptView: View {
                             .fill(mine ? style.tint.opacity(0.18)
                                        : Color(NSColor.controlBackgroundColor))
                     )
+                    .contextMenu { messageMenu(message, mine: mine) }
                 HStack(spacing: 4) {
                     if let time = message.timestamp {
                         Text(ChatFormat.shortTime.string(from: Date(timeIntervalSince1970: Double(time) / 1000)))
                     }
+                    if message.isEdited, let history = message.editHistory, !history.isEmpty {
+                        Button("edited") { historyFor = message.id }
+                            .buttonStyle(.borderless)
+                            .font(.caption2)
+                            .pointingHand()
+                            .help("Show what this message said before")
+                            .popover(isPresented: Binding(
+                                get: { historyFor != nil && historyFor == message.id },
+                                set: { if !$0 { historyFor = nil } }
+                            )) {
+                                EditHistoryView(message: message, history: history)
+                            }
+                    }
                     if mine { statusLabel(message) }
+                    // Visible, not only on right-click: a right-click on
+                    // selectable text opens the text's own menu instead.
+                    if copyable(message) != nil
+                        || (mine && session.chat.canAmend(message, as: session.liveFid)) {
+                        Menu { messageMenu(message, mine: mine) } label: {
+                            Image(systemName: "ellipsis.circle")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        // A plain button, not `.borderlessButton`: that one is
+                        // drawn as a native pop-up that picks its own colour,
+                        // so it ignored the grey the time beside it is in.
+                        .menuStyle(.button)
+                        .buttonStyle(.plain)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help(mine ? "Copy, edit or withdraw — editing and withdrawing are possible for 10 minutes after sending"
+                                   : "Copy")
+                    }
                     if !mine, message.status == .imported {
                         // Live messages are signed by their author and
                         // checked on arrival; a history file carries no
@@ -270,6 +314,68 @@ struct TranscriptView: View {
             }
             if !mine { Spacer(minLength: 40) }
         }
+    }
+
+    /// The right-click menu on a bubble. Edit and Withdraw appear only on
+    /// our own messages, and only inside the window; the service checks
+    /// again when one is chosen, since a menu can stay open past it.
+    @ViewBuilder
+    private func messageMenu(_ message: ImMessage, mine: Bool) -> some View {
+        if let copy = copyable(message) {
+            Button(copy.label) {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(copy.text, forType: .string)
+            }
+        }
+        if mine, session.chat.canAmend(message, as: session.liveFid) {
+            amendItems(message)
+        }
+    }
+
+    /// What Copy puts on the pasteboard: a text message's text, or a file
+    /// share's HAT JSON. Nothing for a sealed row, and nothing for a nobody's
+    /// file card, which is never drawn as something to act on.
+    private func copyable(_ message: ImMessage) -> (label: String, text: String)? {
+        guard !message.isWithdrawn, let content = message.content, !content.isEmpty else { return nil }
+        switch message.contentType {
+        case .text:
+            return ("Copy", content)
+        case .hat:
+            let fromNobody = !message.isOutgoing(from: session.liveFid)
+                && senderFid(of: message).map(names.isNobody) == true
+            return fromNobody ? nil : ("Copy HAT JSON", content)
+        default:
+            return nil
+        }
+    }
+
+    @ViewBuilder
+    private func amendItems(_ message: ImMessage) -> some View {
+        if MessageAmend.isEditable(message) {
+            Button("Edit") { onEdit(message) }
+        }
+        Button("Withdraw…", role: .destructive) { onWithdraw(message) }
+    }
+
+    /// A message its author withdrew: a centred line where the bubble was.
+    private func withdrawnRow(_ message: ImMessage) -> some View {
+        let mine = message.isOutgoing(from: session.liveFid)
+        let who: String
+        if mine {
+            who = "You withdrew a message"
+        } else if conversation.type == .p2p {
+            who = "Message withdrawn"
+        } else {
+            let fid = senderFid(of: message) ?? ""
+            who = "\(names.cid(of: fid) ?? fid.elidingMiddle()) withdrew a message"
+        }
+        let when = message.timestamp.map {
+            " · " + ChatFormat.shortTime.string(from: Date(timeIntervalSince1970: Double($0) / 1000))
+        } ?? ""
+        return Text(who + when)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 
     @ViewBuilder
@@ -669,6 +775,33 @@ private struct MeetingCardView: View {
             if let error {
                 CopyableText(error).font(.caption).foregroundStyle(.red)
             }
+        }
+    }
+}
+
+/// The earlier versions of an edited message, newest first.
+private struct EditHistoryView: View {
+    let message: ImMessage
+    let history: [ImMessage.Edition]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Earlier versions").font(.headline)
+            version("Now", at: message.editedAt, message.content)
+            ForEach(Array(history.enumerated().reversed()), id: \.offset) { _, v in
+                version(v.editId == nil ? "Original" : "Edited", at: v.at, v.content)
+            }
+        }
+        .padding(14)
+        .frame(minWidth: 240, maxWidth: 380, alignment: .leading)
+    }
+
+    private func version(_ label: String, at: Int64?, _ text: String?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label + (at.map { " · " + ChatFormat.shortTime.string(from: Date(timeIntervalSince1970: Double($0) / 1000)) } ?? ""))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(text ?? "").textSelection(.enabled)
         }
     }
 }

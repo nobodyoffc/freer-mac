@@ -560,7 +560,7 @@ public struct MessageCourier {
                         // No forwarding: this connection *is* the target.
                         targetDockUrl: nil, ownDockUrl: nil, timeoutMs: timeoutMs
                     )
-                    return await succeed(queued, route: route, dockId: item.id, targetId: targetId, now: now)
+                    return await succeed(queued, route: route, dockId: item.id, dockUrl: route.dockUrl, targetId: targetId, now: now)
                 } catch let failure as DockService.Failure where failure.paymentRequiredMessage != nil {
                     // Storing on someone's DOCK is paid for by the sender,
                     // so this is our balance there that ran out. Surfaced
@@ -591,7 +591,7 @@ public struct MessageCourier {
                     envelope, recipients: [targetId], targetDockUrl: recipientDockUrl,
                     ownDockUrl: ownDockUrl, timeoutMs: timeoutMs
                 ) {
-                    return await succeed(queued, route: route, dockId: item.id, targetId: targetId, now: now)
+                    return await succeed(queued, route: route, dockId: item.id, dockUrl: route.dockUrl, targetId: targetId, now: now)
                 }
                 lastError = "own DOCK would not forward"
             }
@@ -656,6 +656,7 @@ public struct MessageCourier {
         _ queued: QueuedMessage,
         route: DeliveryPolicy.Route,
         dockId: String?,
+        dockUrl: String?,
         targetId: String,
         now: Date
     ) async -> MessageQueue.Outcome {
@@ -674,6 +675,7 @@ public struct MessageCourier {
                 $0.status = .sent
                 $0.deliveryMethod = route.deliveryMethod
                 $0.dockId = dockId
+                $0.dockUrl = dockUrl
             }) {
                 changes.append(stamped)
             }
@@ -972,6 +974,7 @@ public struct MessageCourier {
                     // nothing called it.
                     routed += await route(signal, as: liveFid, now: now)
                     other += 1
+                case .amended: filed += 1
                 case .receipt, .ignored: other += 1
                 }
                 if let (sender, messageId) = seenKey {
@@ -993,6 +996,27 @@ public struct MessageCourier {
             guard page.items.count >= pageSize else { break }
         }
         return ReceiveReport(fetched: fetched, filed: filed, sealed: sealed, held: held, routed: routed, other: other)
+    }
+
+    /// Delete one of our own items from a DOCK — the first half of a
+    /// withdraw. `dock.delete` is sender-only, so this is refused, by
+    /// design, for an item our own DOCK *forwarded*: the target DOCK filed
+    /// it under the forwarding server's identity. False then, and the
+    /// withdraw notice still goes.
+    public func deleteOwnItem(
+        dockUrl: String, dockId: String, now: Date = Date(), timeoutMs: Int = 10_000
+    ) async -> Bool {
+        guard let client = await registry.client(for: dockUrl, now: now) else { return false }
+        do {
+            return try await DockService(fapi: client).delete(id: dockId, timeoutMs: timeoutMs)
+        } catch {
+            SystemLog.shared.info(
+                SystemSource.messages,
+                "DOCK kept a withdrawn message",
+                detail: "\(dockUrl): \(error)"
+            )
+            return false
+        }
     }
 
     /// Why `message` is not for this fetch, or nil when it is: its target

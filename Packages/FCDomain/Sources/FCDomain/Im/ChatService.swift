@@ -37,6 +37,9 @@ public struct ChatService {
     /// than reached for, so ``ContactPolicy`` and this service both stay
     /// out of ``ContactsStore``.
     private let isContact: (@Sendable (String) -> Bool)?
+    /// Edits and withdraws waiting for their original. Over the messages'
+    /// own store unless one is given.
+    private let amendments: AmendmentsStore
 
     public init(
         messages: MessagesStore,
@@ -45,8 +48,10 @@ public struct ChatService {
         outbox: MessageQueue,
         policy: ContactPolicyStore? = nil,
         requests: MessageRequests? = nil,
-        isContact: (@Sendable (String) -> Bool)? = nil
+        isContact: (@Sendable (String) -> Bool)? = nil,
+        amendments: AmendmentsStore? = nil
     ) {
+        self.amendments = amendments ?? AmendmentsStore(kv: messages.kv)
         self.messages = messages
         self.conversations = conversations
         self.symkeys = symkeys
@@ -199,6 +204,9 @@ public struct ChatService {
         /// stored, but under no conversation — see ``MessageRequests``.
         /// `prompt` asks the UI to raise it now rather than badge it.
         case held(ImMessage, prompt: Bool)
+        /// An edit or withdraw changed one of the transcript's messages;
+        /// this is that message as now stored.
+        case amended(ImMessage)
         case ignored(reason: String)
     }
 
@@ -268,6 +276,9 @@ public struct ChatService {
             else { return .ignored(reason: "receipt matched nothing") }
             return .receipt(updated)
         }
+        if MessageAmend.isAmend(stored) {
+            return try receiveAmend(stored, opened: opened, in: conversationId, as: liveFid)
+        }
         guard stored.contentType?.isDisplayable == true else {
             return .signal(stored)
         }
@@ -310,6 +321,8 @@ public struct ChatService {
         stored.status = .delivered
         stored.deliveredAt = Self.millis(now)
         stored.unread = !message.isOutgoing(from: liveFid)
+        // An edit or withdraw that came first is waiting for this message.
+        try amendments.applyHeld(to: &stored, in: conversationId)
 
         try messages.put(stored, in: conversationId)
         try conversations.record(stored, myFid: liveFid)
@@ -375,13 +388,21 @@ public struct ChatService {
             guard (try? symkeys.open(&candidate, for: entityId)) == true else { continue }
             // Same rule as every other write path: once the plaintext is
             // beside it the sealed body is redundant.
+            candidate.body = nil
+            _ = try amendments.applyHeld(to: &candidate, in: conversationId)
             let updated = try messages.mutate(messageId: id, in: conversationId) { stored in
                 stored.content = candidate.content
                 stored.data = candidate.data
                 stored.body = nil
+                stored.editedAt = candidate.editedAt
+                stored.editId = candidate.editId
+                stored.editHistory = candidate.editHistory
+                stored.withdrawn = candidate.withdrawn
+                stored.withdrawnAt = candidate.withdrawnAt
             }
             if let updated { opened.append(updated) }
         }
+        opened += try openHeldEdits(in: conversationId, entityId: entityId)
         // The thread's cached preview was built from a row that said
         // nothing, so it has to be recomputed — but *not* through
         // ``ConversationsStore/record(_:myFid:)``, which counts every
@@ -518,6 +539,144 @@ public struct ChatService {
         return try messages.markAllRead(in: conversationId, at: now)
     }
 
+    // MARK: - edit / withdraw
+
+    /// An inbound EDIT or withdraw. Never filed as a row: it changes one.
+    ///
+    /// A replay is caught upstream by ``SeenMessagesStore``; one that slips
+    /// past (our own group echo, say) applies as a duplicate and changes
+    /// nothing. An edit we cannot open waits for its key, and one whose
+    /// original has not arrived waits for that — a withdraw needs no
+    /// content, so a sealed one still lands.
+    private func receiveAmend(
+        _ op: ImMessage, opened: Bool, in conversationId: String, as liveFid: String
+    ) throws -> Received {
+        guard let originalId = MessageAmend.target(of: op) else {
+            return .ignored(reason: "amendment names no message")
+        }
+        if op.type == .p2p, let sender = op.senderId, try isBlocked(sender, as: liveFid) {
+            return .ignored(reason: "amendment from blocked sender \(sender)")
+        }
+        if op.contentType == .edit && !opened {
+            try amendments.hold(op, in: conversationId)
+            return .ignored(reason: "edit still sealed")
+        }
+        guard let original = try messages.get(messageId: originalId, in: conversationId),
+              !(op.contentType == .edit && original.isSealed)
+        else {
+            try amendments.hold(op, in: conversationId)
+            return .ignored(reason: "amendment waits for \(originalId)")
+        }
+        var outcome = MessageAmend.Outcome.rejected
+        var amended = original
+        outcome = MessageAmend.apply(op, to: &amended)
+        guard outcome == .applied else {
+            return .ignored(reason: "amendment \(op.id ?? "?") of \(originalId): \(outcome)")
+        }
+        try store(amended, in: conversationId, as: liveFid)
+        return .amended(amended)
+    }
+
+    /// Write an amended original back under its own key, and refresh the
+    /// thread's preview without counting it as news.
+    private func store(_ amended: ImMessage, in conversationId: String, as liveFid: String) throws {
+        guard let id = amended.id else { return }
+        try messages.mutate(messageId: id, in: conversationId) { $0 = amended }
+        if amended.status != .quarantined {
+            try conversations.rebuild(id: conversationId, from: messages, myFid: liveFid)
+        }
+    }
+
+    /// Held edits in a group conversation whose key may just have arrived.
+    private func openHeldEdits(in conversationId: String, entityId: String) throws -> [ImMessage] {
+        var changed: [ImMessage] = []
+        for (key, op) in try amendments.all(in: conversationId) where op.isSealed {
+            var candidate = op
+            guard (try? symkeys.open(&candidate, for: entityId)) == true else { continue }
+            candidate.body = nil
+            try amendments.replace(candidate, key: key, in: conversationId)
+            guard let originalId = MessageAmend.target(of: candidate),
+                  var original = try messages.get(messageId: originalId, in: conversationId),
+                  !original.isSealed
+            else { continue }
+            if try amendments.applyHeld(to: &original, in: conversationId) {
+                try messages.mutate(messageId: originalId, in: conversationId) { $0 = original }
+                changed.append(original)
+            }
+        }
+        return changed
+    }
+
+    /// Whether the UI should offer Edit/Withdraw on `message` now.
+    public func canAmend(_ message: ImMessage, as liveFid: String, now: Date = Date()) -> Bool {
+        MessageAmend.canAmend(message, as: liveFid, nowMs: Self.millis(now))
+    }
+
+    /// Replace the text of a message we sent. Applied here at once, then
+    /// the EDIT goes out through the outbox. Returns the message as stored.
+    @discardableResult
+    public func edit(
+        _ messageId: String,
+        in conversation: Conversation,
+        to text: String,
+        as liveFid: String,
+        keys: Keys = .none,
+        now: Date = Date()
+    ) throws -> ImMessage {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw Failure.emptyMessage }
+        guard let original = try messages.get(messageId: messageId, in: conversation.id),
+              canAmend(original, as: liveFid, now: now), MessageAmend.isEditable(original)
+        else { throw Failure.tooLateToAmend }
+        if original.content == trimmed { return original }
+        let op = MessageAmend.edit(of: original, text: trimmed, nowMs: Self.millis(now))
+        return try sendAmend(op, of: original, in: conversation, as: liveFid, keys: keys, now: now)
+    }
+
+    /// Withdraw a message we sent: tell the recipients' apps to remove it.
+    /// Deleting its DOCK item is the courier's half —
+    /// ``MessageCourier/deleteOwnItem(dockUrl:dockId:now:)`` — and comes first.
+    ///
+    /// `checkedAt` is when the user asked. The notice is signed no later
+    /// than the window's end, so a slow DOCK delete in between cannot push
+    /// it outside a window the user was inside of.
+    @discardableResult
+    public func withdraw(
+        _ messageId: String,
+        in conversation: Conversation,
+        as liveFid: String,
+        keys: Keys = .none,
+        checkedAt: Date,
+        fallbackText: String = "[Withdrew a message]",
+        now: Date = Date()
+    ) throws -> ImMessage {
+        guard let original = try messages.get(messageId: messageId, in: conversation.id),
+              canAmend(original, as: liveFid, now: checkedAt),
+              let sentAt = original.timestamp
+        else { throw Failure.tooLateToAmend }
+        let at = min(Self.millis(now), sentAt + MessageAmend.windowMs)
+        let op = MessageAmend.withdraw(of: original, fallbackText: fallbackText, nowMs: at)
+        return try sendAmend(op, of: original, in: conversation, as: liveFid, keys: keys, now: now)
+    }
+
+    private func sendAmend(
+        _ op: ImMessage, of original: ImMessage, in conversation: Conversation,
+        as liveFid: String, keys: Keys, now: Date
+    ) throws -> ImMessage {
+        var stored = op
+        stored.setId(fudpId: Self.newMessageId())
+        var amended = original
+        guard MessageAmend.apply(stored, to: &amended) == .applied else { throw Failure.tooLateToAmend }
+
+        var outgoing = stored
+        try seal(&outgoing, for: conversation, keys: keys)
+        // Queue first: a local change that never leaves would show the
+        // author an edit nobody else will see.
+        try outbox.enqueue(outgoing, in: conversation.id, now: now)
+        try store(amended, in: conversation.id, as: liveFid)
+        return amended
+    }
+
     // MARK: - helpers
 
     /// A fresh 64-bit message id.
@@ -540,6 +699,7 @@ public struct ChatService {
         case emptyMessage
         case noSuchConversation(String)
         case noRecipientKey(String)
+        case tooLateToAmend
 
         public var description: String {
             switch self {
@@ -549,6 +709,8 @@ public struct ChatService {
                 return "ChatService: no conversation \(id)"
             case .noRecipientKey(let fid):
                 return "\(fid) has never published a pubkey, so there is nothing to encrypt a message to. They need to spend from that FID at least once."
+            case .tooLateToAmend:
+                return "A message can only be edited or withdrawn within 10 minutes of sending."
             }
         }
     }

@@ -75,6 +75,9 @@ struct ChatView: View {
 
     @State private var loadError: String?
     @State private var sendError: String?
+    /// The sent message the composer is editing, and the draft it displaced.
+    @State private var editing: EditTarget?
+    @State private var confirmWithdraw: ImMessage?
     @State private var showNewChat = false
     @State private var showDetails = false
     @State private var showRequests = false
@@ -609,6 +612,23 @@ struct ChatView: View {
             Button("Cancel", role: .cancel) { confirmDisband = nil }
         } message: { _ in
             Text("Disbanding is a transaction and it cannot be undone: the team stops for every member, and nobody can join, speak in or take it over again. It costs a miner fee and is public. The transcript and keys stay on this Mac.")
+        }
+        .confirmationDialog(
+            "Withdraw this message?",
+            isPresented: Binding(
+                get: { confirmWithdraw != nil },
+                set: { if !$0 { confirmWithdraw = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: confirmWithdraw
+        ) { message in
+            Button("Withdraw", role: .destructive) {
+                if let conversation = selected { withdraw(message, in: conversation) }
+                confirmWithdraw = nil
+            }
+            Button("Cancel", role: .cancel) { confirmWithdraw = nil }
+        } message: { _ in
+            Text("Recipients' Freer apps will remove it, and it is deleted from the DOCK where Freer can. Anyone who has already read, copied or saved it may keep a copy.")
         }
         .confirmationDialog(
             confirmBulk?.title ?? "",
@@ -1288,8 +1308,14 @@ struct ChatView: View {
                     onLoadOlder: loadOlder,
                     downloads: downloads,
                     onDownload: download,
-                    onAskForKey: { version in asking = .symkey(version: version) }
+                    onAskForKey: { version in asking = .symkey(version: version) },
+                    onEdit: { beginEdit($0, in: conversation) },
+                    onWithdraw: { confirmWithdraw = $0 }
                 )
+
+                if let editing, editing.conversationId == conversation.id {
+                    editBanner(editing)
+                }
 
                 MessageComposerView(
                     style: style,
@@ -1748,6 +1774,11 @@ struct ChatView: View {
         guard verdict.canSend, !text.isEmpty else { return }
         sendError = nil
 
+        if let target = editing, target.conversationId == conversation.id {
+            sendEdit(target, text: text, in: conversation)
+            return
+        }
+
         var optimistic = ImMessage.text(
             type: conversation.type,
             from: session.liveFid,
@@ -1779,6 +1810,108 @@ struct ChatView: View {
                 await MainActor.run {
                     drop(shown, from: conversation.id)
                     if drafts[conversation.id]?.isEmpty ?? true { drafts[conversation.id] = text }
+                    sendError = String(describing: error)
+                    openSelected()
+                }
+            }
+        }
+    }
+
+    // MARK: - edit / withdraw
+
+    /// What the composer is editing: which message, where, and the draft
+    /// it put aside to do so.
+    struct EditTarget: Equatable {
+        let message: ImMessage
+        let conversationId: String
+        let draftBefore: String
+    }
+
+    private func beginEdit(_ message: ImMessage, in conversation: Conversation) {
+        let before = editing?.conversationId == conversation.id
+            ? editing?.draftBefore ?? "" : drafts[conversation.id] ?? ""
+        if let previous = editing, previous.conversationId != conversation.id {
+            drafts[previous.conversationId] = previous.draftBefore
+        }
+        editing = EditTarget(message: message, conversationId: conversation.id, draftBefore: before)
+        drafts[conversation.id] = message.content ?? ""
+    }
+
+    /// Leave edit mode and put the displaced draft back.
+    private func endEdit() {
+        guard let target = editing else { return }
+        drafts[target.conversationId] = target.draftBefore
+        editing = nil
+    }
+
+    private func editBanner(_ target: EditTarget) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "pencil")
+                .foregroundStyle(style.tint)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Editing message")
+                    .font(.caption)
+                    .foregroundStyle(style.tint)
+                Text(target.message.content ?? "")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer()
+            Button { endEdit() } label: { Image(systemName: "xmark.circle.fill") }
+                .buttonStyle(.borderless)
+                .help("Cancel editing")
+                .keyboardShortcut(.cancelAction)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8).fill(style.tint.opacity(0.08)))
+    }
+
+    private func sendEdit(_ target: EditTarget, text: String, in conversation: Conversation) {
+        guard let id = target.message.id else { return }
+        endEdit()
+        Task {
+            do {
+                let keys = try await sendKeys(for: conversation)
+                _ = try session.chat.edit(id, in: conversation, to: text, as: session.liveFid, keys: keys)
+                await MainActor.run { openSelected() }
+                _ = try? await session.courier.drainOutbox(as: session.liveFid)
+                await MainActor.run { openSelected() }
+            } catch {
+                await MainActor.run {
+                    sendError = String(describing: error)
+                    openSelected()
+                }
+            }
+        }
+    }
+
+    /// Delete the DOCK item where it is ours to delete, then send the
+    /// notice. The window is judged when the user said yes, so a slow
+    /// DOCK cannot run them out of it.
+    private func withdraw(_ message: ImMessage, in conversation: Conversation) {
+        guard let id = message.id else { return }
+        let askedAt = Date()
+        if editing?.message.id == id { endEdit() }
+        sendError = nil
+        Task {
+            do {
+                // The row on screen may predate the delivery that named its DOCK item.
+                let current = try session.messages.get(messageId: id, in: conversation.id) ?? message
+                if let url = current.dockUrl, let dockId = current.dockId {
+                    _ = await session.courier.deleteOwnItem(dockUrl: url, dockId: dockId)
+                }
+                let keys = try await sendKeys(for: conversation)
+                _ = try session.chat.withdraw(
+                    id, in: conversation, as: session.liveFid, keys: keys, checkedAt: askedAt
+                )
+                await MainActor.run { openSelected() }
+                _ = try? await session.courier.drainOutbox(as: session.liveFid)
+                await MainActor.run { openSelected() }
+            } catch {
+                await MainActor.run {
                     sendError = String(describing: error)
                     openSelected()
                 }
