@@ -723,7 +723,7 @@ public final class ActiveSession {
                 guard (try? keys.pubkey(forFid: fid)) != pubkey else { return }
                 try? keys.upsert(PubkeyRecord(fid: fid, pubkey: pubkey))
             },
-            refreshMembership: { [groups, teams, conversations, consensusSignatures, membershipRecheck, liveFid] _ in
+            refreshMembership: { [groups, teams, conversations, consensusSignatures, keyRotations, symkeys, membershipRecheck, liveFid] _ in
                 // The same incremental sync the Teams tab runs, not a
                 // fetch of the one team: storing one team at a newer
                 // height would step the sync's watermark over changes
@@ -733,7 +733,8 @@ public final class ActiveSession {
                 guard membershipRecheck.claim(now: Date()) else { return false }
                 let result = try? await groups.syncTeams(
                     fid: liveFid, into: teams, conversations: conversations,
-                    signatures: consensusSignatures, timeoutMs: 10_000
+                    signatures: consensusSignatures,
+                    rotations: keyRotations, symkeys: symkeys, timeoutMs: 10_000
                 )
                 return (result?.merged ?? 0) > 0
             }
@@ -918,7 +919,8 @@ public final class ActiveSession {
         case .team:
             let offers = (try? teamOffers.waiting(fid: liveFid, now: now).count) ?? 0
             let agreements = (try? consensusSignatures.outstanding().count) ?? 0
-            return offers + agreements
+            let rotations = (try? keyRotations.outstanding().count) ?? 0
+            return offers + agreements + rotations
         case .p2p, .square:
             return 0
         }
@@ -1123,6 +1125,11 @@ public final class ActiveSession {
     /// the team sync; read by the pane that offers to sign.
     public lazy var consensusSignatures: ConsensusSignaturesStore =
         ConsensusSignaturesStore(kv: storage)
+
+    /// Teams we own whose key is due a rotation because members left
+    /// (FIMP4V3 §3.3). Written by the team sync; read by the Teams tab.
+    public lazy var keyRotations: KeyRotationRemindersStore =
+        KeyRotationRemindersStore(kv: storage)
 
     /// A member's public key, as fresh as this device can answer without
     /// a round-trip — what a key share is sealed to.
@@ -2631,7 +2638,7 @@ public final class ActiveSession {
         }
         // Keep the cache honest before the carve, so the prompt reflects
         // what we just read even if the carve then fails.
-        try? teams.upsert(team)
+        storeFreshTeam(team)
         return try await carveGroupOp(
             TeamFeip.envelope(
                 opJson: try TeamFeip.agreeConsensusOp(tid: teamId, consensusId: consensusId)
@@ -3028,6 +3035,28 @@ public final class ActiveSession {
     /// could step it over a change that has not been synced.
     private func refreshCachedTeam(_ team: Team) {
         guard let id = team.id, ((try? teams.get(id: id)) ?? nil) != nil else { return }
+        storeFreshTeam(team)
+    }
+
+    /// Write a team just read from the chain, **after** comparing it with
+    /// the copy it replaces.
+    ///
+    /// The cached row is the only record of what changed: once it is
+    /// overwritten, a member who left and the consensus id that was
+    /// replaced are both gone from this device. ``GroupService/syncTeams``
+    /// does this comparison on every sync. A fresh read written straight
+    /// to the store skipped it, so an owner who invited or appointed
+    /// someone after a removal never got the "rotate the key" prompt
+    /// (FIMP4V3 §3.3), because the next sync found nothing to compare.
+    /// Every chain read stored outside the sync comes through here.
+    private func storeFreshTeam(_ team: Team) {
+        guard let id = team.id, !id.isEmpty else { return }
+        let cached = try? teams.get(id: id)
+        _ = try? consensusSignatures.reconcile(team: team, cached: cached, as: liveFid)
+        let version = (try? symkeys.currentVersion(for: id)) ?? 0
+        _ = try? keyRotations.reconcile(
+            team: team, cached: cached, as: liveFid, currentVersion: version
+        )
         try? teams.upsert(team)
     }
 
@@ -3117,7 +3146,8 @@ public final class ActiveSession {
         // moved cannot have changed who owes it a signature.
         _ = try? await groups.syncTeams(
             fid: liveFid, into: teams, conversations: conversations,
-            signatures: consensusSignatures, timeoutMs: timeoutMs
+            signatures: consensusSignatures,
+            rotations: keyRotations, symkeys: symkeys, timeoutMs: timeoutMs
         )
         _ = try? await refreshTeamOffers(now: now, timeoutMs: timeoutMs)
         return awaitingAnswer(type: .team, now: now)

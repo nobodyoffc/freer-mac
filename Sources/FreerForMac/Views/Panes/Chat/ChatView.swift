@@ -95,6 +95,10 @@ struct ChatView: View {
     /// waiting on an `agree consensus` carve. Teams tab only, and read
     /// from the chain by the group sync — see ``ConsensusSignatureSheet``.
     @State private var consensusDue: [ConsensusSignatureRequest] = []
+    /// Teams we own that members left since the key last changed, so the
+    /// removed can still read what follows until we rotate (FIMP4V3
+    /// §3.3). Read from the chain by the group sync, never sent to us.
+    @State private var rotationsDue: [KeyRotationReminder] = []
     @State private var showConsensus = false
     /// A team's consensus document, opened for reading from that team's
     /// menu. A request rather than a Bool because the sheet cannot work
@@ -295,6 +299,9 @@ struct ChatView: View {
             }
             if mode == .team, !consensusDue.isEmpty {
                 consensusBanner
+            }
+            if mode == .team, !rotationsDue.isEmpty {
+                rotationBanner
             }
             if !historyRequestsHere.isEmpty || !historyFailuresHere.isEmpty {
                 historyBanner
@@ -934,6 +941,55 @@ struct ChatView: View {
         .help("Read the new consensus and the one you agreed to, then agree, put it off, or leave")
     }
 
+    /// Teams we own that members left, or were dismissed from, while the
+    /// key stayed the same.
+    ///
+    /// **Rotating is the owner's tap, here, on this Mac** — never done
+    /// on sight of the removal, because every device of the owner would
+    /// mint in the same second (FIMP4V3 §7.2). The row clears itself
+    /// once a newer key exists, including one minted on another device.
+    private var rotationBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(rotationsDue) { reminder in
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "key.horizontal")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Key rotation due · \(reminder.teamName ?? reminder.id)")
+                        Text("Removed: " + reminder.removedFids
+                            .map { names.labelWithContact(for: $0) }
+                            .joined(separator: ", "))
+                            .font(.caption)
+                        Text("They still hold the current key and can read new messages until you rotate it.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("Rotate key") { rotateKey(for: reminder) }
+                        .help("Mint a new team key and share it with the remaining members")
+                    Button("Later") {
+                        _ = try? session.keyRotations.postpone(teamId: reminder.id)
+                        reload()
+                    }
+                    .help("Hide this until another member leaves")
+                }
+            }
+        }
+        .font(.callout)
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.orange.opacity(0.14)))
+    }
+
+    /// Rotate from the banner: the same reset as the team menu's.
+    private func rotateKey(for reminder: KeyRotationReminder) {
+        let id = Conversation.id(type: .team, targetId: reminder.id)
+        guard let conversation = try? session.conversations.get(id: id) else {
+            sendError = "This team's conversation is not on this Mac yet. Refresh, then rotate from the team's menu."
+            return
+        }
+        generateKey(for: conversation)
+    }
+
     /// Room invitations, with the two facts that decide the answer:
     /// who says so, and that nothing about the claim can be checked.
     private var invitesBanner: some View {
@@ -1554,6 +1610,7 @@ struct ChatView: View {
             // answered, and the banner must not keep arguing with them.
             // The sheet behind it still lists every row.
             consensusDue = try session.consensusSignatures.outstanding()
+            rotationsDue = try session.keyRotations.outstanding()
             teamOffers = try session.teamOffers.waiting(fid: session.liveFid)
             // A carve the chain now shows has nothing left to wait for.
             _ = try? session.pendingGroups.reconcile(
@@ -1933,6 +1990,9 @@ struct ChatView: View {
                 outbound = keyed.outbound
                 version = keyed.version
                 skipped = keyed.skipped.count
+                // The rotation a "members left" reminder asks for. The next
+                // sync would clear it too, from the version; this saves the wait.
+                _ = try? session.keyRotations.remove(teamId: conversation.targetId)
 
             case .p2p, .square:
                 // Neither has a group key: a P2P body is sealed to the
@@ -2367,7 +2427,10 @@ struct ChatView: View {
                 // lists them in `notAgreeMembers` and this is where we
                 // read it, on every refresh, so the prompt also clears
                 // itself when the signature came from another device.
-                signatures: session.consensusSignatures
+                signatures: session.consensusSignatures,
+                // And what tells an owner a key is due: members left, by
+                // their own `leave` or a manager's `dismiss` (FIMP4V3 §3.3).
+                rotations: session.keyRotations, symkeys: session.symkeys
             )
             let squares = try await session.groups.syncSquares(
                 fid: session.liveFid, into: session.squares, conversations: session.conversations
@@ -2385,6 +2448,9 @@ struct ChatView: View {
             }
             if teams.awaitingSignature > 0 {
                 parts.append("\(teams.awaitingSignature) awaiting your agreement")
+            }
+            if teams.rotationsDue > 0 {
+                parts.append("\(teams.rotationsDue) team key(s) due a rotation")
             }
             // Invitations are not in the member sync — we are not a member
             // yet — so they are a query of their own. A failure here is a

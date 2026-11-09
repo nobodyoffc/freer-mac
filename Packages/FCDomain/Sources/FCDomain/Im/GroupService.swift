@@ -52,15 +52,20 @@ public struct GroupService {
         /// Teams now waiting on this identity's `agree consensus`.
         /// Always zero for squares, which have no consensus to agree to.
         public let awaitingSignature: Int
+        /// Teams we own whose key is due a rotation after a removal
+        /// (FIMP4V3 §3.3). Always zero for squares.
+        public let rotationsDue: Int
 
         public init(
-            merged: Int, joined: Int, left: Int, total: Int, awaitingSignature: Int = 0
+            merged: Int, joined: Int, left: Int, total: Int, awaitingSignature: Int = 0,
+            rotationsDue: Int = 0
         ) {
             self.merged = merged
             self.joined = joined
             self.left = left
             self.total = total
             self.awaitingSignature = awaitingSignature
+            self.rotationsDue = rotationsDue
         }
     }
 
@@ -343,19 +348,26 @@ public struct GroupService {
     /// prompt appears, disappears when the obligation is gone, and
     /// captures the outgoing `consensusId` at the only instant that
     /// value exists on this device. See ``ConsensusSignaturesStore``.
+    ///
+    /// **`rotations` is where an owner finds out a key is due.** With
+    /// `symkeys`, which says whether a newer key already exists, it
+    /// raises and clears the "members left, rotate the key" prompt. See
+    /// ``KeyRotationRemindersStore``.
     @discardableResult
     public func syncTeams(
         fid: String,
         into store: TeamsStore,
         conversations: ConversationsStore? = nil,
         signatures: ConsensusSignaturesStore? = nil,
+        rotations: KeyRotationRemindersStore? = nil,
+        symkeys: SymkeyStore? = nil,
         incremental: Bool = true,
         timeoutMs: Int = 15_000
     ) async throws -> SyncResult {
         let watermark = incremental ? (try? store.highestKnownHeight()) ?? nil : nil
         let teams = try await fetchTeams(fid: fid, newerThanHeight: watermark, timeoutMs: timeoutMs)
 
-        var merged = 0, joined = 0, left = 0, awaiting = 0
+        var merged = 0, joined = 0, left = 0, awaiting = 0, rotationsDue = 0
         for team in teams {
             guard let id = team.id, !id.isEmpty else { continue }
             // Read the row we are about to replace *first*: it carries
@@ -368,6 +380,14 @@ public struct GroupService {
             if let signatures {
                 let request = try? signatures.reconcile(team: team, cached: cached, as: fid)
                 if let request, !request.isPostponed { awaiting += 1 }
+            }
+
+            if let rotations {
+                let version = (try? symkeys?.currentVersion(for: id)) ?? 0
+                let reminder = try? rotations.reconcile(
+                    team: team, cached: cached, as: fid, currentVersion: version
+                )
+                if let reminder, !reminder.isPostponed { rotationsDue += 1 }
             }
 
             guard let conversations else { continue }
@@ -418,7 +438,8 @@ public struct GroupService {
         }
         return SyncResult(
             merged: merged, joined: joined, left: left,
-            total: teams.count, awaitingSignature: awaiting
+            total: teams.count, awaitingSignature: awaiting,
+            rotationsDue: rotationsDue
         )
     }
 
