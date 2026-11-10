@@ -657,7 +657,7 @@ struct AppsView: View {
                 } label: {
                     Label("Edit", systemImage: "pencil")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy)
 
                 Button {
@@ -665,30 +665,30 @@ struct AppsView: View {
                 } label: {
                     Label("Publish on chain", systemImage: "square.and.arrow.up")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy || !session.canSign)
 
                 Button("Discard", role: .destructive) { discardDraft(app) }
-                    .controlSize(.small)
+                    .controlSize(.regular)
             } else if tab == .hidden {
                 Button {
                     unhide(app)
                 } label: {
                     Label("Unhide", systemImage: "eye")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
             } else if app.canUpdate(as: session.liveFid) && session.canSign {
                 Button {
                     composing = .update(app)
                 } label: {
                     Label("Update", systemImage: "pencil")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy)
 
                 if app.canStop(as: session.liveFid) {
                     Button("Stop") { pendingStop = [app] }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         .disabled(busy)
                         .help("Out of force, reversibly — Recover puts it back")
                 }
@@ -698,7 +698,7 @@ struct AppsView: View {
                     } label: {
                         Label("Recover", systemImage: "arrow.uturn.backward")
                     }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .buttonStyle(.borderedProminent)
                     .disabled(busy)
                 }
@@ -711,7 +711,7 @@ struct AppsView: View {
                 // toward retiring the app record.
                 if app.canClose(as: session.liveFid) {
                     Button("Close…", role: .destructive) { closing = [app] }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         .disabled(busy)
                         .help("Retire it for good — nothing reopens a closed app record")
                 }

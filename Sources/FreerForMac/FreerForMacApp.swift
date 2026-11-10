@@ -19,6 +19,13 @@ struct FreerForMacApp: App {
         WindowGroup("Freer", id: FreerForMacApp.mainWindow) {
             AppRouter()
                 .environment(appState)
+                // Every control one size up from the macOS default, in every
+                // language: Chinese characters fill the whole line height and
+                // crowd a regular-size button, and one size for both languages
+                // keeps a single layout to get right. A control that names its
+                // own size keeps it — compact ones say `.regular`, spinners
+                // `.small` or `.regular`.
+                .controlSize(.large)
                 .frame(minWidth: 720, minHeight: 480)
                 .onAppear { [appState] in
                     // ⌘Q does not run `deinit`, so without this the

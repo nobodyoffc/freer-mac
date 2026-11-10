@@ -81,7 +81,7 @@ struct ReleaseRunWorkingView: View {
             if let status { ReleaseRunStatusBanner(status: status) }
             Spacer()
             HStack(spacing: 12) {
-                ProgressView()
+                ProgressView().controlSize(.regular)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title).font(.headline)
                     Text(step).foregroundStyle(.secondary)

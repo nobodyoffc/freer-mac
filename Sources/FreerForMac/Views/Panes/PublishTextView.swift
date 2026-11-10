@@ -486,18 +486,18 @@ struct PublishTextView: View {
                 } label: {
                     Label("Edit", systemImage: "pencil")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy)
 
                 Button("Discard", role: .destructive) { discardDraft(record) }
-                    .controlSize(.small)
+                    .controlSize(.regular)
             } else {
                 Button {
                     reading = record
                 } label: {
                     Label("Read", systemImage: "book")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy)
 
                 if record.canUpdate(as: session.liveFid) && session.canSign {
@@ -506,7 +506,7 @@ struct PublishTextView: View {
                     } label: {
                         Label("New edition", systemImage: "pencil")
                     }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .disabled(busy)
                 }
                 if record.canRecover(as: session.liveFid) && session.canSign {
@@ -515,7 +515,7 @@ struct PublishTextView: View {
                     } label: {
                         Label("Recover", systemImage: "arrow.uturn.backward")
                     }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .disabled(busy)
                 }
             }

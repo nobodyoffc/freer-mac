@@ -174,9 +174,9 @@ struct PublishDocumentView: View {
     private var actions: some View {
         HStack(spacing: 10) {
             Button("Open in default app") { openExternally() }
-                .controlSize(.small)
+                .controlSize(.regular)
             Button("Save a copy…") { saveCopy() }
-                .controlSize(.small)
+                .controlSize(.regular)
         }
     }
 

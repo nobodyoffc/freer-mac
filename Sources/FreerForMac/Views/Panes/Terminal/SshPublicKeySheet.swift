@@ -49,7 +49,7 @@ struct SshPublicKeySheet: View {
                         removeSection
                         explanation
                     } else {
-                        ProgressView()
+                        ProgressView().controlSize(.regular)
                     }
                 }
                 .padding(20)

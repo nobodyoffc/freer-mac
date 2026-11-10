@@ -183,7 +183,7 @@ struct FirstFchBoardView: View {
                 set: { setCheckAtLogin($0) }
             ))
             .toggleStyle(.switch)
-            .controlSize(.small)
+            .controlSize(.regular)
             .help("Off by default. When on, Freer looks once per login for newcomers asking for their first FCH, and tells you only if somebody is waiting.")
 
             Spacer()

@@ -99,7 +99,7 @@ struct AddServantsSheet: View {
     private var content: some View {
         if loading && found.isEmpty {
             centered {
-                ProgressView()
+                ProgressView().controlSize(.regular)
                 Text("Looking for servants…").foregroundStyle(.secondary)
             }
         } else if let err = loadError {

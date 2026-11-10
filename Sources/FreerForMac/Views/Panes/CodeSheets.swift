@@ -295,7 +295,7 @@ struct PublishCodeSheet: View {
                             } label: {
                                 Label("Add waiters", systemImage: "person.badge.plus")
                             }
-                            .controlSize(.small)
+                            .controlSize(.regular)
                         }
                     }
                 }
@@ -528,7 +528,7 @@ struct ProtocolIdListEditor: View {
                 } label: {
                     Label("Pick from the registry", systemImage: "list.bullet.rectangle")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
 
                 TextField("or paste a protocol ID", text: $typed)
                     .fieldInputStyle()
@@ -536,7 +536,7 @@ struct ProtocolIdListEditor: View {
                     .onSubmit { addTyped() }
 
                 Button("Add") { addTyped() }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
@@ -606,7 +606,7 @@ struct ProtocolPickerSheet: View {
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(loading)
             }
 

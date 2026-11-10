@@ -533,7 +533,7 @@ struct TokensView: View {
                         } label: {
                             Label("Send", systemImage: "paperplane")
                         }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         .disabled(busy || !session.canSign || !token.canTransfer || !holder.hasBalance)
                         .help(sendHelp(token: token, holder: holder))
 
@@ -542,11 +542,11 @@ struct TokensView: View {
                         } label: {
                             Label("Details", systemImage: "info.circle")
                         }
-                        .controlSize(.small)
+                        .controlSize(.regular)
 
                         if holder.hasBalance && session.canSign {
                             Button("Burn…", role: .destructive) { pendingDestroy = holder }
-                                .controlSize(.small)
+                                .controlSize(.regular)
                                 .disabled(busy)
                                 .help("Destroy your whole balance of this token. There is no partial burn.")
                         }
@@ -641,12 +641,12 @@ struct TokensView: View {
                         } label: {
                             Label("Issue", systemImage: "plus.circle")
                         }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         .disabled(busy || !session.canSign)
                     }
                     if token.canClose(as: session.liveFid) {
                         Button("Close…", role: .destructive) { pendingClose = [token] }
-                            .controlSize(.small)
+                            .controlSize(.regular)
                             .disabled(busy || !session.canSign)
                             .help("Retire this token for everybody, permanently")
                     }
@@ -655,7 +655,7 @@ struct TokensView: View {
                     } label: {
                         Label("Details", systemImage: "info.circle")
                     }
-                    .controlSize(.small)
+                    .controlSize(.regular)
 
                     hideButton(id: token.id, isHidden: hiddenTokenIds.contains(token.id)) {
                         toggleHiddenToken(token.id)
@@ -684,7 +684,7 @@ struct TokensView: View {
         } label: {
             Label(isHidden ? "Unhide" : "Hide", systemImage: isHidden ? "eye" : "eye.slash")
         }
-        .controlSize(.small)
+        .controlSize(.regular)
         .help(isHidden
               ? "Put this back in the list"
               : "Stop showing this row on this Mac. Nothing is carved and the balance is untouched.")

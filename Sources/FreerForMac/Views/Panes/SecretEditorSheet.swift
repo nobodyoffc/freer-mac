@@ -58,7 +58,7 @@ struct SecretEditorSheet: View {
                             }
                             content = Base32.encode(bytes)
                         }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                     }
                 }
 
@@ -113,7 +113,7 @@ struct SecretEditorSheet: View {
         }
         .disabled(working)
         .overlay {
-            if working { ProgressView() }
+            if working { ProgressView().controlSize(.regular) }
         }
     }
 

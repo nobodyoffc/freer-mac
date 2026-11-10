@@ -172,7 +172,7 @@ struct OverviewView: View {
                     recover(cashId: id)
                 }
                 .buttonStyle(.bordered)
-                .controlSize(.small)
+                .controlSize(.regular)
                 .help("Un-mark this cash as spent. The cash becomes spendable again — use only if the broadcast tx is definitely not going to confirm.")
             }
         }

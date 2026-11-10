@@ -270,7 +270,7 @@ struct PublishProtocolSheet: View {
                             } label: {
                                 Label("Add waiters", systemImage: "person.badge.plus")
                             }
-                            .controlSize(.small)
+                            .controlSize(.regular)
                         }
                     }
                 }
@@ -506,7 +506,7 @@ struct HomeMapEditor: View {
             } label: {
                 Label(addLabel, systemImage: "plus")
             }
-            .controlSize(.small)
+            .controlSize(.regular)
         }
     }
 }

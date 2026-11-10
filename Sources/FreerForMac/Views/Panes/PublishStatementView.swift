@@ -352,9 +352,9 @@ struct PublishStatementView: View {
                         } label: {
                             Label("Edit", systemImage: "pencil")
                         }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         Button("Discard", role: .destructive) { discardDraft(statement) }
-                            .controlSize(.small)
+                            .controlSize(.regular)
                     }
                     .padding(.top, 2)
                 }

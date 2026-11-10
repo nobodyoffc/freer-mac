@@ -605,7 +605,7 @@ struct TextReaderSheet: View {
                     CopyableText(e, font: .caption).foregroundStyle(.secondary)
                 }
                 Button("Try again") { loadBody() }
-                    .controlSize(.small)
+                    .controlSize(.regular)
             }
         }
     }

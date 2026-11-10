@@ -342,7 +342,7 @@ struct PublishAppSheet: View {
                             } label: {
                                 Label("Add waiters", systemImage: "person.badge.plus")
                             }
-                            .controlSize(.small)
+                            .controlSize(.regular)
                         }
                     }
                 }

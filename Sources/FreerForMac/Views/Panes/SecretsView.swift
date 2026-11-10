@@ -742,7 +742,7 @@ private struct SecretDetailSheet: View {
                                 CopyableText(content, font: .system(.body, design: .monospaced))
                                     .fixedSize(horizontal: false, vertical: true)
                                 Button("Hide") { self.content = nil }
-                                    .controlSize(.small)
+                                    .controlSize(.regular)
                             }
                         } else {
                             Button {

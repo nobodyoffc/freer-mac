@@ -160,7 +160,7 @@ struct InputPickerSheet: View {
             .frame(width: 260)
             Spacer()
             Button("Back to the wallet's choice") { selection = currentKeys }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(selection == currentKeys)
         }
         .padding(.horizontal, 16)

@@ -685,7 +685,7 @@ struct ServicesView: View {
                 } label: {
                     Label("Edit", systemImage: "pencil")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy)
 
                 Button {
@@ -693,30 +693,30 @@ struct ServicesView: View {
                 } label: {
                     Label("Publish on chain", systemImage: "square.and.arrow.up")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy || !session.canSign)
 
                 Button("Discard", role: .destructive) { discardDraft(service) }
-                    .controlSize(.small)
+                    .controlSize(.regular)
             } else if tab == .hidden {
                 Button {
                     unhide(service)
                 } label: {
                     Label("Unhide", systemImage: "eye")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
             } else if service.canUpdate(as: session.liveFid) && session.canSign {
                 Button {
                     composing = .update(service)
                 } label: {
                     Label("Update", systemImage: "pencil")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy)
 
                 if service.canStop(as: session.liveFid) {
                     Button("Stop") { pendingStop = [service] }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         .disabled(busy)
                         .help("Out of force, reversibly — Recover puts it back")
                 }
@@ -726,7 +726,7 @@ struct ServicesView: View {
                     } label: {
                         Label("Recover", systemImage: "arrow.uturn.backward")
                     }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .buttonStyle(.borderedProminent)
                     .disabled(busy)
                 }
@@ -735,7 +735,7 @@ struct ServicesView: View {
                 // a step toward retiring the service.
                 if service.canClose(as: session.liveFid) {
                     Button("Close…", role: .destructive) { closing = [service] }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         .disabled(busy)
                         .help("Retire it for good — nothing reopens a closed record")
                 }

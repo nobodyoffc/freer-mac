@@ -366,7 +366,7 @@ struct PublishServiceSheet: View {
                             } label: {
                                 Label("Add waiters", systemImage: "person.badge.plus")
                             }
-                            .controlSize(.small)
+                            .controlSize(.regular)
                         }
                     }
 
@@ -665,7 +665,7 @@ struct ComponentListEditor: View {
                     .font(.system(.caption, design: .monospaced))
                     .onSubmit { addTyped() }
                 Button("Add") { addTyped() }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty)
             }
 
@@ -738,7 +738,7 @@ struct CodeIdListEditor: View {
                 } label: {
                     Label("Pick from the registry", systemImage: "list.bullet.rectangle")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
 
                 TextField("or paste a code ID", text: $typed)
                     .fieldInputStyle()
@@ -746,7 +746,7 @@ struct CodeIdListEditor: View {
                     .onSubmit { addTyped() }
 
                 Button("Add") { addTyped() }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
@@ -808,7 +808,7 @@ struct CodePickerSheet: View {
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(loading)
             }
 
@@ -948,7 +948,7 @@ struct SidListEditor: View {
                     .font(.system(.caption, design: .monospaced))
                     .onSubmit { addTyped() }
                 Button("Add") { addTyped() }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .disabled(typed.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }

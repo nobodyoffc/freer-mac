@@ -64,7 +64,7 @@ struct ApkKeyToolView: View {
 
                 explanation
             } else {
-                ProgressView()
+                ProgressView().controlSize(.regular)
             }
         }
         .onAppear(perform: load)

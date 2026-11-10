@@ -507,7 +507,7 @@ struct ProofsView: View {
                 } label: {
                     Label("Edit", systemImage: "pencil")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy)
 
                 Button {
@@ -515,13 +515,13 @@ struct ProofsView: View {
                 } label: {
                     Label("Carve on chain", systemImage: "square.and.arrow.up")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy || !session.canSign)
 
                 Button("Discard", role: .destructive) {
                     discardDraft(proof)
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
             } else {
                 if proof.awaitsSignature(from: session.liveFid) {
                     Button {
@@ -529,7 +529,7 @@ struct ProofsView: View {
                     } label: {
                         Label("Countersign", systemImage: "signature")
                     }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .buttonStyle(.borderedProminent)
                     .disabled(busy || !session.canSign)
                     .help(session.canSign
@@ -542,7 +542,7 @@ struct ProofsView: View {
                     } label: {
                         Label("Transfer", systemImage: "arrow.right.circle")
                     }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .disabled(busy || !session.canSign)
                 }
             }

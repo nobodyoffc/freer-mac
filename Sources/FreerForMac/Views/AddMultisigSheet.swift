@@ -158,7 +158,7 @@ struct AddMultisigSheet: View {
     private var foundContent: some View {
         if loading && found.isEmpty {
             centered {
-                ProgressView()
+                ProgressView().controlSize(.regular)
                 Text("Looking for groups…").foregroundStyle(.secondary)
             }
         } else if let err = loadError {

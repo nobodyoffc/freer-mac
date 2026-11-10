@@ -206,7 +206,7 @@ struct TxConfirmSheet: View {
                             } label: {
                                 Label("Choose other cash…", systemImage: "arrow.triangle.2.circlepath")
                             }
-                            .controlSize(.small)
+                            .controlSize(.regular)
                         }
                     }
                     .padding(12)
@@ -538,7 +538,7 @@ struct TxConfirmSheet: View {
                 } label: {
                     Label("Choose other cash…", systemImage: "arrow.triangle.2.circlepath")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .help("Build this same transaction from cash you pick, and review it again")
             }
         }

@@ -183,7 +183,7 @@ struct ServicePickerSheet: View {
             Spacer(minLength: 8)
             Button("Choose") { onPicked(service) }
                 .buttonStyle(.borderedProminent)
-                .controlSize(.small)
+                .controlSize(.regular)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

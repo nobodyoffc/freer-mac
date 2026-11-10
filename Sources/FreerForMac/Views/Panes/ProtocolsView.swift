@@ -611,7 +611,7 @@ struct ProtocolsView: View {
                 } label: {
                     Label("Edit", systemImage: "pencil")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy)
 
                 Button {
@@ -619,30 +619,30 @@ struct ProtocolsView: View {
                 } label: {
                     Label("Publish on chain", systemImage: "square.and.arrow.up")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy || !session.canSign)
 
                 Button("Discard", role: .destructive) { discardDraft(spec) }
-                    .controlSize(.small)
+                    .controlSize(.regular)
             } else if tab == .hidden {
                 Button {
                     unhide(spec)
                 } label: {
                     Label("Unhide", systemImage: "eye")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
             } else if spec.canUpdate(as: session.liveFid) && session.canSign {
                 Button {
                     composing = .update(spec)
                 } label: {
                     Label("Update", systemImage: "pencil")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy)
 
                 if spec.canStop(as: session.liveFid) {
                     Button("Stop") { pendingStop = [spec] }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         .disabled(busy)
                         .help("Out of force, reversibly — Recover puts it back")
                 }
@@ -652,7 +652,7 @@ struct ProtocolsView: View {
                     } label: {
                         Label("Recover", systemImage: "arrow.uturn.backward")
                     }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .buttonStyle(.borderedProminent)
                     .disabled(busy)
                 }
@@ -665,7 +665,7 @@ struct ProtocolsView: View {
                 // toward retiring the protocol.
                 if spec.canClose(as: session.liveFid) {
                     Button("Close…", role: .destructive) { closing = [spec] }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         .disabled(busy)
                         .help("Retire it for good — nothing reopens a closed protocol")
                 }

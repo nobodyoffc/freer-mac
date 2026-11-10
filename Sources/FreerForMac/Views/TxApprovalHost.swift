@@ -56,6 +56,8 @@ final class TxApprovalWindow {
         }
         let hosting = NSHostingController(
             rootView: TxApprovalWindowContent(center: center, session: session)
+                // Same control size as the main window (FreerForMacApp).
+                .controlSize(.large)
         )
         let panel = NSWindow(contentViewController: hosting)
         panel.title = String(localized: "Approve transaction")

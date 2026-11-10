@@ -620,7 +620,7 @@ struct CodesView: View {
                 } label: {
                     Label("Edit", systemImage: "pencil")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy)
 
                 Button {
@@ -628,30 +628,30 @@ struct CodesView: View {
                 } label: {
                     Label("Publish on chain", systemImage: "square.and.arrow.up")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy || !session.canSign)
 
                 Button("Discard", role: .destructive) { discardDraft(code) }
-                    .controlSize(.small)
+                    .controlSize(.regular)
             } else if tab == .hidden {
                 Button {
                     unhide(code)
                 } label: {
                     Label("Unhide", systemImage: "eye")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
             } else if code.canUpdate(as: session.liveFid) && session.canSign {
                 Button {
                     composing = .update(code)
                 } label: {
                     Label("Update", systemImage: "pencil")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(busy)
 
                 if code.canStop(as: session.liveFid) {
                     Button("Stop") { pendingStop = [code] }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         .disabled(busy)
                         .help("Out of force, reversibly — Recover puts it back")
                 }
@@ -661,7 +661,7 @@ struct CodesView: View {
                     } label: {
                         Label("Recover", systemImage: "arrow.uturn.backward")
                     }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .buttonStyle(.borderedProminent)
                     .disabled(busy)
                 }
@@ -674,7 +674,7 @@ struct CodesView: View {
                 // toward retiring the code record.
                 if code.canClose(as: session.liveFid) {
                     Button("Close…", role: .destructive) { closing = [code] }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         .disabled(busy)
                         .help("Retire it for good — nothing reopens a closed code record")
                 }

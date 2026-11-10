@@ -47,7 +47,7 @@ struct RemarkThreadView: View {
                 Button(showRemarkComposer ? "Cancel" : "Add a remark") {
                     showRemarkComposer.toggle()
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
                 .disabled(!session.canSign)
                 .help(session.canSign
                       ? "Anchor a remark to this record"
@@ -143,7 +143,7 @@ struct RemarkThreadView: View {
                 Spacer()
                 Button("Publish remark") { Task { await postRemark() } }
                     .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                    .controlSize(.regular)
                     .disabled(
                         posting
                         || remarkTitle.trimmingCharacters(in: .whitespaces).isEmpty

@@ -458,7 +458,7 @@ struct IssueTokenSheet: View {
                 } label: {
                     Label("Add recipient", systemImage: "plus")
                 }
-                .controlSize(.small)
+                .controlSize(.regular)
 
                 Spacer()
 
@@ -646,7 +646,7 @@ struct SendTokenSheet: View {
                         }
                         Spacer()
                         Button("Change") { openPicker() }
-                            .controlSize(.small)
+                            .controlSize(.regular)
                     }
                 } else {
                     HStack(spacing: 8) {
@@ -671,7 +671,7 @@ struct SendTokenSheet: View {
                         .fieldInputStyle()
                         .multilineTextAlignment(.trailing)
                     Button("Max") { amount = TokenAmount.plain(balance, scale: scale) }
-                        .controlSize(.small)
+                        .controlSize(.regular)
                         .disabled(balance <= 0)
                 }
             }

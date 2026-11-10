@@ -150,7 +150,7 @@ struct IssueProofSheet: View {
                     } label: {
                         Label("Add cosigners", systemImage: "person.badge.plus")
                     }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                 }
             }
 
@@ -186,7 +186,7 @@ struct IssueProofSheet: View {
                     } label: {
                         Label(issueTo == nil ? "Choose owner" : "Change", systemImage: "person.crop.circle.badge.plus")
                     }
-                    .controlSize(.small)
+                    .controlSize(.regular)
                 }
             }
 
@@ -535,7 +535,7 @@ struct TransferProofSheet: View {
                         }
                         Spacer()
                         Button("Change") { openPicker() }
-                            .controlSize(.small)
+                            .controlSize(.regular)
                     }
                 } else {
                     Button {

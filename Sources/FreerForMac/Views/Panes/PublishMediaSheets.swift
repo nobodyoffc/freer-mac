@@ -805,7 +805,7 @@ struct MediaViewerSheet: View {
                     CopyableText(e, font: .caption).foregroundStyle(.secondary)
                 }
                 Button("Try again") { load() }
-                    .controlSize(.small)
+                    .controlSize(.regular)
             }
         }
     }
