@@ -1,5 +1,7 @@
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 import UniformTypeIdentifiers
 
 /// Modal that renders `content` as QR code(s) — one page per
@@ -70,7 +72,9 @@ public struct QrDisplaySheet: View {
             Divider()
             footer
         }
+        #if os(macOS)
         .frame(minWidth: 420)
+        #endif
         .onAppear(perform: generate)
     }
 
@@ -169,6 +173,31 @@ public struct QrDisplaySheet: View {
     /// One image goes through NSSavePanel; several go numbered into a
     /// chosen folder (matching Android's save-all-to-gallery).
     private func save() {
+        #if os(iOS)
+        let images = images
+        Task { @MainActor in
+            // iOS exports files that already exist, so the PNGs are
+            // written to a scratch folder first and copied out from there.
+            let dir = FileManager.default.temporaryDirectory
+                .appendingPathComponent("qr-\(UUID().uuidString)", isDirectory: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: dir) }
+            let stamp = Int(Date().timeIntervalSince1970)
+            var urls: [URL] = []
+            for (i, image) in images.enumerated() {
+                let name = images.count == 1 ? "QR.png" : "QR_\(stamp)_\(i + 1).png"
+                let url = dir.appendingPathComponent(name)
+                if (try? write(image, to: url)) != nil { urls.append(url) }
+            }
+            guard !urls.isEmpty else {
+                statusNote = String(localized: "Save failed: the images could not be written.")
+                return
+            }
+            if await FilePanel.save(filesAt: urls) {
+                statusNote = urls.count == 1 ? String(localized: "Saved QR.png") : String(localized: "Saved \(String(urls.count)) images")
+            }
+        }
+        #else
         if images.count == 1 {
             let panel = NSSavePanel()
             panel.allowedContentTypes = [.png]
@@ -197,6 +226,7 @@ public struct QrDisplaySheet: View {
                 ? String(localized: "Saved \(String(saved)) images to \(dir.lastPathComponent)")
                 : String(localized: "Saved \(String(saved)) of \(String(images.count)) images — some writes failed")
         }
+        #endif
     }
 
     private func write(_ image: NSImage, to url: URL) throws {

@@ -1,5 +1,7 @@
 import Foundation
+#if os(macOS)
 import AppKit
+#endif
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import ImageIO

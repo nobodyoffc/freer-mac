@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import AVFoundation
 import CoreMedia
 import SwiftUI
@@ -192,6 +196,7 @@ public final class QrCameraController: NSObject, ObservableObject,
 /// the layer — it must never construct a preview layer of its own,
 /// because attaching a new layer to a running session crashes the
 /// capture thread (see the controller's `previewLayer` doc).
+#if os(macOS)
 public struct QrCameraPreview: NSViewRepresentable {
     private let layer: AVCaptureVideoPreviewLayer
 
@@ -217,3 +222,53 @@ public struct QrCameraPreview: NSViewRepresentable {
             .forEach { $0.removeFromSuperlayer() }
     }
 }
+#else
+public struct QrCameraPreview: UIViewRepresentable {
+    private let layer: AVCaptureVideoPreviewLayer
+
+    public init(layer: AVCaptureVideoPreviewLayer) {
+        self.layer = layer
+    }
+
+    public func makeUIView(context: Context) -> UIView {
+        let view = PreviewHost()
+        layer.removeFromSuperlayer()
+        view.layer.addSublayer(layer)
+        return view
+    }
+
+    public func updateUIView(_ uiView: UIView, context: Context) {}
+
+    public static func dismantleUIView(_ uiView: UIView, coordinator: ()) {
+        uiView.layer.sublayers?
+            .compactMap { $0 as? AVCaptureVideoPreviewLayer }
+            .forEach { $0.removeFromSuperlayer() }
+    }
+
+    /// A CALayer has no autoresizing on iOS, so the host lays the
+    /// preview out itself — and turns the picture upright, since the
+    /// sensor delivers landscape frames whichever way the phone is held.
+    private final class PreviewHost: UIView {
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            for case let preview as AVCaptureVideoPreviewLayer in layer.sublayers ?? [] {
+                preview.frame = bounds
+                guard let connection = preview.connection else { continue }
+                let angle = Self.rotation(for: window?.windowScene?.interfaceOrientation ?? .portrait)
+                if connection.isVideoRotationAngleSupported(angle) {
+                    connection.videoRotationAngle = angle
+                }
+            }
+        }
+
+        private static func rotation(for orientation: UIInterfaceOrientation) -> CGFloat {
+            switch orientation {
+            case .landscapeRight: return 0
+            case .landscapeLeft: return 180
+            case .portraitUpsideDown: return 270
+            default: return 90
+            }
+        }
+    }
+}
+#endif

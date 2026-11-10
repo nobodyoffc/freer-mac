@@ -5,7 +5,7 @@ import PackageDescription
 // the jitter buffer, and capture and playout on AVAudioEngine.
 let package = Package(
     name: "FCVoice",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "FCVoice", targets: ["FCVoice"])
     ],

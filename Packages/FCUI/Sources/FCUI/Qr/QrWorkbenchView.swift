@@ -1,5 +1,7 @@
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 import UniformTypeIdentifiers
 
 /// The QR workbench: an editable content area plus the Android
@@ -32,8 +34,7 @@ public struct QrWorkbenchView: View {
             if camera.isRunning {
                 cameraPane
             } else if camera.permissionDenied {
-                Label("Camera access denied — enable it in System Settings › Privacy & Security › Camera.",
-                      systemImage: "video.slash")
+                Label(Self.cameraDeniedText, systemImage: "video.slash")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -58,6 +59,12 @@ public struct QrWorkbenchView: View {
             QrDisplaySheet(content: content) { showDisplaySheet = false }
         }
     }
+
+    #if os(macOS)
+    private static let cameraDeniedText = String(localized: "Camera access denied — enable it in System Settings › Privacy & Security › Camera.")
+    #else
+    private static let cameraDeniedText = String(localized: "Camera access denied — enable it in Settings › Freer › Camera.")
+    #endif
 
     // MARK: - subviews
 
@@ -163,6 +170,11 @@ public struct QrWorkbenchView: View {
     }
 
     private func pickImages() {
+        #if os(iOS)
+        Task { @MainActor in
+            importImages(at: await FilePanel.open(types: [.image], allowsMultiple: true))
+        }
+        #else
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
@@ -171,6 +183,7 @@ public struct QrWorkbenchView: View {
         panel.prompt = String(localized: "Decode")
         guard panel.runModal() == .OK else { return }
         importImages(at: panel.urls)
+        #endif
     }
 
     private func importImages(at urls: [URL]) {
@@ -262,6 +275,8 @@ public struct QrScanSheet: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
+        #if os(macOS)
         .frame(minWidth: 520)
+        #endif
     }
 }

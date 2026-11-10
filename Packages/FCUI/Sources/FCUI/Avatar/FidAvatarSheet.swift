@@ -1,6 +1,8 @@
 import SwiftUI
 import FCCore
+#if os(macOS)
 import AppKit
+#endif
 import UniformTypeIdentifiers
 
 /// The avatar, big enough to look at — and to take away.
@@ -90,7 +92,9 @@ public struct FidAvatarSheet: View {
             Divider()
             footer
         }
+        #if os(macOS)
         .frame(width: 380)
+        #endif
     }
 
     // MARK: - pieces
@@ -219,6 +223,19 @@ public struct FidAvatarSheet: View {
     }
 
     private func save() {
+        #if os(iOS)
+        let fid = fid, pixels = pixels
+        Task { @MainActor in
+            do {
+                let data = try AvatarMaker.pngData(for: fid, pixels: pixels)
+                if await FilePanel.save(data, named: "avatar-\(fid).png") {
+                    note(String(localized: "Saved \(String(pixels))×\(String(pixels)) as avatar-\(fid).png"))
+                }
+            } catch {
+                note(String(localized: "Save failed: \(error.localizedDescription)"), isError: true)
+            }
+        }
+        #else
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.nameFieldStringValue = "avatar-\(fid).png"
@@ -229,6 +246,7 @@ public struct FidAvatarSheet: View {
         } catch {
             note(String(localized: "Save failed: \(error.localizedDescription)"), isError: true)
         }
+        #endif
     }
 
     private func note(_ text: String, isError: Bool = false) {

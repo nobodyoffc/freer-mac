@@ -1,4 +1,8 @@
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 
 /// Handing a stored file to the app that understands it.
 ///
@@ -30,17 +34,31 @@ public enum FileOpening {
     @discardableResult
     public static func open(_ url: URL, named name: String?) -> Bool {
         let target = stagedURL(for: url, named: name) ?? url
+        #if os(macOS)
         if NSWorkspace.shared.open(target) { return true }
         // Nothing claims the type. Revealing is the honest fallback:
         // it at least puts the named copy in the user's hands.
         NSWorkspace.shared.activateFileViewerSelecting([target])
         return false
+        #else
+        // iOS opens a file in place with Quick Look, which also carries
+        // the share button for handing it to another app.
+        Task { @MainActor in FilePanel.preview(target) }
+        return true
+        #endif
     }
 
     /// Show `url` in the Finder under a name that means something,
     /// staging a named copy first when the stored one is a bare DID.
     public static func reveal(_ url: URL, named name: String?) {
-        NSWorkspace.shared.activateFileViewerSelecting([stagedURL(for: url, named: name) ?? url])
+        let target = stagedURL(for: url, named: name) ?? url
+        #if os(macOS)
+        NSWorkspace.shared.activateFileViewerSelecting([target])
+        #else
+        // No Finder to reveal in: the share sheet is where a file goes
+        // to be saved to Files or sent on.
+        Task { @MainActor in FilePanel.share([target]) }
+        #endif
     }
 
     // MARK: - staging

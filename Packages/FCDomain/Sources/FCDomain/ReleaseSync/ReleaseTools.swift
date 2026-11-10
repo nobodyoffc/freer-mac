@@ -33,6 +33,7 @@ public enum ShellTool {
     /// Runs `tool args…`, feeding `input` on stdin, and returns stdout.
     /// Blocking — call it off the main actor.
     public static func run(_ tool: String, _ args: [String], input: Data? = nil, in directory: URL? = nil) throws -> Data {
+        #if os(macOS)
         guard let exe = locate(tool) else { throw NotInstalled(tool: tool) }
         let process = Process()
         process.executableURL = exe
@@ -76,6 +77,10 @@ public enum ShellTool {
                           stderr: String(decoding: err, as: UTF8.self))
         }
         return out
+        #else
+        // iOS has no child processes: `git` and `gh` cannot run there.
+        throw NotInstalled(tool: tool)
+        #endif
     }
 }
 

@@ -1,5 +1,7 @@
 import SwiftUI
+#if os(macOS)
 import AppKit
+#endif
 
 extension String {
     /// Truncate by removing the middle, keeping the first `head` and
@@ -199,8 +201,13 @@ private struct CopyOnClick: ViewModifier {
 /// a hand over the whole window.
 public extension View {
     func pointingHand() -> some View {
+        #if os(macOS)
         onHover { hovering in
             if hovering { NSCursor.pointingHand.push() } else { NSCursor.pop() }
         }
+        #else
+        // A finger has no cursor to change.
+        self
+        #endif
     }
 }

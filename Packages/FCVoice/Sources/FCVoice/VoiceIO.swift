@@ -34,6 +34,16 @@ public final class VoiceIO: @unchecked Sendable {
     }
 
     public func start() throws {
+        #if os(iOS)
+        // iOS hands out the microphone and the speaker by session, not by
+        // engine: without an active play-and-record session the input node
+        // reports no format and there is no call. Voice-chat mode is the
+        // system's own echo-cancelled route, with the earpiece, a headset
+        // or a Bluetooth one chosen the way the Phone app chooses.
+        let session = AVAudioSession.sharedInstance()
+        try session.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetooth, .defaultToSpeaker])
+        try session.setActive(true)
+        #endif
         // The playback graph first: turning voice processing on replaces the
         // engine's I/O unit, and doing that before the output side exists
         // leaves the output unit unable to initialise (-10875 on a MacBook).
@@ -82,6 +92,11 @@ public final class VoiceIO: @unchecked Sendable {
         running.set(false)
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        #if os(iOS)
+        // Hand the audio back: whatever was playing before the call —
+        // music, a podcast — is told it may carry on.
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
     }
 
     /// Keeps about three ticks queued: the device drains the ring at its own pace.

@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "FCUI",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v14), .iOS(.v17)],
     products: [
         .library(name: "FCUI", targets: ["FCUI"])
     ],
