@@ -34,6 +34,9 @@ struct SettingsView: View {
     @State private var fapiPort: String = ""
     @State private var fapiPubkeyHex: String = ""
     @State private var theme: Preferences.Theme = .system
+    /// Mac-wide, not per FID, and saved the moment it is picked: it has
+    /// nothing to do with the Save button below.
+    @State private var language: AppLanguage = AppLanguage.chosen
     @State private var autoLockMinutes: String = ""
 
     @State private var saveError: String?
@@ -97,6 +100,14 @@ struct SettingsView: View {
         }
     }
 
+    private func themeLabel(_ t: Preferences.Theme) -> String {
+        switch t {
+        case .system: return String(localized: "Follow system")
+        case .light: return String(localized: "Light")
+        case .dark: return String(localized: "Dark")
+        }
+    }
+
     private var form: some View {
         Form {
             // First: who this FID is on the chain matters more than how
@@ -107,10 +118,34 @@ struct SettingsView: View {
                 LabeledField(String(localized: "Theme")) {
                     Picker("", selection: $theme) {
                         ForEach(Preferences.Theme.allCases, id: \.self) { t in
-                            Text(t.rawValue.capitalized).tag(t)
+                            Text(themeLabel(t)).tag(t)
                         }
                     }
                     .labelsHidden()
+                }
+                LabeledField(
+                    String(localized: "Language"),
+                    hint: String(localized: "For this Mac, whichever FID is unlocked. Takes effect when Freer restarts.")
+                ) {
+                    Picker("", selection: $language) {
+                        ForEach(AppLanguage.allCases) { l in
+                            Text(verbatim: l.label).tag(l)
+                        }
+                    }
+                    .labelsHidden()
+                    .onChange(of: language) { _, picked in
+                        AppLanguage.chosen = picked
+                    }
+                }
+                if language != AppLanguage.atLaunch {
+                    HStack(spacing: 12) {
+                        Text("Freer shows the new language after it restarts. Restarting locks the vault and closes any terminal sessions.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer()
+                        Button("Restart Freer") { AppLanguage.relaunch() }
+                    }
                 }
             }
 

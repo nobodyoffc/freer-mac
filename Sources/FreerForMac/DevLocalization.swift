@@ -43,6 +43,7 @@ enum DevLocalization {
 enum Launcher {
     static func main() {
         DevLocalization.linkBesideExecutable()
+        _ = AppLanguage.atLaunch
         FreerForMacApp.main()
     }
 }

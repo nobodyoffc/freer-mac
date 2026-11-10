@@ -3871,3 +3871,11 @@
 "Don't sign" = "不签名";
 "Nothing is signed or broadcast until you approve." = "在你批准之前，不会签名或广播任何内容。";
 "Approve & sign" = "批准并签名";
+
+/* ---- FreerForMac/Views/Panes/SettingsView.swift (language) ---- */
+"Follow system" = "跟随系统";
+"Light" = "浅色";
+"Dark" = "深色";
+"For this Mac, whichever FID is unlocked. Takes effect when Freer restarts." = "适用于这台 Mac，无论解锁的是哪个 FID。Freer 重启后生效。";
+"Freer shows the new language after it restarts. Restarting locks the vault and closes any terminal sessions." = "Freer 重启后显示新语言。重启会锁定密钥库，并关闭所有终端会话。";
+"Restart Freer" = "重启 Freer";
