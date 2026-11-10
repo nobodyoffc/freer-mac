@@ -548,7 +548,7 @@ private struct HashToolView: View {
     private enum Algorithm: String, CaseIterable, Identifiable {
         case sha256 = "SHA256"
         case sha256x2 = "SHA256x2"
-        case sha1 = "SHA1"
+        case argon2id = "Argon2id"
         case md5 = "MD5"
         case keccak256 = "Keccak256"
         case ripemd160 = "RIPEMD160"
@@ -562,6 +562,7 @@ private struct HashToolView: View {
     @State private var fileData: Data?
     @State private var result = ""
     @State private var error: String?
+    @State private var hashing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -592,7 +593,8 @@ private struct HashToolView: View {
             HStack {
                 Button("Hash", action: hash)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(text.isEmpty && fileData == nil)
+                    .disabled((text.isEmpty && fileData == nil) || hashing)
+                if hashing { ProgressView().controlSize(.small) }
                 Button("Clear") {
                     text = ""; result = ""; error = nil
                     asHex = false; fileName = nil; fileData = nil
@@ -635,9 +637,24 @@ private struct HashToolView: View {
         }
         let digest: Data
         switch algorithm {
+        case .argon2id:
+            // Freer parameters (t=3, m=64 MiB, p=1, 32 bytes) and the empty
+            // FTSP28 salt, so a phrase hashed here equals its phrase key.
+            // Slow by design: run it off the main thread.
+            hashing = true
+            Task {
+                let outcome = await Task.detached(priority: .userInitiated) {
+                    Result { try Argon2.hashID(password: input, salt: PhraseKey.argon2idSalt) }
+                }.value
+                hashing = false
+                switch outcome {
+                case .success(let d): result = d.fcToolsPaneHex
+                case .failure(let e): error = "\(e)"
+                }
+            }
+            return
         case .sha256:    digest = Hash.sha256(input)
         case .sha256x2:  digest = Hash.doubleSha256(input)
-        case .sha1:      digest = Hash.sha1(input)
         case .md5:       digest = Hash.md5(input)
         case .keccak256: digest = Hash.keccak256(input)
         case .ripemd160: digest = Hash.ripemd160(input)
