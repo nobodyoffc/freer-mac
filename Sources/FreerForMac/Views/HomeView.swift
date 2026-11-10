@@ -1,4 +1,5 @@
 import SwiftUI
+import FCCore
 import FCDomain
 import FCUI
 
@@ -67,6 +68,11 @@ struct HomeView: View {
                 // `refreshCidInfoAsync`.
                 .id(appState.liveFid)
                 .toolbar { toolbar(for: session) }
+                // Freeverse time (FVEP4 `Y.D.H.M`) beside the window's
+                // "Freer", as Android prints it beside its own title. It
+                // is the best height from the live FID's `freerByIds`
+                // reply, so it ticks whenever the FID bar refreshes.
+                .navigationSubtitle(freeverseTime)
                 // On the detail column, not the split view: across the
                 // whole window the banner covered the sidebar's last
                 // rows (Settings).
@@ -293,6 +299,14 @@ struct HomeView: View {
         case .settings:
             SettingsView(session: session)
         }
+    }
+
+    /// The chain's best height as a Freeverse date, or empty until the
+    /// server has answered with one.
+    private var freeverseTime: String {
+        guard let height = appState.liveFidInfo?.bestHeight,
+              let date = try? FcDate(height: height) else { return "" }
+        return date.text
     }
 
     @ToolbarContentBuilder
