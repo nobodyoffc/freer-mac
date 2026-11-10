@@ -67,19 +67,19 @@ public struct CodeService {
         /// Display label. English only for now; Phase 11 localises.
         public var label: String {
             switch self {
-            case .name:       return "Name"
-            case .ver:        return "Version"
+            case .name:       return String(localized: "Name")
+            case .ver:        return String(localized: "Version")
             case .did:        return "DID"
-            case .desc:       return "Description"
-            case .langs:      return "Language"
-            case .protocols:  return "Protocol"
-            case .owner:      return "Owner"
-            case .waiters:    return "Waiter"
-            case .birthTime:  return "Published"
-            case .lastTime:   return "Time"
-            case .lastHeight: return "Height"
+            case .desc:       return String(localized: "Description")
+            case .langs:      return String(localized: "Language")
+            case .protocols:  return String(localized: "Protocol")
+            case .owner:      return String(localized: "Owner")
+            case .waiters:    return String(localized: "Waiter")
+            case .birthTime:  return String(localized: "Published")
+            case .lastTime:   return String(localized: "Time")
+            case .lastHeight: return String(localized: "Height")
             case .tCdd:       return "CDD"
-            case .tRate:      return "Rating"
+            case .tRate:      return String(localized: "Rating")
             case .id:         return "ID"
             }
         }

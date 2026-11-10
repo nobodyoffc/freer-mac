@@ -56,7 +56,7 @@ struct FidPickerRequest: Identifiable {
         self.title = title
         self.subtitle = subtitle
         self.mode = mode
-        self.confirmTitle = confirmTitle ?? (mode == .one ? "Choose" : "Add")
+        self.confirmTitle = confirmTitle ?? (mode == .one ? String(localized: "Choose") : String(localized: "Add"))
         self.initialQuery = initialQuery
         self.preselected = preselected
         self.pool = pool
@@ -65,7 +65,7 @@ struct FidPickerRequest: Identifiable {
 
     /// Pick exactly one — the sheet closes on the click.
     static func one(
-        title: String = "Find someone",
+        title: String = String(localized: "Find someone"),
         subtitle: String? = nil,
         initialQuery: String = "",
         pool: [String]? = nil,
@@ -79,7 +79,7 @@ struct FidPickerRequest: Identifiable {
 
     /// Pick any number — the sheet closes on Add.
     static func many(
-        title: String = "Find people",
+        title: String = String(localized: "Find people"),
         subtitle: String? = nil,
         confirmTitle: String? = nil,
         initialQuery: String = "",

@@ -65,13 +65,13 @@ public struct KeyBackup: Sendable {
         public var description: String {
             switch self {
             case .notSignable:
-                return "that entry holds no prikey"
+                return String(localized: "that entry holds no prikey")
             case .wrongPassword:
-                return "that password doesn't open this backup"
+                return String(localized: "that password doesn't open this backup")
             case .noPrikeyInside:
-                return "the entry opened, but what's inside isn't a prikey"
+                return String(localized: "the entry opened, but what's inside isn't a prikey")
             case .fidMismatch(let claimed, let actual):
-                return "the entry says it is \(claimed), but its prikey belongs to \(actual)"
+                return String(localized: "the entry says it is \(claimed), but its prikey belongs to \(actual)")
             }
         }
     }

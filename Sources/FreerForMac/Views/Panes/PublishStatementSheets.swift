@@ -76,7 +76,7 @@ struct ComposeStatementSheet: View {
                 .font(.title3.bold())
 
             CopyableLabel(
-                "A statement cannot be edited, deleted or recovered. Once a block confirms it, it is on the chain under your FID for as long as the chain exists.",
+                String(localized: "A statement cannot be edited, deleted or recovered. Once a block confirms it, it is on the chain under your FID for as long as the chain exists."),
                 systemImage: "exclamationmark.triangle"
             )
             .font(.caption)
@@ -84,7 +84,7 @@ struct ComposeStatementSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    LabeledField("Title") {
+                    LabeledField(String(localized: "Title")) {
                         VStack(alignment: .leading, spacing: 2) {
                             TextField("Optional — what the statement is about", text: $title)
                                 .fieldInputStyle()
@@ -93,7 +93,7 @@ struct ComposeStatementSheet: View {
                         }
                     }
 
-                    LabeledField("Statement") {
+                    LabeledField(String(localized: "Statement")) {
                         VStack(alignment: .leading, spacing: 4) {
                             TextEditor(text: $content)
                                 .font(.body)
@@ -109,7 +109,7 @@ struct ComposeStatementSheet: View {
                                     .font(.caption2).foregroundStyle(.tertiary)
                             }
                             if remaining < 0 {
-                                CopyableText("A statement is carved in full and is neither compressed nor stored off-chain. If it needs to be longer than this, publish it as a Text instead — that keeps the body on DISK and carves a hash of it.")
+                                CopyableText(String(localized: "A statement is carved in full and is neither compressed nor stored off-chain. If it needs to be longer than this, publish it as a Text instead — that keeps the body on DISK and carves a hash of it."))
                                     .font(.caption2)
                                     .foregroundStyle(.orange)
                             }
@@ -130,7 +130,7 @@ struct ComposeStatementSheet: View {
                 CopyableText(e, font: .caption).foregroundStyle(.red)
             }
             if !session.canSign {
-                CopyableLabel("This identity is watch-only — there is no key here to sign a carve with.", systemImage: "eye")
+                CopyableLabel(String(localized: "This identity is watch-only — there is no key here to sign a carve with."), systemImage: "eye")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }

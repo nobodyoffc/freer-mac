@@ -368,7 +368,7 @@ public struct DockService {
             guard case let .fapiNonZeroCode(_, code, message) = self,
                   code == Self.paymentRequiredCode
             else { return nil }
-            return message ?? "Insufficient balance"
+            return message ?? String(localized: "Insufficient balance")
         }
     }
 }

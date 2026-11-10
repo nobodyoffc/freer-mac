@@ -229,9 +229,9 @@ struct TransactionsView: View {
     ) {
         switch kind {
         case .incomes:
-            return ("From", cash.issuer, "arrow.down.left", .green)
+            return (String(localized: "From"), cash.issuer, "arrow.down.left", .green)
         case .expenses:
-            return ("To", cash.owner, "arrow.up.right", .orange)
+            return (String(localized: "To"), cash.owner, "arrow.up.right", .orange)
         case .all:
             return ("", nil, "circle", .secondary)
         }
@@ -261,7 +261,7 @@ struct TransactionsView: View {
 
     private func errorCard(_ err: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            CopyableLabel("Couldn't load activity", systemImage: "exclamationmark.triangle")
+            CopyableLabel(String(localized: "Couldn't load activity"), systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.red)
             CopyableText(err, font: .callout)
                 .foregroundStyle(.red)
@@ -458,9 +458,9 @@ struct TransactionsView: View {
 
     private func label(_ role: TxGroup.Role) -> String {
         switch role {
-        case .received: return "Received"
-        case .sent:     return "Sent"
-        case .mixed:    return "Self / change"
+        case .received: return String(localized: "Received")
+        case .sent:     return String(localized: "Sent")
+        case .mixed:    return String(localized: "Self / change")
         }
     }
 }

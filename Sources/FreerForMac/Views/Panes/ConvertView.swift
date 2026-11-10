@@ -79,7 +79,7 @@ private struct ScriptConvertView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-            ToolTextEditor(placeholder: "Script hex, or ASM", text: $input, minHeight: 90)
+            ToolTextEditor(placeholder: String(localized: "Script hex, or ASM"), text: $input, minHeight: 90)
 
             HStack {
                 Button("Convert", action: convert)
@@ -104,7 +104,7 @@ private struct ScriptConvertView: View {
                 resultLabel = "ASM"
             } else {
                 result = Hex.encode(try ScriptAsm.assemble(text))
-                resultLabel = "Hex"
+                resultLabel = String(localized: "Hex")
             }
         } catch {
             self.error = errorText(error)
@@ -134,8 +134,10 @@ private struct PrikeyConvertView: View {
             Text("Prikey formats").font(.headline)
 
             CopyableLabel(
-                "A prikey is the whole of an identity. Anything shown here spends "
-                    + "everything the key holds — don't paste it anywhere you don't control.",
+                String(localized: """
+                    A prikey is the whole of an identity. Anything shown here spends \
+                    everything the key holds — don't paste it anywhere you don't control.
+                    """),
                 systemImage: "exclamationmark.triangle"
             )
             .font(.caption)
@@ -213,7 +215,7 @@ private struct PubkeyConvertView: View {
             Text("Pubkey formats").font(.headline)
 
             ToolTextEditor(
-                placeholder: "Pubkey — compressed or uncompressed hex, or Base58",
+                placeholder: String(localized: "Pubkey — compressed or uncompressed hex, or Base58"),
                 text: $input
             )
 
@@ -241,7 +243,7 @@ private struct PubkeyConvertView: View {
     private func useMyKey() {
         error = nil
         guard let pubkey = session.liveKeyInfo.pubkey else {
-            error = "This identity has no stored pubkey"
+            error = String(localized: "This identity has no stored pubkey")
             return
         }
         input = Hex.encode(pubkey)
@@ -254,11 +256,11 @@ private struct PubkeyConvertView: View {
             let wif = try PubkeyFormats.wifForms(ofPubkey33: pubkey33)
             rows = [
                 ("FID", try FchAddress(publicKey: try Hex.decode(pubkey33)).fid),
-                ("Compressed hex", pubkey33),
-                ("Uncompressed hex", try PubkeyFormats.decompress(pubkey33: pubkey33)),
-                ("WIF uncompressed", wif.uncompressed),
-                ("WIF compressed, version 0", wif.compressedWithVersion0),
-                ("WIF compressed, no version", wif.compressedWithoutVersion),
+                (String(localized: "Compressed hex"), pubkey33),
+                (String(localized: "Uncompressed hex"), try PubkeyFormats.decompress(pubkey33: pubkey33)),
+                (String(localized: "WIF uncompressed"), wif.uncompressed),
+                (String(localized: "WIF compressed, version 0"), wif.compressedWithVersion0),
+                (String(localized: "WIF compressed, no version"), wif.compressedWithoutVersion),
             ]
         } catch {
             self.error = errorText(error)
@@ -280,7 +282,7 @@ private struct AddressConvertView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Addresses across chains").font(.headline)
 
-            ToolTextEditor(placeholder: "Pubkey, or an address", text: $input)
+            ToolTextEditor(placeholder: String(localized: "Pubkey, or an address"), text: $input)
 
             Button {
                 input = session.liveFid
@@ -321,9 +323,11 @@ private struct AddressConvertView: View {
                 // answer, not a gap. ETH and TRX hash different bytes,
                 // so from an address alone there is nothing to derive
                 // — and a plausible guess would be unspendable.
-                note = "Bitcoin is shown in its segwit form here. ETH and TRX are absent "
-                    + "by necessity: their addresses hash the pubkey itself, which an "
-                    + "address does not contain. Convert from the pubkey to see them."
+                note = String(localized: """
+                    Bitcoin is shown in its segwit form here. ETH and TRX are absent \
+                    by necessity: their addresses hash the pubkey itself, which an \
+                    address does not contain. Convert from the pubkey to see them.
+                    """)
             }
         } catch {
             self.error = errorText(error)
@@ -342,8 +346,10 @@ private struct JsonConvertView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("JSON ⇄ formatted").font(.headline)
-            Text("Compact JSON expands; expanded JSON compacts. Key order and number "
-                 + "literals are preserved exactly.")
+            Text(String(localized: """
+                Compact JSON expands; expanded JSON compacts. Key order and number \
+                literals are preserved exactly.
+                """))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -367,10 +373,10 @@ private struct JsonConvertView: View {
         do {
             if JsonFormatter.looksPretty(input) {
                 result = try JsonFormatter.minify(input)
-                resultLabel = "Compact"
+                resultLabel = String(localized: "Compact")
             } else {
                 result = try JsonFormatter.prettyPrint(input)
-                resultLabel = "Formatted"
+                resultLabel = String(localized: "Formatted")
             }
         } catch {
             self.error = errorText(error)
@@ -392,7 +398,7 @@ private struct StringConvertView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Text encodings").font(.headline)
 
-            ToolTextEditor(placeholder: "Text to decode", text: $input)
+            ToolTextEditor(placeholder: String(localized: "Text to decode"), text: $input)
 
             Picker("Read as", selection: $encoding) {
                 Text("Auto").tag(StringCodec.Encoding?.none)
@@ -423,14 +429,14 @@ private struct StringConvertView: View {
             let bytes: Data
             if let encoding {
                 bytes = try StringCodec.decode(input, as: encoding)
-                detected = "Read as \(encoding.rawValue)."
+                detected = String(localized: "Read as \(encoding.rawValue).")
             } else {
                 let (data, guessed) = try StringCodec.decodeDetecting(input)
                 bytes = data
                 // Auto-detect is a guess between overlapping alphabets;
                 // saying which reading was taken is what lets the user
                 // notice it took the wrong one.
-                detected = "Read as \(guessed.rawValue) — pick an encoding above to override."
+                detected = String(localized: "Read as \(guessed.rawValue) — pick an encoding above to override.")
             }
             rows = StringCodec.renderAll(bytes).map { ($0.0.rawValue, $0.1) }
         } catch {
@@ -481,8 +487,10 @@ private struct TimeConvertView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Time, height and FcDate").font(.headline)
-            Text("Edit any field; the rest follow. Heights are approximate — one block per "
-                 + "minute is the target interval, not the measured one.")
+            Text(String(localized: """
+                Edit any field; the rest follow. Heights are approximate — one block per \
+                minute is the target interval, not the measured one.
+                """))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -600,8 +608,8 @@ private enum ConvertFailure: Error, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case let .notANumber(text):  return "'\(text)' is not a whole number"
-        case let .notATime(text):    return "'\(text)' is not a time — use yyyy-MM-dd HH:mm:ss"
+        case let .notANumber(text):  return String(localized: "'\(text)' is not a whole number")
+        case let .notATime(text):    return String(localized: "'\(text)' is not a time — use yyyy-MM-dd HH:mm:ss")
         }
     }
 }

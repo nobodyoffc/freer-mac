@@ -36,11 +36,11 @@ struct PickedFid: Identifiable, Hashable, Sendable {
 
         var label: String {
             switch self {
-            case .onChain: return "on chain"
-            case .contact: return "contact"
-            case .myKey:   return "mine"
-            case .list:    return "listed"
-            case .typed:   return "typed"
+            case .onChain: return String(localized: "on chain")
+            case .contact: return String(localized: "contact")
+            case .myKey:   return String(localized: "mine")
+            case .list:    return String(localized: "listed")
+            case .typed:   return String(localized: "typed")
             }
         }
 

@@ -100,7 +100,7 @@ struct ServantTeamsSheet: View {
     private func row(_ team: Team) -> some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(team.displayName ?? "Unnamed team").font(.callout.weight(.semibold))
+                Text(team.displayName ?? String(localized: "Unnamed team")).font(.callout.weight(.semibold))
                 HStack(spacing: 4) {
                     Text("Owner").font(.caption).foregroundStyle(.secondary)
                     if let owner = team.owner {
@@ -117,7 +117,7 @@ struct ServantTeamsSheet: View {
                 }
                 if let transferee = team.transferee, !transferee.isEmpty {
                     HStack(spacing: 4) {
-                        ChatChip(transferee == session.liveFid ? "on offer to you" : "on offer", color: .orange)
+                        ChatChip(transferee == session.liveFid ? String(localized: "on offer to you") : String(localized: "on offer"), color: .orange)
                         if transferee != session.liveFid {
                             FidBadge(transferee, font: .caption)
                         }

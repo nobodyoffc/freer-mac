@@ -50,7 +50,7 @@ struct PaneHeader: View {
         }
         .sheet(isPresented: $showQr) {
             QrDisplaySheet(
-                title: info?.hasCid == true ? (info?.displayName ?? "My FID") : "My FID",
+                title: info?.hasCid == true ? (info?.displayName ?? String(localized: "My FID")) : String(localized: "My FID"),
                 content: session.liveFid
             ) { showQr = false }
         }
@@ -158,11 +158,11 @@ struct PaneHeader: View {
             labelControl
             if let info, info.hasMetrics {
                 metric("scalemass", info.weight, help:
-                    "Weight — this FID's share of the chain's total coin-days.")
+                    String(localized: "Weight — this FID's share of the chain's total coin-days."))
                 metric("hand.thumbsup", info.reputation, help:
-                    "Reputation — the CDD-weighted score others have carved about this FID.")
+                    String(localized: "Reputation — the CDD-weighted score others have carved about this FID."))
                 metric("flame", info.hot, help:
-                    "Hot — how much recent activity surrounds this FID.")
+                    String(localized: "Hot — how much recent activity surrounds this FID."))
             }
         }
     }
@@ -243,18 +243,18 @@ struct PaneHeader: View {
     private var identity: (symbol: String, tint: Color, help: String) {
         let kind = session.liveKeyInfo.kind
         if session.canSign {
-            return ("key.fill", .blue, "\(kind.rawValue) — this vault holds the prikey and can sign.")
+            return ("key.fill", .blue, String(localized: "\(kind.rawValue) — this vault holds the prikey and can sign."))
         }
         switch kind {
         case .multisig:
             return ("person.2.fill", .purple,
-                    "Multisig — spending needs the other signers too.")
+                    String(localized: "Multisig — spending needs the other signers too."))
         case .watched:
             return ("eye", .orange,
-                    "Watch-only — no prikey here. Transactions can be built but must be signed elsewhere.")
+                    String(localized: "Watch-only — no prikey here. Transactions can be built but must be signed elsewhere."))
         default:
             return ("key.slash", .orange,
-                    "No prikey for this identity — watch only.")
+                    String(localized: "No prikey for this identity — watch only."))
         }
     }
 
@@ -265,18 +265,18 @@ struct PaneHeader: View {
             value(
                 Self.formatBalance(info?.balance),
                 unit: "F",
-                help: "Balance — spendable FCH for this FID. Click for the cash behind it."
+                help: String(localized: "Balance — spendable FCH for this FID. Click for the cash behind it.")
             )
             value(
                 info?.cash.map { Self.compact($0) },
                 unit: "C",
-                help: "Cash — how many separate UTXOs make up that balance."
+                help: String(localized: "Cash — how many separate UTXOs make up that balance.")
             )
             value(
                 info?.cd.map { Self.compact($0) },
                 unit: nil,
                 symbol: "bolt.fill",
-                help: "CD — coin-days accumulated, the fuel most on-chain operations are priced in."
+                help: String(localized: "CD — coin-days accumulated, the fuel most on-chain operations are priced in.")
             )
 
             Button {
@@ -327,10 +327,10 @@ struct PaneHeader: View {
 
     private var refreshHelp: String {
         guard let fetchedAt = info?.fetchedAt else {
-            return "Load this FID's on-chain stats"
+            return String(localized: "Load this FID's on-chain stats")
         }
         let when = fetchedAt.formatted(.relative(presentation: .named))
-        return "Refresh on-chain stats — last updated \(when)"
+        return String(localized: "Refresh on-chain stats — last updated \(when)")
     }
 
     // MARK: - actions

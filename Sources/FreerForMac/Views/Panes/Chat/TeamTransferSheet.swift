@@ -78,7 +78,7 @@ struct TeamTransferSheet: View {
                 .padding(10)
                 .background(RoundedRectangle(cornerRadius: 8).fill(Color.blue.opacity(0.10)))
             } else if authorityChecked && authority == nil {
-                CopyableText("The chain lists you as neither this team's owner nor the owner's master, so a transfer from you would be ignored.")
+                CopyableText(String(localized: "The chain lists you as neither this team's owner nor the owner's master, so a transfer from you would be ignored."))
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
@@ -128,8 +128,8 @@ struct TeamTransferSheet: View {
                     }
                     Button {
                         pick = .one(
-                            title: "Hand the team to…",
-                            subtitle: "They may take the team over; nothing changes until they do.",
+                            title: String(localized: "Hand the team to…"),
+                            subtitle: String(localized: "They may take the team over; nothing changes until they do."),
                             // Naming the owner withdraws an offer rather
                             // than making one; that has its own button.
                             excluded: [team?.owner ?? session.liveFid]
@@ -207,12 +207,12 @@ struct TeamTransferSheet: View {
                 _ = try? await session.courier.drainOutbox(as: session.liveFid)
                 let summary: String
                 if fid == session.liveFid {
-                    summary = "Offer to yourself broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). Once it confirms, take the team over from Team invitations."
+                    summary = String(localized: "Offer to yourself broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). Once it confirms, take the team over from Team invitations.")
                 } else {
                     let notice = (told?.queued.isEmpty ?? true)
-                        ? " They could not be told — they have never published a pubkey — so let them know yourself."
-                        : " They have been sent a notice."
-                    summary = "Offer broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The team is theirs once they take it over.\(notice)"
+                        ? String(localized: " They could not be told — they have never published a pubkey — so let them know yourself.")
+                        : String(localized: " They have been sent a notice.")
+                    summary = String(localized: "Offer broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The team is theirs once they take it over.\(notice)")
                 }
                 await MainActor.run {
                     working = false
@@ -235,7 +235,7 @@ struct TeamTransferSheet: View {
                 let txid = try await session.carveTeamCancelTransferOnChain(teamId: teamId)
                 await MainActor.run {
                     working = false
-                    onDone("Withdrawal broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The offer stands until it confirms, so it can still be taken until then.")
+                    onDone(String(localized: "Withdrawal broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The offer stands until it confirms, so it can still be taken until then."))
                 }
             } catch {
                 await MainActor.run {

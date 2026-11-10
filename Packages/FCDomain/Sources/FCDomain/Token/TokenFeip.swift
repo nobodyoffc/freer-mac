@@ -40,17 +40,17 @@ public struct TokenTransfer: Equatable, Sendable, Identifiable {
         public var description: String {
             switch self {
             case .emptyFid:
-                return "a recipient FID is required"
+                return String(localized: "a recipient FID is required")
             case .emptyAmount:
-                return "an amount is required"
+                return String(localized: "an amount is required")
             case .notANumber(let s):
-                return "\"\(s)\" is not a number"
+                return String(localized: "\"\(s)\" is not a number")
             case .notPositive(let s):
-                return "\(s) is not greater than zero"
+                return String(localized: "\(s) is not greater than zero")
             case let .tooManyDecimals(typed, allowed):
                 return allowed == 0
-                    ? "this token has no decimal places, but the amount has \(typed)"
-                    : "this token allows \(allowed) decimal place\(allowed == 1 ? "" : "s"), but the amount has \(typed)"
+                    ? String(localized: "this token has no decimal places, but the amount has \(String(typed))")
+                    : String(localized: "this token allows \(String(allowed)) decimal place\(allowed == 1 ? "" : "s"), but the amount has \(String(typed))")
             }
         }
     }
@@ -152,11 +152,11 @@ public enum TokenFeip {
         /// Display label. English only for now; Phase 11 localises.
         public var label: String {
             switch self {
-            case .deploy:   return "Deploy"
-            case .issue:    return "Issue"
-            case .transfer: return "Transfer"
-            case .destroy:  return "Destroy"
-            case .close:    return "Close"
+            case .deploy:   return String(localized: "Deploy")
+            case .issue:    return String(localized: "Issue")
+            case .transfer: return String(localized: "Transfer")
+            case .destroy:  return String(localized: "Destroy")
+            case .close:    return String(localized: "Close")
             }
         }
     }

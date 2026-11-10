@@ -34,10 +34,10 @@ public struct ProtocolDoc: Equatable, Sendable {
 
         public var description: String {
             switch self {
-            case .notAProtocolFileName(let f): return "\(f): not named <TYPE><SN>V<VER>_<Name>.md"
-            case .missingField(let k, let f): return "\(f): the Summary table has no \(k)"
+            case .notAProtocolFileName(let f): return String(localized: "\(f): not named <TYPE><SN>V<VER>_<Name>.md")
+            case .missingField(let k, let f): return String(localized: "\(f): the Summary table has no \(k)")
             case .mismatch(let why, let f): return "\(f): \(why)"
-            case .noSummaryTable(let f): return "\(f): no Summary table"
+            case .noSummaryTable(let f): return String(localized: "\(f): no Summary table")
             }
         }
     }
@@ -83,13 +83,13 @@ public struct ProtocolDoc: Equatable, Sendable {
         // A change proposal ("FIMP (change proposal)") or a doc whose table
         // disagrees with its file name is not the protocol's next version.
         guard type == fromName.type else {
-            throw Failure.mismatch("Summary Type \"\(type)\" is not \(fromName.type)", file: file)
+            throw Failure.mismatch(String(localized: "Summary Type \"\(type)\" is not \(fromName.type)"), file: file)
         }
         guard let sn = Int(snText).map(String.init), sn == fromName.sn else {
-            throw Failure.mismatch("Summary SN \"\(snText)\" is not \(fromName.sn)", file: file)
+            throw Failure.mismatch(String(localized: "Summary SN \"\(snText)\" is not \(fromName.sn)"), file: file)
         }
         guard Int(ver).map(String.init) == fromName.ver else {
-            throw Failure.mismatch("Summary Version \"\(ver)\" is not \(fromName.ver)", file: file)
+            throw Failure.mismatch(String(localized: "Summary Version \"\(ver)\" is not \(fromName.ver)"), file: file)
         }
         let pidText = table["PID"]?.trimmingCharacters(in: .whitespaces) ?? ""
         let lang = table["Lang"] ?? table["Language"]

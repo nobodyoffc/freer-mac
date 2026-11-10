@@ -60,7 +60,7 @@ struct SshUploadSheet: View {
             Divider()
 
             VStack(alignment: .leading, spacing: 16) {
-                LabeledField(paths.count == 1 ? "Item" : "\(paths.count) items") {
+                LabeledField(paths.count == 1 ? String(localized: "Item") : "\(paths.count) items") {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 4) {
                             ForEach(Array(paths.enumerated()), id: \.offset) { _, path in
@@ -77,8 +77,8 @@ struct SshUploadSheet: View {
                 }
 
                 LabeledField(
-                    "Folder on \(server.target)",
-                    hint: problem ?? "~ is your home directory, and a path without a leading / starts there. The folder must already exist — scp does not create it.",
+                    String(localized: "Folder on \(server.target)"),
+                    hint: problem ?? String(localized: "~ is your home directory, and a path without a leading / starts there. The folder must already exist — scp does not create it."),
                     hintIsError: problem != nil
                 ) {
                     VStack(alignment: .leading, spacing: 8) {

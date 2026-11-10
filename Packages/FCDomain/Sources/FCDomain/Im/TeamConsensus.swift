@@ -461,25 +461,25 @@ public struct TeamConsensus {
     /// What a document looks like, from its leading bytes.
     public static func sniff(_ data: Data) -> FileKind? {
         if data.starts(with: Array("%PDF".utf8)) {
-            return FileKind(label: "a PDF", fileExtension: "pdf")
+            return FileKind(label: String(localized: "a PDF"), fileExtension: "pdf")
         }
         // The OLE2 compound-file header, which is every pre-2007 Office
         // document. Which one it is lives inside the container, and
         // .doc is the only one anybody carves as a consensus.
         if data.starts(with: [0xD0, 0xCF, 0x11, 0xE0]) {
-            return FileKind(label: "an older Word document", fileExtension: "doc")
+            return FileKind(label: String(localized: "an older Word document"), fileExtension: "doc")
         }
         if data.starts(with: Array("{\\rtf".utf8)) {
-            return FileKind(label: "an RTF document", fileExtension: "rtf")
+            return FileKind(label: String(localized: "an RTF document"), fileExtension: "rtf")
         }
         if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) {
-            return FileKind(label: "a PNG image", fileExtension: "png")
+            return FileKind(label: String(localized: "a PNG image"), fileExtension: "png")
         }
         if data.starts(with: [0xFF, 0xD8, 0xFF]) {
-            return FileKind(label: "a JPEG image", fileExtension: "jpg")
+            return FileKind(label: String(localized: "a JPEG image"), fileExtension: "jpg")
         }
         if data.starts(with: Array("GIF8".utf8)) {
-            return FileKind(label: "a GIF image", fileExtension: "gif")
+            return FileKind(label: String(localized: "a GIF image"), fileExtension: "gif")
         }
         if data.starts(with: [0x50, 0x4B, 0x03, 0x04]) {
             return zipKind(data)
@@ -496,13 +496,13 @@ public struct TeamConsensus {
         func names(_ needle: String) -> Bool {
             head.range(of: Data(needle.utf8)) != nil
         }
-        if names("word/") { return FileKind(label: "a Word document", fileExtension: "docx") }
-        if names("xl/") { return FileKind(label: "an Excel workbook", fileExtension: "xlsx") }
-        if names("ppt/") { return FileKind(label: "a PowerPoint deck", fileExtension: "pptx") }
+        if names("word/") { return FileKind(label: String(localized: "a Word document"), fileExtension: "docx") }
+        if names("xl/") { return FileKind(label: String(localized: "an Excel workbook"), fileExtension: "xlsx") }
+        if names("ppt/") { return FileKind(label: String(localized: "a PowerPoint deck"), fileExtension: "pptx") }
         if names("opendocument.text") {
-            return FileKind(label: "an OpenDocument text document", fileExtension: "odt")
+            return FileKind(label: String(localized: "an OpenDocument text document"), fileExtension: "odt")
         }
-        return FileKind(label: "a zip archive", fileExtension: "zip")
+        return FileKind(label: String(localized: "a zip archive"), fileExtension: "zip")
     }
 
     // MARK: - internals

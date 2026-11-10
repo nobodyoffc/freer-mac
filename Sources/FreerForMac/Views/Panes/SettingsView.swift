@@ -104,7 +104,7 @@ struct SettingsView: View {
             IdentitySettingsSection(session: session) { baseOnThisMac }
 
             Section("Appearance") {
-                LabeledField("Theme") {
+                LabeledField(String(localized: "Theme")) {
                     Picker("", selection: $theme) {
                         ForEach(Preferences.Theme.allCases, id: \.self) { t in
                             Text(t.rawValue.capitalized).tag(t)
@@ -155,7 +155,7 @@ struct SettingsView: View {
     /// the home BASE, and the only one when not.
     @ViewBuilder
     private var baseOnThisMac: some View {
-        LabeledField("Connected to") {
+        LabeledField(String(localized: "Connected to")) {
             HStack(spacing: 6) {
                 if let connection = appState.baseConnection {
                     CopyableText(connection.service, font: .callout.monospaced())
@@ -201,9 +201,9 @@ struct SettingsView: View {
 
     private func connectionSourceText(_ connection: BaseConnection) -> String {
         switch connection.source {
-        case .home:     return "your home BASE"
-        case .thisMac:  return "set on this Mac"
-        case .starting: return connection.homeBaseDown ? "your home BASE is down" : "the starting server"
+        case .home:     return String(localized: "your home BASE")
+        case .thisMac:  return String(localized: "set on this Mac")
+        case .starting: return connection.homeBaseDown ? String(localized: "your home BASE is down") : String(localized: "the starting server")
         }
     }
 
@@ -212,31 +212,31 @@ struct SettingsView: View {
     private var serverSummary: String {
         let server: String
         if fapiHost.isEmpty || fapiPort.isEmpty {
-            server = "not set"
+            server = String(localized: "not set")
         } else if !pubkeyLooksValid(fapiPubkeyHex) {
-            server = "\(fapiHost):\(fapiPort) — no pubkey"
+            server = String(localized: "\(fapiHost):\(fapiPort) — no pubkey")
         } else {
             server = "\(fapiHost):\(fapiPort)"
         }
-        return followHomeBase ? "Following home · starts on \(server)" : "Pinned to \(server)"
+        return followHomeBase ? String(localized: "Following home · starts on \(server)") : String(localized: "Pinned to \(server)")
     }
 
     @ViewBuilder
     private var serverFields: some View {
-        LabeledField("Host") {
+        LabeledField(String(localized: "Host")) {
             TextField("", text: $fapiHost, prompt: Text("localhost"))
                 .fieldInputStyle()
         }
-        LabeledField("Port") {
+        LabeledField(String(localized: "Port")) {
             TextField("", text: $fapiPort, prompt: Text("8500"))
                 .fieldInputStyle()
                 .frame(maxWidth: 140)
         }
 
         LabeledField(
-            "Server pubkey",
+            String(localized: "Server pubkey"),
             hint: (!fapiPubkeyHex.isEmpty && !pubkeyLooksValid(fapiPubkeyHex))
-                ? "Pubkey must be 66 hex characters (33 SEC1-compressed bytes)."
+                ? String(localized: "Pubkey must be 66 hex characters (33 SEC1-compressed bytes).")
                 : nil,
             hintIsError: true
         ) {
@@ -311,7 +311,7 @@ struct SettingsView: View {
     private var mailSection: some View {
         Section {
             LabeledField(
-                "My notice fee",
+                String(localized: "My notice fee"),
                 hint: myNoticeFeeHint,
                 hintIsError: myNoticeFeeSats == nil && !myNoticeFee.isEmpty
             ) {
@@ -343,10 +343,10 @@ struct SettingsView: View {
 
             DisclosureGroup("When I send Cmail", isExpanded: $sendingLimitsExpanded) {
                 LabeledField(
-                    "Most I'll pay",
+                    String(localized: "Most I'll pay"),
                     hint: maxPayingSats == nil && !maxPayingNoticeFee.isEmpty
-                        ? "Not a valid amount."
-                        : "Blank = \(NoticeFee.coinString(satoshis: NoticeFee.defaultMaxPayingSats)) F.",
+                        ? String(localized: "Not a valid amount.")
+                        : String(localized: "Blank = \(NoticeFee.coinString(satoshis: NoticeFee.defaultMaxPayingSats)) F."),
                     hintIsError: maxPayingSats == nil && !maxPayingNoticeFee.isEmpty
                 ) {
                     HStack(spacing: 8) {
@@ -365,7 +365,7 @@ struct SettingsView: View {
                 CopyableText(err, font: .callout).foregroundStyle(.red)
             } else if let txid = feeCarveTxid {
                 CopyableText(
-                    display: "Carved — tx \(txid.elidingMiddle(head: 8, tail: 8)). Senders see the new rate once a block confirms it.",
+                    display: String(localized: "Carved — tx \(txid.elidingMiddle(head: 8, tail: 8)). Senders see the new rate once a block confirms it."),
                     copy: txid,
                     font: .caption
                 )
@@ -406,7 +406,7 @@ struct SettingsView: View {
                         .foregroundStyle(.green)
                         .font(.callout)
                 } else {
-                    CopyableLabel("Not backed up yet", systemImage: "exclamationmark.circle.fill")
+                    CopyableLabel(String(localized: "Not backed up yet"), systemImage: "exclamationmark.circle.fill")
                         .foregroundStyle(.orange)
                         .font(.callout)
                 }
@@ -416,9 +416,11 @@ struct SettingsView: View {
             Toggle("Show every transaction before signing it", isOn: $confirmBeforeSigning)
 
             LabeledField(
-                "Auto-lock after (minutes)",
-                hint: "Blank = never auto-lock. Locking closes the vault, "
-                    + "and with it any open terminals and the SSH agent."
+                String(localized: "Auto-lock after (minutes)"),
+                hint: String(localized: """
+                    Blank = never auto-lock. Locking closes the vault, \
+                    and with it any open terminals and the SSH agent.
+                    """)
             ) {
                 TextField("", text: $autoLockMinutes, prompt: Text("e.g. 10"))
                     .fieldInputStyle()
@@ -478,15 +480,15 @@ struct SettingsView: View {
     /// been carved from another device.
     private var myNoticeFeeHint: String? {
         if !myNoticeFee.isEmpty, myNoticeFeeSats == nil {
-            return "Not a valid amount."
+            return String(localized: "Not a valid amount.")
         }
         if let sats = myNoticeFeeSats, sats > NoticeFee.maxPublishableSats {
-            return "Above the \(NoticeFee.coinString(satoshis: NoticeFee.maxPublishableSats)) F ceiling — a fee that high makes you unreachable."
+            return String(localized: "Above the \(NoticeFee.coinString(satoshis: NoticeFee.maxPublishableSats)) F ceiling — a fee that high makes you unreachable.")
         }
         guard let published = publishedNoticeFee else {
-            return loadingFee ? nil : "Nothing published yet — senders pay the \(NoticeFee.coinString(satoshis: NoticeFee.defaultFeeSats)) F default."
+            return loadingFee ? nil : String(localized: "Nothing published yet — senders pay the \(NoticeFee.coinString(satoshis: NoticeFee.defaultFeeSats)) F default.")
         }
-        return "On chain now: \(published) F."
+        return String(localized: "On chain now: \(published) F.")
     }
 
     private var canCarveNoticeFee: Bool {
@@ -627,7 +629,7 @@ struct SettingsView: View {
     private func runDiscover() async {
         discoverError = nil
         guard let port = UInt16(fapiPort), !fapiHost.isEmpty else {
-            discoverError = "Need host and port first."
+            discoverError = String(localized: "Need host and port first.")
             return
         }
         discovering = true
@@ -640,7 +642,7 @@ struct SettingsView: View {
             // produced by Hash.hex / our test fixtures.
             fapiPubkeyHex = pubkey.map { String(format: "%02x", $0) }.joined()
         } catch {
-            discoverError = "Discover failed: \(error)"
+            discoverError = String(localized: "Discover failed: \(String(describing: error))")
         }
     }
 
@@ -653,11 +655,11 @@ struct SettingsView: View {
         defer { testing = false }
 
         guard let port = UInt16(fapiPort), pubkeyLooksValid(fapiPubkeyHex) else {
-            testResult = .fail("Form has invalid values.")
+            testResult = .fail(String(localized: "Form has invalid values."))
             return
         }
         guard let pubkey = decodeHex(fapiPubkeyHex), pubkey.count == 33 else {
-            testResult = .fail("Pubkey hex doesn't decode to 33 bytes.")
+            testResult = .fail(String(localized: "Pubkey hex doesn't decode to 33 bytes."))
             return
         }
 
@@ -665,21 +667,21 @@ struct SettingsView: View {
         do {
             priv = try session.mainPrikey()
         } catch {
-            testResult = .fail("Couldn't read main prikey: \(error)")
+            testResult = .fail(String(localized: "Couldn't read main prikey: \(String(describing: error))"))
             return
         }
 
         do {
             try await AppState.probeBase(host: fapiHost, port: port, pubkey: pubkey, prikey: priv)
-            testResult = .ok("Connected — server replied OK")
+            testResult = .ok(String(localized: "Connected — server replied OK"))
             // This proves the network is back. The live client may
             // still be sitting on a socket that died while the
             // machine slept, so retire it: the next call reconnects.
             appState.markFapiStale()
         } catch let failure as BaseProbeFailure {
-            testResult = .fail("Server replied code \(failure.code): \(failure.message)")
+            testResult = .fail(String(localized: "Server replied code \(String(failure.code)): \(failure.message)"))
         } catch {
-            testResult = .fail("Failed: \(error)")
+            testResult = .fail(String(localized: "Failed: \(String(describing: error))"))
         }
     }
 

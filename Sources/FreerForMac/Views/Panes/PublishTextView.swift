@@ -93,7 +93,7 @@ struct PublishTextView: View {
 
             if let err = loadError, source.isEmpty {
                 card {
-                    CopyableLabel("Couldn't load", systemImage: "exclamationmark.triangle")
+                    CopyableLabel(String(localized: "Couldn't load"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                     Text("Nothing is shown rather than the last list that loaded — a failed query has no answer, and rows left over from a different one would be read as this one's.")
@@ -184,16 +184,16 @@ struct PublishTextView: View {
         switch result {
         case .carved(let record):
             actionError = nil
-            actionNote = "Published — tx \(record.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it."
+            actionNote = String(localized: "Published — tx \(record.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it.")
             tab = .mine
             Task { await refresh() }
         case .updated(let txid):
             actionError = nil
-            actionNote = "New edition broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8))."
+            actionNote = String(localized: "New edition broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)).")
             Task { await refresh() }
         case .draft:
             actionError = nil
-            actionNote = "Saved as a draft. Nothing is on the chain, and nothing is on DISK, until you publish it."
+            actionNote = String(localized: "Saved as a draft. Nothing is on the chain, and nothing is on DISK, until you publish it.")
             tab = .drafts
         case .cancelled:
             break
@@ -213,7 +213,7 @@ struct PublishTextView: View {
 
             Spacer(minLength: 8)
 
-            SearchField("Search title, summary, FID…", text: $searchText, minWidth: 150)
+            SearchField(String(localized: "Search title, summary, FID…"), text: $searchText, minWidth: 150)
                 .help("Filters the rows loaded here. Search chain looks through the whole index.")
 
             if tab != .drafts {
@@ -313,7 +313,7 @@ struct PublishTextView: View {
                     }
                 }
                 if showingCache {
-                    countChip("offline — showing the cached copy", color: .orange)
+                    countChip(String(localized: "offline — showing the cached copy"), color: .orange)
                 }
             }
             Spacer(minLength: 0)
@@ -400,7 +400,7 @@ struct PublishTextView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(record.title?.isEmpty == false ? record.title! : "Untitled")
+                    Text(record.title?.isEmpty == false ? record.title! : String(localized: "Untitled"))
                         .font(.body.bold())
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -426,7 +426,7 @@ struct PublishTextView: View {
                 }
 
                 HStack(spacing: 10) {
-                    fidLine("By", record.publisher)
+                    fidLine(String(localized: "By"), record.publisher)
                     if let rate = record.tRate {
                         Text(String(format: "★ %.1f", rate))
                             .font(.caption2)
@@ -528,14 +528,14 @@ struct PublishTextView: View {
     /// me" before "what state is it in".
     private func chips(for record: TextRecord) -> [(String, Color)] {
         var out: [(String, Color)] = []
-        if record.publisher == session.liveFid { out.append(("Mine", .blue)) }
+        if record.publisher == session.liveFid { out.append((String(localized: "Mine"), .blue)) }
 
         if record.isDeleted {
-            out.append(("Deleted", .red))
+            out.append((String(localized: "Deleted"), .red))
         } else if record.onChain == false {
-            out.append(("Draft", .gray))
+            out.append((String(localized: "Draft"), .gray))
         } else if record.onChain == nil {
-            out.append(("Broadcast", .orange))
+            out.append((String(localized: "Broadcast"), .orange))
         }
 
         // The edition is worth a chip only once it is not the first —
@@ -585,7 +585,7 @@ struct PublishTextView: View {
 
     private func noteServerFilterMismatch(_ dropped: Int, of total: Int) {
         guard dropped > 0 else { return }
-        note = "The server returned \(dropped) of \(total) row\(total == 1 ? "" : "s") that don't belong on this tab — it ignored the deleted filter, so this list is filtered here instead and Load more may return fewer rows than it fetches."
+        note = String(localized: "The server returned \(String(dropped)) of \(String(total)) row\(total == 1 ? "" : "s") that don't belong on this tab — it ignored the deleted filter, so this list is filtered here instead and Load more may return fewer rows than it fetches.")
     }
 
     private func loadLocal() {
@@ -755,7 +755,7 @@ struct PublishTextView: View {
                 ? try await session.carveTextDeleteOnChain(textIds: ids)
                 : try await session.carveTextRecoverOnChain(textIds: ids)
             actionError = nil
-            actionNote = "\(deleted ? "Delete" : "Recover") broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The flag flips when a block confirms it."
+            actionNote = String(localized: "\(deleted ? "Delete" : "Recover") broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The flag flips when a block confirms it.")
             selection = []
             selecting = false
             await refresh()
@@ -769,7 +769,7 @@ struct PublishTextView: View {
         _ = try? session.texts.remove(id: record.id)
         loadLocal()
         actionError = nil
-        actionNote = "Draft discarded."
+        actionNote = String(localized: "Draft discarded.")
     }
 
     // MARK: - small pieces

@@ -79,7 +79,7 @@ struct PublishStatementView: View {
 
             if let err = loadError, source.isEmpty {
                 card {
-                    CopyableLabel("Couldn't load", systemImage: "exclamationmark.triangle")
+                    CopyableLabel(String(localized: "Couldn't load"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                 }
@@ -145,12 +145,12 @@ struct PublishStatementView: View {
         switch result {
         case .carved(let statement):
             actionError = nil
-            actionNote = "Carved — tx \(statement.id.elidingMiddle(head: 8, tail: 8)). It is on the chain for good; nothing can change or remove it."
+            actionNote = String(localized: "Carved — tx \(statement.id.elidingMiddle(head: 8, tail: 8)). It is on the chain for good; nothing can change or remove it.")
             tab = .mine
             Task { await refresh() }
         case .draft:
             actionError = nil
-            actionNote = "Saved as a draft. Nothing is on the chain yet, and a draft is the only form you can still change."
+            actionNote = String(localized: "Saved as a draft. Nothing is on the chain yet, and a draft is the only form you can still change.")
             tab = .drafts
         case .cancelled:
             break
@@ -170,7 +170,7 @@ struct PublishStatementView: View {
 
             Spacer(minLength: 8)
 
-            SearchField("Search title, content, FID…", text: $searchText, minWidth: 150)
+            SearchField(String(localized: "Search title, content, FID…"), text: $searchText, minWidth: 150)
                 .help("Filters the rows loaded here. Search chain looks through the whole index.")
 
             if tab != .drafts {
@@ -246,7 +246,7 @@ struct PublishStatementView: View {
                 Text("\(rows.count) shown\(total.map { " of \($0)" } ?? "")")
                     .font(.caption).foregroundStyle(.secondary)
                 if showingCache {
-                    countChip("offline — showing the cached copy", color: .orange)
+                    countChip(String(localized: "offline — showing the cached copy"), color: .orange)
                 }
             }
             Spacer(minLength: 0)
@@ -320,11 +320,11 @@ struct PublishStatementView: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
 
-                    if statement.publisher == session.liveFid { chip("Mine", color: .blue) }
+                    if statement.publisher == session.liveFid { chip(String(localized: "Mine"), color: .blue) }
                     if statement.onChain == false {
-                        chip("Draft", color: .gray)
+                        chip(String(localized: "Draft"), color: .gray)
                     } else if statement.onChain == nil {
-                        chip("Broadcast", color: .orange)
+                        chip(String(localized: "Broadcast"), color: .orange)
                     }
 
                     Spacer(minLength: 8)
@@ -343,7 +343,7 @@ struct PublishStatementView: View {
                         .lineLimit(2)
                 }
 
-                fidLine("By", statement.publisher)
+                fidLine(String(localized: "By"), statement.publisher)
 
                 if statement.onChain == false {
                     HStack(spacing: 8) {
@@ -538,7 +538,7 @@ struct PublishStatementView: View {
         _ = try? session.statements.remove(id: statement.id)
         loadLocal()
         actionError = nil
-        actionNote = "Draft discarded."
+        actionNote = String(localized: "Draft discarded.")
     }
 
     // MARK: - small pieces

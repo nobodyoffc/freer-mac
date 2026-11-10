@@ -26,29 +26,29 @@ public struct ReleaseScanner: Sendable {
         let git = GitRepo(root: root)
         var scan = RepoScan(root: root, manifest: manifest, tag: tag, branch: git.currentBranch() ?? "main")
 
-        progress("Reading protocol documents in \(manifest.repoName)…")
+        progress(String(localized: "Reading protocol documents in \(manifest.repoName)…"))
         (scan.protocols, scan.problems) = Self.protocolDocs(root: root, dirs: manifest.protocolDirs ?? [])
 
         let hasCodes = !(manifest.codes ?? []).isEmpty, hasApps = !(manifest.apps ?? []).isEmpty
         let hasWorks = !(manifest.works ?? []).isEmpty
         guard hasCodes || hasApps || hasWorks else { return scan }
         guard let tag else {
-            scan.problems.append("\(manifest.repoName): no release tag chosen, so its codes, apps and works were skipped")
+            scan.problems.append(String(localized: "\(manifest.repoName): no release tag chosen, so its codes, apps and works were skipped"))
             return scan
         }
         if !git.hasTag(tag) { try? git.fetchTags() }
         guard git.hasTag(tag) else {
-            scan.problems.append("\(manifest.repoName): tag \(tag) is not in the local clone; codes and repo files skipped")
+            scan.problems.append(String(localized: "\(manifest.repoName): tag \(tag) is not in the local clone; codes and repo files skipped"))
             scan = try await withApps(scan, manifest, tag, progress)
             return await withWorks(scan, manifest, tag, git: nil, progress)
         }
 
         for entry in manifest.codes ?? [] {
-            progress("Archiving \(entry.name) at \(tag)…")
+            progress(String(localized: "Archiving \(entry.name) at \(tag)…"))
             do {
                 scan.codes.append(try archive(entry, git: git, tag: tag, repoName: manifest.repoName))
             } catch {
-                scan.problems.append("code \(entry.name): \(error)")
+                scan.problems.append(String(localized: "code \(entry.name): \(String(describing: error))"))
             }
         }
         scan = try await withApps(scan, manifest, tag, progress)
@@ -65,11 +65,11 @@ public struct ReleaseScanner: Sendable {
         let github = GitHubReleases(repo: manifest.github)
         var assets: [GitHubReleases.Asset]?
         if entries.contains(where: { $0.asset != nil }) {
-            progress("Listing the assets of \(manifest.github) \(tag)…")
+            progress(String(localized: "Listing the assets of \(manifest.github) \(tag)…"))
             do {
                 assets = try github.assets(tag: tag)
             } catch {
-                scan.problems.append("\(manifest.repoName): cannot list release assets for its works: \(error)")
+                scan.problems.append(String(localized: "\(manifest.repoName): cannot list release assets for its works: \(String(describing: error))"))
             }
         }
         for entry in entries {
@@ -80,7 +80,7 @@ public struct ReleaseScanner: Sendable {
                     guard let assets else { continue }
                     let matches = assets.filter { ReleaseManifest.assetMatches(pattern: pattern, name: $0.name) }
                     guard matches.count == 1, let asset = matches.first else {
-                        scan.problems.append("work \(entry.title): \(matches.isEmpty ? "no" : "\(matches.count)") release assets match \"\(pattern)\"")
+                        scan.problems.append(String(localized: "work \(entry.title): \(matches.isEmpty ? "no" : "\(matches.count)") release assets match \"\(pattern)\""))
                         continue
                     }
                     fileName = asset.name
@@ -89,7 +89,7 @@ public struct ReleaseScanner: Sendable {
                     if let fromDigest = asset.did, entry.disk != true {
                         did = fromDigest
                     } else {
-                        progress("Downloading \(asset.name)…")
+                        progress(String(localized: "Downloading \(asset.name)…"))
                         let local = workDir.appendingPathComponent("assets/\(manifest.repoName)/\(tag)/\(asset.name)")
                         try FileManager.default.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
                         if !FileManager.default.fileExists(atPath: local.path) {
@@ -103,10 +103,10 @@ public struct ReleaseScanner: Sendable {
                     }
                 } else if let path = entry.path {
                     guard let git else {
-                        scan.problems.append("work \(entry.title): \(path) cannot be read without tag \(tag) in the local clone")
+                        scan.problems.append(String(localized: "work \(entry.title): \(path) cannot be read without tag \(tag) in the local clone"))
                         continue
                     }
-                    progress("Reading \(path) at \(tag)…")
+                    progress(String(localized: "Reading \(path) at \(tag)…"))
                     let data = try git.file(tag: tag, path: path)
                     let local = workDir.appendingPathComponent("files/\(manifest.repoName)/\(tag)/\(path)")
                     try FileManager.default.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -121,12 +121,12 @@ public struct ReleaseScanner: Sendable {
                 }
                 let (locas, dropped) = LocalWork.locas(link: link, entry: entry, tag: tag, fileName: fileName)
                 if !dropped.isEmpty {
-                    scan.problems.append("work \(entry.title): at most \(LocalWork.maxLocas) locations, so \(dropped.joined(separator: ", ")) is left out")
+                    scan.problems.append(String(localized: "work \(entry.title): at most \(String(LocalWork.maxLocas)) locations, so \(dropped.joined(separator: ", ")) is left out"))
                 }
                 scan.works.append(LocalWork(entry: entry, tag: tag, fileName: fileName, fileURL: file,
                                             did: did, size: size, locas: locas))
             } catch {
-                scan.problems.append("work \(entry.title): \(error)")
+                scan.problems.append(String(localized: "work \(entry.title): \(String(describing: error))"))
             }
         }
         return scan
@@ -136,18 +136,18 @@ public struct ReleaseScanner: Sendable {
                           _ progress: @Sendable (String) -> Void) async throws -> RepoScan {
         var scan = scan
         guard let entries = manifest.apps, !entries.isEmpty else { return scan }
-        progress("Listing the assets of \(manifest.github) \(tag)…")
+        progress(String(localized: "Listing the assets of \(manifest.github) \(tag)…"))
         let assets: [GitHubReleases.Asset]
         do {
             assets = try GitHubReleases(repo: manifest.github).assets(tag: tag)
         } catch {
-            scan.problems.append("\(manifest.repoName): cannot list release assets: \(error)")
+            scan.problems.append(String(localized: "\(manifest.repoName): cannot list release assets: \(String(describing: error))"))
             return scan
         }
         for entry in entries {
             let matches = assets.filter { ReleaseManifest.assetMatches(pattern: entry.asset, name: $0.name) }
             guard matches.count == 1, let asset = matches.first else {
-                scan.problems.append("app \(entry.stdName): \(matches.isEmpty ? "no" : "\(matches.count)") release assets match \"\(entry.asset)\"")
+                scan.problems.append(String(localized: "app \(entry.stdName): \(matches.isEmpty ? "no" : "\(matches.count)") release assets match \"\(entry.asset)\""))
                 continue
             }
             do {
@@ -155,7 +155,7 @@ public struct ReleaseScanner: Sendable {
                 if let fromDigest = asset.did {
                     did = fromDigest
                 } else {
-                    progress("Downloading \(asset.name)…")
+                    progress(String(localized: "Downloading \(asset.name)…"))
                     let file = workDir.appendingPathComponent("assets/\(manifest.repoName)/\(tag)/\(asset.name)")
                     try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
                     if !FileManager.default.fileExists(atPath: file.path) {
@@ -165,7 +165,7 @@ public struct ReleaseScanner: Sendable {
                 }
                 scan.apps.append(LocalApp(entry: entry, tag: tag, asset: asset, did: did))
             } catch {
-                scan.problems.append("app \(entry.stdName): \(error)")
+                scan.problems.append(String(localized: "app \(entry.stdName): \(String(describing: error))"))
             }
         }
         return scan
@@ -192,7 +192,7 @@ public struct ReleaseScanner: Sendable {
         for dir in dirs {
             let base = root.appendingPathComponent(dir)
             guard let walker = FileManager.default.enumerator(at: base, includingPropertiesForKeys: [.isRegularFileKey]) else {
-                problems.append("\(dir): not a folder")
+                problems.append(String(localized: "\(dir): not a folder"))
                 continue
             }
             for case let url as URL in walker {
@@ -213,7 +213,7 @@ public struct ReleaseScanner: Sendable {
             let top = group.map { Int($0.ver) ?? 0 }.max()!
             let latest = group.filter { (Int($0.ver) ?? 0) == top }.sorted { $0.relativePath < $1.relativePath }
             if Set(latest.map(\.did)).count > 1 {
-                problems.append("\(latest.map(\.relativePath).joined(separator: " and ")) are all \(latest[0].ref)V\(top); using \(latest[0].relativePath)")
+                problems.append(String(localized: "\(latest.map(\.relativePath).joined(separator: " and ")) are all \(String(describing: latest[0].ref))V\(String(top)); using \(latest[0].relativePath)"))
             }
             best.append(latest[0])
         }

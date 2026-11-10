@@ -7,25 +7,25 @@ public enum CallText {
 
     /// Calls carry the speaker's real voice: a FID hides who you are, your
     /// voice does not (VOICE_MASK_SPEC, stopped after Phase A).
-    public static let realVoiceNotice = "Others hear your real voice, which can identify you."
+    public static let realVoiceNotice = String(localized: "Others hear your real voice, which can identify you.")
 
     public static func describe(_ content: String?) -> String {
         guard let data = content?.data(using: .utf8),
-              let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return "Call" }
+              let o = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return String(localized: "Call") }
         if let op = o["op"] as? String {
-            return op == CallSignal.Op.INVITE.rawValue ? "Missed call" : "Call"
+            return op == CallSignal.Op.INVITE.rawValue ? String(localized: "Missed call") : String(localized: "Call")
         }
         let outgoing = o["outgoing"] as? Bool ?? false
         let duration = (o["duration"] as? NSNumber)?.int64Value ?? 0
         switch o["record"] as? String {
-        case "ENDED": return (outgoing ? "Outgoing call, " : "Incoming call, ") + formatDuration(duration)
-        case "MISSED": return "Missed call"
-        case "DECLINED": return "Declined"
-        case "NO_ANSWER": return "No answer"
-        case "BUSY": return "Busy"
-        case "CANCELLED": return "Cancelled call"
-        case "ANSWERED_ELSEWHERE": return "Answered on another device"
-        default: return "Call"
+        case "ENDED": return (outgoing ? String(localized: "Outgoing call, ") : String(localized: "Incoming call, ")) + formatDuration(duration)
+        case "MISSED": return String(localized: "Missed call")
+        case "DECLINED": return String(localized: "Declined")
+        case "NO_ANSWER": return String(localized: "No answer")
+        case "BUSY": return String(localized: "Busy")
+        case "CANCELLED": return String(localized: "Cancelled call")
+        case "ANSWERED_ELSEWHERE": return String(localized: "Answered on another device")
+        default: return String(localized: "Call")
         }
     }
 

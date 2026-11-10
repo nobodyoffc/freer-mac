@@ -178,21 +178,21 @@ struct ManualInputSheet: View {
             Form {
                 Section {
                     LabeledField(
-                        "Txid",
+                        String(localized: "Txid"),
                         hint: (!txid.isEmpty && !txidLooksValid)
-                            ? "A txid is 64 hex characters." : nil,
+                            ? String(localized: "A txid is 64 hex characters.") : nil,
                         hintIsError: true
                     ) {
                         TextField("", text: $txid, prompt: Text("64 hex characters"))
                             .font(.system(.body, design: .monospaced))
                             .fieldInputStyle()
                     }
-                    LabeledField("Index") {
+                    LabeledField(String(localized: "Index")) {
                         TextField("", text: $index, prompt: Text("0"))
                             .fieldInputStyle()
                             .frame(width: 80)
                     }
-                    LabeledField("Amount", hint: amountSats.map { "= \($0) sat" }) {
+                    LabeledField(String(localized: "Amount"), hint: amountSats.map { String(localized: "= \(String($0)) sat") }) {
                         HStack(spacing: 6) {
                             TextField("", text: $amount, prompt: Text("0.001"))
                                 .fieldInputStyle()
@@ -205,19 +205,19 @@ struct ManualInputSheet: View {
                 }
 
                 Section {
-                    LabeledField("Owner") {
+                    LabeledField(String(localized: "Owner")) {
                         TextField("", text: $owner, prompt: Text("F… (optional)"))
                             .font(.system(.body, design: .monospaced))
                             .fieldInputStyle()
                     }
-                    LabeledField("Lock height") {
+                    LabeledField(String(localized: "Lock height")) {
                         TextField("", text: $lockTime, prompt: Text("blank if not time-locked"))
                             .fieldInputStyle()
                             .frame(width: 180)
                     }
                     LabeledField(
-                        "Redeem script",
-                        hint: "Leave blank for a single-sig time lock — it is rebuilt from the owner and the lock height."
+                        String(localized: "Redeem script"),
+                        hint: String(localized: "Leave blank for a single-sig time lock — it is rebuilt from the owner and the lock height.")
                     ) {
                         TextField("", text: $redeemScript, prompt: Text("hex (optional)"), axis: .vertical)
                             .font(.system(.caption, design: .monospaced))
@@ -260,7 +260,7 @@ struct ManualInputSheet: View {
         let lock = Int64(lockTime.trimmed)
         var script: String? = redeemScript.trimmed.isEmpty ? nil : redeemScript.trimmed
         if let script, !Hex.isHex(script) {
-            error = "The redeem script must be hex."
+            error = String(localized: "The redeem script must be hex.")
             return
         }
         let ownerFid = owner.trimmed
@@ -392,13 +392,13 @@ struct ImportTxSheet: View {
     @State private var text = ""
 
     private var title: String {
-        kind == .transaction ? "Import a transaction" : "Import a payee list"
+        kind == .transaction ? String(localized: "Import a transaction") : String(localized: "Import a payee list")
     }
 
     private var explanation: String {
         kind == .transaction
-            ? "The unsigned document Compose copies, or the one the Android app exports. Inputs, outputs and the on-chain message are replaced by what it contains."
-            : "A JSON array of `{\"owner\": \"F…\", \"value\": 100000}` entries — values in satoshis. They are appended to the outputs."
+            ? String(localized: "The unsigned document Compose copies, or the one the Android app exports. Inputs, outputs and the on-chain message are replaced by what it contains.")
+            : String(localized: "A JSON array of `{\"owner\": \"F…\", \"value\": 100000}` entries — values in satoshis. They are appended to the outputs.")
     }
 
     var body: some View {

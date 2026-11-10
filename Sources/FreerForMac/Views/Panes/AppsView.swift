@@ -169,7 +169,7 @@ struct AppsView: View {
 
             if let err = loadError, source.isEmpty {
                 card {
-                    CopyableLabel("Couldn't load the app registry", systemImage: "exclamationmark.triangle")
+                    CopyableLabel(String(localized: "Couldn't load the app registry"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                     Text("Nothing is shown rather than the last list that loaded — a failed query has no answer, and rows left over from a different one would be read as this one's.")
@@ -226,16 +226,16 @@ struct AppsView: View {
                 switch result {
                 case .published(let app):
                     actionError = nil
-                    actionNote = "Published — tx \(app.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it."
+                    actionNote = String(localized: "Published — tx \(app.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it.")
                     tab = .mine
                     Task { await refresh() }
                 case .updated(let txid):
                     actionError = nil
-                    actionNote = "Update broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The record changes when a block confirms it."
+                    actionNote = String(localized: "Update broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The record changes when a block confirms it.")
                     Task { await refresh() }
                 case .draft:
                     actionError = nil
-                    actionNote = "Saved as a draft. Nothing is on the chain until you publish it."
+                    actionNote = String(localized: "Saved as a draft. Nothing is on the chain until you publish it.")
                     tab = .drafts
                 case .cancelled:
                     break
@@ -261,7 +261,7 @@ struct AppsView: View {
                     selection = []
                     selecting = false
                     actionError = nil
-                    actionNote = "Close broadcast for \(ids.count) app record\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8)). Nothing reopens a closed record."
+                    actionNote = String(localized: "Close broadcast for \(String(ids.count)) app record\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8)). Nothing reopens a closed record.")
                     Task { await refresh() }
                 }
             }
@@ -317,7 +317,7 @@ struct AppsView: View {
 
             Spacer(minLength: 8)
 
-            SearchField("Search name, description, type…", text: $searchText, minWidth: 150)
+            SearchField(String(localized: "Search name, description, type…"), text: $searchText, minWidth: 150)
                 .onSubmit {
                     guard tab.isChainQuery else { return }
                     Task { await searchChain() }
@@ -444,7 +444,7 @@ struct AppsView: View {
                     .disabled(!selected.contains { $0.canClose(as: session.liveFid) })
                 }
                 if showingCache {
-                    countChip("offline — showing the cached window", color: .orange)
+                    countChip(String(localized: "offline — showing the cached window"), color: .orange)
                 }
             }
             Spacer(minLength: 0)
@@ -584,7 +584,7 @@ struct AppsView: View {
                 }
 
                 HStack(spacing: 10) {
-                    fidLine("Owner", app.owner)
+                    fidLine(String(localized: "Owner"), app.owner)
                     if let codes = app.codes, !codes.isEmpty {
                         Text("\(codes.count) code\(codes.count == 1 ? "" : "s")")
                             .font(.caption2)
@@ -725,14 +725,14 @@ struct AppsView: View {
     /// this to me" before "what state is it in".
     private func chips(for app: AppRecord) -> [(String, Color)] {
         var out: [(String, Color)] = []
-        if app.owner == session.liveFid { out.append(("Mine", .blue)) }
-        if app.waiters?.contains(session.liveFid) == true { out.append(("Waiter", .teal)) }
+        if app.owner == session.liveFid { out.append((String(localized: "Mine"), .blue)) }
+        if app.waiters?.contains(session.liveFid) == true { out.append((String(localized: "Waiter"), .teal)) }
 
         switch app.state {
-        case .closed:    out.append(("Closed", .red))
-        case .stopped:   out.append(("Stopped", .orange))
-        case .draft:     out.append(("Draft", .gray))
-        case .broadcast: out.append(("Broadcast", .orange))
+        case .closed:    out.append((String(localized: "Closed"), .red))
+        case .stopped:   out.append((String(localized: "Stopped"), .orange))
+        case .draft:     out.append((String(localized: "Draft"), .gray))
+        case .broadcast: out.append((String(localized: "Broadcast"), .orange))
         case .live:      break
         }
 
@@ -785,7 +785,7 @@ struct AppsView: View {
 
     private func noteServerFilterMismatch(_ dropped: Int, of total: Int) {
         guard dropped > 0 else { return }
-        note = "The server returned \(dropped) of \(total) row\(total == 1 ? "" : "s") that don't match the \(stateFilter.rawValue.lowercased()) filter — it ignored the state clause, so this list is filtered here instead and Load more may return fewer rows than it fetches."
+        note = String(localized: "The server returned \(String(dropped)) of \(String(total)) row\(total == 1 ? "" : "s") that don't match the \(stateFilter.rawValue.lowercased()) filter — it ignored the state clause, so this list is filtered here instead and Load more may return fewer rows than it fetches.")
     }
 
     private func loadLocal() {
@@ -955,7 +955,7 @@ struct AppsView: View {
             hasMore = page.apps.count >= Self.pageSize
             await resolveNames(for: page.apps)
         } catch {
-            note = "Couldn't load more: \(error)"
+            note = String(localized: "Couldn't load more: \(String(describing: error))")
         }
     }
 
@@ -995,10 +995,10 @@ struct AppsView: View {
             let txid = try await session.carveAppStopOnChain(aids: ids)
             selection = []
             selecting = false
-            actionNote = "Stop broadcast for \(ids.count) app record\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8))."
+            actionNote = String(localized: "Stop broadcast for \(String(ids.count)) app record\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8)).")
             await refresh()
         } catch {
-            actionError = "Couldn't stop: \(error)"
+            actionError = String(localized: "Couldn't stop: \(String(describing: error))")
         }
     }
 
@@ -1013,10 +1013,10 @@ struct AppsView: View {
             let txid = try await session.carveAppRecoverOnChain(aids: ids)
             selection = []
             selecting = false
-            actionNote = "Recover broadcast for \(ids.count) app record\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8))."
+            actionNote = String(localized: "Recover broadcast for \(String(ids.count)) app record\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8)).")
             await refresh()
         } catch {
-            actionError = "Couldn't recover: \(error)"
+            actionError = String(localized: "Couldn't recover: \(String(describing: error))")
         }
     }
 
@@ -1040,12 +1040,12 @@ struct AppsView: View {
                 services: draft.services,
                 draftId: draft.id
             )
-            actionNote = "Published — tx \(app.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it."
+            actionNote = String(localized: "Published — tx \(app.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it.")
             loadLocal()
             tab = .mine
             await refresh()
         } catch {
-            actionError = "Couldn't publish: \(error)"
+            actionError = String(localized: "Couldn't publish: \(String(describing: error))")
         }
     }
 

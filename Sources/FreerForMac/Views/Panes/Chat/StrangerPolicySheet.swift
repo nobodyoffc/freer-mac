@@ -37,18 +37,18 @@ struct StrangerPolicySheet: View {
             Divider()
 
             listSection(
-                title: "Blocked",
-                caption: "Messages from these FIDs are discarded on arrival. Nothing is stored and nothing is shown.",
+                title: String(localized: "Blocked"),
+                caption: String(localized: "Messages from these FIDs are discarded on arrival. Nothing is stored and nothing is shown."),
                 fids: policy.blacklist.sorted(),
-                actionTitle: "Unblock",
+                actionTitle: String(localized: "Unblock"),
                 action: { fid in change { $0.unblock(fid) } }
             )
 
             listSection(
-                title: "Always allowed",
-                caption: "Accepted senders. Their messages go straight into your chat list.",
+                title: String(localized: "Always allowed"),
+                caption: String(localized: "Accepted senders. Their messages go straight into your chat list."),
                 fids: policy.whitelist.sorted().filter { $0 != session.liveFid },
-                actionTitle: "Forget",
+                actionTitle: String(localized: "Forget"),
                 action: { fid in change { $0.whitelist.remove(fid) } }
             )
 

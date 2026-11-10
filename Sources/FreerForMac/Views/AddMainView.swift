@@ -164,7 +164,7 @@ struct AddMainView: View {
         .padding()
         .onAppear { if candidates.isEmpty { regenerate() } }
         .sheet(isPresented: $showScan) {
-            QrScanSheet(title: "Scan a key QR") { scanned in
+            QrScanSheet(title: String(localized: "Scan a key QR")) { scanned in
                 showScan = false
                 adopt(scanned)
             } onCancel: {
@@ -219,7 +219,7 @@ struct AddMainView: View {
         } catch {
             candidates = []
             chosenFid = nil
-            localError = "Couldn't generate random keys: \(error)"
+            localError = String(localized: "Couldn't generate random keys: \(String(describing: error))")
         }
     }
 
@@ -329,11 +329,11 @@ struct AddMainView: View {
 
     /// Why a row can't be ticked, or how it is sealed.
     private func note(for entry: KeyBackup.Entry) -> String? {
-        if let fid = entry.fid, existingMainFids.contains(fid) { return "Already added" }
+        if let fid = entry.fid, existingMainFids.contains(fid) { return String(localized: "Already added") }
         switch entry.content {
         case .watchOnly:    return "Watch-only"
-        case .unopenable:   return "Not password-encrypted"
-        case .prikey:       return "Unencrypted"
+        case .unopenable:   return String(localized: "Not password-encrypted")
+        case .prikey:       return String(localized: "Unencrypted")
         case .prikeyCipher, .sealedKeyInfo: return nil
         }
     }
@@ -355,84 +355,84 @@ struct AddMainView: View {
             return nil
         case .prikey:
             return Verdict(
-                text: "Prikey. This becomes a main FID that can sign and spend.",
+                text: String(localized: "Prikey. This becomes a main FID that can sign and spend."),
                 icon: "checkmark.seal", tint: .green, usable: true
             )
         case .cipher:
             return Verdict(
-                text: "Encrypted backup. Enter the password it was sealed with — not this vault's password, unless they are the same.",
+                text: String(localized: "Encrypted backup. Enter the password it was sealed with — not this vault's password, unless they are the same."),
                 icon: "lock", tint: .accentColor, usable: true
             )
         case .nonPasswordCipher:
             return Verdict(
-                text: "This cipher wasn't encrypted with a password, so a password can't open it. Decrypt it where its key lives, then paste the key itself.",
+                text: String(localized: "This cipher wasn't encrypted with a password, so a password can't open it. Decrypt it where its key lives, then paste the key itself."),
                 icon: "lock.trianglebadge.exclamationmark", tint: .orange, usable: false
             )
         case .pubkey:
             return Verdict(
-                text: "Pubkey — watch-only. A main FID has to be able to sign, so this can't be one. Unlock a main first, then add it under My Watched FIDs.",
+                text: String(localized: "Pubkey — watch-only. A main FID has to be able to sign, so this can't be one. Unlock a main first, then add it under My Watched FIDs."),
                 icon: "eye", tint: .orange, usable: false
             )
         case .fid:
             return Verdict(
-                text: "An FID — watch-only. A main FID has to be able to sign, so this can't be one. Unlock a main first, then add it under My Watched FIDs.",
+                text: String(localized: "An FID — watch-only. A main FID has to be able to sign, so this can't be one. Unlock a main first, then add it under My Watched FIDs."),
                 icon: "eye", tint: .orange, usable: false
             )
         case .backup:
             guard let backup else {
                 return Verdict(
-                    text: "Key JSON, but no key entries in it.",
+                    text: String(localized: "Key JSON, but no key entries in it."),
                     icon: "doc.text", tint: .orange, usable: false
                 )
             }
             if backup.itemClass.map({ $0 != "KeyInfo" }) == true {
                 return Verdict(
-                    text: "This is a \(backup.itemClass!) backup, not exported keys.",
+                    text: String(localized: "This is a \(backup.itemClass!) backup, not exported keys."),
                     icon: "doc.text", tint: .orange, usable: false
                 )
             }
             let signable = backup.entries.filter(\.canSign).count
             guard signable > 0 else {
                 return Verdict(
-                    text: "Exported keys, but none of them has a prikey — they are watch-only, and a main FID has to be able to sign.",
+                    text: String(localized: "Exported keys, but none of them has a prikey — they are watch-only, and a main FID has to be able to sign."),
                     icon: "eye", tint: .orange, usable: false
                 )
             }
             let sealing: String
             if !backup.needsPassword {
-                sealing = "They are not encrypted."
+                sealing = String(localized: "They are not encrypted.")
             } else if backup.password != nil {
-                sealing = "The export carries its own random password, so there is none to type."
+                sealing = String(localized: "The export carries its own random password, so there is none to type.")
             } else {
-                sealing = "Enter the password they were sealed with — the exporting app's password, not this vault's, unless they are the same."
+                sealing = String(localized: "Enter the password they were sealed with — the exporting app's password, not this vault's, unless they are the same.")
             }
             return Verdict(
-                text: "Exported keys — \(signable) that can sign. Tick the ones to add as main FIDs. " + sealing,
+                text: String(localized: "Exported keys — \(String(signable)) that can sign. Tick the ones to add as main FIDs. ") + sealing,
                 icon: "tray.and.arrow.down", tint: .accentColor, usable: true
             )
         case .badPrikey:
             return Verdict(
-                text: "Shaped like a prikey, but not a valid one — a character is wrong. Check the text against the original rather than retyping it.",
+                text: String(localized: "Shaped like a prikey, but not a valid one — a character is wrong. Check the text against the original rather than retyping it."),
                 icon: "exclamationmark.triangle", tint: .red, usable: false
             )
         case .badPubkey:
             return Verdict(
-                text: "Shaped like a pubkey, but not a valid one.",
+                text: String(localized: "Shaped like a pubkey, but not a valid one."),
                 icon: "exclamationmark.triangle", tint: .red, usable: false
             )
         case .badFid:
             return Verdict(
-                text: "Shaped like an FID, but the checksum fails — a character is wrong.",
+                text: String(localized: "Shaped like an FID, but the checksum fails — a character is wrong."),
                 icon: "exclamationmark.triangle", tint: .red, usable: false
             )
         case .multiple:
             return Verdict(
-                text: "That looks like more than one item. Paste a single key.",
+                text: String(localized: "That looks like more than one item. Paste a single key."),
                 icon: "square.stack", tint: .orange, usable: false
             )
         case .unknown:
             return Verdict(
-                text: "Not a key this app recognizes — expected hex, a WIF, or an encrypted backup.",
+                text: String(localized: "Not a key this app recognizes — expected hex, a WIF, or an encrypted backup."),
                 icon: "questionmark.circle", tint: .orange, usable: false
             )
         }
@@ -449,13 +449,13 @@ struct AddMainView: View {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.prompt = "Read key"
+        panel.prompt = String(localized: "Read key")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let text = try String(contentsOf: url, encoding: .utf8)
             adopt(text)
         } catch {
-            localError = "Couldn't read \(url.lastPathComponent): \(error.localizedDescription)"
+            localError = String(localized: "Couldn't read \(url.lastPathComponent): \(error.localizedDescription)")
         }
     }
 
@@ -559,14 +559,14 @@ struct AddMainView: View {
                 }
             }.value
         } catch {
-            localError = "Couldn't open the exported keys: \(error)"
+            localError = String(localized: "Couldn't open the exported keys: \(String(describing: error))")
             return
         }
 
         let existing = existingMainFids
         let fresh = keys.filter { !existing.contains($0.fid) }
         guard !fresh.isEmpty else {
-            localError = "Every ticked key is already a main FID here."
+            localError = String(localized: "Every ticked key is already a main FID here.")
             return
         }
         guard await NobodyGate.confirm(fresh.map(\.fid), .importKey, session: appState.activeSession) else { return }
@@ -637,10 +637,10 @@ struct AddMainView: View {
             switch self {
             case .cipherHeldNoKey(let wasJson):
                 return wasJson
-                    ? "The password opened that backup, but the key JSON inside doesn't hold exactly one prikey. Paste the opened JSON into the box to pick from its keys."
-                    : "The password opened that backup, but what's inside isn't a prikey."
+                    ? String(localized: "The password opened that backup, but the key JSON inside doesn't hold exactly one prikey. Paste the opened JSON into the box to pick from its keys.")
+                    : String(localized: "The password opened that backup, but what's inside isn't a prikey.")
             case .noCandidateChosen:
-                return "Pick one of the random FIDs first."
+                return String(localized: "Pick one of the random FIDs first.")
             }
         }
     }

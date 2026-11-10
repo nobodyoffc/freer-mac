@@ -118,10 +118,10 @@ public enum IdRef: Hashable, Sendable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .known(let id): return id
-        case .protocolInRun(let ref): return "‹pid of \(ref)›"
-        case .codeInRun(let name): return "‹codeId of \(name)›"
-        case .workInRun(let key): return "‹imageId of \(key)›"
-        case .unresolved(let name): return "‹unknown \(name)›"
+        case .protocolInRun(let ref): return String(localized: "‹pid of \(String(describing: ref))›")
+        case .codeInRun(let name): return String(localized: "‹codeId of \(name)›")
+        case .workInRun(let key): return String(localized: "‹imageId of \(key)›")
+        case .unresolved(let name): return String(localized: "‹unknown \(name)›")
         }
     }
 
@@ -240,7 +240,7 @@ public enum ReleasePlanner {
                     if b > a {
                         chosen[doc.ref] = (doc, scan.root, scan)
                     } else if a == b && have.did != doc.did {
-                        problems.append("\(have.relativePath) and \(doc.relativePath) are both \(doc.ref)V\(doc.ver) but differ; using \(have.relativePath)")
+                        problems.append(String(localized: "\(have.relativePath) and \(doc.relativePath) are both \(String(describing: doc.ref))V\(doc.ver) but differ; using \(have.relativePath)"))
                     }
                 } else {
                     chosen[doc.ref] = (doc, scan.root, scan)
@@ -260,8 +260,8 @@ public enum ReleasePlanner {
                     found = [record]
                 } else {
                     let reason = closedIds.contains(pid)
-                        ? "its PID \(pid.prefix(6))…\(pid.suffix(6)) is closed on chain; clear the PID row to publish it afresh"
-                        : "its PID \(pid.prefix(6))…\(pid.suffix(6)) is not a protocol of \(owner)"
+                        ? String(localized: "its PID \(pid.prefix(6))…\(pid.suffix(6)) is closed on chain; clear the PID row to publish it afresh")
+                        : String(localized: "its PID \(pid.prefix(6))…\(pid.suffix(6)) is not a protocol of \(owner)")
                     protocolItems.append(protocolItem(doc, root, scan, action: .invalid(reason), record: nil))
                     continue
                 }
@@ -372,12 +372,12 @@ public enum ReleasePlanner {
 
         for item in codeItems {
             for case .unresolved(let name) in item.protocols where item.action.carves {
-                problems.append("code \(item.local.entry.name): protocol \(name) is neither on chain nor in this run")
+                problems.append(String(localized: "code \(item.local.entry.name): protocol \(name) is neither on chain nor in this run"))
             }
         }
         for item in appItems where item.action.carves {
             for case .unresolved(let name) in item.protocols + item.codes {
-                problems.append("app \(item.local.entry.stdName): \(name) is neither on chain nor in this run")
+                problems.append(String(localized: "app \(item.local.entry.stdName): \(name) is neither on chain nor in this run"))
             }
         }
 
@@ -386,7 +386,7 @@ public enum ReleasePlanner {
         // A repo that names its signer is carved by that FID only.
         for scan in scans {
             guard let required = scan.manifest.owner, required != owner else { continue }
-            let why = ReleaseAction.invalid("\(scan.manifest.repoName) is signed by \(required), not \(owner)")
+            let why = ReleaseAction.invalid(String(localized: "\(scan.manifest.repoName) is signed by \(required), not \(owner)"))
             for i in protocolItems.indices where protocolItems[i].repo == scan.root { protocolItems[i].action = why }
             for i in codeItems.indices where codeItems[i].repo.root == scan.root { codeItems[i].action = why }
             for i in appItems.indices where appItems[i].repo.root == scan.root { appItems[i].action = why }
@@ -414,7 +414,7 @@ public enum ReleasePlanner {
             do {
                 carveDid = try ReleaseSyncFiles.didWithPid(pid, doc: doc)
             } catch {
-                action = .invalid("cannot write the PID into it: \(error)")
+                action = .invalid(String(localized: "cannot write the PID into it: \(String(describing: error))"))
             }
         }
         return ProtocolPlanItem(doc: doc, repo: root, action: action, record: record,
@@ -429,7 +429,7 @@ public enum ReleasePlanner {
         if doc.pid == nil, let filled = try? ReleaseSyncFiles.didWithPid(record.id, doc: doc), filled == record.did {
             return .unchanged(id: record.id)
         }
-        if record.active == false { return .blocked(id: record.id, reason: "stopped on chain; recover it first") }
+        if record.active == false { return .blocked(id: record.id, reason: String(localized: "stopped on chain; recover it first")) }
         return .update(id: record.id)
     }
 
@@ -441,7 +441,7 @@ public enum ReleasePlanner {
             && Set(record.langs ?? []) == Set(local.entry.langs ?? [])
             && Set(record.protocols ?? []) == Set(refs.map(\.description))
         if same { return .unchanged(id: record.id) }
-        if record.active == false { return .blocked(id: record.id, reason: "stopped on chain; recover it first") }
+        if record.active == false { return .blocked(id: record.id, reason: String(localized: "stopped on chain; recover it first")) }
         return .update(id: record.id)
     }
 
@@ -452,7 +452,7 @@ public enum ReleasePlanner {
             && Set(record.protocols ?? []) == Set(protocols.map(\.description))
             && Set(record.codes ?? []) == Set(codes.map(\.description))
         if same { return .unchanged(id: record.id) }
-        if record.active == false { return .blocked(id: record.id, reason: "stopped on chain; recover it first") }
+        if record.active == false { return .blocked(id: record.id, reason: String(localized: "stopped on chain; recover it first")) }
         return .update(id: record.id)
     }
 

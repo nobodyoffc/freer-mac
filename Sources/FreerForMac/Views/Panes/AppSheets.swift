@@ -175,11 +175,11 @@ struct PublishAppSheet: View {
     }
 
     private var heading: String {
-        if review != nil { return target.isUpdate ? "Review: update" : "Review: publish" }
+        if review != nil { return target.isUpdate ? String(localized: "Review: update") : String(localized: "Review: publish") }
         switch target {
-        case .new:    return "Publish an app"
-        case .draft:  return "Edit draft"
-        case .update: return "Update this app"
+        case .new:    return String(localized: "Publish an app")
+        case .draft:  return String(localized: "Edit draft")
+        case .update: return String(localized: "Update this app")
         }
     }
 
@@ -193,11 +193,11 @@ struct PublishAppSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if review != nil {
-                ReleaseReviewNote(status: review?.status, text: "From the release. The standard name, version and download come from the GitHub release asset and are locked. Edits to the description, types, local names, code and protocols are written back to freeverse-release.json.")
+                ReleaseReviewNote(status: review?.status, text: String(localized: "From the release. The standard name, version and download come from the GitHub release asset and are locked. Edits to the description, types, local names, code and protocols are written back to freeverse-release.json."))
             }
 
             if target.isUpdate {
-                CopyableLabel("An update replaces what the record says. A field left blank here is a field cleared on chain — downloads included.", systemImage: "exclamationmark.triangle")
+                CopyableLabel(String(localized: "An update replaces what the record says. A field left blank here is a field cleared on chain — downloads included."), systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -206,12 +206,12 @@ struct PublishAppSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 10) {
-                        field("Standard name") {
+                        field(String(localized: "Standard name")) {
                             TextField("What the app is called", text: $stdName)
                                 .disabled(review != nil)
                                 .fieldInputStyle()
                         }
-                        field("Version") {
+                        field(String(localized: "Version")) {
                             TextField("e.g. 1.4.2", text: $ver)
                                 .disabled(review != nil)
                                 .fieldInputStyle()
@@ -219,7 +219,7 @@ struct PublishAppSheet: View {
                         .frame(maxWidth: 140)
                     }
 
-                    field("Description") {
+                    field(String(localized: "Description")) {
                         VStack(alignment: .leading, spacing: 4) {
                             TextEditor(text: $desc)
                                 .font(.body)
@@ -238,7 +238,7 @@ struct PublishAppSheet: View {
                         }
                     }
 
-                    field("Types") {
+                    field(String(localized: "Types")) {
                         VStack(alignment: .leading, spacing: 5) {
                             TextField("wallet, im, browser — comma separated", text: $typesText)
                                 .fieldInputStyle()
@@ -262,32 +262,32 @@ struct PublishAppSheet: View {
                         }
                     }
 
-                    field("Downloads") {
+                    field(String(localized: "Downloads")) {
                         DownloadsEditor(downloads: $downloads)
                             .disabled(review != nil)
                     }
 
-                    field("Where to read about it") {
+                    field(String(localized: "Where to read about it")) {
                         HomeMapEditor(
                             rows: $homeRows,
-                            emptyText: "Nowhere — the registration names the app without saying where to read about it.",
+                            emptyText: String(localized: "Nowhere — the registration names the app without saying where to read about it."),
                             keyPlaceholder: "site",
                             valuePlaceholder: "https://…",
-                            addLabel: "Add a link"
+                            addLabel: String(localized: "Add a link")
                         )
                     }
 
-                    field("Local names") {
+                    field(String(localized: "Local names")) {
                         HomeMapEditor(
                             rows: $localNameRows,
-                            emptyText: "None — readers see the standard name.",
+                            emptyText: String(localized: "None — readers see the standard name."),
                             keyPlaceholder: "zh",
-                            valuePlaceholder: "what to call it in that language",
-                            addLabel: "Add a local name"
+                            valuePlaceholder: String(localized: "what to call it in that language"),
+                            addLabel: String(localized: "Add a local name")
                         )
                     }
 
-                    field("Code it is built from") {
+                    field(String(localized: "Code it is built from")) {
                         CodeIdListEditor(
                             session: session,
                             ids: $codes,
@@ -295,7 +295,7 @@ struct PublishAppSheet: View {
                         )
                     }
 
-                    field("Protocols it speaks") {
+                    field(String(localized: "Protocols it speaks")) {
                         ProtocolIdListEditor(
                             session: session,
                             ids: $protocols,
@@ -303,11 +303,11 @@ struct PublishAppSheet: View {
                         )
                     }
 
-                    field("Services it talks to") {
+                    field(String(localized: "Services it talks to")) {
                         SidListEditor(session: session, ids: $serviceIds)
                     }
 
-                    field("Waiters") {
+                    field(String(localized: "Waiters")) {
                         VStack(alignment: .leading, spacing: 6) {
                             if waiters.isEmpty {
                                 Text("Nobody — the owner is the only contact for this app.")
@@ -335,8 +335,8 @@ struct PublishAppSheet: View {
                             }
                             Button {
                                 pick = .many(
-                                    title: "Add waiters",
-                                    subtitle: "They are listed as serving this app. A waiter is not a co-owner — only you can carve against the record.",
+                                    title: String(localized: "Add waiters"),
+                                    subtitle: String(localized: "They are listed as serving this app. A waiter is not a co-owner — only you can carve against the record."),
                                     excluded: Set(waiters)
                                 )
                             } label: {
@@ -354,7 +354,7 @@ struct PublishAppSheet: View {
             }
 
             if !session.canSign {
-                CopyableText("This identity is watch-only, so it cannot sign a carve. You can still save a draft and publish it later from an identity that holds the key.")
+                CopyableText(String(localized: "This identity is watch-only, so it cannot sign a carve. You can still save a draft and publish it later from an identity that holds the key."))
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -458,7 +458,7 @@ struct PublishAppSheet: View {
             try persistDraft()
             onDone(.draft)
         } catch {
-            self.error = "Couldn't save the draft: \(error)"
+            self.error = String(localized: "Couldn't save the draft: \(String(describing: error))")
         }
     }
 
@@ -523,8 +523,8 @@ struct PublishAppSheet: View {
             onDone(.published(app))
         } catch {
             self.error = target.isUpdate
-                ? "Couldn't update: \(error)"
-                : "Couldn't publish: \(error)"
+                ? String(localized: "Couldn't update: \(String(describing: error))")
+                : String(localized: "Couldn't publish: \(String(describing: error))")
         }
     }
 
@@ -570,7 +570,7 @@ struct DownloadsEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if downloads.isEmpty {
-                CopyableText("None — nobody reading this record will know where to get the app.")
+                CopyableText(String(localized: "None — nobody reading this record will know where to get the app."))
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -608,7 +608,7 @@ struct DownloadsEditor: View {
                         .fieldInputStyle()
                         .font(.system(.caption, design: .monospaced))
                         if (row.did ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
-                            CopyableText("no digest — the link is unverifiable")
+                            CopyableText(String(localized: "no digest — the link is unverifiable"))
                                 .font(.caption2)
                                 .foregroundStyle(.orange)
                         }
@@ -664,7 +664,7 @@ struct AppDetailSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let desc = app.desc, !desc.isEmpty {
-                        field("Description") {
+                        field(String(localized: "Description")) {
                             CopyableText(desc, font: .body)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -672,17 +672,17 @@ struct AppDetailSheet: View {
 
                     HStack(alignment: .top, spacing: 24) {
                         if let ver = app.ver, !ver.isEmpty {
-                            field("Version") { Text(ver).font(.caption) }
+                            field(String(localized: "Version")) { Text(ver).font(.caption) }
                         }
                         if let types = app.types, !types.isEmpty {
-                            field("Types") {
+                            field(String(localized: "Types")) {
                                 Text(types.joined(separator: ", ")).font(.caption)
                             }
                         }
                     }
 
                     if let downloads = app.downloads, !downloads.isEmpty {
-                        field("Downloads") {
+                        field(String(localized: "Downloads")) {
                             VStack(alignment: .leading, spacing: 8) {
                                 ForEach(downloads) { d in
                                     VStack(alignment: .leading, spacing: 2) {
@@ -714,7 +714,7 @@ struct AppDetailSheet: View {
                                                 .foregroundStyle(.secondary)
                                             }
                                         } else {
-                                            CopyableText("No digest — nothing to check the download against.")
+                                            CopyableText(String(localized: "No digest — nothing to check the download against."))
                                                 .font(.caption2)
                                                 .foregroundStyle(.orange)
                                         }
@@ -728,10 +728,10 @@ struct AppDetailSheet: View {
                         }
                     }
 
-                    field("Owner") { fidValue(app.owner) }
+                    field(String(localized: "Owner")) { fidValue(app.owner) }
 
                     if let home = app.home, !home.isEmpty {
-                        field("Where to read about it") {
+                        field(String(localized: "Where to read about it")) {
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(home.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
                                     HStack(spacing: 6) {
@@ -744,7 +744,7 @@ struct AppDetailSheet: View {
                     }
 
                     if let localNames = app.localNames, !localNames.isEmpty {
-                        field("Local names") {
+                        field(String(localized: "Local names")) {
                             VStack(alignment: .leading, spacing: 3) {
                                 ForEach(localNames.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
                                     HStack(spacing: 6) {
@@ -756,13 +756,13 @@ struct AppDetailSheet: View {
                         }
                     }
 
-                    linkedList("Code it is built from", app.codes,
+                    linkedList(String(localized: "Code it is built from"), app.codes,
                                symbol: "chevron.left.forwardslash.chevron.right")
-                    linkedList("Protocols it speaks", app.protocols, symbol: "doc.text")
-                    linkedList("Services it talks to", app.services, symbol: "server.rack")
+                    linkedList(String(localized: "Protocols it speaks"), app.protocols, symbol: "doc.text")
+                    linkedList(String(localized: "Services it talks to"), app.services, symbol: "server.rack")
 
                     if let waiters = app.waiters, !waiters.isEmpty {
-                        field("Waiters") {
+                        field(String(localized: "Waiters")) {
                             VStack(alignment: .leading, spacing: 5) {
                                 ForEach(waiters, id: \.self) { fid in
                                     fidValue(fid)
@@ -772,14 +772,14 @@ struct AppDetailSheet: View {
                     }
 
                     if app.isClosed, let statement = app.closeStatement, !statement.isEmpty {
-                        field("Closing statement") {
+                        field(String(localized: "Closing statement")) {
                             CopyableText(statement, font: .caption)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
 
                     HStack(spacing: 24) {
-                        field("Rating") {
+                        field(String(localized: "Rating")) {
                             RatingSummaryView(tRate: app.tRate, tCdd: app.tCdd)
                         }
                     }
@@ -795,7 +795,7 @@ struct AppDetailSheet: View {
                         name: name
                     )
 
-                    field("App ID") {
+                    field(String(localized: "App ID")) {
                         CopyableText.elidingMiddle(
                             app.id, head: 12, tail: 12,
                             font: .system(.caption, design: .monospaced)
@@ -803,7 +803,7 @@ struct AppDetailSheet: View {
                     }
 
                     if let txid = app.lastTxId, !txid.isEmpty, txid != app.id {
-                        field("Last transaction") {
+                        field(String(localized: "Last transaction")) {
                             CopyableText.elidingMiddle(
                                 txid, head: 12, tail: 12,
                                 font: .system(.caption, design: .monospaced)
@@ -813,21 +813,21 @@ struct AppDetailSheet: View {
 
                     HStack(spacing: 24) {
                         if let t = app.birthTime {
-                            field("Published") {
+                            field(String(localized: "Published")) {
                                 Text(Date(timeIntervalSince1970: TimeInterval(t)),
                                      format: .dateTime.year().month().day().hour().minute())
                                     .font(.caption)
                             }
                         }
                         if let t = app.lastTime {
-                            field("Last change") {
+                            field(String(localized: "Last change")) {
                                 Text(Date(timeIntervalSince1970: TimeInterval(t)),
                                      format: .dateTime.year().month().day().hour().minute())
                                     .font(.caption)
                             }
                         }
                         if let h = app.lastHeight, h != AppsStore.unconfirmedHeight {
-                            field("Height") {
+                            field(String(localized: "Height")) {
                                 Text("\(h)").font(.caption.monospacedDigit())
                             }
                         }
@@ -916,11 +916,11 @@ struct AppDetailSheet: View {
     @ViewBuilder
     private var stateChip: some View {
         switch app.state {
-        case .closed:    chip("Closed", color: .red)
-        case .stopped:   chip("Stopped", color: .orange)
-        case .draft:     chip("Draft", color: .gray)
-        case .broadcast: chip("Broadcast, unconfirmed", color: .orange)
-        case .live:      chip("In force", color: .blue)
+        case .closed:    chip(String(localized: "Closed"), color: .red)
+        case .stopped:   chip(String(localized: "Stopped"), color: .orange)
+        case .draft:     chip(String(localized: "Draft"), color: .gray)
+        case .broadcast: chip(String(localized: "Broadcast, unconfirmed"), color: .orange)
+        case .live:      chip(String(localized: "In force"), color: .blue)
         }
     }
 
@@ -947,12 +947,12 @@ struct AppDetailSheet: View {
 
     private var rateHelp: String {
         if app.id.isEmpty {
-            return "This app has no on-chain id yet."
+            return String(localized: "This app has no on-chain id yet.")
         }
         if app.owner == session.liveFid {
-            return "You own this app, and the protocol ignores a rating from its own owner."
+            return String(localized: "You own this app, and the protocol ignores a rating from its own owner.")
         }
-        return "Rate this app 0–5, weighted by the coin-days you spend."
+        return String(localized: "Rate this app 0–5, weighted by the coin-days you spend.")
     }
 
     private func chip(_ text: String, color: Color) -> some View {
@@ -1005,7 +1005,7 @@ struct CloseAppSheet: View {
                 }
             }
 
-            CopyableLabel("Closing is permanent. The record stays on the chain and stays readable, flagged closed, but there is no op that reopens it — Recover only undoes a Stop.", systemImage: "exclamationmark.triangle")
+            CopyableLabel(String(localized: "Closing is permanent. The record stays on the chain and stays readable, flagged closed, but there is no op that reopens it — Recover only undoes a Stop."), systemImage: "exclamationmark.triangle")
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1056,7 +1056,7 @@ struct CloseAppSheet: View {
             )
             onDone(txid)
         } catch {
-            self.error = "Couldn't close: \(error)"
+            self.error = String(localized: "Couldn't close: \(String(describing: error))")
         }
     }
 }

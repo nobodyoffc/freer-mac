@@ -228,10 +228,10 @@ struct ChatView: View {
         )
     }
 
-    private var leaveTitle: String { "Leave this \(style.noun)?" }
+    private var leaveTitle: String { String(localized: "Leave this \(style.noun)?") }
 
     private var leaveConfirmTitle: String {
-        style.syncsFromChain ? "Leave (broadcast a carve)" : "Leave"
+        style.syncsFromChain ? String(localized: "Leave (broadcast a carve)") : String(localized: "Leave")
     }
 
     /// What leaving actually costs, said before it is done. The two
@@ -240,18 +240,18 @@ struct ChatView: View {
     private var leaveMessage: String {
         switch mode {
         case .team, .square:
-            return "Leaving is a transaction: it costs a miner fee and is public on the chain. You are still in until it confirms. The transcript stays on this Mac."
+            return String(localized: "Leaving is a transaction: it costs a miner fee and is public on the chain. You are still in until it confirms. The transcript stays on this Mac.")
         case .room:
-            return "The owner is told, and only they can let you back in. The transcript stays on this Mac."
+            return String(localized: "The owner is told, and only they can let you back in. The transcript stays on this Mac.")
         case .p2p:
             return ""
         }
     }
 
     private func deleteTitle(_ conversation: Conversation?) -> String {
-        guard let conversation else { return "Delete?" }
+        guard let conversation else { return String(localized: "Delete?") }
         let name = ChatFormat.title(of: conversation)
-        return "Delete \(name)?"
+        return String(localized: "Delete \(name)?")
     }
 
     /// What deleting actually destroys, said before it is done.
@@ -263,17 +263,17 @@ struct ChatView: View {
     /// chain, so this only forgets the local transcript: we are still in
     /// it, and the next sync opens the thread again.
     private func deleteMessage(_ conversation: Conversation) -> String {
-        let common = "Every message in it goes too, and there is no copy anywhere else."
+        let common = String(localized: "Every message in it goes too, and there is no copy anywhere else.")
         switch conversation.type {
         case .room:
             let owned = session.chatGateFacts(for: conversation).isOwner
             return owned
-                ? "\(common) This room's key and its membership exist only on this Mac, so both are gone with it — the other members are not told, and are not removed from their own copies. Close the room first if they should be."
-                : "\(common) The room's key goes with it, so nothing said here can be reopened. The other members are not told; leave the room first if they should be."
+                ? String(localized: "\(common) This room's key and its membership exist only on this Mac, so both are gone with it — the other members are not told, and are not removed from their own copies. Close the room first if they should be.")
+                : String(localized: "\(common) The room's key goes with it, so nothing said here can be reopened. The other members are not told; leave the room first if they should be.")
         case .team, .square:
-            return "\(common) Only this Mac's copy — your membership is on the chain, so you are still in it and the thread reappears at the next sync. Leave it first if that is what you meant."
+            return String(localized: "\(common) Only this Mac's copy — your membership is on the chain, so you are still in it and the thread reappears at the next sync. Leave it first if that is what you meant.")
         case .p2p:
-            return "\(common) They are not told, and nothing stops them writing again."
+            return String(localized: "\(common) They are not told, and nothing stops them writing again.")
         }
     }
 
@@ -318,7 +318,7 @@ struct ChatView: View {
 
             if let err = loadError {
                 card {
-                    CopyableLabel("Couldn't load chats", systemImage: "exclamationmark.triangle")
+                    CopyableLabel(String(localized: "Couldn't load chats"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                 }
@@ -414,11 +414,11 @@ struct ChatView: View {
         .sheet(isPresented: Binding(get: { meetingPicker != nil }, set: { if !$0 { meetingPicker = nil } })) {
             if let conversation = meetingPicker {
                 MemberPickerSheet(
-                    title: "Meet with whom?",
+                    title: String(localized: "Meet with whom?"),
                     members: session.entityMembers(type: conversation.type, entityId: conversation.targetId)
                         .filter { $0 != session.liveFid },
                     names: MeetingNames(book: names, session: session),
-                    confirm: "Start meeting"
+                    confirm: String(localized: "Start meeting")
                 ) { chosen in startMeeting(in: conversation, invitees: chosen) }
             }
         }
@@ -786,7 +786,7 @@ struct ChatView: View {
 
             Spacer()
 
-            SearchField("Search \(style.title.lowercased())…", text: $search, minWidth: 140)
+            SearchField(String(localized: "Search \(style.title.lowercased())…"), text: $search, minWidth: 140)
                 .help("Matches the name, the id, and the last message shown")
 
             // Only the on-chain flavours have anything to refresh: a
@@ -901,8 +901,8 @@ struct ChatView: View {
         let invitations = teamOffers.filter { $0.kind == .invitation }.count
         let transfers = teamOffers.count - invitations
         var parts: [String] = []
-        if invitations > 0 { parts.append("\(invitations) team invitation\(invitations == 1 ? "" : "s")") }
-        if transfers > 0 { parts.append("\(transfers) team\(transfers == 1 ? "" : "s") being handed to you") }
+        if invitations > 0 { parts.append(String(localized: "\(String(invitations)) team invitation\(invitations == 1 ? "" : "s")")) }
+        if transfers > 0 { parts.append(String(localized: "\(String(transfers)) team\(transfers == 1 ? "" : "s") being handed to you")) }
         let unconfirmed = teamOffers.contains { !$0.isOnChain }
         return Button {
             showTeamOffers = true
@@ -975,7 +975,7 @@ struct ChatView: View {
                     Image(systemName: "key.horizontal")
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Key rotation due · \(reminder.teamName ?? reminder.id)")
-                        Text("Removed: " + reminder.removedFids
+                        Text(String(localized: "Removed: ") + reminder.removedFids
                             .map { names.labelWithContact(for: $0) }
                             .joined(separator: ", "))
                             .font(.caption)
@@ -1004,7 +1004,7 @@ struct ChatView: View {
     private func rotateKey(for reminder: KeyRotationReminder) {
         let id = Conversation.id(type: .team, targetId: reminder.id)
         guard let conversation = try? session.conversations.get(id: id) else {
-            sendError = "This team's conversation is not on this Mac yet. Refresh, then rotate from the team's menu."
+            sendError = String(localized: "This team's conversation is not on this Mac yet. Refresh, then rotate from the team's menu.")
             return
         }
         generateKey(for: conversation)
@@ -1122,7 +1122,7 @@ struct ChatView: View {
             ask.version,
             withTime: SymkeyVersionText.needsTime(ask.version, among: held + [ask.version])
         )
-        return "Waiting for \(named)"
+        return String(localized: "Waiting for \(named)")
     }
 
     /// Who was asked, and how long ago — the part a person acts on.
@@ -1133,13 +1133,13 @@ struct ChatView: View {
     private func keyAskDetail(_ ask: KeyAsk) -> String {
         let who = ask.askedFids.map { fid -> String in
             fid == session.liveFid
-                ? "your other devices"
+                ? String(localized: "your other devices")
                 : names.labelWithContact(for: fid)
         }
-        let asked = who.isEmpty ? "nobody yet" : who.formatted(.list(type: .and))
+        let asked = who.isEmpty ? String(localized: "nobody yet") : who.formatted(.list(type: .and))
         let ago = Date(timeIntervalSince1970: Double(ask.lastAskedAt) / 1000)
             .formatted(.relative(presentation: .named))
-        return "Asked \(asked) \(ago). \(ask.attempts) request\(ask.attempts == 1 ? "" : "s") sent."
+        return String(localized: "Asked \(asked) \(ago). \(String(ask.attempts)) request\(ask.attempts == 1 ? "" : "s") sent.")
     }
 
     /// Stop showing one ask. The locked messages stay locked — giving up
@@ -1212,20 +1212,20 @@ struct ChatView: View {
 
     private func historyAskTitle(_ request: IncomingHistoryRequest) -> String {
         let who = request.from == session.liveFid
-            ? "Your other device"
+            ? String(localized: "Your other device")
             : names.labelWithContact(for: request.from)
         let thread = historyThreadName(request.conversationId, type: request.type, targetId: request.targetId)
         return request.type == .p2p
-            ? "\(who) asks for your conversation with \(request.from == session.liveFid ? thread : "them")"
-            : "\(who) asks for the messages in \(thread)"
+            ? String(localized: "\(who) asks for your conversation with \(request.from == session.liveFid ? thread : "them")")
+            : String(localized: "\(who) asks for the messages in \(thread)")
     }
 
     private func historyAskDetail(_ request: IncomingHistoryRequest) -> String {
         let count = (try? session.historyShare.messageCount(for: request)) ?? 0
         let range = HistoryRangeText.format(since: request.since, before: request.before)
         return count == 0
-            ? "\(range.prefix(1).uppercased() + range.dropFirst()) — this Mac holds nothing in that range."
-            : "\(range.prefix(1).uppercased() + range.dropFirst()) — \(count) message\(count == 1 ? "" : "s") on this Mac."
+            ? String(localized: "\(range.prefix(1).uppercased() + range.dropFirst()) — this Mac holds nothing in that range.")
+            : String(localized: "\(range.prefix(1).uppercased() + range.dropFirst()) — \(String(count)) message\(count == 1 ? "" : "s") on this Mac.")
     }
 
     /// What sharing hands over, said before it is done. The part people
@@ -1233,8 +1233,8 @@ struct ChatView: View {
     private func shareHistoryMessage(_ request: IncomingHistoryRequest) -> String {
         let count = (try? session.historyShare.messageCount(for: request)) ?? 0
         let range = HistoryRangeText.format(since: request.since, before: request.before)
-        let whose = request.type == .p2p ? "both sides of the conversation" : "what every member wrote, not only you"
-        return "\(count) message\(count == 1 ? "" : "s") \(range) — \(whose) — are uploaded encrypted to your DISK, and the key to open them goes to \(request.from). They keep a copy; this cannot be taken back."
+        let whose = request.type == .p2p ? String(localized: "both sides of the conversation") : String(localized: "what every member wrote, not only you")
+        return String(localized: "\(String(count)) message\(count == 1 ? "" : "s") \(range) — \(whose) — are uploaded encrypted to your DISK, and the key to open them goes to \(request.from). They keep a copy; this cannot be taken back.")
     }
 
     @ViewBuilder
@@ -1424,7 +1424,7 @@ struct ChatView: View {
             fid: conversation.targetId,
             tint: style.tint,
             size: size,
-            noun: conversation.type == .p2p ? "FID" : "group id"
+            noun: conversation.type == .p2p ? "FID" : String(localized: "group id")
         )
     }
 
@@ -2146,9 +2146,9 @@ struct ChatView: View {
             // two resets a minute apart read identically without it, and
             // "nothing happened" is the reading it invites.
             syncSummary = outbound.isEmpty
-                ? "A new symkey was created (\(SymkeyVersionText.inTable(version))). No member could be sealed to — share it from the members list once their pubkeys are known."
-                : "A new symkey was created (\(SymkeyVersionText.inTable(version))); \(outbound.count) share(s) queued."
-                    + (skipped > 0 ? " \(skipped) member(s) skipped — no pubkey or no DOCK yet." : "")
+                ? String(localized: "A new symkey was created (\(SymkeyVersionText.inTable(version))). No member could be sealed to — share it from the members list once their pubkeys are known.")
+                : String(localized: "A new symkey was created (\(SymkeyVersionText.inTable(version))); \(String(outbound.count)) share(s) queued.")
+                    + (skipped > 0 ? String(localized: " \(String(skipped)) member(s) skipped — no pubkey or no DOCK yet.") : "")
             Task { _ = try? await session.courier.drainOutbox(as: session.liveFid) }
         } catch {
             sendError = String(describing: error)
@@ -2179,7 +2179,7 @@ struct ChatView: View {
     /// sheet says so rather than blaming the network.
     private func readConsensus(_ conversation: Conversation, team: Team?) {
         readingConsensus = ConsensusRead(
-            title: "\(ChatFormat.title(of: conversation))'s consensus",
+            title: String(localized: "\(ChatFormat.title(of: conversation))'s consensus"),
             consensusId: team?.consensusId ?? "",
             diskSids: [TeamConsensus.diskSid(of: team)].compactMap { $0 }
         )
@@ -2234,7 +2234,7 @@ struct ChatView: View {
                 let txid = try await session.carveTeamDisbandOnChain(teamIds: [conversation.targetId])
                 await MainActor.run {
                     _ = try? session.conversations.mutate(id: conversation.id) { $0.leftGroup = true }
-                    syncSummary = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The team is gone for everyone once it confirms."
+                    syncSummary = String(localized: "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The team is gone for everyone once it confirms.")
                     reload()
                     openSelected()
                 }
@@ -2259,20 +2259,20 @@ struct ChatView: View {
                     ) {
                         try queue([notice])
                     }
-                    await MainActor.run { syncSummary = "Left. The owner is told on the next send." }
+                    await MainActor.run { syncSummary = String(localized: "Left. The owner is told on the next send.") }
                 case .team:
                     let txid = try await session.carveTeamLeaveOnChain(
                         teamIds: [conversation.targetId]
                     )
                     await MainActor.run {
-                        syncSummary = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). You are out once it confirms."
+                        syncSummary = String(localized: "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). You are out once it confirms.")
                     }
                 case .square:
                     let txid = try await session.carveSquareLeaveOnChain(
                         squareIds: [conversation.targetId]
                     )
                     await MainActor.run {
-                        syncSummary = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). You are out once it confirms."
+                        syncSummary = String(localized: "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). You are out once it confirms.")
                     }
                 case .p2p:
                     return
@@ -2416,7 +2416,7 @@ struct ChatView: View {
                 _ = try? await session.courier.drainOutbox(as: session.liveFid)
                 await MainActor.run {
                     sharingHistory = nil
-                    syncSummary = "Shared \(count) message\(count == 1 ? "" : "s") with \(request.from.elidingMiddle(head: 6, tail: 6))."
+                    syncSummary = String(localized: "Shared \(String(count)) message\(count == 1 ? "" : "s") with \(request.from.elidingMiddle(head: 6, tail: 6)).")
                     reload()
                 }
             } catch {
@@ -2448,7 +2448,7 @@ struct ChatView: View {
             await MainActor.run {
                 if let result = results.first(where: { $0.nonce == share.nonce }) {
                     if let count = result.imported {
-                        syncSummary = "Imported \(count) message\(count == 1 ? "" : "s") from history."
+                        syncSummary = String(localized: "Imported \(String(count)) message\(count == 1 ? "" : "s") from history.")
                     } else {
                         sendError = result.error
                     }
@@ -2512,14 +2512,14 @@ struct ChatView: View {
                 privkey: try? session.livePrikey()
             )
             if sent.attempted > 0 {
-                parts.append("sent \(sent.sent)/\(sent.attempted)")
+                parts.append(String(localized: "sent \(String(sent.sent))/\(String(sent.attempted))"))
             }
             if sent.failed > 0 { parts.append("\(sent.failed) failed") }
             parts.append("received \(received.filed)")
-            if received.sealed > 0 { parts.append("\(received.sealed) need a key") }
+            if received.sealed > 0 { parts.append(String(localized: "\(String(received.sealed)) need a key")) }
             let imported = await session.historyShare.importReceived(as: session.liveFid)
             let filed = imported.compactMap(\.imported).reduce(0, +)
-            if filed > 0 { parts.append("\(filed) imported from history") }
+            if filed > 0 { parts.append(String(localized: "\(String(filed)) imported from history")) }
         } catch {
             await MainActor.run { sendError = String(describing: error) }
         }
@@ -2572,7 +2572,7 @@ struct ChatView: View {
             // query also returns teams we have left or been dismissed
             // from, which is how we learn that, and they are not ours.
             let inTeams = (try? session.teams.joined(by: session.liveFid).count) ?? teams.total
-            parts.append("\(inTeams) team(s), \(squares.total) square(s)")
+            parts.append(String(localized: "\(String(inTeams)) team(s), \(String(squares.total)) square(s)"))
             if teams.joined + squares.joined > 0 {
                 parts.append("\(teams.joined + squares.joined) new")
             }
@@ -2580,19 +2580,19 @@ struct ChatView: View {
                 parts.append("\(teams.left + squares.left) left")
             }
             if teams.awaitingSignature > 0 {
-                parts.append("\(teams.awaitingSignature) awaiting your agreement")
+                parts.append(String(localized: "\(String(teams.awaitingSignature)) awaiting your agreement"))
             }
             if teams.rotationsDue > 0 {
-                parts.append("\(teams.rotationsDue) team key(s) due a rotation")
+                parts.append(String(localized: "\(String(teams.rotationsDue)) team key(s) due a rotation"))
             }
             // Invitations are not in the member sync — we are not a member
             // yet — so they are a query of their own. A failure here is a
             // line in the summary, not a failed refresh.
             do {
                 let offers = try await session.refreshTeamOffers()
-                if offers > 0 { parts.append("\(offers) new team invitation(s)") }
+                if offers > 0 { parts.append(String(localized: "\(String(offers)) new team invitation(s)")) }
             } catch {
-                parts.append("invitations not checked: \(error)")
+                parts.append(String(localized: "invitations not checked: \(String(describing: error))"))
             }
             if let keyed = keyOwnedTeams() { parts.append(keyed) }
         } catch {
@@ -2641,7 +2641,7 @@ struct ChatView: View {
         }
         guard minted > 0 else { return nil }
         try? queue(shares)
-        return "keyed \(minted) team(s), \(shares.count) share(s) queued"
+        return String(localized: "keyed \(String(minted)) team(s), \(String(shares.count)) share(s) queued")
     }
 
     // MARK: - carves waiting for the chain
@@ -2694,9 +2694,9 @@ struct ChatView: View {
     private func pendingTitle(_ row: PendingGroup) -> String {
         let name = row.name ?? row.groupId.elidingMiddle(head: 6, tail: 6)
         switch row.act {
-        case .create: return "Creating \(name)"
-        case .join: return "Joining \(name)"
-        case .takeOver: return "Taking over \(name)"
+        case .create: return String(localized: "Creating \(name)")
+        case .join: return String(localized: "Joining \(name)")
+        case .takeOver: return String(localized: "Taking over \(name)")
         }
     }
 
@@ -2755,33 +2755,33 @@ struct ChatView: View {
         var title: String {
             let n = threads.count
             switch self {
-            case .leaveSquares: return "Leave \(n) square\(n == 1 ? "" : "s")?"
-            case .leaveTeams:   return "Leave \(n) team\(n == 1 ? "" : "s")?"
-            case .disbandTeams: return "Disband \(n) team\(n == 1 ? "" : "s")?"
-            case .leaveRooms:   return "Leave \(n) room\(n == 1 ? "" : "s")?"
-            case .closeRooms:   return "Close \(n) room\(n == 1 ? "" : "s")?"
+            case .leaveSquares: return String(localized: "Leave \(String(n)) square\(n == 1 ? "" : "s")?")
+            case .leaveTeams:   return String(localized: "Leave \(String(n)) team\(n == 1 ? "" : "s")?")
+            case .disbandTeams: return String(localized: "Disband \(String(n)) team\(n == 1 ? "" : "s")?")
+            case .leaveRooms:   return String(localized: "Leave \(String(n)) room\(n == 1 ? "" : "s")?")
+            case .closeRooms:   return String(localized: "Close \(String(n)) room\(n == 1 ? "" : "s")?")
             }
         }
 
         var confirm: String {
             switch self {
-            case .leaveSquares, .leaveTeams: return "Leave (broadcast one carve)"
-            case .disbandTeams: return "Disband (broadcast one carve)"
-            case .leaveRooms: return "Leave"
-            case .closeRooms: return "Close"
+            case .leaveSquares, .leaveTeams: return String(localized: "Leave (broadcast one carve)")
+            case .disbandTeams: return String(localized: "Disband (broadcast one carve)")
+            case .leaveRooms: return String(localized: "Leave")
+            case .closeRooms: return String(localized: "Close")
             }
         }
 
         var message: String {
             switch self {
             case .leaveSquares, .leaveTeams:
-                return "One transaction leaves them all: one miner fee, public on the chain. You are still in until it confirms. The transcripts stay on this Mac."
+                return String(localized: "One transaction leaves them all: one miner fee, public on the chain. You are still in until it confirms. The transcripts stay on this Mac.")
             case .disbandTeams:
-                return "One transaction disbands them all, and it cannot be undone: each team stops for every member. It costs a miner fee and is public. Transcripts and keys stay on this Mac."
+                return String(localized: "One transaction disbands them all, and it cannot be undone: each team stops for every member. It costs a miner fee and is public. Transcripts and keys stay on this Mac.")
             case .leaveRooms:
-                return "Each owner is told, and only they can let you back in. The transcripts stay on this Mac."
+                return String(localized: "Each owner is told, and only they can let you back in. The transcripts stay on this Mac.")
             case .closeRooms:
-                return "Every member of each room is told, and nobody can speak in them again. Transcripts and keys stay on this Mac."
+                return String(localized: "Every member of each room is told, and nobody can speak in them again. Transcripts and keys stay on this Mac.")
             }
         }
     }
@@ -2806,7 +2806,7 @@ struct ChatView: View {
             if owned.count == chosen.count {
                 return (mode == .team ? .disbandTeams(chosen) : .closeRooms(chosen), nil)
             }
-            return (nil, "Your own \(style.title.lowercased()) can't be left, only \(mode == .team ? "disbanded" : "closed") — select them apart from the others.")
+            return (nil, String(localized: "Your own \(style.title.lowercased()) can't be left, only \(mode == .team ? "disbanded" : "closed") — select them apart from the others."))
         case .p2p:
             return (nil, nil)
         }
@@ -2851,13 +2851,13 @@ struct ChatView: View {
                 switch action {
                 case .leaveSquares:
                     let txid = try await session.carveSquareLeaveOnChain(squareIds: ids)
-                    summary = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). You are out of \(ids.count) square(s) once it confirms."
+                    summary = String(localized: "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). You are out of \(String(ids.count)) square(s) once it confirms.")
                 case .leaveTeams:
                     let txid = try await session.carveTeamLeaveOnChain(teamIds: ids)
-                    summary = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). You are out of \(ids.count) team(s) once it confirms."
+                    summary = String(localized: "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). You are out of \(String(ids.count)) team(s) once it confirms.")
                 case .disbandTeams:
                     let txid = try await session.carveTeamDisbandOnChain(teamIds: ids)
-                    summary = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). \(ids.count) team(s) end for everyone once it confirms."
+                    summary = String(localized: "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). \(String(ids.count)) team(s) end for everyone once it confirms.")
                 case .leaveRooms:
                     let service = try session.roomService
                     var notices: [ImMessage] = []
@@ -2865,13 +2865,13 @@ struct ChatView: View {
                         if let notice = try service.leave(id, as: session.liveFid) { notices.append(notice) }
                     }
                     try await MainActor.run { try queue(notices) }
-                    summary = "Left \(ids.count) room(s). Each owner is told on the next send."
+                    summary = String(localized: "Left \(String(ids.count)) room(s). Each owner is told on the next send.")
                 case .closeRooms:
                     let service = try session.roomService
                     var notices: [ImMessage] = []
                     for id in ids { notices += try service.disband(id, as: session.liveFid) }
                     try await MainActor.run { try queue(notices) }
-                    summary = "Closed \(ids.count) room(s). \(notices.count) notice(s) queued."
+                    summary = String(localized: "Closed \(String(ids.count)) room(s). \(String(notices.count)) notice(s) queued.")
                 }
                 await MainActor.run {
                     for thread in threads {

@@ -157,7 +157,7 @@ struct ConsensusSignatureSheet: View {
     private var detail: some View {
         if let request = selected {
             VStack(alignment: .leading, spacing: 12) {
-                Text(request.teamName ?? "This team").font(.headline)
+                Text(request.teamName ?? String(localized: "This team")).font(.headline)
                 CopyableText(
                     display: request.id.elidingMiddle(head: 10, tail: 10),
                     copy: request.id,
@@ -166,23 +166,23 @@ struct ConsensusSignatureSheet: View {
                 .foregroundStyle(.tertiary)
 
                 documentRow(
-                    label: "New consensus",
+                    label: String(localized: "New consensus"),
                     id: request.consensusId,
-                    title: "The new consensus",
+                    title: String(localized: "The new consensus"),
                     diskSids: diskSids(for: request, previous: false),
-                    missingNote: "The team names no consensus document."
+                    missingNote: String(localized: "The team names no consensus document.")
                 )
 
                 documentRow(
-                    label: "What you agreed to",
+                    label: String(localized: "What you agreed to"),
                     id: request.previousConsensusId,
-                    title: "The consensus you signed",
+                    title: String(localized: "The consensus you signed"),
                     diskSids: diskSids(for: request, previous: true),
                     // Not a fault and not a loss: the previous id only
                     // ever existed in the moment before this device
                     // overwrote its cached copy of the team, and a
                     // device that had not yet seen the team never had it.
-                    missingNote: "This Mac never saw this team's previous consensus, so there is nothing to compare against. The owner can tell you what changed."
+                    missingNote: String(localized: "This Mac never saw this team's previous consensus, so there is nothing to compare against. The owner can tell you what changed.")
                 )
 
                 Spacer()
@@ -290,7 +290,7 @@ struct ConsensusSignatureSheet: View {
                 let txid = try await session.carveTeamAgreeConsensusOnChain(teamId: request.id)
                 await MainActor.run {
                     working = false
-                    note = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). This clears itself from here on the next refresh, once the chain stops listing you."
+                    note = String(localized: "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). This clears itself from here on the next refresh, once the chain stops listing you.")
                     onChanged()
                 }
             } catch {
@@ -327,7 +327,7 @@ struct ConsensusSignatureSheet: View {
         do {
             try session.consensusSignatures.postpone(teamId: request.id)
             load()
-            note = "Put off. It stays here and stops prompting; if the owner changes the consensus again it comes back."
+            note = String(localized: "Put off. It stays here and stops prompting; if the owner changes the consensus again it comes back.")
             onChanged()
         } catch {
             self.error = String(describing: error)
@@ -349,7 +349,7 @@ struct ConsensusSignatureSheet: View {
                     // asking again before the carve confirms.
                     _ = try? session.consensusSignatures.remove(teamId: request.id)
                     load()
-                    note = "Leaving — tx \(txid.elidingMiddle(head: 8, tail: 8)). The thread stays on this Mac and stops receiving once the carve confirms."
+                    note = String(localized: "Leaving — tx \(txid.elidingMiddle(head: 8, tail: 8)). The thread stays on this Mac and stops receiving once the carve confirms.")
                     onChanged()
                 }
             } catch {

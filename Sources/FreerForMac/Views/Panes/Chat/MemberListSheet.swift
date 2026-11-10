@@ -102,9 +102,9 @@ struct MemberListSheet: View {
                     Button("Appoint managers…") {
                         pickPurpose = .appoint
                         pick = .many(
-                            title: "Appoint managers",
-                            subtitle: "Managers may invite, withdraw invitations and dismiss members. One carve for everyone chosen.",
-                            confirmTitle: "Appoint",
+                            title: String(localized: "Appoint managers"),
+                            subtitle: String(localized: "Managers may invite, withdraw invitations and dismiss members. One carve for everyone chosen."),
+                            confirmTitle: String(localized: "Appoint"),
                             pool: appointable
                         )
                     }
@@ -115,9 +115,9 @@ struct MemberListSheet: View {
                     Button("Remove managers…") {
                         pickPurpose = .demote
                         pick = .many(
-                            title: "Remove managers",
-                            subtitle: "They stay members. One carve for everyone chosen.",
-                            confirmTitle: "Remove",
+                            title: String(localized: "Remove managers"),
+                            subtitle: String(localized: "They stay members. One carve for everyone chosen."),
+                            confirmTitle: String(localized: "Remove"),
                             pool: demotable
                         )
                     }
@@ -142,7 +142,7 @@ struct MemberListSheet: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    SearchField("Search name, FID…", text: $query, minWidth: 160, maxWidth: 240)
+                    SearchField(String(localized: "Search name, FID…"), text: $query, minWidth: 160, maxWidth: 240)
                 }
             }
 
@@ -203,19 +203,19 @@ struct MemberListSheet: View {
     private var membershipNote: String {
         switch style.mode {
         case .room:
-            return "Nothing about this room is on the chain. The owner's copy is the membership, and everyone else holds what the owner last told them."
+            return String(localized: "Nothing about this room is on the chain. The owner's copy is the membership, and everyone else holds what the owner last told them.")
         case .team:
-            var note = "This membership is on the chain: it is public, and every change to it is a transaction."
+            var note = String(localized: "This membership is on the chain: it is public, and every change to it is a transaction.")
             if !notAgreed.isEmpty {
                 // The negative set, stated as what it is. There is no
                 // list of who *has* agreed, so "not agreed" is the only
                 // fact available — and it clears itself when each
                 // member carves their own agreement.
-                note += " \(notAgreed.count) member(s) have not yet agreed to the current consensus document; until they carve an agreement of their own, what they signed and what this team runs on are two different documents."
+                note += String(localized: " \(String(notAgreed.count)) member(s) have not yet agreed to the current consensus document; until they carve an agreement of their own, what they signed and what this team runs on are two different documents.")
             }
             return note
         case .square:
-            return "A square's membership is on the chain and open — anyone may join, which is why there is no key and nothing here is encrypted. Nobody is in charge either: whoever destroys the most coin-days names it, and \"named it\" marks the ones who have."
+            return String(localized: "A square's membership is on the chain and open — anyone may join, which is why there is no key and nothing here is encrypted. Nobody is in charge either: whoever destroys the most coin-days names it, and \"named it\" marks the ones who have.")
         case .p2p:
             return ""
         }
@@ -242,8 +242,8 @@ struct MemberListSheet: View {
                         ContactLabelText(fid: fid, names: names, font: .callout)
                         if fid == owner { ChatChip("owner", color: style.tint) }
                         if managers.contains(fid) { ChatChip("manager", color: .secondary) }
-                        if namers.contains(fid) { ChatChip("named it", color: .secondary) }
-                        if notAgreed.contains(fid) { ChatChip("not agreed", color: .orange) }
+                        if namers.contains(fid) { ChatChip(String(localized: "named it"), color: .secondary) }
+                        if notAgreed.contains(fid) { ChatChip(String(localized: "not agreed"), color: .orange) }
                         if fid == session.liveFid { ChatChip("you", color: .secondary) }
                         Spacer()
                         if canAppoint(fid) {
@@ -348,9 +348,9 @@ struct MemberListSheet: View {
                     Button {
                         pickPurpose = .add
                         pick = .many(
-                            title: "Invite to this team",
-                            subtitle: "An invitation is a carve. They still have to join, agreeing to the team's consensus.",
-                            confirmTitle: "Invite",
+                            title: String(localized: "Invite to this team"),
+                            subtitle: String(localized: "An invitation is a carve. They still have to join, agreeing to the team's consensus."),
+                            confirmTitle: String(localized: "Invite"),
                             pool: nil,
                             excluded: Set(members)
                         )
@@ -497,14 +497,14 @@ struct MemberListSheet: View {
                         let txid = try await session.carveTeamInviteOnChain(
                             teamId: conversation.targetId, fids: plan.toInvite
                         )
-                        lines.append("Invitation broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). They appear once they join and you refresh.")
+                        lines.append(String(localized: "Invitation broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). They appear once they join and you refresh."))
                     } else if plan.alreadyInvited.isEmpty {
                         throw TeamConsensusFailure.nobodyNewToInvite(
                             alreadyIn: plan.alreadyIn, alreadyInvited: []
                         )
                     }
                     if !plan.alreadyIn.isEmpty {
-                        lines.append("\(plan.alreadyIn.count) already in the team.")
+                        lines.append(String(localized: "\(String(plan.alreadyIn.count)) already in the team."))
                     }
                     // After the carve, a notice that cannot be queued is
                     // a line in the summary, not a failure: the invitation
@@ -515,12 +515,12 @@ struct MemberListSheet: View {
                     )
                     _ = try? await session.courier.drainOutbox(as: session.liveFid)
                     if !plan.alreadyInvited.isEmpty {
-                        lines.append("\(plan.alreadyInvited.count) already invited — reminded, nothing carved.")
+                        lines.append(String(localized: "\(String(plan.alreadyInvited.count)) already invited — reminded, nothing carved."))
                     }
                     if let told, !told.unreachable.isEmpty {
-                        lines.append("\(told.unreachable.count) could not be sent a notice: no published pubkey.")
+                        lines.append(String(localized: "\(String(told.unreachable.count)) could not be sent a notice: no published pubkey."))
                     } else if told == nil {
-                        lines.append("No notice could be sent, so tell them yourself.")
+                        lines.append(String(localized: "No notice could be sent, so tell them yourself."))
                     }
                     await MainActor.run { note = lines.joined(separator: " ") }
                 case .square, .p2p:
@@ -548,11 +548,11 @@ struct MemberListSheet: View {
     /// again, and saying nothing would read as an invitation that was
     /// sent.
     private func summary(added: [String], outbound: [ImMessage], unreachable: [String]) -> String {
-        guard !added.isEmpty else { return "Already a member." }
+        guard !added.isEmpty else { return String(localized: "Already a member.") }
         var lines = ["Added. \(outbound.count) notification(s) queued."]
         if !unreachable.isEmpty {
             lines.append(
-                "\(unreachable.count) member(s) publish no DOCK, so there is nowhere to leave one for them — they are in the room, and you can share its details again once they have a server."
+                String(localized: "\(String(unreachable.count)) member(s) publish no DOCK, so there is nowhere to leave one for them — they are in the room, and you can share its details again once they have a server.")
             )
         }
         return lines.joined(separator: " ")
@@ -572,8 +572,8 @@ struct MemberListSheet: View {
                 await MainActor.run {
                     working = false
                     note = told.queued.isEmpty
-                        ? "Nothing sent: they have never published a pubkey to seal a notice to."
-                        : "Reminder queued."
+                        ? String(localized: "Nothing sent: they have never published a pubkey to seal a notice to.")
+                        : String(localized: "Reminder queued.")
                 }
             } catch {
                 await MainActor.run {
@@ -585,7 +585,7 @@ struct MemberListSheet: View {
     }
 
     private func withdraw(_ fid: String) {
-        carve("Withdrawal") {
+        carve(String(localized: "Withdrawal")) {
             try await session.carveTeamWithdrawInvitationOnChain(teamId: conversation.targetId, fids: [fid])
         }
     }
@@ -602,7 +602,7 @@ struct MemberListSheet: View {
             // A nobody manager is a manager anyone can be.
             guard await NobodyGate.confirm(fids, .team, session: session) else { return }
             await MainActor.run {
-                carve(fids.count == 1 ? "Appointment" : "Appointment of \(fids.count) managers") {
+                carve(fids.count == 1 ? String(localized: "Appointment") : String(localized: "Appointment of \(String(fids.count)) managers")) {
                     try await session.carveTeamAppointOnChain(teamId: conversation.targetId, fids: fids)
                 }
             }
@@ -617,7 +617,7 @@ struct MemberListSheet: View {
     /// drops any who are not managers, and the owner.
     private func demote(_ fids: [String]) {
         guard !fids.isEmpty else { return }
-        carve(fids.count == 1 ? "Cancellation" : "Removal of \(fids.count) managers") {
+        carve(fids.count == 1 ? String(localized: "Cancellation") : String(localized: "Removal of \(String(fids.count)) managers")) {
             try await session.carveTeamCancelAppointmentOnChain(teamId: conversation.targetId, fids: fids)
         }
     }
@@ -634,7 +634,7 @@ struct MemberListSheet: View {
                 let txid = try await body()
                 await MainActor.run {
                     working = false
-                    note = "\(what) broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). This list changes once it confirms and you refresh."
+                    note = String(localized: "\(what) broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). This list changes once it confirms and you refresh.")
                     onChanged()
                 }
             } catch {
@@ -669,8 +669,8 @@ struct MemberListSheet: View {
             )
             try queue(keyed.outbound)
             note = keyed.outbound.isEmpty
-                ? "Nothing to send: we have no pubkey for them, or they publish no DOCK to leave it at."
-                : "Key v\(keyed.version) queued for them."
+                ? String(localized: "Nothing to send: we have no pubkey for them, or they publish no DOCK to leave it at.")
+                : String(localized: "Key v\(String(keyed.version)) queued for them.")
         } catch {
             self.error = String(describing: error)
         }
@@ -693,15 +693,15 @@ struct MemberListSheet: View {
                     try queue(outbound)
                     await MainActor.run {
                         note = removed
-                            ? "Removed, and the room's key rotated — that rotation is what makes removal mean anything. Everything said before it stays readable to them."
-                            : "They were not a member."
+                            ? String(localized: "Removed, and the room's key rotated — that rotation is what makes removal mean anything. Everything said before it stays readable to them.")
+                            : String(localized: "They were not a member.")
                     }
                 case .team:
                     let txid = try await session.carveTeamDismissOnChain(
                         teamId: conversation.targetId, fids: [fid]
                     )
                     await MainActor.run {
-                        note = "Dismissal broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). They still hold every key they were given, so reset the team's key as well."
+                        note = String(localized: "Dismissal broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). They still hold every key they were given, so reset the team's key as well.")
                     }
                 case .square, .p2p:
                     break

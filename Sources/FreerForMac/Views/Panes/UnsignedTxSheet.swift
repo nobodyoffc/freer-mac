@@ -28,8 +28,8 @@ struct UnsignedTxSheet: View {
         let p = result.plan
         self.init(
             info: result.info,
-            summary: "\(p.selected.count) input(s) · \(p.totalIn) sat in · fee \(p.fee) sat · \(p.estimatedSize) B"
-                + (p.hasChange ? " · change \(p.change) sat" : " · no change"),
+            summary: String(localized: "\(String(p.selected.count)) input(s) · \(String(p.totalIn)) sat in · fee \(String(p.fee)) sat · \(String(p.estimatedSize)) B")
+                + (p.hasChange ? String(localized: " · change \(String(p.change)) sat") : String(localized: " · no change")),
             onDone: onDone
         )
     }
@@ -167,9 +167,9 @@ struct UnsignedTxSheet: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try Data(json.utf8).write(to: url)
-            saveNote = "Saved to \(url.path)"
+            saveNote = String(localized: "Saved to \(url.path)")
         } catch {
-            saveNote = "Save failed: \(error.localizedDescription)"
+            saveNote = String(localized: "Save failed: \(error.localizedDescription)")
         }
     }
 }

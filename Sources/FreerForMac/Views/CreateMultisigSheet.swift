@@ -60,16 +60,16 @@ struct CreateMultisigSheet: View {
     }
 
     private var blockReason: String? {
-        if members.count < 2 { return "A group needs at least two members." }
-        if members.count > 15 { return "A group cannot have more than 15 members." }
+        if members.count < 2 { return String(localized: "A group needs at least two members.") }
+        if members.count > 15 { return String(localized: "A group cannot have more than 15 members.") }
         if let first = missingKeys.first {
-            return "\(first.fid.elidingMiddle(head: 8, tail: 8)) has never published a pubkey — nothing has been signed from it — so it cannot be in a group."
+            return String(localized: "\(first.fid.elidingMiddle(head: 8, tail: 8)) has never published a pubkey — nothing has been signed from it — so it cannot be in a group.")
         }
         if !includesMain {
-            return "This FID is not in the group, so this Setting could never sign for it."
+            return String(localized: "This FID is not in the group, so this Setting could never sign for it.")
         }
         if let existing = group?.id, session.setting.keyInfoMap[existing] != nil {
-            return "This exact group is already registered."
+            return String(localized: "This exact group is already registered.")
         }
         return nil
     }
@@ -138,8 +138,8 @@ struct CreateMultisigSheet: View {
                 Spacer()
                 Button {
                     pick = .many(
-                        title: "Choose group members",
-                        subtitle: "Everyone who can sign for this address. Each needs a published pubkey.",
+                        title: String(localized: "Choose group members"),
+                        subtitle: String(localized: "Everyone who can sign for this address. Each needs a published pubkey."),
                         preselected: members,
                         excluded: []
                     )
@@ -246,12 +246,12 @@ struct CreateMultisigSheet: View {
 
     private var thresholdNote: String {
         if members.count > 1 && threshold == members.count {
-            return "Every member must sign. If any one of them loses their key, the coins are stuck for good."
+            return String(localized: "Every member must sign. If any one of them loses their key, the coins are stuck for good.")
         }
         if threshold == 1 {
-            return "Any single member can spend alone — this is a shared address, not a shared decision."
+            return String(localized: "Any single member can spend alone — this is a shared address, not a shared decision.")
         }
-        return "Any \(threshold) of the \(members.count) members can spend together."
+        return String(localized: "Any \(String(threshold)) of the \(String(members.count)) members can spend together.")
     }
 
     @ViewBuilder
@@ -266,7 +266,7 @@ struct CreateMultisigSheet: View {
                 CopyableText(display: address, copy: address, font: .body.monospaced())
                 if let script = group.redeemScript {
                     CopyableText(
-                        display: "redeem script: \(script.elidingMiddle(head: 12, tail: 12))",
+                        display: String(localized: "redeem script: \(script.elidingMiddle(head: 12, tail: 12))"),
                         copy: script,
                         font: .caption.monospaced()
                     )
@@ -291,7 +291,7 @@ struct CreateMultisigSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                CopyableText("Everyone needs a copy of this group").font(.headline)
+                CopyableText(String(localized: "Everyone needs a copy of this group")).font(.headline)
             }
             .foregroundStyle(.orange)
             Text("The address is public, but spending from it needs the redeem script — the members, their order, and the threshold. It is not stored on chain anywhere. If every member loses it, the coins cannot be moved by anyone, ever.")
@@ -312,7 +312,7 @@ struct CreateMultisigSheet: View {
 
     private var footer: some View {
         HStack {
-            LabeledField("Label", hint: nil) {
+            LabeledField(String(localized: "Label"), hint: nil) {
                 TextField("", text: $label, prompt: Text("House fund"))
                     .fieldInputStyle()
             }

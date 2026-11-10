@@ -50,17 +50,17 @@ struct RoomSettingsSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                LabeledField("Room name") {
+                LabeledField(String(localized: "Room name")) {
                     TextField("", text: $name, prompt: Text("required"))
                         .fieldInputStyle()
                 }
-                LabeledField("Description") {
+                LabeledField(String(localized: "Description")) {
                     TextField("", text: $desc, prompt: Text("optional"))
                         .fieldInputStyle()
                 }
                 LabeledField(
                     "DOCK",
-                    hint: "Where this room's messages rest until each member collects them. Changing it moves the whole room — every member is sent the new address, and anyone who does not get the message keeps looking at the old one."
+                    hint: String(localized: "Where this room's messages rest until each member collects them. Changing it moves the whole room — every member is sent the new address, and anyone who does not get the message keeps looking at the old one.")
                 ) {
                     HStack(spacing: 8) {
                         TextField("", text: $dock, prompt: Text("service id, or host:port"))
@@ -76,7 +76,7 @@ struct RoomSettingsSheet: View {
                 }
                 LabeledField(
                     "CALL",
-                    hint: "The relay this room's meetings run on, paid by whoever starts one. Empty: no meetings."
+                    hint: String(localized: "The relay this room's meetings run on, paid by whoever starts one. Empty: no meetings.")
                 ) {
                     HStack(spacing: 8) {
                         TextField("", text: $call, prompt: Text("service id, or fudp://host:port"))
@@ -112,7 +112,7 @@ struct RoomSettingsSheet: View {
             ServicePickerSheet(
                 session: session,
                 component: ServiceName.dock,
-                title: "Choose this room's DOCK",
+                title: String(localized: "Choose this room's DOCK"),
                 initialQuery: dock
             ) { service in
                 dock = service.sid
@@ -125,7 +125,7 @@ struct RoomSettingsSheet: View {
             ServicePickerSheet(
                 session: session,
                 component: ServiceName.call,
-                title: "Choose this room's CALL service",
+                title: String(localized: "Choose this room's CALL service"),
                 initialQuery: call
             ) { service in
                 call = service.sid
@@ -141,7 +141,7 @@ struct RoomSettingsSheet: View {
         loaded = true
         do {
             guard let room = try session.rooms.get(id: roomId) else {
-                error = "This room is not on this Mac any more."
+                error = String(localized: "This room is not on this Mac any more.")
                 return
             }
             name = room.name ?? ""
@@ -185,9 +185,9 @@ struct RoomSettingsSheet: View {
             }
             Task { _ = try? await session.courier.drainOutbox(as: session.liveFid) }
 
-            var summary = "Saved. \(outbound.count) update(s) queued."
+            var summary = String(localized: "Saved. \(String(outbound.count)) update(s) queued.")
             if !unreachable.isEmpty {
-                summary += " \(unreachable.count) member(s) publish no DOCK, so there is nowhere to leave one for them."
+                summary += String(localized: " \(String(unreachable.count)) member(s) publish no DOCK, so there is nowhere to leave one for them.")
             }
             working = false
             onSaved(summary)

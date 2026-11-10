@@ -11,13 +11,13 @@ public enum ShellTool {
         public let stderr: String
         public var description: String {
             let detail = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            return "\(command) failed (\(status))" + (detail.isEmpty ? "" : ": \(detail)")
+            return String(localized: "\(command) failed (\(String(status)))") + (detail.isEmpty ? "" : ": \(detail)")
         }
     }
 
     public struct NotInstalled: Error, CustomStringConvertible {
         public let tool: String
-        public var description: String { "\(tool) is not installed (looked in /opt/homebrew/bin, /usr/local/bin, /usr/bin)." }
+        public var description: String { String(localized: "\(tool) is not installed (looked in /opt/homebrew/bin, /usr/local/bin, /usr/bin).") }
     }
 
     static let searchPath = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
@@ -163,8 +163,8 @@ public struct GitRepo: Sendable {
         case empty(String)
         public var description: String {
             switch self {
-            case .truncated(let p): return "git cat-file output ended early at \(p)"
-            case .empty(let p): return "nothing is tracked under \(p)"
+            case .truncated(let p): return String(localized: "git cat-file output ended early at \(p)")
+            case .empty(let p): return String(localized: "nothing is tracked under \(p)")
             }
         }
     }

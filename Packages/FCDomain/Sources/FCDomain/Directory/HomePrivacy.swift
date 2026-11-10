@@ -38,7 +38,7 @@ public enum HomePrivacy {
         var descriptionText: String {
             switch self {
             case .notAServiceId(let value):
-                return "Only a service id can be kept private, not '\(value)'."
+                return String(localized: "Only a service id can be kept private, not '\(value)'.")
             }
         }
         public var description: String { descriptionText }

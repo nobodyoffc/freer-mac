@@ -147,7 +147,7 @@ public enum ChatGate {
         // Before anything about membership: without a private key there
         // is nothing to seal a message with, in any flavour.
         guard facts.canSign else {
-            return .blocked(reason: "This identity is unlocked for reading only. Unlock it to send.")
+            return .blocked(reason: String(localized: "This identity is unlocked for reading only. Unlock it to send."))
         }
 
         // A P2P chat asks nobody's permission. Having no DOCK of our own
@@ -168,11 +168,11 @@ public enum ChatGate {
             switch facts.pendingJoin {
             case .waiting:
                 return .blocked(
-                    reason: "Joining — you can read now, and send once the next block confirms your join."
+                    reason: String(localized: "Joining — you can read now, and send once the next block confirms your join.")
                 )
             case .stalled:
                 return .blocked(
-                    reason: "Your join has not reached the chain after a day, so it may have failed. Check the transaction, then join again."
+                    reason: String(localized: "Your join has not reached the chain after a day, so it may have failed. Check the transaction, then join again.")
                 )
             case .none:
                 break
@@ -181,7 +181,7 @@ public enum ChatGate {
 
         if facts.leftGroup {
             return .notMember(
-                reason: "You are not in this \(noun) any more. The transcript stays; sending does not."
+                reason: String(localized: "You are not in this \(noun) any more. The transcript stays; sending does not.")
             )
         }
         if !facts.isMember {
@@ -193,11 +193,11 @@ public enum ChatGate {
         if Self.requiresSymkey(facts.type), !facts.hasSymkey {
             if facts.isOwner {
                 return .ownerNeedsKey(
-                    reason: "This \(noun) has no key on this device. Generate one, or ask a member for the key they hold."
+                    reason: String(localized: "This \(noun) has no key on this device. Generate one, or ask a member for the key they hold.")
                 )
             }
             return .blocked(
-                reason: "Waiting for this \(noun)'s key. Until it arrives nothing here can be sealed or read."
+                reason: String(localized: "Waiting for this \(noun)'s key. Until it arrives nothing here can be sealed or read.")
             )
         }
         return .open
@@ -210,26 +210,26 @@ public enum ChatGate {
     private static func notMemberReason(_ type: ImType) -> String {
         switch type {
         case .team:
-            return "You are not a member of this team. Membership is on the chain: joining is a transaction, and who is in it is public."
+            return String(localized: "You are not a member of this team. Membership is on the chain: joining is a transaction, and who is in it is public.")
         case .square:
-            return "You are not a member of this square. Anyone may join, and joining is a transaction."
+            return String(localized: "You are not a member of this square. Anyone may join, and joining is a transaction.")
         case .room:
-            return "You are not a member of this room. A room is invitation-only, and only its owner can add you."
+            return String(localized: "You are not a member of this room. A room is invitation-only, and only its owner can add you.")
         case .p2p:
-            return "This chat is not open."
+            return String(localized: "This chat is not open.")
         }
     }
 
     private static func noDockReason(_ type: ImType) -> String {
         switch type {
         case .team:
-            return "This team publishes no DOCK server, so there is nowhere for its messages to rest. Its owner has to set one."
+            return String(localized: "This team publishes no DOCK server, so there is nowhere for its messages to rest. Its owner has to set one.")
         case .square:
-            return "This square publishes no DOCK server, so there is nowhere for its messages to rest."
+            return String(localized: "This square publishes no DOCK server, so there is nowhere for its messages to rest.")
         case .room:
-            return "This room publishes no DOCK server, so there is nowhere for its messages to rest. Its owner has to set one."
+            return String(localized: "This room publishes no DOCK server, so there is nowhere for its messages to rest. Its owner has to set one.")
         case .p2p:
-            return "No DOCK."
+            return String(localized: "No DOCK.")
         }
     }
 }

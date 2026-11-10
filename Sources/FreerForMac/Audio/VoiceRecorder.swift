@@ -99,7 +99,7 @@ final class VoiceRecorder {
             level = 0
             tick()
         } catch {
-            failure = "Could not start recording: \(error)"
+            failure = String(localized: "Could not start recording: \(String(describing: error))")
             try? FileManager.default.removeItem(at: target)
         }
     }
@@ -122,7 +122,7 @@ final class VoiceRecorder {
               let data = try? Data(contentsOf: url), !data.isEmpty
         else {
             try? FileManager.default.removeItem(at: url)
-            failure = "Too short — hold the button long enough to say something."
+            failure = String(localized: "Too short — hold the button long enough to say something.")
             return nil
         }
         return Recording(
@@ -200,13 +200,15 @@ final class VoiceRecorder {
     /// this binary, so a `swift run` build's entry in that list is the
     /// terminal's — and looking for "Freer" there finds nothing.
     private static let deniedMessage =
-        "Microphone access is off. Turn it on in System Settings ▸ Privacy & Security ▸ "
-        + "Microphone, then try again. On a `swift run` build the entry is listed under "
-        + "the app that launched this one, usually Terminal."
+        String(localized: """
+            Microphone access is off. Turn it on in System Settings ▸ Privacy & Security ▸ \
+            Microphone, then try again. On a `swift run` build the entry is listed under \
+            the app that launched this one, usually Terminal.
+            """)
 
     private enum Failure: Error, CustomStringConvertible {
         case couldNotStart
 
-        var description: String { "the audio device refused to start" }
+        var description: String { String(localized: "the audio device refused to start") }
     }
 }

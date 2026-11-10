@@ -75,19 +75,19 @@ struct RateRecordSheet: View {
     /// learns it before paying a fee to find out.
     private var blockReason: String? {
         if let owner, owner == session.liveFid {
-            return "You are the \(kind.ownerNoun) of this \(kind.label.lowercased()). The protocol ignores a rating from its own \(kind.ownerNoun), so the carve would cost the fee and change nothing."
+            return String(localized: "You are the \(kind.ownerNoun) of this \(kind.label.lowercased()). The protocol ignores a rating from its own \(kind.ownerNoun), so the carve would cost the fee and change nothing.")
         }
         if !session.canSign {
-            return "This identity has no prikey on this Mac, so it cannot sign a rating."
+            return String(localized: "This identity has no prikey on this Mac, so it cannot sign a rating.")
         }
         if subjectId.isEmpty {
-            return "This record has no on-chain id yet — it cannot be rated until its publish confirms."
+            return String(localized: "This record has no on-chain id yet — it cannot be rated until its publish confirms.")
         }
         if loading { return nil }
-        guard let weightCd else { return "The weight has to be a whole number of coin-days." }
-        if weightCd < 1 { return "A rating has to destroy at least 1 coin-day to be counted." }
+        guard let weightCd else { return String(localized: "The weight has to be a whole number of coin-days.") }
+        if weightCd < 1 { return String(localized: "A rating has to destroy at least 1 coin-day to be counted.") }
         if let availableCd, weightCd > availableCd {
-            return "This identity holds about \(Self.grouped(availableCd)) coin-days, which is less than the weight you asked for."
+            return String(localized: "This identity holds about \(Self.grouped(availableCd)) coin-days, which is less than the weight you asked for.")
         }
         // Asked of the builder rather than estimated: the limit is on
         // encoded bytes, and a counter that guessed would let a cause
@@ -95,7 +95,7 @@ struct RateRecordSheet: View {
         if (try? ActiveSession.rateCarve(
             kind: kind, subjectId: subjectId, rate: score.rawValue, cause: cause
         )) == nil {
-            return "The cause is too long to fit in the carve — shorten it."
+            return String(localized: "The cause is too long to fit in the carve — shorten it.")
         }
         return nil
     }
@@ -228,15 +228,17 @@ struct RateRecordSheet: View {
     /// equal targets, each labelled, say what the protocol actually
     /// accepts.
     private var scorePanel: some View {
-        panel("Your rating") {
+        panel(String(localized: "Your rating")) {
             HStack(spacing: 6) {
                 ForEach(RateScore.allCases) { value in
                     scoreButton(value)
                 }
             }
             caption(
-                "\(score.rawValue) — \(score.label). Folded into this \(kind.label.lowercased())'s "
-                    + "average by the coin-days below, not counted as one vote among many."
+                String(localized: """
+                    \(String(score.rawValue)) — \(score.label). Folded into this \(kind.label.lowercased())'s \
+                    average by the coin-days below, not counted as one vote among many.
+                    """)
             )
         }
     }
@@ -275,7 +277,7 @@ struct RateRecordSheet: View {
     /// not a question most people can answer cold, and one extra zero
     /// here spends ten times the stake.
     private var weightPanel: some View {
-        panel("Weight") {
+        panel(String(localized: "Weight")) {
             HStack(spacing: 8) {
                 TextField("", text: $weightText)
                     .fieldInputStyle()
@@ -301,17 +303,16 @@ struct RateRecordSheet: View {
     /// a guess.
     private var movementNote: String {
         guard let weightCd, weightCd > 0 else {
-            return "A rating's force is the coin-days it destroys. The coin-days are spent, not lent."
+            return String(localized: "A rating's force is the coin-days it destroys. The coin-days are spent, not lent.")
         }
         guard let current = currentRate, let cdd = currentCdd, cdd > 0 else {
-            return "Nothing has rated this \(kind.label.lowercased()) yet, so this rating becomes its average outright."
+            return String(localized: "Nothing has rated this \(kind.label.lowercased()) yet, so this rating becomes its average outright.")
         }
         let moved = (Double(current) * Double(cdd) + Double(score.rawValue) * Double(weightCd))
             / Double(cdd + weightCd)
-        return String(
-            format: "At %@ coin-days this moves the average from %.2f to about %.2f.",
-            Self.grouped(weightCd), current, moved
-        )
+        let from = String(format: "%.2f", current)
+        let to = String(format: "%.2f", moved)
+        return String(localized: "At \(Self.grouped(weightCd)) coin-days this moves the average from \(from) to about \(to).")
     }
 
     /// What the vault thinks it can spend, hedged honestly. The cached
@@ -319,23 +320,29 @@ struct RateRecordSheet: View {
     /// a build in flight, so this reads as "about".
     private var availableNote: String {
         guard let availableCd else {
-            return "Coin selection takes whole cashes, so it may destroy more than you ask for — "
-                + "the approval sheet shows the real number before you sign."
+            return String(localized: """
+                Coin selection takes whole cashes, so it may destroy more than you ask for — \
+                the approval sheet shows the real number before you sign.
+                """)
         }
-        return "This identity holds about \(Self.grouped(availableCd)) coin-days. Selection takes whole "
-            + "cashes, so it may destroy more than you ask for — the approval sheet shows the real "
-            + "number before you sign."
+        return String(localized: """
+            This identity holds about \(Self.grouped(availableCd)) coin-days. Selection takes whole \
+            cashes, so it may destroy more than you ask for — the approval sheet shows the real \
+            number before you sign.
+            """)
     }
 
     private var causePanel: some View {
-        panel("Cause (optional)") {
+        panel(String(localized: "Cause (optional)")) {
             TextEditor(text: $cause)
                 .font(.body)
                 .fieldEditorStyle(minHeight: 70, maxHeight: 70)
             HStack {
                 caption(
-                    "Why you rated it this way. Public and permanent, like everything else in the "
-                        + "carve. Left blank, the field is omitted rather than carved empty."
+                    String(localized: """
+                        Why you rated it this way. Public and permanent, like everything else in the \
+                        carve. Left blank, the field is omitted rather than carved empty.
+                        """)
                 )
                 Spacer(minLength: 8)
                 if let budget = causeBudget {
@@ -350,15 +357,17 @@ struct RateRecordSheet: View {
     /// What this transaction actually does, in the order somebody
     /// deciding to send it would ask.
     private var costPanel: some View {
-        panel("What gets carved") {
-            costRow("About", "\(kind.label) \(subjectId.elidingMiddle(head: 8, tail: 8))")
-            costRow("Rating", "\(score.rawValue) — \(score.label)")
-            costRow("Coin-days", "at least \(weightCd.map(Self.grouped) ?? "—")")
-            costRow("Paid to them", "nothing")
+        panel(String(localized: "What gets carved")) {
+            costRow(String(localized: "About"), "\(kind.label) \(subjectId.elidingMiddle(head: 8, tail: 8))")
+            costRow(String(localized: "Rating"), "\(score.rawValue) — \(score.label)")
+            costRow("Coin-days", String(localized: "at least \(weightCd.map(Self.grouped) ?? "—")"))
+            costRow(String(localized: "Paid to them"), "nothing")
             caption(
-                "A rating names the record in the carve itself, so nothing is sent to whoever "
-                    + "published it. What it costs you is the miner fee and the coin-days above, "
-                    + "and the coin-days are not a fee: they are the weight."
+                String(localized: """
+                    A rating names the record in the carve itself, so nothing is sent to whoever \
+                    published it. What it costs you is the miner fee and the coin-days above, \
+                    and the coin-days are not a fee: they are the weight.
+                    """)
             )
         }
     }
@@ -474,7 +483,7 @@ struct RateRecordSheet: View {
     /// One history row as a line — score, weight, when.
     static func summary(of row: RatingHist) -> String {
         let value = row.rate.map(String.init) ?? "—"
-        let weight = row.cdd.map { "\(grouped($0)) CDD" } ?? "unknown weight"
+        let weight = row.cdd.map { String(localized: "\(grouped($0)) CDD") } ?? String(localized: "unknown weight")
         guard let time = row.time else { return "\(value) · \(weight)" }
         let seconds = time > 10_000_000_000 ? Double(time) / 1000 : Double(time)
         return "\(value) · \(weight) · \(stamp.string(from: Date(timeIntervalSince1970: seconds)))"
@@ -502,7 +511,7 @@ struct RateRecordSheet: View {
                 of: kind, subjectId: subjectId, owner: owner
             )
         } catch {
-            loadError = "Couldn't check this \(kind.label.lowercased()) before rating — \(error)"
+            loadError = String(localized: "Couldn't check this \(kind.label.lowercased()) before rating — \(String(describing: error))")
         }
     }
 

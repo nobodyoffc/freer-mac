@@ -98,6 +98,14 @@ for b in "$ROOT"/.build/release/*.bundle; do
     cp -R "$b" "$APP/Contents/Resources/$(basename "$b")"
 done
 
+# The translations. macOS decides the app's language from the .lproj folders
+# of the main bundle, and SwiftUI looks every `Text("…")` up there as well —
+# so they go straight into Contents/Resources, not into a SwiftPM bundle.
+cp -R "$ROOT"/Sources/FreerForMac/Localization/*.lproj "$APP/Contents/Resources/"
+for f in "$APP"/Contents/Resources/*.lproj/*.strings; do
+    plutil -lint -s "$f" || { echo "malformed strings file: $f" >&2; exit 1; }
+done
+
 # Some dependencies ship read-only resources (GRDB's PrivacyInfo.xcprivacy is
 # 0444 in its own checkout) and SwiftPM copies the mode along with the file.
 # `xattr -dr com.apple.quarantine` then fails loudly on exactly those files —

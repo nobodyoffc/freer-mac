@@ -19,7 +19,7 @@ public struct QrDisplaySheet: View {
     @State private var copied = false
 
     public init(
-        title: String = "QR code",
+        title: String = String(localized: "QR code"),
         content: String,
         onDone: @escaping () -> Void
     ) {
@@ -176,16 +176,16 @@ public struct QrDisplaySheet: View {
             guard panel.runModal() == .OK, let url = panel.url else { return }
             do {
                 try write(images[0], to: url)
-                statusNote = "Saved to \(url.lastPathComponent)"
+                statusNote = String(localized: "Saved to \(url.lastPathComponent)")
             } catch {
-                statusNote = "Save failed: \(error.localizedDescription)"
+                statusNote = String(localized: "Save failed: \(error.localizedDescription)")
             }
         } else {
             let panel = NSOpenPanel()
             panel.canChooseFiles = false
             panel.canChooseDirectories = true
             panel.canCreateDirectories = true
-            panel.prompt = "Save \(images.count) images"
+            panel.prompt = String(localized: "Save \(String(images.count)) images")
             guard panel.runModal() == .OK, let dir = panel.url else { return }
             let stamp = Int(Date().timeIntervalSince1970)
             var saved = 0
@@ -194,8 +194,8 @@ public struct QrDisplaySheet: View {
                 if (try? write(image, to: url)) != nil { saved += 1 }
             }
             statusNote = saved == images.count
-                ? "Saved \(saved) images to \(dir.lastPathComponent)"
-                : "Saved \(saved) of \(images.count) images — some writes failed"
+                ? String(localized: "Saved \(String(saved)) images to \(dir.lastPathComponent)")
+                : String(localized: "Saved \(String(saved)) of \(String(images.count)) images — some writes failed")
         }
     }
 

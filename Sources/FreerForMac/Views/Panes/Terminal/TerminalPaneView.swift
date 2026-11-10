@@ -260,7 +260,7 @@ struct TerminalPaneView: View {
 
     private var toolbar: some View {
         HStack(spacing: 12) {
-            SearchField("Search servers", text: $search, minWidth: 160, maxWidth: 260)
+            SearchField(String(localized: "Search servers"), text: $search, minWidth: 160, maxWidth: 260)
 
             Button {
                 editor = .add
@@ -598,9 +598,9 @@ struct TerminalPaneView: View {
 
     private func stopTitle(_ kind: SshLaunch.Kind) -> String {
         switch kind {
-        case .upload, .installKey, .removeKey: return "Cancel"
-        case .tunnel: return "Close tunnel"
-        case .shell, .sftp: return "Disconnect"
+        case .upload, .installKey, .removeKey: return String(localized: "Cancel")
+        case .tunnel: return String(localized: "Close tunnel")
+        case .shell, .sftp: return String(localized: "Disconnect")
         }
     }
 
@@ -613,7 +613,7 @@ struct TerminalPaneView: View {
                     display: forward.summary,
                     copy: "localhost:\(forward.localPort)",
                     font: .system(.caption, design: .monospaced),
-                    help: "Click to copy localhost:\(forward.localPort)"
+                    help: String(localized: "Click to copy localhost:\(String(forward.localPort))")
                 )
             }
         }
@@ -721,10 +721,10 @@ struct TerminalPaneView: View {
     /// chip: when it was opened, and the exact command that opened it.
     private func tabTooltip(_ model: TerminalSessionModel) -> String {
         var lines = [
-            "Session \(model.ordinal) · opened \(model.openedAt.formatted(date: .omitted, time: .shortened))"
+            String(localized: "Session \(String(model.ordinal)) · opened \(model.openedAt.formatted(date: .omitted, time: .shortened))")
         ]
         if !model.commandLine.isEmpty { lines.append(model.commandLine) }
-        lines.append("Double-click to rename.")
+        lines.append(String(localized: "Double-click to rename."))
         return lines.joined(separator: "\n")
     }
 
@@ -823,7 +823,7 @@ struct TerminalPaneView: View {
             connect(server, kind: .installKey(authorizedKeysLine: line))
         } catch {
             selectedId = server.id
-            connectError = "Could not derive the SSH key — \(error)"
+            connectError = String(localized: "Could not derive the SSH key — \(String(describing: error))")
         }
     }
 
@@ -860,7 +860,7 @@ struct TerminalPaneView: View {
             try session.sshServers.upsert(updated)
             reload()
         } catch {
-            connectError = "Could not switch \(server.name) to the Freer key — \(error)"
+            connectError = String(localized: "Could not switch \(server.name) to the Freer key — \(String(describing: error))")
         }
     }
 
@@ -873,7 +873,7 @@ struct TerminalPaneView: View {
             connect(server, kind: .removeKey(authorizedKeysLine: line))
         } catch {
             selectedId = server.id
-            connectError = "Could not derive the SSH key — \(error)"
+            connectError = String(localized: "Could not derive the SSH key — \(String(describing: error))")
         }
     }
 
@@ -882,9 +882,9 @@ struct TerminalPaneView: View {
     /// another key of yours, so the warning is as strong as what this
     /// entry itself logs in with.
     private func keyRemovalWarning(_ server: SshServer?) -> String {
-        let what = "This logs in once and deletes every line holding the Freer key from ~/.ssh/authorized_keys. Other keys stay."
+        let what = String(localized: "This logs in once and deletes every line holding the Freer key from ~/.ssh/authorized_keys. Other keys stay.")
         guard server?.credentialKind == .freer else { return what }
-        return what + " This server logs in with that key: if it takes no password and has no other key of yours, you will not get back in."
+        return what + String(localized: " This server logs in with that key: if it takes no password and has no other key of yours, you will not get back in.")
     }
 
     private func chooseUpload(for server: SshServer) {
@@ -892,8 +892,8 @@ struct TerminalPaneView: View {
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = true
-        panel.prompt = "Choose"
-        panel.message = "Folders are copied with everything in them. Next, the folder on \(server.target) they go into."
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "Folders are copied with everything in them. Next, the folder on \(server.target) they go into.")
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         selectedId = server.id
         pendingUpload = PendingUpload(
@@ -997,7 +997,7 @@ struct TerminalPaneView: View {
         var description: String {
             switch self {
             case let .missingKeyFile(path):
-                return "No key file at \(path). Edit the server and pick it again."
+                return String(localized: "No key file at \(path). Edit the server and pick it again.")
             }
         }
     }
@@ -1020,7 +1020,7 @@ struct TerminalPaneView: View {
             servers = try session.sshServers.all()
             loadError = nil
         } catch {
-            loadError = "Could not read saved servers — \(error)"
+            loadError = String(localized: "Could not read saved servers — \(String(describing: error))")
         }
     }
 }

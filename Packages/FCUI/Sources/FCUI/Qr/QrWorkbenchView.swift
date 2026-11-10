@@ -158,8 +158,8 @@ public struct QrWorkbenchView: View {
         content += code
         scannedParts += 1
         statusNote = scannedParts == 1
-            ? "Scanned 1 code (\(source))."
-            : "Scanned \(scannedParts) codes so far — parts are appended in scan order."
+            ? String(localized: "Scanned 1 code (\(source)).")
+            : String(localized: "Scanned \(String(scannedParts)) codes so far — parts are appended in scan order.")
     }
 
     private func pickImages() {
@@ -168,7 +168,7 @@ public struct QrWorkbenchView: View {
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
         panel.allowedContentTypes = [.image]
-        panel.prompt = "Decode"
+        panel.prompt = String(localized: "Decode")
         guard panel.runModal() == .OK else { return }
         importImages(at: panel.urls)
     }
@@ -195,9 +195,9 @@ public struct QrWorkbenchView: View {
         }
         scannedParts += appended
 
-        var note = "Added \(appended) code\(appended == 1 ? "" : "s") from \(images.count) image\(images.count == 1 ? "" : "s")."
+        var note = String(localized: "Added \(String(appended)) code\(appended == 1 ? "" : "s") from \(String(images.count)) image\(images.count == 1 ? "" : "s").")
         if unreadable > 0 {
-            note += " \(unreadable) image\(unreadable == 1 ? " had" : "s had") no readable QR code."
+            note += String(localized: " \(String(unreadable)) image\(unreadable == 1 ? " had" : "s had") no readable QR code.")
         }
         statusNote = note
     }
@@ -225,7 +225,7 @@ public struct QrScanSheet: View {
     @State private var content = ""
 
     public init(
-        title: String = "Scan QR code",
+        title: String = String(localized: "Scan QR code"),
         onUse: @escaping (String) -> Void,
         onCancel: @escaping () -> Void
     ) {

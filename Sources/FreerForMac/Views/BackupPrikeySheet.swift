@@ -227,7 +227,7 @@ struct BackupPrikeySheet: View {
                     CopyableText(
                         keyText,
                         font: .system(.body, design: .monospaced),
-                        help: "Copy the prikey — it goes to the clipboard in the clear."
+                        help: String(localized: "Copy the prikey — it goes to the clipboard in the clear.")
                     )
                 } else {
                     // A fixed-width mask: repeating one star per character
@@ -287,7 +287,7 @@ struct BackupPrikeySheet: View {
                     display: cipher.elidingMiddle(head: 28, tail: 20),
                     copy: cipher,
                     font: .caption.monospaced(),
-                    help: "Copy the whole encrypted backup."
+                    help: String(localized: "Copy the whole encrypted backup.")
                 )
                 .padding(8)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -348,7 +348,7 @@ struct BackupPrikeySheet: View {
             }
             if qrTarget == .plain {
                 CopyableLabel(
-                    "The key itself, in the clear: anything that can see this screen can take the wallet. Use it only to move the key to a device in your own hands.",
+                    String(localized: "The key itself, in the clear: anything that can see this screen can take the wallet. Use it only to move the key to a device in your own hands."),
                     systemImage: "exclamationmark.triangle.fill"
                 )
                 .font(.caption)
@@ -468,7 +468,7 @@ struct BackupPrikeySheet: View {
                 secret = SecretBytes(try session.mainPrikey())
             }
         } catch {
-            loadError = "Couldn't read the prikey: \(String(describing: error))"
+            loadError = String(localized: "Couldn't read the prikey: \(String(describing: error))")
         }
     }
 
@@ -521,7 +521,7 @@ struct BackupPrikeySheet: View {
             cipher = sealed
             cipherFormat = format
             noteIsError = false
-            note = "Encrypted. The cipher below is safe to keep anywhere — it opens only with this vault's password."
+            note = String(localized: "Encrypted. The cipher below is safe to keep anywhere — it opens only with this vault's password.")
             // A code that was showing the bare key gives way to the sealed one:
             // the safe form is what should be on screen once there is one.
             qrTarget = .cipher
@@ -533,14 +533,14 @@ struct BackupPrikeySheet: View {
             qrImages = []
             noteIsError = true
             note = (error as? SealFailure)?.description
-                ?? "Couldn't encrypt: \(String(describing: error))"
+                ?? String(localized: "Couldn't encrypt: \(String(describing: error))")
         }
     }
 
     private enum SealFailure: Error, CustomStringConvertible {
         case wrongPassword
         var description: String {
-            "That isn't this vault's password. The backup has to open with the password you unlock with, so it is checked before sealing."
+            String(localized: "That isn't this vault's password. The backup has to open with the password you unlock with, so it is checked before sealing.")
         }
     }
 
@@ -564,7 +564,7 @@ struct BackupPrikeySheet: View {
         } catch {
             qrImages = []
             noteIsError = true
-            note = "Couldn't draw the QR code: \(String(describing: error))"
+            note = String(localized: "Couldn't draw the QR code: \(String(describing: error))")
         }
     }
 
@@ -574,22 +574,22 @@ struct BackupPrikeySheet: View {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(cipher, forType: .string)
         noteIsError = false
-        note = "Cipher copied. Paste it somewhere it will still be there when this Mac isn't — it opens only with this vault's password."
+        note = String(localized: "Cipher copied. Paste it somewhere it will still be there when this Mac isn't — it opens only with this vault's password.")
     }
 
     private func saveCipher(_ cipher: String) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.plainText]
         panel.nameFieldStringValue = "\(fid.prefix(8))-prikey-backup.txt"
-        panel.message = "The encrypted backup. It opens only with this vault's password."
+        panel.message = String(localized: "The encrypted backup. It opens only with this vault's password.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try Data(cipher.utf8).write(to: url, options: [.atomic])
             noteIsError = false
-            note = "Saved \(url.lastPathComponent). Put it somewhere that isn't this Mac."
+            note = String(localized: "Saved \(url.lastPathComponent). Put it somewhere that isn't this Mac.")
         } catch {
             noteIsError = true
-            note = "Save failed: \(error.localizedDescription)"
+            note = String(localized: "Save failed: \(error.localizedDescription)")
         }
     }
 
@@ -606,10 +606,10 @@ struct BackupPrikeySheet: View {
             }
             try png.write(to: url, options: [.atomic])
             noteIsError = false
-            note = "Saved \(url.lastPathComponent)."
+            note = String(localized: "Saved \(url.lastPathComponent).")
         } catch {
             noteIsError = true
-            note = "Save failed: \(error.localizedDescription)"
+            note = String(localized: "Save failed: \(error.localizedDescription)")
         }
     }
 }

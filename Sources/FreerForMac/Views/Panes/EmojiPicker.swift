@@ -14,14 +14,14 @@ struct EmojiPicker: View {
     let onPick: (String) -> Void
 
     private static let groups: [(String, [String])] = [
-        ("Faces", [
+        (String(localized: "Faces"), [
             "😀", "😂", "🙂", "😉", "😍", "🤔", "😐", "🙄",
             "😢", "😭", "😅", "😬", "😴", "🤯", "😎", "🥳",
         ]),
-        ("Gestures", [
+        (String(localized: "Gestures"), [
             "👍", "👎", "👌", "🙏", "👏", "🤝", "✋", "💪",
         ]),
-        ("Marks", [
+        (String(localized: "Marks"), [
             "❤️", "🔥", "✅", "❌", "⚠️", "❓", "❗", "💡",
             "⭐️", "🎉", "🚀", "⏰", "📌", "🔒", "🔑", "📎",
         ]),

@@ -120,9 +120,9 @@ struct TxConfirmSheet: View {
     private var subtitle: String {
         switch preview.kind {
         case .payment:
-            return "A payment from this identity"
+            return String(localized: "A payment from this identity")
         case .reorg:
-            return "Paying yourself to change denominations"
+            return String(localized: "Paying yourself to change denominations")
         case .carve:
             // A carve is only "writing data" when that is all it does.
             // A time lock's payload is machinery rather than a message,
@@ -130,11 +130,11 @@ struct TxConfirmSheet: View {
             // one — describing either as a data write buries the fact
             // that money is moving.
             if !preview.payloadRedeemScripts.isEmpty {
-                return "A time-locked payment from this identity"
+                return String(localized: "A time-locked payment from this identity")
             }
-            let subject = preview.feipName.map { "\($0) data" } ?? "data"
-            if preview.payments.isEmpty { return "Writing \(subject) on chain" }
-            return "A payment from this identity, writing \(subject) on chain"
+            let subject = preview.feipName.map { String(localized: "\($0) data") } ?? String(localized: "data")
+            if preview.payments.isEmpty { return String(localized: "Writing \(subject) on chain") }
+            return String(localized: "A payment from this identity, writing \(subject) on chain")
         }
     }
 
@@ -176,7 +176,7 @@ struct TxConfirmSheet: View {
                     .font(.callout.bold())
                 Spacer(minLength: 8)
                 if required > 0 {
-                    chip(short ? "\(required) required — not enough"
+                    chip(short ? String(localized: "\(String(required)) required — not enough")
                                : "\(required) required",
                          color: short ? .red : .green)
                 }
@@ -244,7 +244,7 @@ struct TxConfirmSheet: View {
         if !recipients.isEmpty {
             NobodyBanner(
                 shown: true,
-                message: "Prikey published on chain: "
+                message: String(localized: "Prikey published on chain: ")
                     + recipients.map { $0.elidingMiddle(head: 8, tail: 8) }.joined(separator: ", ")
                     + ". " + NobodyConsequence.send.text
             )
@@ -271,7 +271,7 @@ struct TxConfirmSheet: View {
     /// right one. Two FIDs differing in the middle elide to the same
     /// `F9kL…mBq2` string and produce completely different avatars.
     private var outputsCard: some View {
-        card("Outputs", systemImage: "arrow.up.right") {
+        card(String(localized: "Outputs"), systemImage: "arrow.up.right") {
             ForEach(Array(preview.outputs.enumerated()), id: \.offset) { index, out in
                 HStack(alignment: .center, spacing: 10) {
                     Text("#\(index)")
@@ -351,7 +351,7 @@ struct TxConfirmSheet: View {
                         lineWidth: 2
                     )
                 )
-                .help(out.isSelf ? "This is you" : fid)
+                .help(out.isSelf ? String(localized: "This is you") : fid)
         } else {
             placeholderAvatar(systemImage: "questionmark", color: .orange)
         }
@@ -382,19 +382,19 @@ struct TxConfirmSheet: View {
         if let known = names[fid], !known.isEmpty { return known }
         if isSelf {
             let label = session?.liveKeyInfo.label ?? ""
-            return label.isEmpty ? "This identity" : label
+            return label.isEmpty ? String(localized: "This identity") : label
         }
         // Not an alarm — paying someone you have never saved is
         // ordinary. It says what is true: the app has no name for
         // this address, so the avatar and the digits are all there is
         // to check against.
-        return "Not in your contacts"
+        return String(localized: "Not in your contacts")
     }
 
     private var costCard: some View {
-        card("Cost", systemImage: "tag") {
-            row("Miner fee", "\(preview.fee) sat")
-            row("Size", "\(preview.estimatedSize) B at \(preview.feePerByte) sat/B")
+        card(String(localized: "Cost"), systemImage: "tag") {
+            row(String(localized: "Miner fee"), "\(preview.fee) sat")
+            row(String(localized: "Size"), String(localized: "\(String(preview.estimatedSize)) B at \(String(preview.feePerByte)) sat/B"))
             HStack(spacing: 8) {
                 Text("From").font(.callout).foregroundStyle(.secondary)
                 Spacer(minLength: 8)
@@ -444,7 +444,7 @@ struct TxConfirmSheet: View {
                 HStack(spacing: 6) {
                     Text("\(preview.opReturnByteCount) bytes, written to the chain permanently and in public")
                     if payloadIsReformatted {
-                        chip("formatted for reading", color: .secondary)
+                        chip(String(localized: "formatted for reading"), color: .secondary)
                     }
                 }
                 .font(.caption)
@@ -454,8 +454,8 @@ struct TxConfirmSheet: View {
     }
 
     private var payloadTitle: String {
-        if !preview.payloadRedeemScripts.isEmpty { return "Payload — time-lock redeem scripts" }
-        return preview.feipName.map { "Payload — \($0)" } ?? "Payload"
+        if !preview.payloadRedeemScripts.isEmpty { return String(localized: "Payload — time-lock redeem scripts") }
+        return preview.feipName.map { String(localized: "Payload — \($0)") } ?? String(localized: "Payload")
     }
 
     /// The manifest in words. Without this a time-locked payment asks
@@ -499,7 +499,7 @@ struct TxConfirmSheet: View {
     }
 
     private var inputsCard: some View {
-        card("Inputs", systemImage: "arrow.down.left") {
+        card(String(localized: "Inputs"), systemImage: "arrow.down.left") {
             DisclosureGroup(isExpanded: $showInputs) {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(preview.inputs.enumerated()), id: \.offset) { _, cash in
@@ -511,7 +511,7 @@ struct TxConfirmSheet: View {
                             )
                             .foregroundStyle(.secondary)
                             if cash.unconfirmedDepth > 0 {
-                                chip("unconfirmed ×\(cash.unconfirmedDepth)", color: .orange)
+                                chip(String(localized: "unconfirmed ×\(String(cash.unconfirmedDepth))"), color: .orange)
                             }
                             Spacer(minLength: 8)
                             if let cd = cash.cd, cd > 0 {
@@ -547,7 +547,7 @@ struct TxConfirmSheet: View {
     private var unconfirmedNote: some View {
         HStack(alignment: .top, spacing: 8) {
             Image(systemName: "clock.badge.exclamationmark")
-            CopyableText("This spends cash from \(preview.unconfirmedDepth) of your own transaction(s) that haven't confirmed yet. It is valid and will normally confirm right behind them — but if one of those is ever dropped, this goes with it. The network carries at most \(Cash.maxUnconfirmedChain) such links.")
+            CopyableText(String(localized: "This spends cash from \(String(preview.unconfirmedDepth)) of your own transaction(s) that haven't confirmed yet. It is valid and will normally confirm right behind them — but if one of those is ever dropped, this goes with it. The network carries at most \(String(Cash.maxUnconfirmedChain)) such links."))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(.caption)

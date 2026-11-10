@@ -103,13 +103,13 @@ public struct News: Codable, Equatable, Sendable, Identifiable {
         }
     }
 
-    public static let doerField = Field(name: "doer", label: "Doer")
-    public static let actField = Field(name: "act", label: "Action")
-    public static let objectTypeField = Field(name: "objectType", label: "Type")
-    public static let objectNameField = Field(name: "objectName", label: "Name")
-    public static let objectBriefField = Field(name: "objectBrief", label: "Brief")
+    public static let doerField = Field(name: "doer", label: String(localized: "Doer"))
+    public static let actField = Field(name: "act", label: String(localized: "Action"))
+    public static let objectTypeField = Field(name: "objectType", label: String(localized: "Type"))
+    public static let objectNameField = Field(name: "objectName", label: String(localized: "Name"))
+    public static let objectBriefField = Field(name: "objectBrief", label: String(localized: "Brief"))
     public static let idField = Field(name: "id", label: "ID")
-    public static let timeField = Field(name: "time", label: "Time")
+    public static let timeField = Field(name: "time", label: String(localized: "Time"))
 
     /// Mirrors `News.getSearchableFields()`.
     public static let searchableFields: [Field] = [

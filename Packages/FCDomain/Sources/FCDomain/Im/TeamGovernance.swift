@@ -202,40 +202,40 @@ public enum TeamGovernanceFailure: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .noSuchTeam:
-            return "The chain has no record of this team. It may not have confirmed yet."
+            return String(localized: "The chain has no record of this team. It may not have confirmed yet.")
         case .disbanded:
-            return "This team has been disbanded. Nothing can be carved to it any more."
+            return String(localized: "This team has been disbanded. Nothing can be carved to it any more.")
         case .notTheOwner:
-            return "Only the team's owner can do this, and the chain does not list you as the owner."
+            return String(localized: "Only the team's owner can do this, and the chain does not list you as the owner.")
         case .notTheOwnerOrMaster:
-            return "Only the team's owner, or the owner's master, can hand this team over. The chain lists you as neither."
+            return String(localized: "Only the team's owner, or the owner's master, can hand this team over. The chain lists you as neither.")
         case .notAManager:
-            return "Only the team's owner or one of its managers can do this, and the chain lists you as neither."
+            return String(localized: "Only the team's owner or one of its managers can do this, and the chain lists you as neither.")
         case .notInvited:
-            return "The chain does not list you as invited to this team. Only an invitee can join — a join from anyone else is paid for and ignored. Ask a manager to invite you first."
+            return String(localized: "The chain does not list you as invited to this team. Only an invitee can join — a join from anyone else is paid for and ignored. Ask a manager to invite you first.")
         case .alreadyAMember:
-            return "You are already a member of this team."
+            return String(localized: "You are already a member of this team.")
         case .noConsensus:
-            return "This team names no consensus document, and a join has to quote one. It cannot be joined until the owner sets one."
+            return String(localized: "This team names no consensus document, and a join has to quote one. It cannot be joined until the owner sets one.")
         case .noTransferee:
-            return "Name the FID to hand the team to."
+            return String(localized: "Name the FID to hand the team to.")
         case .noTransferPending:
-            return "No transfer of this team is pending."
+            return String(localized: "No transfer of this team is pending.")
         case .notTheTransferee:
-            return "The chain does not list you as the one this team is being handed to. The owner may have withdrawn the offer, or offered it to somebody else."
+            return String(localized: "The chain does not list you as the one this team is being handed to. The owner may have withdrawn the offer, or offered it to somebody else.")
         case let .alreadyOffered(_, to):
-            return "The team is already on offer to \(to). Carving the same transfer again would change nothing."
+            return String(localized: "The team is already on offer to \(to). Carving the same transfer again would change nothing.")
         case let .nothingToChange(op, skipped):
-            let who = skipped.isEmpty ? "nobody" : "none of \(skipped.count) named"
+            let who = skipped.isEmpty ? "nobody" : String(localized: "none of \(String(skipped.count)) named")
             switch op {
             case .appoint:
-                return "Nothing to appoint: \(who) is a member who isn't already a manager. The indexer would skip them and the fee would buy nothing."
+                return String(localized: "Nothing to appoint: \(who) is a member who isn't already a manager. The indexer would skip them and the fee would buy nothing.")
             case .cancelAppointment:
-                return "Nothing to cancel: \(who) is a manager other than the owner."
+                return String(localized: "Nothing to cancel: \(who) is a manager other than the owner.")
             case .dismiss:
-                return "Nothing to dismiss: \(who) is a member other than the owner."
+                return String(localized: "Nothing to dismiss: \(who) is a member other than the owner.")
             case .withdrawInvitation:
-                return "Nothing to withdraw: \(who) holds an invitation to this team."
+                return String(localized: "Nothing to withdraw: \(who) holds an invitation to this team.")
             }
         }
     }

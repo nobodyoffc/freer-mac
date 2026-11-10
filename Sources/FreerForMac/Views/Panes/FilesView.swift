@@ -55,11 +55,11 @@ struct FilesView: View {
 
         var label: String {
             switch self {
-            case .localOnly:       return "On this Mac"
-            case .bothPlaces:      return "Local + DISK"
-            case .remoteOnly:      return "On DISK"
-            case .staleReference:  return "File changed"
-            case .missing:         return "No copy"
+            case .localOnly:       return String(localized: "On this Mac")
+            case .bothPlaces:      return String(localized: "Local + DISK")
+            case .remoteOnly:      return String(localized: "On DISK")
+            case .staleReference:  return String(localized: "File changed")
+            case .missing:         return String(localized: "No copy")
             }
         }
 
@@ -76,15 +76,15 @@ struct FilesView: View {
         var help: String {
             switch self {
             case .localOnly:
-                return "The file is on this Mac but not backed up to a DISK service."
+                return String(localized: "The file is on this Mac but not backed up to a DISK service.")
             case .bothPlaces:
-                return "Available locally and stored (encrypted) on a DISK service."
+                return String(localized: "Available locally and stored (encrypted) on a DISK service.")
             case .remoteOnly:
-                return "Stored on DISK. Opening it will download a copy first."
+                return String(localized: "Stored on DISK. Opening it will download a copy first.")
             case .staleReference:
-                return "The original file was edited, so it no longer matches this record. Add it again to keep the new version."
+                return String(localized: "The original file was edited, so it no longer matches this record. Add it again to keep the new version.")
             case .missing:
-                return "No local file and nothing on DISK — only the record remains."
+                return String(localized: "No local file and nothing on DISK — only the record remains.")
             }
         }
     }
@@ -112,7 +112,7 @@ struct FilesView: View {
             if let banner { bannerView(banner) }
             if let loadError {
                 card {
-                    CopyableLabel("Couldn't load files", systemImage: "exclamationmark.triangle")
+                    CopyableLabel(String(localized: "Couldn't load files"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(loadError, font: .callout).foregroundStyle(.red)
                 }
@@ -150,7 +150,7 @@ struct FilesView: View {
                 showImport = false
                 if let imported {
                     banner = Banner(kind: .success,
-                                    text: "Imported \(imported) file record(s). Use Download to fetch their contents.")
+                                    text: String(localized: "Imported \(String(imported)) file record(s). Use Download to fetch their contents."))
                 }
                 reload()
             }
@@ -195,7 +195,7 @@ struct FilesView: View {
 
     private var toolbar: some View {
         HStack(spacing: 12) {
-            SearchField("Search name, description, type, location…", text: $search, maxWidth: 320)
+            SearchField(String(localized: "Search name, description, type, location…"), text: $search, maxWidth: 320)
 
             Spacer()
 
@@ -429,10 +429,10 @@ struct FilesView: View {
 
     private static func label(_ kind: Hat.WorkKind) -> String {
         switch kind {
-        case .text:  return "Publish as Text…"
-        case .image: return "Publish as Image…"
-        case .sound: return "Publish as Sound…"
-        case .video: return "Publish as Video…"
+        case .text:  return String(localized: "Publish as Text…")
+        case .image: return String(localized: "Publish as Image…")
+        case .sound: return String(localized: "Publish as Sound…")
+        case .video: return String(localized: "Publish as Video…")
         }
     }
 
@@ -441,7 +441,7 @@ struct FilesView: View {
         do {
             let draft = try hat.toWorkDraft()
             guard case .available(let url) = try session.files.resolve(hatId: id) else {
-                banner = Banner(kind: .failure, text: "The file is no longer on this Mac. Download it, then publish.")
+                banner = Banner(kind: .failure, text: String(localized: "The file is no longer on this Mac. Download it, then publish."))
                 refreshStatuses()
                 return
             }
@@ -487,14 +487,14 @@ struct FilesView: View {
     private func published(_ title: String?, id: String) {
         publishTarget = nil
         banner = Banner(kind: .success,
-                        text: "Published “\(title ?? "the work")”. It is on DISK unencrypted and carved on chain.",
+                        text: String(localized: "Published “\(title ?? "the work")”. It is on DISK unencrypted and carved on chain."),
                         copyValue: id)
         reload()
     }
 
     private func savedDraft() {
         publishTarget = nil
-        banner = Banner(kind: .info, text: "Saved as a draft in Publish. Nothing was uploaded or carved.")
+        banner = Banner(kind: .info, text: String(localized: "Saved as a draft in Publish. Nothing was uploaded or carved."))
         reload()
     }
 
@@ -541,8 +541,8 @@ struct FilesView: View {
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
-        panel.message = "Files stay where they are — Freer records where to find them."
-        panel.prompt = "Add"
+        panel.message = String(localized: "Files stay where they are — Freer records where to find them.")
+        panel.prompt = String(localized: "Add")
         guard panel.runModal() == .OK else { return }
         register(urls: panel.urls)
     }
@@ -570,11 +570,11 @@ struct FilesView: View {
             }
         }
         if failures.isEmpty {
-            banner = Banner(kind: .success, text: "Added \(added) file\(added == 1 ? "" : "s").")
+            banner = Banner(kind: .success, text: String(localized: "Added \(String(added)) file\(added == 1 ? "" : "s")."))
         } else {
             banner = Banner(
                 kind: added > 0 ? .info : .failure,
-                text: "Added \(added); couldn't add \(failures.count) — \(failures.joined(separator: "; "))"
+                text: String(localized: "Added \(String(added)); couldn't add \(String(failures.count)) — \(failures.joined(separator: "; "))")
             )
         }
         reload()
@@ -591,14 +591,14 @@ struct FilesView: View {
         // Remote-only: fetch first, then open — Android's HatFileOpener
         // does the same rather than telling the user to download twice.
         busy[id] = .opening
-        progressText[id] = "Downloading…"
+        progressText[id] = String(localized: "Downloading…")
         defer { busy[id] = nil; progressText[id] = nil }
         do {
             let url = try await performDownload(hat)
             FileOpening.open(url, named: hat.displayName)
             reload()
         } catch {
-            banner = Banner(kind: .failure, text: "Couldn't open \(hat.displayName): \(describe(error))")
+            banner = Banner(kind: .failure, text: String(localized: "Couldn't open \(hat.displayName): \(describe(error))"))
         }
     }
 
@@ -613,11 +613,11 @@ struct FilesView: View {
     private func upload(_ hat: Hat, permanent: Bool) async {
         guard let id = hat.id else { return }
         guard let pubkey = session.liveKeyInfo.pubkey else {
-            banner = Banner(kind: .failure, text: "This identity has no pubkey, so the file key can't be sealed.")
+            banner = Banner(kind: .failure, text: String(localized: "This identity has no pubkey, so the file key can't be sealed."))
             return
         }
         busy[id] = .uploading
-        progressText[id] = "Encrypting…"
+        progressText[id] = String(localized: "Encrypting…")
         defer { busy[id] = nil; progressText[id] = nil }
         do {
             let result = try await session.hatSync.upload(
@@ -627,33 +627,33 @@ struct FilesView: View {
                 progress: { sent, total in
                     Task { @MainActor in
                         progressText[id] = total > 0
-                            ? "Uploading \(Self.formatBytes(sent)) of \(Self.formatBytes(total))…"
-                            : "Uploading…"
+                            ? String(localized: "Uploading \(Self.formatBytes(sent)) of \(Self.formatBytes(total))…")
+                            : String(localized: "Uploading…")
                     }
                 }
             )
             banner = Banner(
                 kind: .success,
-                text: "Backed up \(hat.displayName) — encrypted copy \(result.cipherHat.id?.elidingMiddle(head: 8, tail: 6) ?? "")",
+                text: String(localized: "Backed up \(hat.displayName) — encrypted copy \(result.cipherHat.id?.elidingMiddle(head: 8, tail: 6) ?? "")"),
                 copyValue: result.cipherHat.id
             )
             reload()
         } catch {
-            banner = Banner(kind: .failure, text: "Upload failed for \(hat.displayName): \(describe(error))")
+            banner = Banner(kind: .failure, text: String(localized: "Upload failed for \(hat.displayName): \(describe(error))"))
         }
     }
 
     private func download(_ hat: Hat) async {
         guard let id = hat.id else { return }
         busy[id] = .downloading
-        progressText[id] = "Downloading…"
+        progressText[id] = String(localized: "Downloading…")
         defer { busy[id] = nil; progressText[id] = nil }
         do {
             _ = try await performDownload(hat)
-            banner = Banner(kind: .success, text: "Downloaded \(hat.displayName).")
+            banner = Banner(kind: .success, text: String(localized: "Downloaded \(hat.displayName)."))
             reload()
         } catch {
-            banner = Banner(kind: .failure, text: "Download failed for \(hat.displayName): \(describe(error))")
+            banner = Banner(kind: .failure, text: String(localized: "Download failed for \(hat.displayName): \(describe(error))"))
         }
     }
 
@@ -667,7 +667,7 @@ struct FilesView: View {
             privkey: privkey,
             progress: { received in
                 Task { @MainActor in
-                    progressText[id] = "Downloading \(Self.formatBytes(received))…"
+                    progressText[id] = String(localized: "Downloading \(Self.formatBytes(received))…")
                 }
             }
         )
@@ -677,10 +677,10 @@ struct FilesView: View {
         guard let id = hat.id else { return }
         do {
             try session.files.removeLocalData(hatId: id)
-            banner = Banner(kind: .info, text: "Removed local copies of \(hat.displayName). Your own file was not touched.")
+            banner = Banner(kind: .info, text: String(localized: "Removed local copies of \(hat.displayName). Your own file was not touched."))
             reload()
         } catch {
-            banner = Banner(kind: .failure, text: "Couldn't remove local data: \(describe(error))")
+            banner = Banner(kind: .failure, text: String(localized: "Couldn't remove local data: \(describe(error))"))
         }
     }
 
@@ -688,17 +688,17 @@ struct FilesView: View {
         guard let id = hat.id else { return }
         do {
             try session.files.delete(hatId: id)
-            banner = Banner(kind: .info, text: "Deleted the record for \(hat.displayName). Your own file was not touched.")
+            banner = Banner(kind: .info, text: String(localized: "Deleted the record for \(hat.displayName). Your own file was not touched."))
             reload()
         } catch {
-            banner = Banner(kind: .failure, text: "Couldn't delete: \(describe(error))")
+            banner = Banner(kind: .failure, text: String(localized: "Couldn't delete: \(describe(error))"))
         }
     }
 
     // MARK: - alert bindings
 
     private var deleteTitle: String {
-        "Remove \(pendingDelete?.displayName ?? "file")?"
+        String(localized: "Remove \(pendingDelete?.displayName ?? "file")?")
     }
 
     private var deleteBinding: Binding<Bool> {

@@ -60,7 +60,7 @@ struct MeetingView: View {
             let speaking = s?.speaking ?? []
             let paused = s?.pausedSsrcs ?? []
             VStack(alignment: .leading, spacing: 8) {
-                Text(meetings.title.isEmpty ? "Meeting" : meetings.title).font(.headline).lineLimit(1)
+                Text(meetings.title.isEmpty ? String(localized: "Meeting") : meetings.title).font(.headline).lineLimit(1)
                 Text(status(people.count)).foregroundStyle(.secondary)
                 Label("End-to-end encrypted", systemImage: "lock.fill").font(.caption).foregroundStyle(.secondary)
                 Text(CallText.realVoiceNotice).font(.caption).foregroundStyle(.secondary)
@@ -68,7 +68,7 @@ struct MeetingView: View {
                     Text("Relayed via \(host)").font(.caption).foregroundStyle(.secondary)
                 }
                 if let fid = s?.unverifiedFids.first {
-                    CopyableText("Audio claimed to be from \(names(fid)) could not be verified and is silenced.")
+                    CopyableText(String(localized: "Audio claimed to be from \(names(fid)) could not be verified and is silenced."))
                         .font(.caption).foregroundStyle(.red)
                 }
                 if !people.isEmpty {
@@ -108,8 +108,8 @@ struct MeetingView: View {
                 Button("Cancel", role: .cancel) { confirmKick = nil }
             }
             .sheet(isPresented: $picking) {
-                MemberPickerSheet(title: "Invite to the meeting", members: meetings.invitable(), names: names,
-                                  confirm: "Invite") { meetings.invite($0) }
+                MemberPickerSheet(title: String(localized: "Invite to the meeting"), members: meetings.invitable(), names: names,
+                                  confirm: String(localized: "Invite")) { meetings.invite($0) }
             }
         }
     }
@@ -169,11 +169,11 @@ struct MeetingView: View {
 
     private func status(_ count: Int) -> String {
         switch meetings.phase {
-        case .connecting: return "Connecting…"
+        case .connecting: return String(localized: "Connecting…")
         case .inMeeting:
             let since = meetings.session?.joinedAtMs ?? -1
             let clock = since > 0 ? CallText.formatDuration(Int64(now.timeIntervalSince1970 * 1000) - since) + " · " : ""
-            return clock + (count == 1 ? "1 participant" : "\(count) participants")
+            return clock + (count == 1 ? String(localized: "1 participant") : "\(count) participants")
         case .ended, .idle: return meetings.endReason ?? ""
         }
     }
@@ -230,18 +230,18 @@ struct MeetingView: View {
     /// What is so of one participant, as icons that say it on hover.
     @ViewBuilder private func badges(_ p: MacMeetingSession.Participant, paused: Set<UInt32>) -> some View {
         HStack(spacing: 4) {
-            if p.hand { badge("hand.raised.fill", .orange, "Hand raised") }
-            if p.host { badge("star.fill", .yellow, "Host") }
+            if p.hand { badge("hand.raised.fill", .orange, String(localized: "Hand raised")) }
+            if p.host { badge("star.fill", .yellow, String(localized: "Host")) }
             if p.mutedByHost == "locked" {
-                badge("mic.slash.fill", .red, "Muted by host, locked")
-                badge("lock.fill", .red, "Muted by host, locked")
+                badge("mic.slash.fill", .red, String(localized: "Muted by host, locked"))
+                badge("lock.fill", .red, String(localized: "Muted by host, locked"))
             } else if p.mutedByHost != nil {
-                badge("mic.slash.fill", .red, "Muted by host")
+                badge("mic.slash.fill", .red, String(localized: "Muted by host"))
             }
             if !p.verified {
-                badge("exclamationmark.triangle.fill", .red, "Not verified")
+                badge("exclamationmark.triangle.fill", .red, String(localized: "Not verified"))
             } else if paused.contains(p.ssrc) {
-                badge("pause.circle.fill", .orange, "Audio on hold: not yet verified")
+                badge("pause.circle.fill", .orange, String(localized: "Audio on hold: not yet verified"))
             }
         }
         .font(.caption)
@@ -290,7 +290,7 @@ struct MeetingView: View {
     private func control(_ action: String, _ target: Any) {
         controlError = nil
         meetings.control(action, target: target) { error in
-            if let error { controlError = "The relay refused: \(error)" }
+            if let error { controlError = String(localized: "The relay refused: \(error)") }
         }
     }
 }
@@ -327,7 +327,7 @@ struct MemberPickerSheet: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         Spacer()
-                        SearchField("Search name, FID…", text: $query, minWidth: 120, maxWidth: 180)
+                        SearchField(String(localized: "Search name, FID…"), text: $query, minWidth: 120, maxWidth: 180)
                     }
                 }
                 List(shown, id: \.self) { fid in

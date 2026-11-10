@@ -26,7 +26,7 @@ struct CallView: View {
                     Text("Relayed via \(host)").font(.caption).foregroundStyle(.secondary)
                 }
                 if let fid = calls.unverifiedFid {
-                    CopyableText("Audio claimed to be from \(calls.contactLabel(of: fid).map { "\(CallCenter.short(fid)) (\($0))" } ?? CallCenter.short(fid)) could not be verified and is silenced.")
+                    CopyableText(String(localized: "Audio claimed to be from \(calls.contactLabel(of: fid).map { "\(CallCenter.short(fid)) (\($0))" } ?? CallCenter.short(fid)) could not be verified and is silenced."))
                         .font(.caption).foregroundStyle(.red)
                 }
                 buttons
@@ -69,20 +69,20 @@ struct CallView: View {
 
     private var title: String {
         switch calls.phase {
-        case .ringingIn: return "Incoming voice call"
-        default: return "Voice call"
+        case .ringingIn: return String(localized: "Incoming voice call")
+        default: return String(localized: "Voice call")
         }
     }
 
     private var status: String {
         switch calls.phase {
-        case .calling: return "Calling…"
-        case .ringingIn: return "Ringing"
-        case .connecting: return "Connecting…"
+        case .calling: return String(localized: "Calling…")
+        case .ringingIn: return String(localized: "Ringing")
+        case .connecting: return String(localized: "Connecting…")
         case .connected:
             let s = max(0, (Int64(now.timeIntervalSince1970 * 1000) - calls.connectedAtMs) / 1000)
             return String(format: "%d:%02d", s / 60, s % 60)
-        case .ended: return calls.endReason ?? "Call ended"
+        case .ended: return calls.endReason ?? String(localized: "Call ended")
         case .idle: return ""
         }
     }

@@ -111,7 +111,7 @@ private struct EncryptToolView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Encrypt text").font(.headline)
 
-            ToolTextEditor(placeholder: "Text to be encrypted", text: $text)
+            ToolTextEditor(placeholder: String(localized: "Text to be encrypted"), text: $text)
             Toggle("Treat text as hex bytes", isOn: $hexAsBytes)
 
             Picker("Key type", selection: $mode) {
@@ -136,15 +136,15 @@ private struct EncryptToolView: View {
             if let error {
                 CopyableText(error, font: .caption).foregroundStyle(.red)
             }
-            ToolResult(label: "Cipher (CryptoDataStr JSON)", text: result)
+            ToolResult(label: String(localized: "Cipher (CryptoDataStr JSON)"), text: result)
         }
     }
 
     private var keyHint: String {
         switch mode {
-        case .password: return "Password"
-        case .symkey:   return "Symkey — 32 bytes in hex"
-        case .pubkey:   return "Pubkey — 33 bytes in hex"
+        case .password: return String(localized: "Password")
+        case .symkey:   return String(localized: "Symkey — 32 bytes in hex")
+        case .pubkey:   return String(localized: "Pubkey — 33 bytes in hex")
         }
     }
 
@@ -153,7 +153,7 @@ private struct EncryptToolView: View {
         let plaintext: Data
         if hexAsBytes {
             guard let bytes = Data(fcHex: text.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-                error = "Text is not valid hex"; return
+                error = String(localized: "Text is not valid hex"); return
             }
             plaintext = bytes
         } else {
@@ -165,12 +165,12 @@ private struct EncryptToolView: View {
                 result = try TextCipher.encryptWithPassword(plaintext, password: Data(key.utf8))
             case .symkey:
                 guard let symkey = Data(fcHex: key), symkey.count == 32 else {
-                    error = "The symkey should be 32 bytes in hex"; return
+                    error = String(localized: "The symkey should be 32 bytes in hex"); return
                 }
                 result = try TextCipher.encryptWithSymkey(plaintext, symkey: symkey)
             case .pubkey:
                 guard let pubkey = Data(fcHex: key), pubkey.count == 33 else {
-                    error = "It is not a pubkey (33 bytes hex)"; return
+                    error = String(localized: "It is not a pubkey (33 bytes hex)"); return
                 }
                 // Anyone can open what is encrypted to a nobody's key.
                 Task {
@@ -180,12 +180,12 @@ private struct EncryptToolView: View {
                     do {
                         result = try TextCipher.encryptWithPubkey(plaintext, pubkey: pubkey)
                     } catch {
-                        self.error = "Encryption failed: \(errorText(error))"
+                        self.error = String(localized: "Encryption failed: \(errorText(error))")
                     }
                 }
             }
         } catch {
-            self.error = "Encryption failed: \(errorText(error))"
+            self.error = String(localized: "Encryption failed: \(errorText(error))")
         }
     }
 }
@@ -206,7 +206,7 @@ private struct DecryptToolView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Decrypt a cipher").font(.headline)
 
-            ToolTextEditor(placeholder: "Cipher (CryptoDataStr JSON)", text: $cipher)
+            ToolTextEditor(placeholder: String(localized: "Cipher (CryptoDataStr JSON)"), text: $cipher)
 
             if session.canSign {
                 Toggle("Use my prikey (for pubkey-encrypted ciphers)", isOn: $useMyKey)
@@ -230,7 +230,7 @@ private struct DecryptToolView: View {
             if let error {
                 CopyableText(error, font: .caption).foregroundStyle(.red)
             }
-            ToolResult(label: "Plaintext", text: result)
+            ToolResult(label: String(localized: "Plaintext"), text: result)
         }
     }
 
@@ -242,13 +242,13 @@ private struct DecryptToolView: View {
             switch envelope.type {
             case "Password":
                 guard !key.isEmpty, !(session.canSign && useMyKey) else {
-                    error = "This cipher needs its password — uncheck “Use my prikey” and type it"
+                    error = String(localized: "This cipher needs its password — uncheck “Use my prikey” and type it")
                     return
                 }
                 plaintext = try TextCipher.decrypt(envelope: envelope, password: Data(key.utf8))
             case "Symkey":
                 guard let symkey = Data(fcHex: key), symkey.count == 32 else {
-                    error = "This cipher needs its 32-byte symkey in hex"
+                    error = String(localized: "This cipher needs its 32-byte symkey in hex")
                     return
                 }
                 plaintext = try TextCipher.decrypt(envelope: envelope, symkey: symkey)
@@ -259,17 +259,17 @@ private struct DecryptToolView: View {
                 } else if let parsed = Data(fcHex: key), parsed.count == 32 {
                     privkey = parsed
                 } else {
-                    error = "This cipher needs a 32-byte prikey in hex"
+                    error = String(localized: "This cipher needs a 32-byte prikey in hex")
                     return
                 }
                 plaintext = try AsyOneWayCipher.decrypt(cipherString: cipher, privkey: privkey)
             case .some(let other):
-                error = "Unsupported cipher type '\(other)'"
+                error = String(localized: "Unsupported cipher type '\(other)'")
                 return
             }
             result = toHex ? plaintext.fcToolsPaneHex : (String(data: plaintext, encoding: .utf8) ?? plaintext.fcToolsPaneHex)
         } catch {
-            self.error = "Failed to decrypt: \(errorText(error))"
+            self.error = String(localized: "Failed to decrypt: \(errorText(error))")
         }
     }
 }
@@ -299,14 +299,14 @@ private struct SignToolView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Sign a message or a file").font(.headline)
 
-            ToolTextEditor(placeholder: "Text to be signed", text: $message)
+            ToolTextEditor(placeholder: String(localized: "Text to be signed"), text: $message)
                 .disabled(file != nil)
 
             // Its own target: the text view above takes a dropped file
             // itself, inserting its contents, and never passes the drop on.
             HStack(spacing: 12) {
                 Button { pickFile() } label: {
-                    Label(file?.lastPathComponent ?? "Sign a File…", systemImage: "doc")
+                    Label(file?.lastPathComponent ?? String(localized: "Sign a File…"), systemImage: "doc")
                 }
                 if file != nil {
                     Button("Use text instead") { file = nil; message = ""; savedTo = nil }
@@ -347,7 +347,7 @@ private struct SignToolView: View {
                     .fieldInputStyle()
                     .font(.system(.body, design: .monospaced))
             } else if !session.canSign {
-                CopyableLabel("Watch-only — the live FID has no prikey to sign with", systemImage: "eye")
+                CopyableLabel(String(localized: "Watch-only — the live FID has no prikey to sign with"), systemImage: "eye")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -373,7 +373,7 @@ private struct SignToolView: View {
                 }
                 .font(.callout)
             }
-            ToolResult(label: "Signature JSON", text: result)
+            ToolResult(label: String(localized: "Signature JSON"), text: result)
         }
         .alert("Replace \(replacing?.lastPathComponent ?? "")?", isPresented: Binding(
             get: { replacing != nil }, set: { if !$0 { replacing = nil } })) {
@@ -396,7 +396,7 @@ private struct SignToolView: View {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.prompt = "Choose"
+        panel.prompt = String(localized: "Choose")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         load(url)
     }
@@ -411,12 +411,12 @@ private struct SignToolView: View {
             } else {
                 // The same line a DIDS.txt has, so the same tools check it.
                 let did = Hex.encode(Hash.doubleSha256(data)).lowercased()
-                message = "# DID = sha256x2 (FVEP11)\n\(did)  \(url.lastPathComponent)\n"
+                message = String(localized: "# DID = sha256x2 (FVEP11)\n\(did)  \(url.lastPathComponent)\n")
                 fileIsText = false
             }
             file = url
         } catch {
-            self.error = "Failed to read the file: \(error.localizedDescription)"
+            self.error = String(localized: "Failed to read the file: \(error.localizedDescription)")
         }
     }
 
@@ -426,7 +426,7 @@ private struct SignToolView: View {
             let signature: MsgSignature
             if alg == .symkey {
                 guard let symkey = Data(fcHex: symkeyHex), !symkey.isEmpty else {
-                    error = "The symkey should be hex"; return
+                    error = String(localized: "The symkey should be hex"); return
                 }
                 signature = MsgSignature.sign(message: message, symkey: symkey)
             } else {
@@ -436,7 +436,7 @@ private struct SignToolView: View {
             }
             result = signature.toJson()
         } catch {
-            self.error = "Failed to sign: \(errorText(error))"
+            self.error = String(localized: "Failed to sign: \(errorText(error))")
             return
         }
         guard let file else { return }
@@ -453,7 +453,7 @@ private struct SignToolView: View {
             try Data((result + "\n").utf8).write(to: url, options: .atomic)
             savedTo = url
         } catch {
-            self.error = "Signed, but could not save \(url.lastPathComponent): \(error.localizedDescription)"
+            self.error = String(localized: "Signed, but could not save \(url.lastPathComponent): \(error.localizedDescription)")
         }
     }
 }
@@ -475,7 +475,7 @@ private struct VerifyToolView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Verify a signature").font(.headline)
 
-            ToolTextEditor(placeholder: "Signature JSON", text: $signatureJson)
+            ToolTextEditor(placeholder: String(localized: "Signature JSON"), text: $signatureJson)
 
             TextField("Symkey hex (symkey signatures) or FID (when the JSON lacks one)", text: $key)
                 .fieldInputStyle()
@@ -514,7 +514,7 @@ private struct VerifyToolView: View {
             let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
             if signature.alg == .symkey {
                 guard let symkey = Data(fcHex: trimmedKey), !symkey.isEmpty else {
-                    error = "Symkey (hex) required for a symmetric signature"
+                    error = String(localized: "Symkey (hex) required for a symmetric signature")
                     return
                 }
                 verdict = signature.verify(symkey: symkey)
@@ -536,7 +536,7 @@ private struct VerifyToolView: View {
                 }
             }
         } catch {
-            self.error = "Not a valid signature: \(errorText(error))"
+            self.error = String(localized: "Not a valid signature: \(errorText(error))")
             verdict = false
         }
     }
@@ -568,7 +568,7 @@ private struct HashToolView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Hash text or a file").font(.headline)
 
-            ToolTextEditor(placeholder: "Text to be hashed", text: $text)
+            ToolTextEditor(placeholder: String(localized: "Text to be hashed"), text: $text)
                 .opacity(fileData == nil ? 1 : 0.5)
                 .disabled(fileData != nil)
             Toggle("Treat text as hex bytes", isOn: $asHex)
@@ -578,7 +578,7 @@ private struct HashToolView: View {
                 Button {
                     pickFile()
                 } label: {
-                    Label(fileName ?? "Hash a file…", systemImage: "doc")
+                    Label(fileName ?? String(localized: "Hash a file…"), systemImage: "doc")
                 }
                 if fileData != nil {
                     Button("Use text instead") { fileName = nil; fileData = nil }
@@ -604,7 +604,7 @@ private struct HashToolView: View {
             if let error {
                 CopyableText(error, font: .caption).foregroundStyle(.red)
             }
-            ToolResult(label: "Digest (hex)", text: result)
+            ToolResult(label: String(localized: "Digest (hex)"), text: result)
         }
     }
 
@@ -618,7 +618,7 @@ private struct HashToolView: View {
             fileName = url.lastPathComponent
             error = nil
         } catch {
-            self.error = "Failed to read file: \(error.localizedDescription)"
+            self.error = String(localized: "Failed to read file: \(error.localizedDescription)")
         }
     }
 
@@ -629,7 +629,7 @@ private struct HashToolView: View {
             input = fileData
         } else if asHex {
             guard let bytes = Data(fcHex: text.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-                error = "Text is not valid hex"; return
+                error = String(localized: "Text is not valid hex"); return
             }
             input = bytes
         } else {
@@ -707,14 +707,14 @@ private struct RandomToolView: View {
             if let error {
                 CopyableText(error, font: .caption).foregroundStyle(.red)
             }
-            ToolResult(label: "Random value", text: result)
+            ToolResult(label: String(localized: "Random value"), text: result)
         }
     }
 
     private func generate() {
         result = ""; error = nil
         guard let count = Int(countText), count > 0, count <= 1024 else {
-            error = "Byte count must be between 1 and 1024"
+            error = String(localized: "Byte count must be between 1 and 1024")
             return
         }
         var bytes = Data(count: count)
@@ -722,7 +722,7 @@ private struct RandomToolView: View {
             SecRandomCopyBytes(kSecRandomDefault, count, $0.baseAddress!)
         }
         guard status == errSecSuccess else {
-            error = "SecRandomCopyBytes failed (\(status))"
+            error = String(localized: "SecRandomCopyBytes failed (\(String(status)))")
             return
         }
         switch format {

@@ -193,8 +193,8 @@ struct ConversationListView: View {
                             font: .caption2.monospaced(),
                             color: .secondary,
                             help: conversation.type == .p2p
-                                ? "Copy this Freer's FID"
-                                : "Copy this \(style.noun)'s id"
+                                ? String(localized: "Copy this Freer's FID")
+                                : String(localized: "Copy this \(style.noun)'s id")
                         )
                     }
                     if conversation.leftGroup == true {
@@ -203,7 +203,7 @@ struct ConversationListView: View {
                         // can speak in it again.
                         ChatChip(conversation.type == .room ? "closed" : "left", color: .secondary)
                     } else if unreachable.contains(conversation.targetId) {
-                        ChatChip("DOCK down", color: .red)
+                        ChatChip(String(localized: "DOCK down"), color: .red)
                             .help("This group's DOCK refused the last connection, so nothing new is arriving. It is retried whenever this list opens.")
                     }
                     // Only the square is labelled in the list, and only
@@ -217,7 +217,7 @@ struct ConversationListView: View {
                 // out of the name's way and still on the edge the eye
                 // runs down.
                 HStack(spacing: 4) {
-                    Text(conversation.lastMessageContent ?? "No messages yet")
+                    Text(conversation.lastMessageContent ?? String(localized: "No messages yet"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)

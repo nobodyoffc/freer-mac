@@ -339,11 +339,11 @@ struct TranscriptView: View {
         guard !message.isWithdrawn, let content = message.content, !content.isEmpty else { return nil }
         switch message.contentType {
         case .text:
-            return ("Copy", content)
+            return (String(localized: "Copy"), content)
         case .hat:
             let fromNobody = !message.isOutgoing(from: session.liveFid)
                 && senderFid(of: message).map(names.isNobody) == true
-            return fromNobody ? nil : ("Copy HAT JSON", content)
+            return fromNobody ? nil : (String(localized: "Copy HAT JSON"), content)
         default:
             return nil
         }
@@ -362,12 +362,12 @@ struct TranscriptView: View {
         let mine = message.isOutgoing(from: session.liveFid)
         let who: String
         if mine {
-            who = "You withdrew a message"
+            who = String(localized: "You withdrew a message")
         } else if conversation.type == .p2p {
-            who = "Message withdrawn"
+            who = String(localized: "Message withdrawn")
         } else {
             let fid = senderFid(of: message) ?? ""
-            who = "\(names.cid(of: fid) ?? fid.elidingMiddle()) withdrew a message"
+            who = String(localized: "\(names.cid(of: fid) ?? fid.elidingMiddle()) withdrew a message")
         }
         let when = message.timestamp.map {
             " · " + ChatFormat.shortTime.string(from: Date(timeIntervalSince1970: Double($0) / 1000))
@@ -492,15 +492,15 @@ struct TranscriptView: View {
     private func askTitle(for version: Int64) -> String {
         if let until = waiting(for: version) {
             let seconds = max(1, Int(until.timeIntervalSinceNow.rounded(.up)))
-            return "Asked just now — again in \(seconds)s"
+            return String(localized: "Asked just now — again in \(String(seconds))s")
         }
-        return "Ask for this symkey…"
+        return String(localized: "Ask for this symkey…")
     }
 
     private func askHelp(for version: Int64) -> String {
         let held = (try? session.symkeys.versions(for: conversation.targetId)) ?? []
         let withTime = SymkeyVersionText.needsTime(version, among: held + [version])
-        return "Asks the members for \(SymkeyVersionText.inProse(version, withTime: withTime))."
+        return String(localized: "Asks the members for \(SymkeyVersionText.inProse(version, withTime: withTime)).")
     }
 
     /// Why a row is still locked, said only as far as we actually know.
@@ -519,7 +519,7 @@ struct TranscriptView: View {
         guard message.type == .team || message.type == .room,
               let entityId = message.targetId, !entityId.isEmpty,
               let version = message.symkeyVersion
-        else { return "Sealed — this identity holds no key that opens it" }
+        else { return String(localized: "Sealed — this identity holds no key that opens it") }
 
         // A version is a mint time, so this says *when*, not `v1789813689`.
         // The era is what a reader can act on: it tells them who was in
@@ -530,8 +530,8 @@ struct TranscriptView: View {
         )
         let held = (try? session.symkeys.has(entityId: entityId, version: version)) ?? false
         return held
-            ? "Sealed with \(named) — that key is here but does not open this"
-            : "Sealed with \(named) — not held here"
+            ? String(localized: "Sealed with \(named) — that key is here but does not open this")
+            : String(localized: "Sealed with \(named) — not held here")
     }
 
     /// A voice note: play it, and see how long it is.
@@ -658,7 +658,7 @@ struct TranscriptView: View {
             // Outside the card's button, so a click copies the reason
             // instead of retrying.
             if let failure {
-                CopyableText("Download failed: \(failure)", font: .caption2, color: .red)
+                CopyableText(String(localized: "Download failed: \(failure)"), font: .caption2, color: .red)
                     .lineLimit(3)
                     .padding(.leading, 30)
             }
@@ -787,9 +787,9 @@ private struct EditHistoryView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Earlier versions").font(.headline)
-            version("Now", at: message.editedAt, message.content)
+            version(String(localized: "Now"), at: message.editedAt, message.content)
             ForEach(Array(history.enumerated().reversed()), id: \.offset) { _, v in
-                version(v.editId == nil ? "Original" : "Edited", at: v.at, v.content)
+                version(v.editId == nil ? String(localized: "Original") : String(localized: "Edited"), at: v.at, v.content)
             }
         }
         .padding(14)

@@ -17,14 +17,14 @@ enum IdentityCarve {
     /// front rather than letting the refusal arrive as a coin-selection error.
     @MainActor
     static func blocker(session: ActiveSession, info: LiveFidInfo?) -> String? {
-        guard session.canSign else { return "Watch-only identity: there is no key to sign a carve with." }
+        guard session.canSign else { return String(localized: "Watch-only identity: there is no key to sign a carve with.") }
         guard let info else { return nil }
         if (info.balance ?? 0) == 0 && (info.cd ?? 0) == 0 {
-            return "This FID holds no coins, and every carve costs a fee. Get your first FCH first."
+            return String(localized: "This FID holds no coins, and every carve costs a fee. Get your first FCH first.")
         }
         if case .coinDays(let have, let need, let days)? = Onboarding.coinDayWait(info) {
-            let forecast = days.map { ", about \($0) day\($0 == 1 ? "" : "s") to go" } ?? ""
-            return "Your coins are still aging: \(have) of \(need) CD\(forecast). A carve before then would be ignored by the chain."
+            let forecast = days.map { String(localized: ", about \(String($0)) day\($0 == 1 ? "" : "s") to go") } ?? ""
+            return String(localized: "Your coins are still aging: \(String(have)) of \(String(need)) CD\(forecast). A carve before then would be ignored by the chain.")
         }
         return nil
     }
@@ -64,7 +64,7 @@ struct CarveOutcome: View {
             let tx = pending.txid.elidingMiddle(head: 8, tail: 8)
             if pending.isOverdue(now: Date()) {
                 CopyableText(
-                    display: "Carved a day ago and still not on the chain — tx \(tx) may have failed. Check it, then carve again.",
+                    display: String(localized: "Carved a day ago and still not on the chain — tx \(tx) may have failed. Check it, then carve again."),
                     copy: pending.txid,
                     font: .caption
                 )
@@ -72,7 +72,7 @@ struct CarveOutcome: View {
                 .fixedSize(horizontal: false, vertical: true)
             } else {
                 CopyableText(
-                    display: "Carved — tx \(tx). Waiting for the chain; \(what) shows here once a block confirms it.",
+                    display: String(localized: "Carved — tx \(tx). Waiting for the chain; \(what) shows here once a block confirms it."),
                     copy: pending.txid,
                     font: .caption
                 )
@@ -112,7 +112,7 @@ struct CidCarveForm: View {
     var body: some View {
         Group {
             cidRow
-            CarveOutcome(error: cidError, pending: pendingCid, what: "your CID")
+            CarveOutcome(error: cidError, pending: pendingCid, what: String(localized: "your CID"))
         }
         .onAppear(perform: loadPending)
         // A refresh is what clears a carve that has landed.
@@ -127,7 +127,7 @@ struct CidCarveForm: View {
     private var cidRow: some View {
         LabeledField("CID", hint: cidHint.text, hintIsError: cidHint.isError) {
             HStack(spacing: 8) {
-                TextField("", text: $cidName, prompt: Text(currentCid ?? "Alice"))
+                TextField("", text: $cidName, prompt: Text(currentCid ?? String(localized: "Alice")))
                     .fieldInputStyle()
                     .frame(maxWidth: 240)
                     .onSubmit { Task { await carveCid() } }
@@ -155,25 +155,25 @@ struct CidCarveForm: View {
     private var cidHint: (text: String?, isError: Bool) {
         let name = trimmedName
         guard !name.isEmpty else {
-            return ("Any name without spaces, @, # or /. A FID can hold four CIDs over its life.", false)
+            return (String(localized: "Any name without spaces, @, # or /. A FID can hold four CIDs over its life."), false)
         }
         guard CidFeip.isGoodName(name) else {
-            return ("No spaces, @, # or / — the chain ignores a name with any of them.", true)
+            return (String(localized: "No spaces, @, # or / — the chain ignores a name with any of them."), true)
         }
-        if let previewError { return ("Couldn't check the name: \(previewError)", true) }
-        guard previewedName == name, let preview else { return ("Checking…", false) }
+        if let previewError { return (String(localized: "Couldn't check the name: \(previewError)"), true) }
+        guard previewedName == name, let preview else { return (String(localized: "Checking…"), false) }
         switch preview {
         case .new(let cid):
-            return cid == currentCid ? ("That's already your CID.", false) : ("You'll be \(cid).", false)
+            return cid == currentCid ? (String(localized: "That's already your CID."), false) : (String(localized: "You'll be \(cid)."), false)
         case .reactivate(let cid):
             return cid == currentCid
-                ? ("That's already your CID.", false)
-                : ("You used \(cid) before; carving makes it current again.", false)
+                ? (String(localized: "That's already your CID."), false)
+                : (String(localized: "You used \(cid) before; carving makes it current again."), false)
         case .limitReached(let cid):
             let used = (info?.usedCids ?? []).joined(separator: ", ")
-            return ("\(cid) would be a fifth CID, and the chain allows four. Reuse one of yours: \(used).", true)
+            return (String(localized: "\(cid) would be a fifth CID, and the chain allows four. Reuse one of yours: \(used)."), true)
         case .unavailable:
-            return ("Every CID this name could become is taken.", true)
+            return (String(localized: "Every CID this name could become is taken."), true)
         }
     }
 
@@ -284,7 +284,7 @@ struct HomeCarveForm: View {
                 .disabled(!canCarveHome)
                 Spacer()
             }
-            CarveOutcome(error: homeError, pending: pendingHome, what: "your home")
+            CarveOutcome(error: homeError, pending: pendingHome, what: String(localized: "your home"))
         }
         .onAppear {
             loadHome()
@@ -300,8 +300,8 @@ struct HomeCarveForm: View {
             ServicePickerSheet(
                 session: session,
                 component: ServiceName.base,
-                title: "Choose your BASE",
-                subtitle: "The server you read the chain through. Once it is carved, every device of yours connects here — and if it is down, falls back to the server set in Settings.",
+                title: String(localized: "Choose your BASE"),
+                subtitle: String(localized: "The server you read the chain through. Once it is carved, every device of yours connects here — and if it is down, falls back to the server set in Settings."),
                 initialQuery: base
             ) { service in
                 base = service.sid
@@ -314,8 +314,8 @@ struct HomeCarveForm: View {
             ServicePickerSheet(
                 session: session,
                 component: ServiceName.dock,
-                title: "Choose your DOCK",
-                subtitle: "Messages to you wait here while you're offline. Its service id is what gets carved, so the server can move without anyone losing you.",
+                title: String(localized: "Choose your DOCK"),
+                subtitle: String(localized: "Messages to you wait here while you're offline. Its service id is what gets carved, so the server can move without anyone losing you."),
                 initialQuery: dock
             ) { service in
                 dock = service.sid
@@ -328,8 +328,8 @@ struct HomeCarveForm: View {
             ServicePickerSheet(
                 session: session,
                 component: ServiceName.disk,
-                title: "Choose your DISK",
-                subtitle: "Your files and the bodies of what you publish are kept here.",
+                title: String(localized: "Choose your DISK"),
+                subtitle: String(localized: "Your files and the bodies of what you publish are kept here."),
                 initialQuery: disk
             ) { service in
                 disk = service.sid
@@ -342,8 +342,8 @@ struct HomeCarveForm: View {
             ServicePickerSheet(
                 session: session,
                 component: ServiceName.call,
-                title: "Choose your CALL service",
-                subtitle: "Calls to you run on this relay, and callers pay it. It is also where your meetings run when the chat has no CALL service of its own.",
+                title: String(localized: "Choose your CALL service"),
+                subtitle: String(localized: "Calls to you run on this relay, and callers pay it. It is also where your meetings run when the chat has no CALL service of its own."),
                 initialQuery: call
             ) { service in
                 call = service.sid
@@ -373,10 +373,10 @@ struct HomeCarveForm: View {
     private var callHint: String {
         if storedValue("CALL") != nil {
             return takeCalls
-                ? "Callers reach you through this relay and pay it per minute."
-                : "Carving removes your CALL service: nobody can call you, and your meetings need a chat that has one."
+                ? String(localized: "Callers reach you through this relay and pay it per minute.")
+                : String(localized: "Carving removes your CALL service: nobody can call you, and your meetings need a chat that has one.")
         }
-        return "Not on the chain yet. Without a CALL service nobody can call you, and your meetings need a chat that has one."
+        return String(localized: "Not on the chain yet. Without a CALL service nobody can call you, and your meetings need a chat that has one.")
     }
 
     private func serviceRow(
@@ -413,8 +413,8 @@ struct HomeCarveForm: View {
         let base = stateHint(kind, value: value)
         guard let sealed else { return base }
         let privacy = sealed && (value.isEmpty || HomeServiceResolver.extractSid(value) != nil)
-            ? "Private: sealed to your pubkey, so only you can read it."
-            : "Public: anyone can read it."
+            ? String(localized: "Private: sealed to your pubkey, so only you can read it.")
+            : String(localized: "Public: anyone can read it.")
         return base.map { "\($0) \(privacy)" } ?? privacy
     }
 
@@ -422,13 +422,13 @@ struct HomeCarveForm: View {
         // Only the main FID's BASE moves the connection: it is the main's
         // prikey that opens the session.
         if kind == "BASE", session.liveFid != session.mainFid {
-            return "Only your main FID's BASE chooses the server this Mac connects to."
+            return String(localized: "Only your main FID's BASE chooses the server this Mac connects to.")
         }
         guard storedValue(kind) == nil else { return nil }
         if let suggestedSid, value == suggestedSid {
-            return "Not on the chain yet. Filled in with the server this app is connected to."
+            return String(localized: "Not on the chain yet. Filled in with the server this app is connected to.")
         }
-        return "Not on the chain yet."
+        return String(localized: "Not on the chain yet.")
     }
 
     /// A newcomer rarely knows a DOCK or DISK by name, but the server this
@@ -611,9 +611,9 @@ struct IdentityCarveSheet: View {
     private var explanation: String {
         switch kind {
         case .cid:
-            return "Your CID is the name people find you by; the last characters of your FID are added to keep it unique, and registering one puts your pubkey on the chain."
+            return String(localized: "Your CID is the name people find you by; the last characters of your FID are added to keep it unique, and registering one puts your pubkey on the chain.")
         case .home:
-            return "Your DOCK holds messages while you're offline and your DISK keeps your files — until both are on the chain, nobody has anywhere to reach you."
+            return String(localized: "Your DOCK holds messages while you're offline and your DISK keeps your files — until both are on the chain, nobody has anywhere to reach you.")
         }
     }
 }

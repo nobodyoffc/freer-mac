@@ -138,7 +138,7 @@ public struct ReleaseManifest: Codable, Equatable, Sendable {
 
         public var description: String {
             switch self {
-            case .missing(let url): return "No \(ReleaseManifest.fileName) in \(url.path)."
+            case .missing(let url): return String(localized: "No \(ReleaseManifest.fileName) in \(url.path).")
             case .unreadable(let url, let why): return "\(url.lastPathComponent): \(why)"
             case .invalid(let why): return "\(ReleaseManifest.fileName): \(why)"
             }
@@ -163,54 +163,54 @@ public struct ReleaseManifest: Codable, Equatable, Sendable {
     public func validate() throws {
         let parts = github.split(separator: "/")
         guard parts.count == 2, parts.allSatisfy({ !$0.isEmpty }) else {
-            throw Failure.invalid("github must be owner/repo, got \"\(github)\"")
+            throw Failure.invalid(String(localized: "github must be owner/repo, got \"\(github)\""))
         }
         var names = Set<String>()
         for code in codes ?? [] {
-            guard !code.name.isEmpty else { throw Failure.invalid("a code has an empty name") }
-            guard names.insert(code.name).inserted else { throw Failure.invalid("code \"\(code.name)\" is listed twice") }
+            guard !code.name.isEmpty else { throw Failure.invalid(String(localized: "a code has an empty name")) }
+            guard names.insert(code.name).inserted else { throw Failure.invalid(String(localized: "code \"\(code.name)\" is listed twice")) }
             guard !code.path.hasPrefix("/"), !code.path.split(separator: "/").contains("..") else {
-                throw Failure.invalid("code \"\(code.name)\" path must stay inside the repo")
+                throw Failure.invalid(String(localized: "code \"\(code.name)\" path must stay inside the repo"))
             }
         }
         var stdNames = Set<String>()
         for app in apps ?? [] {
-            guard !app.stdName.isEmpty else { throw Failure.invalid("an app has an empty stdName") }
-            guard stdNames.insert(app.stdName).inserted else { throw Failure.invalid("app \"\(app.stdName)\" is listed twice") }
-            guard !app.asset.isEmpty else { throw Failure.invalid("app \"\(app.stdName)\" has no asset") }
+            guard !app.stdName.isEmpty else { throw Failure.invalid(String(localized: "an app has an empty stdName")) }
+            guard stdNames.insert(app.stdName).inserted else { throw Failure.invalid(String(localized: "app \"\(app.stdName)\" is listed twice")) }
+            guard !app.asset.isEmpty else { throw Failure.invalid(String(localized: "app \"\(app.stdName)\" has no asset")) }
         }
         var sources = Set<String>()
         for work in works ?? [] {
-            let label = "work \"\(work.title)\""
+            let label = String(localized: "work \"\(work.title)\"")
             guard !work.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw Failure.invalid("a \(work.kind.rawValue) work has an empty title")
+                throw Failure.invalid(String(localized: "a \(work.kind.rawValue) work has an empty title"))
             }
             guard (work.asset == nil) != (work.path == nil), !work.source.isEmpty else {
-                throw Failure.invalid("\(label) needs exactly one of asset and path")
+                throw Failure.invalid(String(localized: "\(label) needs exactly one of asset and path"))
             }
-            guard sources.insert(work.source).inserted else { throw Failure.invalid("\(work.source) is listed as two works") }
+            guard sources.insert(work.source).inserted else { throw Failure.invalid(String(localized: "\(work.source) is listed as two works")) }
             if let path = work.path, path.hasPrefix("/") || path.split(separator: "/").contains("..") {
-                throw Failure.invalid("\(label) path must stay inside the repo")
+                throw Failure.invalid(String(localized: "\(label) path must stay inside the repo"))
             }
-            if work.type != nil, work.kind != .text { throw Failure.invalid("\(label): only a text has a type") }
-            if let id = work.id, !Self.isRawId(id) { throw Failure.invalid("\(label): id must be 64 hex digits") }
+            if work.type != nil, work.kind != .text { throw Failure.invalid(String(localized: "\(label): only a text has a type")) }
+            if let id = work.id, !Self.isRawId(id) { throw Failure.invalid(String(localized: "\(label): id must be 64 hex digits")) }
             for mirror in work.mirrors ?? [] where !mirror.hasPrefix("https://") {
-                throw Failure.invalid("\(label): mirror \(mirror) is not an https:// URL")
+                throw Failure.invalid(String(localized: "\(label): mirror \(mirror) is not an https:// URL"))
             }
         }
         for work in works ?? [] {
             guard let cover = work.cover else { continue }
-            let label = "work \"\(work.title)\""
-            if work.kind == .image { throw Failure.invalid("\(label): an image has no cover") }
+            let label = String(localized: "work \"\(work.title)\"")
+            if work.kind == .image { throw Failure.invalid(String(localized: "\(label): an image has no cover")) }
             if Self.isRawId(cover) { continue }
             guard let target = works?.first(where: { $0.source == cover }) else {
-                throw Failure.invalid("\(label): cover \(cover) is neither a work here nor a 64-hex imageId")
+                throw Failure.invalid(String(localized: "\(label): cover \(cover) is neither a work here nor a 64-hex imageId"))
             }
-            guard target.kind == .image else { throw Failure.invalid("\(label): cover \(cover) is not an image") }
+            guard target.kind == .image else { throw Failure.invalid(String(localized: "\(label): cover \(cover) is not an image")) }
         }
         for ref in (codes ?? []).flatMap({ $0.protocols ?? [] }) + (apps ?? []).flatMap({ $0.protocols ?? [] }) {
             guard ProtocolRef(ref) != nil || Self.isRawId(ref) else {
-                throw Failure.invalid("\"\(ref)\" is not a protocol reference like FEIP1, nor a 64-hex pid")
+                throw Failure.invalid(String(localized: "\"\(ref)\" is not a protocol reference like FEIP1, nor a 64-hex pid"))
             }
         }
     }

@@ -149,7 +149,7 @@ struct AddMultisigSheet: View {
     }
 
     private var addButtonTitle: String {
-        tab == .found && selected.count > 1 ? "Add \(selected.count)" : "Add"
+        tab == .found && selected.count > 1 ? String(localized: "Add \(String(selected.count))") : String(localized: "Add")
     }
 
     // MARK: - found
@@ -254,9 +254,9 @@ struct AddMultisigSheet: View {
 
     private func memberSummary(_ group: Multisig) -> String {
         let fids = group.fids ?? []
-        guard !fids.isEmpty else { return "members unknown" }
-        let mine = fids.contains(session.mainFid) ? "you + " : ""
-        return "\(mine)\(fids.count - (fids.contains(session.mainFid) ? 1 : 0)) other(s)"
+        guard !fids.isEmpty else { return String(localized: "members unknown") }
+        let mine = fids.contains(session.mainFid) ? String(localized: "you + ") : ""
+        return String(localized: "\(mine)\(String(fids.count - (fids.contains(session.mainFid) ? 1 : 0))) other(s)")
     }
 
     // MARK: - paste
@@ -269,14 +269,14 @@ struct AddMultisigSheet: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
 
-                LabeledField("Redeem script", hint: "Hex, starting with the threshold opcode.") {
+                LabeledField(String(localized: "Redeem script"), hint: String(localized: "Hex, starting with the threshold opcode.")) {
                     TextEditor(text: $scriptText)
                         .font(.system(.caption, design: .monospaced))
                         .fieldEditorStyle(minHeight: 90)
                         .onChange(of: scriptText) { _, _ in reparse() }
                 }
 
-                LabeledField("Label", hint: "Optional.") {
+                LabeledField(String(localized: "Label"), hint: String(localized: "Optional.")) {
                     TextField("", text: $scriptLabel, prompt: Text("House fund"))
                         .fieldInputStyle()
                 }
@@ -326,7 +326,7 @@ struct AddMultisigSheet: View {
                 }
             }
             if !isMember {
-                CopyableText("This FID is not one of the members, so this Setting could never sign for the group.")
+                CopyableText(String(localized: "This FID is not one of the members, so this Setting could never sign for the group."))
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)

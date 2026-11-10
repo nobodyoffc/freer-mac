@@ -77,7 +77,7 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, CallDirect
                                                                  sid: link?.relaySid))
                 onState(.ringing)
             } catch {
-                fail("could not open the call on the relay: \(error)")
+                fail(String(localized: "could not open the call on the relay: \(String(describing: error))"))
             }
         }
     }
@@ -90,7 +90,7 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, CallDirect
                 try await register(authPub: try CallKeys.authPub(authPriv: CallKeys.authPriv(callSecret: secret)))
                 try startMedia(secret: secret)
             } catch {
-                fail("could not open the call on the relay: \(error)")
+                fail(String(localized: "could not open the call on the relay: \(String(describing: error))"))
             }
         }
     }
@@ -108,7 +108,7 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, CallDirect
                 watchPeer(joined)
                 try startMedia(secret: secret)
             } catch {
-                fail("could not join the call on the relay: \(error)")
+                fail(String(localized: "could not join the call on the relay: \(String(describing: error))"))
             }
         }
     }
@@ -327,7 +327,7 @@ final class MacCallSession: CallRelayLink.Events, CallMedia.Listener, CallDirect
                   let d = Delegation.fromJson(json) else { return }
             signaller.onKnock(callId: call.callId, delegation: d)
         case "kicked":
-            fail("removed by the relay: \(n["reason"] ?? "")")
+            fail(String(localized: "removed by the relay: \(String(describing: n["reason"] ?? ""))"))
         default:
             break
         }

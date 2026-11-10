@@ -119,7 +119,7 @@ final class CallCenter {
                 SystemLog.shared.warning(SystemSource.messages,
                     "A CALL message from \(CallCenter.short(message.senderId ?? "?")) was not understood",
                     detail: "type \(message.type.map { "\($0)" } ?? "?"), "
-                        + (message.content.map { "content: \($0.prefix(200))" } ?? "still sealed"))
+                        + (message.content.map { String(localized: "content: \($0.prefix(200))") } ?? "still sealed"))
                 return
             }
             let gate = session.callGate(sender: sender)
@@ -209,7 +209,7 @@ final class CallCenter {
         if meetingBusy.value {
             phase = .calling
             peerFid = fid
-            finish("You are in a meeting.")
+            finish(String(localized: "You are in a meeting."))
             return
         }
         phase = .calling
@@ -222,11 +222,11 @@ final class CallCenter {
             if test.isEmpty { peerHasCall[fid] = url != nil }
             guard phase == .calling, call == nil else { return }
             guard let url, !url.isEmpty else {
-                finish("\(Self.short(fid)) has no CALL service in their home, so they cannot be called.")
+                finish(String(localized: "\(Self.short(fid)) has no CALL service in their home, so they cannot be called."))
                 return
             }
             guard await Self.microphoneAllowed() else {
-                finish("Calls need the microphone. Allow it in System Settings → Privacy & Security.")
+                finish(String(localized: "Calls need the microphone. Allow it in System Settings → Privacy & Security."))
                 return
             }
             // Calling someone accepts them, as writing to them does: their calls back must ring.
@@ -240,7 +240,7 @@ final class CallCenter {
                 callSession = cs
                 cs.startOutgoing()
             } catch {
-                finish("You are already in a call.")
+                finish(String(localized: "You are already in a call."))
             }
         }
     }
@@ -251,7 +251,7 @@ final class CallCenter {
         Task {
             guard await Self.microphoneAllowed() else {
                 decline()
-                finish("Calls need the microphone. Allow it in System Settings → Privacy & Security.")
+                finish(String(localized: "Calls need the microphone. Allow it in System Settings → Privacy & Security."))
                 return
             }
             guard signaller.accept(callId: c.callId) != nil else { return }
@@ -269,7 +269,7 @@ final class CallCenter {
     /// Cancel an unanswered call, or hang up an answered one.
     func hangup() {
         guard let c = call, let signaller else {
-            if phase == .calling { finish("Call ended") }
+            if phase == .calling { finish(String(localized: "Call ended")) }
             return
         }
         switch phase {
@@ -335,7 +335,7 @@ final class CallCenter {
             hangup() // the media path failed: end the call for the peer too
             SystemLog.shared.error(SystemSource.messages, "A call failed", detail: why)
             failed = true
-            finish("The call failed: \(why)")
+            finish(String(localized: "The call failed: \(why)"))
         default:
             break
         }
@@ -381,14 +381,14 @@ final class CallCenter {
 
     static func describe(_ reason: CallSignaller.End) -> String {
         switch reason {
-        case .declined: return "Declined"
-        case .busy: return "Busy"
-        case .unsupported: return "Their app cannot take calls"
-        case .wrongRelay: return "They answer only on their own CALL service"
-        case .noAnswer: return "No answer"
-        case .missed: return "Missed call"
-        case .answeredElsewhere: return "Answered on another device"
-        case .cancelled, .hungUp, .localHangup: return "Call ended"
+        case .declined: return String(localized: "Declined")
+        case .busy: return String(localized: "Busy")
+        case .unsupported: return String(localized: "Their app cannot take calls")
+        case .wrongRelay: return String(localized: "They answer only on their own CALL service")
+        case .noAnswer: return String(localized: "No answer")
+        case .missed: return String(localized: "Missed call")
+        case .answeredElsewhere: return String(localized: "Answered on another device")
+        case .cancelled, .hungUp, .localHangup: return String(localized: "Call ended")
         }
     }
 

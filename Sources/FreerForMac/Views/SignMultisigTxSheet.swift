@@ -148,15 +148,15 @@ struct SignMultisigTxSheet: View {
                 .font(.caption.bold()).textCase(.uppercase)
                 .foregroundStyle(.secondary)
 
-            LabeledField("Pay to", hint: nil) {
+            LabeledField(String(localized: "Pay to"), hint: nil) {
                 HStack(spacing: 8) {
                     TextField("", text: $recipient, prompt: Text("F…"))
                         .font(.system(.body, design: .monospaced))
                         .fieldInputStyle()
                     Button {
                         pick = .one(
-                            title: "Pay whom?",
-                            subtitle: "Where this group's coins go.",
+                            title: String(localized: "Pay whom?"),
+                            subtitle: String(localized: "Where this group's coins go."),
                             initialQuery: recipient
                         )
                     } label: {
@@ -164,7 +164,7 @@ struct SignMultisigTxSheet: View {
                     }
                 }
             }
-            LabeledField("Amount", hint: "In satoshis.") {
+            LabeledField(String(localized: "Amount"), hint: String(localized: "In satoshis.")) {
                 TextField("", text: $amountText, prompt: Text("10000"))
                     .font(.system(.body, design: .monospaced))
                     .fieldInputStyle()
@@ -303,7 +303,7 @@ struct SignMultisigTxSheet: View {
                     Button {
                         NSPasteboard.general.clearContents()
                         NSPasteboard.general.setString(json, forType: .string)
-                        note = "Copied. Send it to the members who have not signed."
+                        note = String(localized: "Copied. Send it to the members who have not signed.")
                     } label: {
                         Label("Copy document", systemImage: "doc.on.doc")
                     }
@@ -386,7 +386,7 @@ struct SignMultisigTxSheet: View {
             let s = try MultisigCosign.status(doc)
             guard s.group.fid == groupFid else {
                 status = nil
-                error = "That document spends from \(s.group.fid.elidingMiddle(head: 8, tail: 8)), not this group."
+                error = String(localized: "That document spends from \(s.group.fid.elidingMiddle(head: 8, tail: 8)), not this group.")
                 document = nil
                 return
             }
@@ -427,7 +427,7 @@ struct SignMultisigTxSheet: View {
         do {
             document = try session.signMultisigDocument(doc)
             refreshStatus()
-            note = "Signed. Send the document to the remaining members."
+            note = String(localized: "Signed. Send the document to the remaining members.")
         } catch {
             self.error = String(describing: error)
         }
@@ -449,7 +449,7 @@ struct SignMultisigTxSheet: View {
             document = try MultisigCosign.merge([mine, theirs])
             importText = ""
             refreshStatus()
-            note = "Merged."
+            note = String(localized: "Merged.")
         } catch {
             self.error = String(describing: error)
         }
@@ -458,13 +458,13 @@ struct SignMultisigTxSheet: View {
     private func decode(_ text: String) -> RawTxInfo? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let data = trimmed.data(using: .utf8) else {
-            error = "That is not text this can read."
+            error = String(localized: "That is not text this can read.")
             return nil
         }
         do {
             return try JSONDecoder().decode(RawTxInfo.self, from: data)
         } catch {
-            self.error = "Not a transaction document — \(error)"
+            self.error = String(localized: "Not a transaction document — \(String(describing: error))")
             return nil
         }
     }
@@ -483,7 +483,7 @@ struct SignMultisigTxSheet: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try json.write(to: url, atomically: true, encoding: .utf8)
-            note = "Saved to \(url.lastPathComponent)."
+            note = String(localized: "Saved to \(url.lastPathComponent).")
         } catch {
             self.error = String(describing: error)
         }

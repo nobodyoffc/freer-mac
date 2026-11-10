@@ -406,7 +406,7 @@ final class AppState {
             self.fapiFactory = fapiFactory
             self.configures = []
             self.route = .password
-            self.lastError = "Couldn't open vault storage: \(error). Data won't persist."
+            self.lastError = String(localized: "Couldn't open vault storage: \(String(describing: error)). Data won't persist.")
             self.installConnectivityObservers()
             self.installActivityMonitor()
             return
@@ -699,14 +699,14 @@ final class AppState {
                 self.configureSession = cs
                 self.route = .chooseMain
             } catch {
-                lastError = "Couldn't open vault."
+                lastError = String(localized: "Couldn't open vault.")
             }
             return
         }
 
         // No Configure with this passwordName.
         guard createIfMissing else {
-            lastError = "Couldn't open vault."
+            lastError = String(localized: "Couldn't open vault.")
             return
         }
 
@@ -718,7 +718,7 @@ final class AppState {
             self.configures = (try? manager.listConfigures()) ?? configures
             self.route = .chooseMain
         } catch {
-            lastError = "Couldn't create vault."
+            lastError = String(localized: "Couldn't create vault.")
         }
     }
 
@@ -840,7 +840,7 @@ final class AppState {
         let minutes = autoLock.timeout.map { max(1, Int($0.components.seconds) / 60) }
         lockAll()
         if let minutes {
-            lockNotice = "Locked after \(minutes) minute\(minutes == 1 ? "" : "s") without activity."
+            lockNotice = String(localized: "Locked after \(String(minutes)) minute\(minutes == 1 ? "" : "s") without activity.")
         }
     }
 
@@ -873,7 +873,7 @@ final class AppState {
     /// persisted to the Configure body.
     func addMain(privkey: Data, label: String) async {
         guard let cs = configureSession else {
-            lastError = "No unlocked Configure."
+            lastError = String(localized: "No unlocked Configure.")
             return
         }
         lastError = nil
@@ -892,7 +892,7 @@ final class AppState {
     /// only leaves this screen when every key went in.
     func addMains(_ keys: [(privkey: Data, label: String)]) async {
         guard let cs = configureSession else {
-            lastError = "No unlocked Configure."
+            lastError = String(localized: "No unlocked Configure.")
             return
         }
         lastError = nil
@@ -926,7 +926,7 @@ final class AppState {
     /// directory straight back up, so only the key is actually lost.
     func deleteMain(fid: String, deletingSetting: Bool) async {
         guard let cs = configureSession else {
-            lastError = "No unlocked Configure."
+            lastError = String(localized: "No unlocked Configure.")
             return
         }
         lastError = nil
@@ -937,7 +937,7 @@ final class AppState {
                     : try cs.removeMain(fid: fid)
             }.value
             if !removed {
-                lastError = "That identity is no longer in this vault."
+                lastError = String(localized: "That identity is no longer in this vault.")
             }
         } catch {
             lastError = String(describing: error)
@@ -950,7 +950,7 @@ final class AppState {
     /// built and swapped in immediately afterward.
     func unlockMain(fid: String) async {
         guard let cs = configureSession else {
-            lastError = "No unlocked Configure."
+            lastError = String(localized: "No unlocked Configure.")
             return
         }
         lastError = nil
@@ -1242,7 +1242,7 @@ final class AppState {
         do {
             prefs = try session.preferences.load()
         } catch {
-            lastError = "Couldn't read preferences: \(error)"
+            lastError = String(localized: "Couldn't read preferences: \(String(describing: error))")
             return
         }
 
@@ -1263,11 +1263,11 @@ final class AppState {
         }
         guard !candidates.isEmpty else {
             tearDownLiveFapi()
-            lastError = """
+            lastError = String(localized: """
                 No FAPI server configured — nothing will load. \
                 Open Settings and set the host, port and server pubkey \
                 (Discover fills the pubkey in), then Save.
-                """
+                """)
             return
         }
 
@@ -1275,7 +1275,7 @@ final class AppState {
         do {
             priv = try session.mainPrikey()
         } catch {
-            lastError = "Couldn't read main prikey: \(error)"
+            lastError = String(localized: "Couldn't read main prikey: \(String(describing: error))")
             return
         }
 
@@ -1309,7 +1309,7 @@ final class AppState {
             // "the" live transport here would tear down *its* one.
             guard isCurrent(session, generation) else { return }
             let (_, host, port, _) = candidates[candidates.count - 1]
-            lastError = "FAPI connect failed: \(lastFailure.map { String(describing: $0) } ?? "no server answered")"
+            lastError = String(localized: "FAPI connect failed: \(lastFailure.map { String(describing: $0) } ?? "no server answered")")
             SystemLog.shared.error(
                 SystemSource.fapi,
                 "Could not connect to \(host):\(port)",
@@ -1496,10 +1496,10 @@ final class AppState {
             if baseConnection?.source == .home { await applyFapiSettings(for: session) }
             return
         case .address:
-            homeBaseProblem = "Your home BASE is an address, not a service id, so there is no record to check its key against. Choose the service in Home › BASE and carve again."
+            homeBaseProblem = String(localized: "Your home BASE is an address, not a service id, so there is no record to check its key against. Choose the service in Home › BASE and carve again.")
             return
         case .unreadable:
-            homeBaseProblem = "Your home BASE is private, and this FID's prikey does not open it."
+            homeBaseProblem = String(localized: "Your home BASE is private, and this FID's prikey does not open it.")
             return
         case .serviceId(let found):
             sid = found
@@ -1512,7 +1512,7 @@ final class AppState {
         }
         guard isCurrent(session, generation) else { return }
         guard let service, let url = service.apiUrl, let endpoint = FudpUrl.hostPort(url) else {
-            homeBaseProblem = "Your home BASE \(sid.elidingMiddle(head: 6, tail: 6)) has no service record with an address on the chain."
+            homeBaseProblem = String(localized: "Your home BASE \(sid.elidingMiddle(head: 6, tail: 6)) has no service record with an address on the chain.")
             return
         }
         let target = "\(endpoint.host):\(endpoint.port)"
@@ -1524,7 +1524,7 @@ final class AppState {
             guard let key = decodeHex(current.pubkeyHex),
                   HomeBase.verify(helloPubkey: key, against: service) == .matches
             else {
-                homeBaseProblem = "The server at \(target) does not hold the key your home BASE's record names."
+                homeBaseProblem = String(localized: "The server at \(target) does not hold the key your home BASE's record names.")
                 return
             }
             homeBaseProblem = nil
@@ -1546,28 +1546,28 @@ final class AppState {
                 host: endpoint.host, port: endpoint.port, timeoutMs: 3_000
             )
         } catch {
-            homeBaseProblem = "Your home BASE \(target) is not answering, so this Mac stays on \(baseConnection?.service ?? "the server set below")."
+            homeBaseProblem = String(localized: "Your home BASE \(target) is not answering, so this Mac stays on \(baseConnection?.service ?? "the server set below").")
             return
         }
         switch HomeBase.verify(helloPubkey: key, against: service) {
         case .matches:
             break
         case .mismatch:
-            homeBaseProblem = "The server at \(target) answered with a key its service record does not name. This Mac did not switch to it."
+            homeBaseProblem = String(localized: "The server at \(target) answered with a key its service record does not name. This Mac did not switch to it.")
             SystemLog.shared.warning(
                 SystemSource.fapi, "Home BASE \(target) failed its key check",
                 detail: "Answered with \(Hex.encode(key)); the record names something else."
             )
             return
         case .unverifiable:
-            homeBaseProblem = "Your home BASE's service record names no dealer, so its key cannot be checked. This Mac did not switch to it."
+            homeBaseProblem = String(localized: "Your home BASE's service record names no dealer, so its key cannot be checked. This Mac did not switch to it.")
             return
         }
         guard let priv = try? session.mainPrikey() else { return }
         do {
             try await Self.probeBase(host: endpoint.host, port: endpoint.port, pubkey: key, prikey: priv)
         } catch {
-            homeBaseProblem = "Your home BASE \(target) did not pass a health check (\(error)), so this Mac stays on \(baseConnection?.service ?? "the server set below")."
+            homeBaseProblem = String(localized: "Your home BASE \(target) did not pass a health check (\(String(describing: error))), so this Mac stays on \(baseConnection?.service ?? "the server set below").")
             return
         }
         guard isCurrent(session, generation) else { return }
@@ -1580,7 +1580,7 @@ final class AppState {
                 $0.homeBaseServicePubkeyHex = Hex.encode(key).lowercased()
             }
         } catch {
-            lastError = "Couldn't save your home BASE: \(error)"
+            lastError = String(localized: "Couldn't save your home BASE: \(String(describing: error))")
             return
         }
         SystemLog.shared.info(SystemSource.fapi, "Switching to your home BASE \(target)")
@@ -1828,7 +1828,7 @@ struct BaseConnection: Equatable {
 struct BaseProbeFailure: Error, CustomStringConvertible {
     let code: Int
     let message: String
-    var description: String { "server replied code \(code): \(message)" }
+    var description: String { String(localized: "server replied code \(String(code)): \(message)") }
 }
 
 /// Why a DOCK we were asked to reach could not be connected to.
@@ -1838,7 +1838,7 @@ enum DockConnectFailure: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .unusableUrl(let url):
-            return "DOCK address '\(url)' does not name a host we can reach"
+            return String(localized: "DOCK address '\(url)' does not name a host we can reach")
         }
     }
 }
@@ -1858,7 +1858,7 @@ struct StubFapiClient: FapiCalling, Sendable {
         var description: String {
             switch self {
             case .notConfigured(let api):
-                return "FAPI not yet configured (call: \(api)). Wire a real FapiClient in Phase 6."
+                return String(localized: "FAPI not yet configured (call: \(api)). Wire a real FapiClient in Phase 6.")
             }
         }
     }

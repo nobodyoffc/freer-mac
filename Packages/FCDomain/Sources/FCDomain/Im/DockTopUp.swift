@@ -88,18 +88,18 @@ public struct DockTopUp: Sendable {
         public var description: String {
             switch self {
             case .noConnection(let url):
-                return "Could not connect to \(url), so there is nobody to ask who to pay. Try again in a minute."
+                return String(localized: "Could not connect to \(url), so there is nobody to ask who to pay. Try again in a minute.")
             case let .unidentified(url, reason):
-                return "\(url) does not say who it is, and looking it up on the chain failed: \(reason)"
+                return String(localized: "\(url) does not say who it is, and looking it up on the chain failed: \(reason)")
             case .noDealer(let name):
-                return "\(name) publishes no dealer, so there is no address to pay."
+                return String(localized: "\(name) publishes no dealer, so there is no address to pay.")
             case .expectedCashes:
-                return "The server no longer offers cashes to pay from, so the payment cannot be built. Close this and open it again."
+                return String(localized: "The server no longer offers cashes to pay from, so the payment cannot be built. Close this and open it again.")
             case let .broadcastRefused(reason, usedLocal):
                 let hint = usedLocal
-                    ? " Some of the cashes came from this Mac's cache, and one may already be spent; refresh the Cash pane, or pay no more than the server offered."
+                    ? String(localized: " Some of the cashes came from this Mac's cache, and one may already be spent; refresh the Cash pane, or pay no more than the server offered.")
                     : ""
-                return "The payment was not accepted: \(reason).\(hint) Close this and open it again to get a new free broadcast."
+                return String(localized: "The payment was not accepted: \(reason).\(hint) Close this and open it again to get a new free broadcast.")
             }
         }
     }
@@ -180,7 +180,7 @@ extension ActiveSession {
         }
         guard let service else {
             throw DockTopUp.Failure.unidentified(
-                dockUrl: url, reason: "no DOCK record on the chain names this address."
+                dockUrl: url, reason: String(localized: "no DOCK record on the chain names this address.")
             )
         }
         guard let dealer = DockTopUp.dealer(of: service) else {

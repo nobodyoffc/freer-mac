@@ -21,7 +21,7 @@ struct SshPublicKeySheet: View {
 
     private var installCommand: String {
         guard let key else { return "" }
-        return "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '\(key.authorizedKeysLine())' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+        return String(localized: "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '\(key.authorizedKeysLine())' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys")
     }
 
     /// The menu item's own script, so the by-hand removal is the tested
@@ -77,15 +77,15 @@ struct SshPublicKeySheet: View {
     }
 
     private func fingerprintSection(_ key: SshEd25519Key) -> some View {
-        LabeledField("Fingerprint") {
+        LabeledField(String(localized: "Fingerprint")) {
             CopyableText(key.fingerprint, font: .system(.body, design: .monospaced))
         }
     }
 
     private func lineSection(_ key: SshEd25519Key) -> some View {
         LabeledField(
-            "authorized_keys line",
-            hint: "Click to copy the whole line."
+            String(localized: "authorized_keys line"),
+            hint: String(localized: "Click to copy the whole line.")
         ) {
             CopyableText(
                 display: key.authorizedKeysLine().elidingMiddle(head: 28, tail: 24),
@@ -97,11 +97,11 @@ struct SshPublicKeySheet: View {
 
     private var installSection: some View {
         LabeledField(
-            "Install it",
-            hint: "Install Freer key in a server's menu does this for you. By hand: log in with your password once, paste this, and the next connection needs no password."
+            String(localized: "Install it"),
+            hint: String(localized: "Install Freer key in a server's menu does this for you. By hand: log in with your password once, paste this, and the next connection needs no password.")
         ) {
             CopyableText(
-                display: "mkdir -p ~/.ssh && … >> ~/.ssh/authorized_keys",
+                display: String(localized: "mkdir -p ~/.ssh && … >> ~/.ssh/authorized_keys"),
                 copy: installCommand,
                 font: .system(.callout, design: .monospaced)
             )
@@ -110,11 +110,11 @@ struct SshPublicKeySheet: View {
 
     private var removeSection: some View {
         LabeledField(
-            "Remove it",
-            hint: "Remove Freer key from server, in the same menu, does this for you. By hand: paste this on the server. It deletes every line holding this key and leaves the others."
+            String(localized: "Remove it"),
+            hint: String(localized: "Remove Freer key from server, in the same menu, does this for you. By hand: paste this on the server. It deletes every line holding this key and leaves the others.")
         ) {
             CopyableText(
-                display: "sh -c '… grep -vF … ~/.ssh/authorized_keys …'",
+                display: String(localized: "sh -c '… grep -vF … ~/.ssh/authorized_keys …'"),
                 copy: removeCommand,
                 font: .system(.callout, design: .monospaced)
             )
@@ -126,18 +126,18 @@ struct SshPublicKeySheet: View {
             Divider()
             note(
                 "checkmark.shield",
-                "This key cannot spend.",
-                "It is a separate ed25519 key on a different curve, derived one way from your main key. Nothing it signs reveals anything about the key that holds your coins."
+                String(localized: "This key cannot spend."),
+                String(localized: "It is a separate ed25519 key on a different curve, derived one way from your main key. Nothing it signs reveals anything about the key that holds your coins.")
             )
             note(
                 "arrow.triangle.2.circlepath",
-                "Nothing to back up.",
-                "The key is re-derived from this vault every time, so restoring the same main FID on another Mac gives you the same SSH key with nothing to export."
+                String(localized: "Nothing to back up."),
+                String(localized: "The key is re-derived from this vault every time, so restoring the same main FID on another Mac gives you the same SSH key with nothing to export.")
             )
             note(
                 "exclamationmark.triangle",
-                "It is tied to this main FID.",
-                "Change or re-mint the main identity and this line stops working on every server you have installed it on — you would have to get in by password and paste the new one. Take it off those servers first: afterwards Freer can no longer derive it to remove it."
+                String(localized: "It is tied to this main FID."),
+                String(localized: "Change or re-mint the main identity and this line stops working on every server you have installed it on — you would have to get in by password and paste the new one. Take it off those servers first: afterwards Freer can no longer derive it to remove it.")
             )
         }
     }
@@ -158,7 +158,7 @@ struct SshPublicKeySheet: View {
         do {
             key = try session.sshIdentity()
         } catch {
-            self.error = "Could not derive the SSH key — \(error)"
+            self.error = String(localized: "Could not derive the SSH key — \(String(describing: error))")
         }
     }
 }

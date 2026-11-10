@@ -73,7 +73,7 @@ struct SymkeyLedgerSheet: View {
     }
 
     private var explanation: String {
-        "Every symkey this Mac handed over or took in for this \(style.noun), and every request it could not answer. Kept on this Mac only — it is never sent anywhere, and never included in a history share."
+        String(localized: "Every symkey this Mac handed over or took in for this \(style.noun), and every request it could not answer. Kept on this Mac only — it is never sent anywhere, and never included in a history share.")
     }
 
     /// The leak radius, said in one line.
@@ -144,8 +144,8 @@ struct SymkeyLedgerSheet: View {
                             font: .caption.monospacedDigit(),
                             color: .secondary,
                             help: SymkeyVersionText.mintDate(row.version, withTime: true).map {
-                                "Created \($0). Click to copy its version number, \(SymkeyVersionText.raw(row.version))."
-                            } ?? "Copy this symkey's version number"
+                                String(localized: "Created \($0). Click to copy its version number, \(SymkeyVersionText.raw(row.version)).")
+                            } ?? String(localized: "Copy this symkey's version number")
                         )
                         .frame(width: 140, alignment: .leading)
                         HStack(spacing: 5) {
@@ -178,14 +178,14 @@ struct SymkeyLedgerSheet: View {
     /// for a key nobody has is a stalled recovery somebody can fix.
     private func outcomeText(_ row: KeyLedgerEntry) -> String {
         switch row.outcome {
-        case .shared:     return row.direction == .sent ? "sent" : "given to us"
+        case .shared:     return row.direction == .sent ? "sent" : String(localized: "given to us")
         case .stored:     return "stored"
-        case .duplicate:  return "already had it"
-        case .refused:    return "refused — not asked for"
-        case .unreadable: return "would not open"
-        case .notHeld:    return "we don't hold it"
-        case .notAMember: return "not a member"
-        case .noPubkey:   return "no pubkey to seal to"
+        case .duplicate:  return String(localized: "already had it")
+        case .refused:    return String(localized: "refused — not asked for")
+        case .unreadable: return String(localized: "would not open")
+        case .notHeld:    return String(localized: "we don't hold it")
+        case .notAMember: return String(localized: "not a member")
+        case .noPubkey:   return String(localized: "no pubkey to seal to")
         }
     }
 
@@ -200,7 +200,7 @@ struct SymkeyLedgerSheet: View {
     }
 
     private func display(_ fid: String) -> String {
-        if fid == session.liveFid { return "your other devices" }
+        if fid == session.liveFid { return String(localized: "your other devices") }
         return names.labelWithContact(for: fid)
     }
 

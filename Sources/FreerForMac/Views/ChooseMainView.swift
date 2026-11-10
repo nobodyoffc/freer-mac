@@ -192,10 +192,10 @@ struct ChooseMainView: View {
     /// identities in one vault can share a label, and the tail is
     /// exactly where they differ.
     private var deleteTitle: String {
-        guard let info = pendingDelete else { return "Delete identity?" }
+        guard let info = pendingDelete else { return String(localized: "Delete identity?") }
         let name = info.activeCid ?? (info.label.isEmpty ? nil : info.label)
         let fid = info.fid.elidingMiddle(head: 8, tail: 8)
-        return name.map { "Delete “\($0)” (\(fid))?" } ?? "Delete \(fid)?"
+        return name.map { String(localized: "Delete “\($0)” (\(fid))?") } ?? String(localized: "Delete \(fid)?")
     }
 
     private func confirmDelete(deletingSetting: Bool) {

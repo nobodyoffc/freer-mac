@@ -44,23 +44,23 @@ public struct ContactPolicy: Codable, Equatable, Sendable {
 
         public var title: String {
             switch self {
-            case .askAboutStrangers: return "Ask me about strangers"
-            case .contactsOnly:      return "Contacts get through"
-            case .whitelistOnly:     return "Only people I've allowed"
-            case .acceptNone:        return "Nobody new"
+            case .askAboutStrangers: return String(localized: "Ask me about strangers")
+            case .contactsOnly:      return String(localized: "Contacts get through")
+            case .whitelistOnly:     return String(localized: "Only people I've allowed")
+            case .acceptNone:        return String(localized: "Nobody new")
             }
         }
 
         public var detail: String {
             switch self {
             case .askAboutStrangers:
-                return "A first message from an unknown FID is held as a request and you are asked about it."
+                return String(localized: "A first message from an unknown FID is held as a request and you are asked about it.")
             case .contactsOnly:
-                return "Someone already in Contacts is let through on their first message. Everyone else is held quietly."
+                return String(localized: "Someone already in Contacts is let through on their first message. Everyone else is held quietly.")
             case .whitelistOnly:
-                return "Only FIDs you have accepted before get through. Everyone else is held quietly."
+                return String(localized: "Only FIDs you have accepted before get through. Everyone else is held quietly.")
             case .acceptNone:
-                return "Everything from someone new is held. Nothing is ever accepted automatically."
+                return String(localized: "Everything from someone new is held. Nothing is ever accepted automatically.")
             }
         }
     }

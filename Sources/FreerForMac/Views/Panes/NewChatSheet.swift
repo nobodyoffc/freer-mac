@@ -179,8 +179,8 @@ struct NewChatSheet: View {
             ServicePickerSheet(
                 session: session,
                 component: ServiceName.dock,
-                title: "Choose this \(style.noun)'s DOCK",
-                subtitle: "The \(style.noun)'s messages rest here until each member collects them. Everyone reads from the same one, so it is set once for the whole \(style.noun).",
+                title: String(localized: "Choose this \(style.noun)'s DOCK"),
+                subtitle: String(localized: "The \(style.noun)'s messages rest here until each member collects them. Everyone reads from the same one, so it is set once for the whole \(style.noun)."),
                 initialQuery: mode == .room ? roomDock : groupDock
             ) { service in
                 // The service id, not the address: the server can move,
@@ -195,7 +195,7 @@ struct NewChatSheet: View {
             ServicePickerSheet(
                 session: session,
                 component: ServiceName.call,
-                title: "Choose this \(style.noun)'s CALL service",
+                title: String(localized: "Choose this \(style.noun)'s CALL service"),
                 initialQuery: mode == .room ? roomCall : groupCall
             ) { service in
                 if mode == .room { roomCall = service.sid } else { groupCall = service.sid }
@@ -208,8 +208,8 @@ struct NewChatSheet: View {
             ServicePickerSheet(
                 session: session,
                 component: ServiceName.disk,
-                title: "Choose this team's DISK",
-                subtitle: "The consensus document is stored here. Its id is the hash of its contents, so anyone can check that what they downloaded is what was carved.",
+                title: String(localized: "Choose this team's DISK"),
+                subtitle: String(localized: "The consensus document is stored here. Its id is the hash of its contents, so anyone can check that what they downloaded is what was carved."),
                 initialQuery: groupDisk
             ) { service in
                 groupDisk = service.sid
@@ -221,7 +221,7 @@ struct NewChatSheet: View {
         .sheet(item: $document) { request in
             ConsensusDocumentSheet(
                 session: session,
-                title: "This team's consensus",
+                title: String(localized: "This team's consensus"),
                 consensusId: request.consensusId,
                 // Nothing is on chain yet, so the only DISK worth trying
                 // is the one being chosen for the team.
@@ -240,7 +240,7 @@ struct NewChatSheet: View {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.message = "Choose the document this team's members will agree to."
+        panel.message = String(localized: "Choose the document this team's members will agree to.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             consensusId = try session.teamConsensus.importFile(at: url)
@@ -268,10 +268,10 @@ struct NewChatSheet: View {
 
     private var title: String {
         switch mode {
-        case .p2p:    return "New chat"
-        case .room:   return "New room"
-        case .team:   return groupAction == .join ? "Join a team" : "Create a team"
-        case .square: return groupAction == .join ? "Join a square" : "Create a square"
+        case .p2p:    return String(localized: "New chat")
+        case .room:   return String(localized: "New room")
+        case .team:   return groupAction == .join ? String(localized: "Join a team") : String(localized: "Create a team")
+        case .square: return groupAction == .join ? String(localized: "Join a square") : String(localized: "Create a square")
         }
     }
 
@@ -300,8 +300,8 @@ struct NewChatSheet: View {
                         }
                     Button {
                         pick = .one(
-                            title: "Who is this chat with?",
-                            subtitle: "Search your contacts, or look up a FID or CID on chain."
+                            title: String(localized: "Who is this chat with?"),
+                            subtitle: String(localized: "Search your contacts, or look up a FID or CID on chain.")
                         )
                     } label: {
                         Label("Find…", systemImage: "person.text.rectangle")
@@ -315,7 +315,7 @@ struct NewChatSheet: View {
                     FidAvatarView(fid: party.fid, size: 24)
                     Text(party.name).font(.callout).lineLimit(1)
                     if party.pubkey == nil {
-                        CopyableLabel("no published key", systemImage: "lock.open")
+                        CopyableLabel(String(localized: "no published key"), systemImage: "lock.open")
                             .font(.caption)
                             .foregroundStyle(.orange)
                             .help("They haven't published a pubkey, so messages to them can't be encrypted until they do.")
@@ -333,18 +333,18 @@ struct NewChatSheet: View {
 
     private var roomForm: some View {
         VStack(alignment: .leading, spacing: 4) {
-            LabeledField("Room name") {
+            LabeledField(String(localized: "Room name")) {
                 TextField("", text: $roomName, prompt: Text("The Usual Place"))
                     .fieldInputStyle()
             }
-            LabeledField("Description") {
+            LabeledField(String(localized: "Description")) {
                 TextField("", text: $roomDesc, prompt: Text("optional"))
                     .fieldInputStyle()
             }
 
             LabeledField(
                 "DOCK",
-                hint: "Where this room's messages rest until each member collects them. Without one there is nowhere for them to wait, so the room can be created but nothing can be said in it until you set one."
+                hint: String(localized: "Where this room's messages rest until each member collects them. Without one there is nowhere for them to wait, so the room can be created but nothing can be said in it until you set one.")
             ) {
                 HStack(spacing: 8) {
                     TextField("", text: $roomDock, prompt: Text("service id, or host:port"))
@@ -370,9 +370,9 @@ struct NewChatSheet: View {
                     .foregroundStyle(.secondary)
                 Button {
                     pick = .many(
-                        title: "Invite to this room",
-                        subtitle: "Everyone picked gets the room's key sealed to their pubkey, when we know it.",
-                        confirmTitle: "Invite",
+                        title: String(localized: "Invite to this room"),
+                        subtitle: String(localized: "Everyone picked gets the room's key sealed to their pubkey, when we know it."),
+                        confirmTitle: String(localized: "Invite"),
                         preselected: roomInvitees,
                         excluded: [session.liveFid]
                     )
@@ -432,7 +432,7 @@ struct NewChatSheet: View {
                 squareSearch
             }
 
-            LabeledField(mode == .team ? "Team id" : "Square id") {
+            LabeledField(mode == .team ? String(localized: "Team id") : String(localized: "Square id")) {
                 TextField("", text: $joinId, prompt: Text("the create carve's txid"))
                     .font(.system(.body, design: .monospaced))
                     .fieldInputStyle()
@@ -459,7 +459,7 @@ struct NewChatSheet: View {
     private var squareSearch: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                SearchField("Find a square by name…", text: $squareQuery, minWidth: 200)
+                SearchField(String(localized: "Find a square by name…"), text: $squareQuery, minWidth: 200)
                     .onSubmit { Task { await searchSquares() } }
                 Button("Search") { Task { await searchSquares() } }
                     .disabled(searchingSquares || squareQuery.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -474,7 +474,7 @@ struct NewChatSheet: View {
             } else {
                 Text("Popular squares").font(.caption.bold()).foregroundStyle(.secondary)
                 if let popularError {
-                    CopyableText("Couldn't load squares: \(popularError)", font: .caption, color: .red)
+                    CopyableText(String(localized: "Couldn't load squares: \(popularError)"), font: .caption, color: .red)
                         .fixedSize(horizontal: false, vertical: true)
                 } else if let popular = popularSquares {
                     if popular.isEmpty {
@@ -555,7 +555,7 @@ struct NewChatSheet: View {
             }
             Spacer()
             if isMember {
-                ChatChip("you're in", color: style.tint)
+                ChatChip(String(localized: "you're in"), color: style.tint)
                 Button("Open") { openJoinedSquare(square) }
             } else if joiningSquareIds.contains(id) {
                 ChatChip("joining…", color: style.tint)
@@ -583,7 +583,7 @@ struct NewChatSheet: View {
         } catch {
             await MainActor.run {
                 searchingSquares = false
-                self.error = "Search failed: \(error)"
+                self.error = String(localized: "Search failed: \(String(describing: error))")
             }
         }
     }
@@ -616,22 +616,22 @@ struct NewChatSheet: View {
 
     private var createGroupForm: some View {
         VStack(alignment: .leading, spacing: 4) {
-            LabeledField(mode == .team ? "Team name" : "Square name") {
+            LabeledField(mode == .team ? String(localized: "Team name") : String(localized: "Square name")) {
                 TextField(
                     "", text: $groupName,
                     prompt: Text(mode == .team ? "The Standard Name" : "The Square")
                 )
                 .fieldInputStyle()
             }
-            LabeledField("Description") {
+            LabeledField(String(localized: "Description")) {
                 TextField("", text: $groupDesc, prompt: Text("optional"))
                     .fieldInputStyle()
             }
 
             if mode == .team {
                 LabeledField(
-                    "Consensus document",
-                    hint: "What members agree to when they join — their carve quotes its id, which is what makes agreement a public, signed act rather than a checkbox. The id is the hash of the text, so it is written after the document is, not before."
+                    String(localized: "Consensus document"),
+                    hint: String(localized: "What members agree to when they join — their carve quotes its id, which is what makes agreement a public, signed act rather than a checkbox. The id is the hash of the text, so it is written after the document is, not before.")
                 ) {
                     VStack(alignment: .leading, spacing: 6) {
                         TextField("", text: $consensusId, prompt: Text("required"))
@@ -660,7 +660,7 @@ struct NewChatSheet: View {
 
                 LabeledField(
                     "DISK",
-                    hint: "Where the consensus document is stored, unencrypted and permanently, so anyone weighing up joining can read it. The id is published in the team's home in plain text, which is the whole of how a member finds the document."
+                    hint: String(localized: "Where the consensus document is stored, unencrypted and permanently, so anyone weighing up joining can read it. The id is published in the team's home in plain text, which is the whole of how a member finds the document.")
                 ) {
                     HStack(spacing: 8) {
                         TextField("", text: $groupDisk, prompt: Text("service id"))
@@ -676,7 +676,7 @@ struct NewChatSheet: View {
 
             LabeledField(
                 "DOCK",
-                hint: "Where this \(style.noun)'s messages rest until each member collects them. It is carved with the \(style.noun), and a \(style.noun) created without one cannot be spoken in until a later update sets it — which is another transaction."
+                hint: String(localized: "Where this \(style.noun)'s messages rest until each member collects them. It is carved with the \(style.noun), and a \(style.noun) created without one cannot be spoken in until a later update sets it — which is another transaction.")
             ) {
                 HStack(spacing: 8) {
                     TextField("", text: $groupDock, prompt: Text("service id, or host:port"))
@@ -703,12 +703,12 @@ struct NewChatSheet: View {
     }
 
     private var primaryTitle: String {
-        if working { return "Carving…" }
+        if working { return String(localized: "Carving…") }
         switch mode {
-        case .p2p:  return "Open chat"
-        case .room: return "Create room"
+        case .p2p:  return String(localized: "Open chat")
+        case .room: return String(localized: "Create room")
         case .team, .square:
-            return groupAction == .join ? "Join on-chain" : "Create on-chain"
+            return groupAction == .join ? String(localized: "Join on-chain") : String(localized: "Create on-chain")
         }
     }
 
@@ -763,7 +763,7 @@ struct NewChatSheet: View {
     private func openChat() {
         let fid = contactFid.trimmingCharacters(in: .whitespaces)
         guard (try? FchAddress(fid: fid)) != nil else {
-            error = "That is not a valid FID."
+            error = String(localized: "That is not a valid FID.")
             return
         }
         do {
@@ -840,14 +840,14 @@ struct NewChatSheet: View {
                 )
             }
             var lines: [String] = []
-            if !invitations.isEmpty { lines.append("\(invitations.count) invitation(s) queued.") }
+            if !invitations.isEmpty { lines.append(String(localized: "\(String(invitations.count)) invitation(s) queued.")) }
             if !created.unreachable.isEmpty {
                 lines.append(
-                    "\(created.unreachable.count) invited member(s) publish no DOCK, so there is nowhere to leave an invitation for them — they are in the room, and you can share its details again once they have a server."
+                    String(localized: "\(String(created.unreachable.count)) invited member(s) publish no DOCK, so there is nowhere to leave an invitation for them — they are in the room, and you can share its details again once they have a server.")
                 )
             }
             if dock.isEmpty {
-                lines.append("No DOCK set: nothing can be said here until you set one.")
+                lines.append(String(localized: "No DOCK set: nothing can be said here until you set one."))
             }
             onOpened(conversationId, lines.isEmpty ? nil : lines.joined(separator: " "))
         } catch {
@@ -938,7 +938,7 @@ struct NewChatSheet: View {
     private func callField(text: Binding<String>) -> some View {
         LabeledField(
             "CALL",
-            hint: "Optional. The relay this \(style.noun)'s meetings run on, paid by whoever starts one. Empty: no meetings."
+            hint: String(localized: "Optional. The relay this \(style.noun)'s meetings run on, paid by whoever starts one. Empty: no meetings.")
         ) {
             HStack(spacing: 8) {
                 TextField("", text: text, prompt: Text("service id, or fudp://host:port"))
@@ -998,7 +998,7 @@ struct NewChatSheet: View {
                 working = false
                 // The banner names the tx; only the missing DOCK is news.
                 onBroadcast(dock.isEmpty
-                    ? "No DOCK was carved for \(name), so nothing can be said in it until you set one — which is another transaction."
+                    ? String(localized: "No DOCK was carved for \(name), so nothing can be said in it until you set one — which is another transaction.")
                     : nil)
             }
         } catch {
@@ -1014,7 +1014,7 @@ struct NewChatSheet: View {
     private func publishConsensus(_ consensus: String, toDiskSid diskSid: String) async throws {
         guard !consensus.isEmpty else { throw CreateRefusal.noConsensus }
         guard !diskSid.isEmpty else { throw CreateRefusal.noDisk }
-        await MainActor.run { note = "Uploading the consensus document…" }
+        await MainActor.run { note = String(localized: "Uploading the consensus document…") }
         let placement = try await session.teamConsensus.place(
             consensusId: consensus,
             onDiskSid: diskSid,
@@ -1032,11 +1032,11 @@ struct NewChatSheet: View {
         var description: String {
             switch self {
             case .noConsensus:
-                return "A team needs a consensus document: it is what every member signs their agreement to when they join, and a team without one has nothing for that signature to mean. Write one, or choose a file."
+                return String(localized: "A team needs a consensus document: it is what every member signs their agreement to when they join, and a team without one has nothing for that signature to mean. Write one, or choose a file.")
             case .noDisk:
-                return "A team needs a DISK. The consensus id carved on chain is only a hash — without a server publishing the bytes, nobody can read what they are agreeing to."
+                return String(localized: "A team needs a DISK. The consensus id carved on chain is only a hash — without a server publishing the bytes, nobody can read what they are agreeing to.")
             case .documentMissing:
-                return "That consensus id names no document this Mac holds, so there is nothing to upload. Nothing was carved. Write the document or choose its file, and the id follows from its contents."
+                return String(localized: "That consensus id names no document this Mac holds, so there is nothing to upload. Nothing was carved. Write the document or choose its file, and the id follows from its contents.")
             }
         }
     }

@@ -113,7 +113,7 @@ struct RequestHistorySheet: View {
                                 ContactLabelText(fid: fid, names: names, font: .callout)
                                 NobodyChip(fid: fid)
                                 if fid == owner { ChatChip("owner", color: style.tint) }
-                                if fid == session.liveFid { ChatChip("your other devices", color: style.tint) }
+                                if fid == session.liveFid { ChatChip(String(localized: "your other devices"), color: style.tint) }
                                 Spacer(minLength: 0)
                             }
                             if fid == session.liveFid {
@@ -186,8 +186,8 @@ struct RequestHistorySheet: View {
                 _ = try? await session.courier.drainOutbox(as: session.liveFid)
                 await MainActor.run {
                     sending = false
-                    let who = fid == session.liveFid ? "your other devices" : fid.elidingMiddle(head: 6, tail: 6)
-                    onSent("Asked \(who) for history \(rangeText(ask.since, ask.before)). It is added here once they agree.")
+                    let who = fid == session.liveFid ? String(localized: "your other devices") : fid.elidingMiddle(head: 6, tail: 6)
+                    onSent(String(localized: "Asked \(who) for history \(rangeText(ask.since, ask.before)). It is added here once they agree."))
                     onClose()
                 }
             } catch {
@@ -219,6 +219,6 @@ enum HistoryRangeText {
         let last = Date(timeIntervalSince1970: TimeInterval(before - 1) / 1000)
         let a = formatter.string(from: start)
         let b = formatter.string(from: last)
-        return a == b ? "on \(a)" : "from \(a) through \(b)"
+        return a == b ? "on \(a)" : String(localized: "from \(a) through \(b)")
     }
 }

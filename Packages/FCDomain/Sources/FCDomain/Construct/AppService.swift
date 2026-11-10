@@ -66,21 +66,21 @@ public struct AppService {
         /// Display label. English only for now; Phase 11 localises.
         public var label: String {
             switch self {
-            case .stdName:    return "Name"
-            case .localNames: return "Local name"
-            case .types:      return "Type"
-            case .desc:       return "Description"
-            case .ver:        return "Version"
-            case .waiters:    return "Waiter"
-            case .protocols:  return "Protocol"
-            case .codes:      return "Code"
-            case .services:   return "Service"
-            case .owner:      return "Owner"
-            case .birthTime:  return "Published"
-            case .lastTime:   return "Time"
-            case .lastHeight: return "Height"
+            case .stdName:    return String(localized: "Name")
+            case .localNames: return String(localized: "Local name")
+            case .types:      return String(localized: "Type")
+            case .desc:       return String(localized: "Description")
+            case .ver:        return String(localized: "Version")
+            case .waiters:    return String(localized: "Waiter")
+            case .protocols:  return String(localized: "Protocol")
+            case .codes:      return String(localized: "Code")
+            case .services:   return String(localized: "Service")
+            case .owner:      return String(localized: "Owner")
+            case .birthTime:  return String(localized: "Published")
+            case .lastTime:   return String(localized: "Time")
+            case .lastHeight: return String(localized: "Height")
             case .tCdd:       return "CDD"
-            case .tRate:      return "Rating"
+            case .tRate:      return String(localized: "Rating")
             case .id:         return "AID"
             }
         }

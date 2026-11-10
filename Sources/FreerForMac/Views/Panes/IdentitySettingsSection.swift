@@ -72,7 +72,7 @@ struct IdentitySettingsSection<BaseOnThisMac: View>: View {
 
     @ViewBuilder
     private var masterRow: some View {
-        LabeledField("Master", hint: masterHint) {
+        LabeledField(String(localized: "Master"), hint: masterHint) {
             HStack(spacing: 8) {
                 if let master = chainMaster {
                     CopyableText.elidingMiddle(master, font: .callout.monospaced())
@@ -89,7 +89,7 @@ struct IdentitySettingsSection<BaseOnThisMac: View>: View {
             }
         }
         if chainMaster == nil, session.liveFid == session.mainFid {
-            CarveOutcome(error: nil, pending: pendingMaster, what: "the master")
+            CarveOutcome(error: nil, pending: pendingMaster, what: String(localized: "the master"))
         }
     }
 
@@ -105,10 +105,10 @@ struct IdentitySettingsSection<BaseOnThisMac: View>: View {
 
     private var masterHint: String? {
         if chainMaster != nil {
-            return "The first master is the only one: the protocol ignores any later master carve."
+            return String(localized: "The first master is the only one: the protocol ignores any later master carve.")
         }
         guard session.liveFid == session.mainFid else { return nil }
-        return "Another FID of yours that can recover this one. Setting it puts your prikey on the chain, sealed to the master, for good."
+        return String(localized: "Another FID of yours that can recover this one. Setting it puts your prikey on the chain, sealed to the master, for good.")
     }
 
     private func loadPending() {

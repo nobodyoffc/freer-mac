@@ -112,7 +112,7 @@ struct ProofsView: View {
 
             if let err = loadError, source.isEmpty {
                 card {
-                    CopyableLabel("Couldn't load your proofs", systemImage: "exclamationmark.triangle")
+                    CopyableLabel(String(localized: "Couldn't load your proofs"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                     Text("Nothing is shown rather than the last list that loaded — a failed query has no answer, and rows left over from a different one would be read as this one's.")
@@ -174,12 +174,12 @@ struct ProofsView: View {
                     switch result {
                     case .carved(let proof):
                         actionError = nil
-                        actionNote = "Issued — tx \(proof.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it."
+                        actionNote = String(localized: "Issued — tx \(proof.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it.")
                         tab = .live
                         Task { await refresh() }
                     case .draft:
                         actionError = nil
-                        actionNote = "Saved as a draft. Nothing is on the chain until you carve it."
+                        actionNote = String(localized: "Saved as a draft. Nothing is on the chain until you carve it.")
                         tab = .drafts
                     case .cancelled:
                         break
@@ -194,12 +194,12 @@ struct ProofsView: View {
                 switch result {
                 case .carved(let proof):
                     actionError = nil
-                    actionNote = "Issued — tx \(proof.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it."
+                    actionNote = String(localized: "Issued — tx \(proof.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it.")
                     tab = .live
                     Task { await refresh() }
                 case .draft:
                     actionError = nil
-                    actionNote = "Draft saved."
+                    actionNote = String(localized: "Draft saved.")
                 case .cancelled:
                     break
                 }
@@ -221,7 +221,7 @@ struct ProofsView: View {
                     transferring = nil
                     if let txid {
                         actionError = nil
-                        actionNote = "Transfer broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). Ownership moves when a block confirms it."
+                        actionNote = String(localized: "Transfer broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). Ownership moves when a block confirms it.")
                         Task { await refresh() }
                     }
                 }
@@ -258,7 +258,7 @@ struct ProofsView: View {
 
             Spacer(minLength: 8)
 
-            SearchField("Search title, content, FID…", text: $searchText, minWidth: 150)
+            SearchField(String(localized: "Search title, content, FID…"), text: $searchText, minWidth: 150)
                 .help("Filters the rows loaded here. Search chain looks through the whole index.")
 
             if tab != .drafts {
@@ -343,7 +343,7 @@ struct ProofsView: View {
                 Text("\(rows.count) shown\(total.map { " of \($0)" } ?? "")")
                     .font(.caption).foregroundStyle(.secondary)
                 if awaitingMe > 0 && tab == .live {
-                    countChip("\(awaitingMe) awaiting your signature", color: .orange)
+                    countChip(String(localized: "\(String(awaitingMe)) awaiting your signature"), color: .orange)
                 }
                 if !selection.isEmpty {
                     countChip("\(selection.count) selected", color: .blue)
@@ -353,7 +353,7 @@ struct ProofsView: View {
                     .font(.caption)
                 }
                 if showingCache {
-                    countChip("offline — showing the cached copy", color: .orange)
+                    countChip(String(localized: "offline — showing the cached copy"), color: .orange)
                 }
             }
             Spacer(minLength: 0)
@@ -438,7 +438,7 @@ struct ProofsView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(proof.title?.isEmpty == false ? proof.title! : "Untitled proof")
+                    Text(proof.title?.isEmpty == false ? proof.title! : String(localized: "Untitled proof"))
                         .font(.body.bold())
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -464,8 +464,8 @@ struct ProofsView: View {
                 }
 
                 HStack(spacing: 10) {
-                    fidLine("Issuer", proof.issuer)
-                    if proof.owner != proof.issuer { fidLine("Owner", proof.owner) }
+                    fidLine(String(localized: "Issuer"), proof.issuer)
+                    if proof.owner != proof.issuer { fidLine(String(localized: "Owner"), proof.owner) }
                     if let invited = proof.cosignersInvited, !invited.isEmpty {
                         Text("\(invited.count - proof.cosignersPending.count)/\(invited.count) signed")
                             .font(.caption2)
@@ -557,25 +557,25 @@ struct ProofsView: View {
         var out: [(String, Color)] = []
         let me = session.liveFid
         if proof.issuer == me && proof.owner == me {
-            out.append(("Mine", .blue))
+            out.append((String(localized: "Mine"), .blue))
         } else if proof.issuer == me {
-            out.append(("Issued", .purple))
+            out.append((String(localized: "Issued"), .purple))
         } else if proof.owner == me {
-            out.append(("Held", .blue))
+            out.append((String(localized: "Held"), .blue))
         } else if proof.cosignersInvited?.contains(me) == true {
-            out.append(("Cosigner", .teal))
+            out.append((String(localized: "Cosigner"), .teal))
         }
 
         if proof.destroyed == true {
-            out.append(("Destroyed", .red))
+            out.append((String(localized: "Destroyed"), .red))
         } else if proof.onChain == false {
-            out.append(("Draft", .gray))
+            out.append((String(localized: "Draft"), .gray))
         } else if proof.onChain == nil {
-            out.append(("Broadcast", .orange))
+            out.append((String(localized: "Broadcast"), .orange))
         }
 
-        if proof.transferable == true { out.append(("Transferable", .indigo)) }
-        if proof.awaitsSignature(from: me) { out.append(("Needs you", .orange)) }
+        if proof.transferable == true { out.append((String(localized: "Transferable"), .indigo)) }
+        if proof.awaitsSignature(from: me) { out.append((String(localized: "Needs you"), .orange)) }
         return out
     }
 
@@ -621,7 +621,7 @@ struct ProofsView: View {
 
     private func noteServerFilterMismatch(_ dropped: Int, of total: Int) {
         guard dropped > 0 else { return }
-        note = "The server returned \(dropped) of \(total) row\(total == 1 ? "" : "s") that don't belong on this tab — it ignored the destroyed filter, so this list is filtered here instead and Load more may return fewer rows than it fetches."
+        note = String(localized: "The server returned \(String(dropped)) of \(String(total)) row\(total == 1 ? "" : "s") that don't belong on this tab — it ignored the destroyed filter, so this list is filtered here instead and Load more may return fewer rows than it fetches.")
     }
 
     private func loadLocal() {
@@ -776,7 +776,7 @@ struct ProofsView: View {
             hasMore = page.proofs.count >= Self.pageSize
             await resolveNames(for: page.proofs)
         } catch {
-            note = "Couldn't load more: \(error)"
+            note = String(localized: "Couldn't load more: \(String(describing: error))")
         }
     }
 
@@ -813,10 +813,10 @@ struct ProofsView: View {
         actionNote = nil
         do {
             let txid = try await session.carveProofSignOnChain(proofId: proof.id)
-            actionNote = "Countersigned — tx \(txid.elidingMiddle(head: 8, tail: 8)). Your signature shows on the proof once a block confirms it."
+            actionNote = String(localized: "Countersigned — tx \(txid.elidingMiddle(head: 8, tail: 8)). Your signature shows on the proof once a block confirms it.")
             await refresh()
         } catch {
-            actionError = "Couldn't countersign: \(error)"
+            actionError = String(localized: "Couldn't countersign: \(String(describing: error))")
         }
     }
 
@@ -831,10 +831,10 @@ struct ProofsView: View {
             let txid = try await session.carveProofDestroyOnChain(proofIds: ids)
             selection = []
             selecting = false
-            actionNote = "Destroy broadcast for \(ids.count) proof\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8))."
+            actionNote = String(localized: "Destroy broadcast for \(String(ids.count)) proof\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8)).")
             await refresh()
         } catch {
-            actionError = "Couldn't destroy: \(error)"
+            actionError = String(localized: "Couldn't destroy: \(String(describing: error))")
         }
     }
 
@@ -853,12 +853,12 @@ struct ProofsView: View {
                 issueTo: draft.owner != draft.issuer ? draft.owner : nil,
                 draftId: draft.id
             )
-            actionNote = "Issued — tx \(proof.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it."
+            actionNote = String(localized: "Issued — tx \(proof.id.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it.")
             loadLocal()
             tab = .live
             await refresh()
         } catch {
-            actionError = "Couldn't carve: \(error)"
+            actionError = String(localized: "Couldn't carve: \(String(describing: error))")
         }
     }
 
@@ -869,9 +869,9 @@ struct ProofsView: View {
 
     private var destroyAlertTitle: String {
         if pendingDestroy.count == 1 {
-            return "Destroy “\(pendingDestroy[0].name.elidingMiddle(head: 20, tail: 8))”?"
+            return String(localized: "Destroy “\(pendingDestroy[0].name.elidingMiddle(head: 20, tail: 8))”?")
         }
-        return "Destroy \(pendingDestroy.count) proofs?"
+        return String(localized: "Destroy \(String(pendingDestroy.count)) proofs?")
     }
 
     // MARK: - small pieces

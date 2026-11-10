@@ -86,21 +86,21 @@ public enum TeamConsensusFailure: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .noSuchTeam:
-            return "The chain has no record of this team. It may not have confirmed yet."
+            return String(localized: "The chain has no record of this team. It may not have confirmed yet.")
         case .disbanded:
-            return "This team has been disbanded, so there is nothing left to agree to."
+            return String(localized: "This team has been disbanded, so there is nothing left to agree to.")
         case .noConsensus:
-            return "This team names no consensus document, so there is nothing to sign."
+            return String(localized: "This team names no consensus document, so there is nothing to sign.")
         case .nothingToSign:
-            return "The chain does not list you as owing a signature on this team. Either it already arrived — from another device, perhaps — or the owner has changed the consensus again since you were asked."
+            return String(localized: "The chain does not list you as owing a signature on this team. Either it already arrived — from another device, perhaps — or the owner has changed the consensus again since you were asked.")
         case let .nobodyNewToInvite(alreadyIn, alreadyInvited):
             if !alreadyIn.isEmpty && alreadyInvited.isEmpty {
-                return "Already in this team. An invite carve would cost a fee and change nothing."
+                return String(localized: "Already in this team. An invite carve would cost a fee and change nothing.")
             }
             if !alreadyInvited.isEmpty && alreadyIn.isEmpty {
-                return "Already invited and not yet joined. Re-adding them to the invite list is the same set, so the carve would cost a fee and change nothing — they still have to join themselves."
+                return String(localized: "Already invited and not yet joined. Re-adding them to the invite list is the same set, so the carve would cost a fee and change nothing — they still have to join themselves.")
             }
-            return "Nobody here is new to this team, so the carve would cost a fee and change nothing."
+            return String(localized: "Nobody here is new to this team, so the carve would cost a fee and change nothing.")
         }
     }
 }

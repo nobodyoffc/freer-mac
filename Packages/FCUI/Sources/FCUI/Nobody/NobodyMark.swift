@@ -194,7 +194,7 @@ public struct NobodyBanner: View {
             NobodyBadge(diameter: 40)
         }
         HStack { NobodyChip(fid: nil, force: true); Text("alice") }
-        NobodyBanner(shown: true, message: "This identity's prikey is public. Anyone can act as it.")
+        NobodyBanner(shown: true, message: String(localized: "This identity's prikey is public. Anyone can act as it."))
     }
     .padding()
     .frame(width: 420)

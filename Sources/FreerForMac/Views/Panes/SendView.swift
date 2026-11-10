@@ -109,7 +109,7 @@ struct SendPaymentView: View {
             Text("To: \(recipientFid)\(recipientContactLabel.map { " (\($0))" } ?? "")\nFee rate: \(feePerByte) sat/byte\n\nThis broadcasts immediately and cannot be undone.")
         }
         .sheet(isPresented: $showScan) {
-            QrScanSheet(title: "Scan recipient FID") { scanned in
+            QrScanSheet(title: String(localized: "Scan recipient FID")) { scanned in
                 recipientFid = scanned
                 showScan = false
             } onCancel: {
@@ -134,7 +134,7 @@ struct SendPaymentView: View {
     private var watchOnlyBanner: some View {
         HStack(spacing: 8) {
             Image(systemName: "eye")
-            CopyableText("Watch-only — this FID has no prikey. Build the transaction here, then export the unsigned document (copy / file / QR) and sign it on the machine that holds the key.")
+            CopyableText(String(localized: "Watch-only — this FID has no prikey. Build the transaction here, then export the unsigned document (copy / file / QR) and sign it on the machine that holds the key."))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .font(.callout)
@@ -149,10 +149,10 @@ struct SendPaymentView: View {
         Form {
             Section {
                 LabeledField(
-                    "Recipient FID",
+                    String(localized: "Recipient FID"),
                     hint: (!recipientFid.isEmpty && !recipientLooksValid)
-                        ? "Not a valid FCH mainnet address."
-                        : recipientContactLabel.map { "In your contacts as: \($0)" },
+                        ? String(localized: "Not a valid FCH mainnet address.")
+                        : recipientContactLabel.map { String(localized: "In your contacts as: \($0)") },
                     hintIsError: !recipientFid.isEmpty && !recipientLooksValid
                 ) {
                     HStack(spacing: 8) {
@@ -162,8 +162,8 @@ struct SendPaymentView: View {
 
                         Button {
                             pick = .one(
-                                title: "Who is this payment for?",
-                                subtitle: "Search your contacts, or look up a FID or CID on chain. Check the address before you send — a payment cannot be undone."
+                                title: String(localized: "Who is this payment for?"),
+                                subtitle: String(localized: "Search your contacts, or look up a FID or CID on chain. Check the address before you send — a payment cannot be undone.")
                             )
                         } label: {
                             Image(systemName: "person.text.rectangle")
@@ -184,8 +184,8 @@ struct SendPaymentView: View {
 
             Section {
                 LabeledField(
-                    "Amount",
-                    hint: amountSatoshis.map { "= \($0) sat" }
+                    String(localized: "Amount"),
+                    hint: amountSatoshis.map { String(localized: "= \(String($0)) sat") }
                 ) {
                     HStack(spacing: 8) {
                         TextField("", text: $amountBch, prompt: Text("0.001"))
@@ -195,7 +195,7 @@ struct SendPaymentView: View {
                     }
                 }
 
-                LabeledField("Fee rate") {
+                LabeledField(String(localized: "Fee rate")) {
                     HStack(spacing: 8) {
                         TextField("", text: $feePerByte, prompt: Text("1"))
                             .fieldInputStyle()
@@ -305,14 +305,14 @@ struct SendPaymentView: View {
             .lineLimit(1)
             .truncationMode(.middle)
 
-            let summary = "\(r.plan.selected.count) input(s) · fee \(r.plan.fee) sat · \(r.plan.estimatedSize) B" +
-                (r.plan.hasChange ? " · change \(r.plan.change) sat" : " · no change")
+            let summary = String(localized: "\(String(r.plan.selected.count)) input(s) · fee \(String(r.plan.fee)) sat · \(String(r.plan.estimatedSize)) B") +
+                (r.plan.hasChange ? String(localized: " · change \(String(r.plan.change)) sat") : String(localized: " · no change"))
             CopyableText(summary, font: .caption.monospaced())
                 .foregroundStyle(.secondary)
 
             if r.remoteTxid != r.transaction.txidDisplay {
                 CopyableText(
-                    "Local txid: \(r.transaction.txidDisplay) — server returned a different value.",
+                    String(localized: "Local txid: \(r.transaction.txidDisplay) — server returned a different value."),
                     font: .caption
                 )
                 .foregroundStyle(.orange)

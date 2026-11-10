@@ -67,19 +67,19 @@ public enum AsyOneWayCipher {
         public var description: String {
             switch self {
             case .badEnvelope(let e):
-                return "cipher is neither CryptoDataStr JSON nor a known bundle — \(e)"
+                return String(localized: "cipher is neither CryptoDataStr JSON nor a known bundle — \(String(describing: e))")
             case .badBundle:
-                return "base64 bundle is malformed or its algorithm prefix is unknown"
+                return String(localized: "base64 bundle is malformed or its algorithm prefix is unknown")
             case .unsupportedAlgorithm(let alg):
-                return "unsupported algorithm '\(alg ?? "<nil>")'"
+                return String(localized: "unsupported algorithm '\(alg ?? "<nil>")'")
             case .badField(let f):
-                return "field '\(f)' missing or malformed"
+                return String(localized: "field '\(f)' missing or malformed")
             case let .decryptFailed(alg, e):
-                return "decryption failed (alg=\(alg)) — \(e)"
+                return String(localized: "decryption failed (alg=\(alg)) — \(String(describing: e))")
             case .plaintextNotJson(let alg):
-                return "decrypted plaintext is not the expected JSON (alg=\(alg)) — wrong key?"
+                return String(localized: "decrypted plaintext is not the expected JSON (alg=\(alg)) — wrong key?")
             case .badSum(let alg):
-                return "checksum mismatch (alg=\(alg)) — the ciphertext was altered or the key is wrong"
+                return String(localized: "checksum mismatch (alg=\(alg)) — the ciphertext was altered or the key is wrong")
             }
         }
     }

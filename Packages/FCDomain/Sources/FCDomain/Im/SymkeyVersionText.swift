@@ -29,10 +29,10 @@ public enum SymkeyVersionText {
         withTime: Bool = false,
         timeZone: TimeZone = .current
     ) -> String {
-        if version == current { return "the current symkey" }
+        if version == current { return String(localized: "the current symkey") }
         guard let minted = mintDate(version, withTime: withTime, timeZone: timeZone)
         else { return legacy(version) }
-        return "the symkey from " + minted
+        return String(localized: "the symkey from ") + minted
     }
 
     /// `2026-09-19`, or `2026-09-19 18:01` with the clock: just the mint

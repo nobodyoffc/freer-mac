@@ -125,7 +125,7 @@ struct MailReadSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
         } else if mail.decrypted == false {
             VStack(alignment: .leading, spacing: 6) {
-                CopyableLabel("Can't open this Cmail", systemImage: "lock.slash")
+                CopyableLabel(String(localized: "Can't open this Cmail"), systemImage: "lock.slash")
                     .foregroundStyle(.orange)
                 Text(session.canSign
                      ? "It is sealed to a key this identity doesn't hold — most often it was addressed to another of your FIDs. Switch to that identity and it will open. The ciphertext is kept, so nothing is lost in the meantime."
@@ -154,8 +154,8 @@ struct MailReadSheet: View {
                 .foregroundStyle(.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            field("From", mail.from)
-            field("To", mail.to)
+            field(String(localized: "From"), mail.from)
+            field(String(localized: "To"), mail.to)
             if let fee = mail.noticeFee {
                 LabeledContent("Notice fee") {
                     Text("\(NoticeFee.coinString(satoshis: fee)) F \(incoming ? "paid to you" : "paid by you")")
@@ -165,12 +165,12 @@ struct MailReadSheet: View {
             if let height = mail.lastHeight {
                 LabeledContent("Block") {
                     Text(height == MailsStore.unconfirmedHeight
-                         ? "Pending — broadcast, not yet in a block"
+                         ? String(localized: "Pending — broadcast, not yet in a block")
                          : String(height))
                         .font(.callout)
                 }
             }
-            field("Transaction", mail.id)
+            field(String(localized: "Transaction"), mail.id)
         }
     }
 

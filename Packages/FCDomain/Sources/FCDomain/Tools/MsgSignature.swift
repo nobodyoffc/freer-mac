@@ -30,11 +30,11 @@ public struct MsgSignature: Codable, Equatable, Sendable {
         public var description: String {
             switch self {
             case .notJson:
-                return "not a signature JSON"
+                return String(localized: "not a signature JSON")
             case .missingField(let f):
-                return "signature JSON lacks '\(f)'"
+                return String(localized: "signature JSON lacks '\(f)'")
             case .signFailed(let e):
-                return "signing failed — \(e)"
+                return String(localized: "signing failed — \(String(describing: e))")
             }
         }
     }

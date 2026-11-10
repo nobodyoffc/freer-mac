@@ -153,12 +153,12 @@ struct PublishTextComposer: View {
                 VStack(alignment: .leading, spacing: 12) {
                     filePicker
 
-                    LabeledField("Title") {
+                    LabeledField(String(localized: "Title")) {
                         TextField("What the work is called", text: $title)
                             .fieldInputStyle()
                     }
 
-                    LabeledField("Summary") {
+                    LabeledField(String(localized: "Summary")) {
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("A line or two, carved on chain so a list can show it", text: $summary, axis: .vertical)
                                 .lineLimit(2...5)
@@ -172,15 +172,15 @@ struct PublishTextComposer: View {
                     }
 
                     HStack(spacing: 12) {
-                        LabeledField("Type") {
+                        LabeledField(String(localized: "Type")) {
                             TextField("essay, note, article…", text: $type)
                                 .fieldInputStyle()
                         }
-                        LabeledField("Language") {
+                        LabeledField(String(localized: "Language")) {
                             TextField("en, zh…", text: $lang)
                                 .fieldInputStyle()
                         }
-                        LabeledField("Format") {
+                        LabeledField(String(localized: "Format")) {
                             TextField("text/markdown, application/pdf…", text: $format)
                                 .fieldInputStyle()
                         }
@@ -188,7 +188,7 @@ struct PublishTextComposer: View {
 
                     CoverField(session: session, choice: $cover)
 
-                    LabeledField("Authors") {
+                    LabeledField(String(localized: "Authors")) {
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("FIDs or names, comma separated", text: $authorsText)
                                 .fieldInputStyle()
@@ -222,7 +222,7 @@ struct PublishTextComposer: View {
                 CopyableText(e, font: .caption).foregroundStyle(.red)
             }
             if !session.canSign {
-                CopyableLabel("This identity is watch-only — there is no key here to sign a carve with.", systemImage: "eye")
+                CopyableLabel(String(localized: "This identity is watch-only — there is no key here to sign a carve with."), systemImage: "eye")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -251,7 +251,7 @@ struct PublishTextComposer: View {
 
     @ViewBuilder
     private var filePicker: some View {
-        LabeledField("The work") {
+        LabeledField(String(localized: "The work")) {
             HStack(alignment: .top, spacing: 12) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.12))
@@ -292,7 +292,7 @@ struct PublishTextComposer: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.allowedContentTypes = PublishDocument.contentTypes
-        panel.prompt = "Choose"
+        panel.prompt = String(localized: "Choose")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         pickedURL = url
         pickedSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)??.int64Value
@@ -348,12 +348,12 @@ struct PublishTextComposer: View {
         do {
             var did = editing?.did
             if let url = pickedURL {
-                progressNote = "Uploading the file to DISK…"
+                progressNote = String(localized: "Uploading the file to DISK…")
                 did = try await session.publishBody.storeFile(at: url)
             }
 
             let carve = { (coverId: String?) async throws in
-                progressNote = "Carving the record…"
+                progressNote = String(localized: "Carving the record…")
                 if isNewEdition, let record = editing {
                     let txid = try await session.carveTextUpdateOnChain(
                         textId: record.id,
@@ -388,11 +388,11 @@ struct PublishTextComposer: View {
             if case .newFile(let file) = cover {
                 try await session.carveTogether(
                     then: .text,
-                    note: "Approving this also signs the text carve that names this image as its cover."
+                    note: String(localized: "Approving this also signs the text carve that names this image as its cover.")
                 ) {
-                    progressNote = "Publishing the cover image…"
+                    progressNote = String(localized: "Publishing the cover image…")
                     let id = try await session.publishCoverImage(
-                        at: file, title: "\(title) — cover", lang: lang.isEmpty ? nil : lang,
+                        at: file, title: String(localized: "\(title) — cover"), lang: lang.isEmpty ? nil : lang,
                         authors: authors.isEmpty ? nil : authors)
                     // A retry names this image rather than carving another.
                     cover = .image(id: id)
@@ -487,7 +487,7 @@ struct TextReaderSheet: View {
                 session: session,
                 kind: .text,
                 subjectId: record.id,
-                title: record.title?.isEmpty == false ? record.title! : "Untitled",
+                title: record.title?.isEmpty == false ? record.title! : String(localized: "Untitled"),
                 owner: record.publisher,
                 currentRate: record.tRate,
                 currentCdd: record.tCdd,
@@ -507,12 +507,12 @@ struct TextReaderSheet: View {
 
     private var rateHelp: String {
         if record.id.isEmpty {
-            return "This text has no on-chain id yet."
+            return String(localized: "This text has no on-chain id yet.")
         }
         if record.publisher == session.liveFid {
-            return "You published this text, and the protocol ignores a rating from its own publisher."
+            return String(localized: "You published this text, and the protocol ignores a rating from its own publisher.")
         }
-        return "Rate this text 0–5, weighted by the coin-days you spend."
+        return String(localized: "Rate this text 0–5, weighted by the coin-days you spend.")
     }
 
     // MARK: - header
@@ -520,7 +520,7 @@ struct TextReaderSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(record.title?.isEmpty == false ? record.title! : "Untitled")
+                Text(record.title?.isEmpty == false ? record.title! : String(localized: "Untitled"))
                     .font(.title3.bold())
                 if record.isDeleted {
                     Text("Deleted")
@@ -559,8 +559,8 @@ struct TextReaderSheet: View {
             }
 
             HStack(spacing: 12) {
-                idLine("Record", record.id)
-                if let did = record.did { idLine("Document", did) }
+                idLine(String(localized: "Record"), record.id)
+                if let did = record.did { idLine(String(localized: "Document"), did) }
             }
             PublishLocasLine(locas: record.locas)
         }
@@ -598,7 +598,7 @@ struct TextReaderSheet: View {
                 .foregroundStyle(.secondary)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                CopyableLabel("The work could not be fetched", systemImage: "exclamationmark.triangle")
+                CopyableLabel(String(localized: "The work could not be fetched"), systemImage: "exclamationmark.triangle")
                     .font(.callout)
                     .foregroundStyle(.orange)
                 if let e = bodyError {

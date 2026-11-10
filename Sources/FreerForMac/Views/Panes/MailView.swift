@@ -102,7 +102,7 @@ struct MailView: View {
 
             if let err = loadError {
                 card {
-                    CopyableLabel("Couldn't load Cmail", systemImage: "exclamationmark.triangle")
+                    CopyableLabel(String(localized: "Couldn't load Cmail"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                 }
@@ -212,7 +212,7 @@ struct MailView: View {
 
             Spacer()
 
-            SearchField("Search sender, body, id…", text: $search, minWidth: 140)
+            SearchField(String(localized: "Search sender, body, id…"), text: $search, minWidth: 140)
                 .help("Matches the correspondents, their names, the id, and the body of any Cmail that has been decrypted")
 
             if unreadCount > 0 {
@@ -250,14 +250,14 @@ struct MailView: View {
         if let err = syncError {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-                CopyableText("Chain sync failed: \(err)", font: .caption)
+                CopyableText(String(localized: "Chain sync failed: \(err)"), font: .caption)
                     .foregroundStyle(.orange)
             }
         } else if let txid = carveTxid {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.seal").foregroundStyle(.green)
                 CopyableText(
-                    display: "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). It settles once a block confirms it.",
+                    display: String(localized: "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). It settles once a block confirms it."),
                     copy: txid,
                     font: .caption
                 )
@@ -372,10 +372,10 @@ struct MailView: View {
                     }
 
                     if mail.lastHeight == MailsStore.unconfirmedHeight {
-                        chip("Pending", color: .orange)
+                        chip(String(localized: "Pending"), color: .orange)
                     }
                     if mail.isDeleted {
-                        chip("Deleted", color: .red)
+                        chip(String(localized: "Deleted"), color: .red)
                     }
                     if let fee = mail.noticeFee, fee > 0 {
                         chip(
@@ -573,13 +573,13 @@ struct MailView: View {
             )
             carveTxid = nil
             if result.total == 0 {
-                syncSummary = "No new Cmail on-chain."
+                syncSummary = String(localized: "No new Cmail on-chain.")
             } else {
                 var parts = ["\(result.merged) Cmail\(result.merged == 1 ? "" : "s") synced"]
                 if result.newUnread > 0 { parts.append("\(result.newUnread) new") }
                 if result.deleted > 0 { parts.append("\(result.deleted) deleted") }
                 if result.undecryptable > 0 {
-                    parts.append("\(result.undecryptable) could not be decrypted")
+                    parts.append(String(localized: "\(String(result.undecryptable)) could not be decrypted"))
                     parts.append(contentsOf: result.failureReasons)
                 }
                 syncSummary = parts.joined(separator: " · ")

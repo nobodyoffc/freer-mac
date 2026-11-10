@@ -97,7 +97,7 @@ struct ChatPartyDetailSheet: View {
                 session: session,
                 kind: .team,
                 subjectId: conversation.targetId,
-                title: party?.name ?? conversation.displayName ?? "Team",
+                title: party?.name ?? conversation.displayName ?? String(localized: "Team"),
                 owner: party?.owner,
                 currentRate: party?.tRate.map(Float.init),
                 currentCdd: party?.tCdd,
@@ -120,7 +120,7 @@ struct ChatPartyDetailSheet: View {
     /// Only teams: FEIP18 defines a `rate` op, FEIP19 Square does not —
     /// a square is unmanaged and has no owner to be rated against.
     private var teamRatingSection: some View {
-        section("Rating") {
+        section(String(localized: "Rating")) {
             RatingSummaryView(tRate: party?.tRate.map(Float.init), tCdd: party?.tCdd)
             RatingHistoryView(
                 session: session,
@@ -140,12 +140,12 @@ struct ChatPartyDetailSheet: View {
 
     private var rateTeamHelp: String {
         if party?.owner == session.liveFid {
-            return "You own this team, and the protocol ignores a rating from its own owner."
+            return String(localized: "You own this team, and the protocol ignores a rating from its own owner.")
         }
         if !session.canSign {
-            return "This identity has no prikey on this Mac, so it cannot sign a rating."
+            return String(localized: "This identity has no prikey on this Mac, so it cannot sign a rating.")
         }
-        return "Rate this team 0–5, weighted by the coin-days you spend."
+        return String(localized: "Rate this team 0–5, weighted by the coin-days you spend.")
     }
 
     // MARK: - chrome
@@ -153,7 +153,7 @@ struct ChatPartyDetailSheet: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(party?.name ?? conversation.displayName ?? "Chat party")
+                Text(party?.name ?? conversation.displayName ?? String(localized: "Chat party"))
                     .font(.title3.bold())
                     .lineLimit(1)
                 Text(flavourName)
@@ -168,18 +168,18 @@ struct ChatPartyDetailSheet: View {
 
     private var flavourName: String {
         switch conversation.type {
-        case .p2p: return "Person"
-        case .team: return "Team"
-        case .square: return "Square"
-        case .room: return "Room"
+        case .p2p: return String(localized: "Person")
+        case .team: return String(localized: "Team")
+        case .square: return String(localized: "Square")
+        case .room: return String(localized: "Room")
         }
     }
 
     // MARK: - sections
 
     private var identitySection: some View {
-        section("Identity") {
-            row(conversation.type == .p2p ? "FID" : "Group id") {
+        section(String(localized: "Identity")) {
+            row(conversation.type == .p2p ? "FID" : String(localized: "Group id")) {
                 if conversation.type == .p2p {
                     // Only a person has a `Freer` behind them. A team,
                     // square or room id looks like a FID and is not
@@ -191,17 +191,17 @@ struct ChatPartyDetailSheet: View {
                 }
             }
             if let desc = party?.desc, !desc.isEmpty {
-                row("Description") {
+                row(String(localized: "Description")) {
                     Text(desc).fixedSize(horizontal: false, vertical: true)
                 }
             }
             if let owner = party?.owner, !owner.isEmpty {
-                row("Owner") {
+                row(String(localized: "Owner")) {
                     FidBadge(owner, font: .body)
                 }
             }
             if let pubkey = party?.pubkey, !pubkey.isEmpty {
-                row("Pubkey") {
+                row(String(localized: "Pubkey")) {
                     CopyableText.elidingMiddle(pubkey, head: 10, tail: 10, font: .caption.monospaced())
                 }
             }
@@ -210,29 +210,31 @@ struct ChatPartyDetailSheet: View {
 
     /// Where this party's messages rest, and whether we can get there.
     private var routingSection: some View {
-        section("Routing") {
+        section(String(localized: "Routing")) {
             row("DOCK") {
                 if let dock = party?.resolvedDock {
                     VStack(alignment: .leading, spacing: 3) {
                         CopyableText(dock, font: .body)
                         if party?.dockIsOurs == true {
-                            caption("This is your own DOCK — messages here are stored locally, not forwarded.")
+                            caption(String(localized: "This is your own DOCK — messages here are stored locally, not forwarded."))
                         }
                         if party?.dockIsPolled == true {
-                            caption("Polled for incoming messages.")
+                            caption(String(localized: "Polled for incoming messages."))
                         } else if conversation.type != .p2p {
                             caption(
-                                "Not currently polled. Refresh the group list so this DOCK is registered.",
+                                String(localized: "Not currently polled. Refresh the group list so this DOCK is registered."),
                                 warning: true
                             )
                         }
                     }
                 } else if party?.rawDock != nil {
                     VStack(alignment: .leading, spacing: 3) {
-                        CopyableText("Could not be resolved").foregroundStyle(.red)
+                        CopyableText(String(localized: "Could not be resolved")).foregroundStyle(.red)
                         caption(
-                            "The party publishes a DOCK, but it could not be turned into an address. "
-                                + "Messages to them cannot be sent or received until it resolves.",
+                            String(localized: """
+                                The party publishes a DOCK, but it could not be turned into an address. \
+                                Messages to them cannot be sent or received until it resolves.
+                                """),
                             warning: true
                         )
                     }
@@ -242,7 +244,7 @@ struct ChatPartyDetailSheet: View {
             }
 
             if let raw = party?.rawDock, raw != party?.resolvedDock {
-                row("Published as") {
+                row(String(localized: "Published as")) {
                     VStack(alignment: .leading, spacing: 3) {
                         CopyableText.elidingMiddle(raw, head: 12, tail: 10, font: .caption.monospaced())
                         // The distinction that explains a whole class of
@@ -250,15 +252,15 @@ struct ChatPartyDetailSheet: View {
                         // does not.
                         caption(
                             HomeServiceResolver.extractSid(raw) != nil
-                                ? "A service id — resolved to an address by looking it up on chain."
-                                : "A direct address."
+                                ? String(localized: "A service id — resolved to an address by looking it up on chain.")
+                                : String(localized: "A direct address.")
                         )
                     }
                 }
             }
 
             if let home = party?.home, !home.isEmpty {
-                row("Home") {
+                row(String(localized: "Home")) {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(home.keys.sorted(), id: \.self) { key in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -296,12 +298,12 @@ struct ChatPartyDetailSheet: View {
     /// a square invisible, and `namers` unexplained wherever it did
     /// appear.
     private var namingSection: some View {
-        section("Naming") {
-            row("Anyone may rename") {
+        section(String(localized: "Naming")) {
+            row(String(localized: "Anyone may rename")) {
                 Text("This square has no owner")
                     .foregroundStyle(.secondary)
             }
-            row("Price of the next") {
+            row(String(localized: "Price of the next")) {
                 if let cdd = party?.cddToUpdate, cdd > 0 {
                     Text("More than \(cdd) CD").monospacedDigit()
                 } else {
@@ -309,7 +311,7 @@ struct ChatPartyDetailSheet: View {
                 }
             }
             if let last = party?.namers.last, !last.isEmpty {
-                row("Named last by") {
+                row(String(localized: "Named last by")) {
                     HStack(spacing: 6) {
                         FidBadge(last, font: .body)
                         if last == session.liveFid {
@@ -322,29 +324,29 @@ struct ChatPartyDetailSheet: View {
                 }
             }
             if let namers = party?.namers, namers.count > 1 {
-                row("Renamed") {
+                row(String(localized: "Renamed")) {
                     Text("\(namers.count) times").monospacedDigit()
                 }
             }
             caption(
                 party?.cddToUpdate ?? 0 > 0
-                ? "Coin-days are value that has sat still, and destroying them is what a rename costs. Each one raises the price of the next, so a name gets harder to take the more it has been fought over."
-                : "Coin-days are value that has sat still, and destroying them is what a rename costs. Nobody has renamed this square yet, so the first change is as cheap as any carve — and sets the price of the one after it."
+                ? String(localized: "Coin-days are value that has sat still, and destroying them is what a rename costs. Each one raises the price of the next, so a name gets harder to take the more it has been fought over.")
+                : String(localized: "Coin-days are value that has sat still, and destroying them is what a rename costs. Nobody has renamed this square yet, so the first change is as cheap as any carve — and sets the price of the one after it.")
             )
         }
     }
 
     /// P2P only: what we last observed about the person.
     private var peerSection: some View {
-        section("Presence") {
-            row("Last seen") {
-                Text(party?.lastSeen.map(Self.stamp.string(from:)) ?? "Never")
+        section(String(localized: "Presence")) {
+            row(String(localized: "Last seen")) {
+                Text(party?.lastSeen.map(Self.stamp.string(from:)) ?? String(localized: "Never"))
                     .foregroundStyle(party?.lastSeen == nil ? .secondary : .primary)
             }
-            row("Last delivered by") {
+            row(String(localized: "Last delivered by")) {
                 Text(party?.lastDeliveryMethod ?? "—").foregroundStyle(.secondary)
             }
-            row("Direct FUDP") {
+            row(String(localized: "Direct FUDP")) {
                 Text(party?.fudpReachable == true ? "Registered" : "Not registered")
                     .foregroundStyle(.secondary)
             }
@@ -352,7 +354,7 @@ struct ChatPartyDetailSheet: View {
     }
 
     private var membersSection: some View {
-        section("Members\(party.map { " (\($0.members.count))" } ?? "")") {
+        section(String(localized: "Members\(party.map { " (\($0.members.count))" } ?? "")")) {
             if let members = party?.members, !members.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(members, id: \.self) { fid in
@@ -374,22 +376,22 @@ struct ChatPartyDetailSheet: View {
     }
 
     private var chainSection: some View {
-        section("Record") {
+        section(String(localized: "Record")) {
             if conversation.type != .p2p {
-                row("You are") {
+                row(String(localized: "You are")) {
                     Text(party?.weAreMember == true ? "A member" : "Not a member")
                         .foregroundStyle(party?.weAreMember == true ? .primary : .secondary)
                 }
             }
             if let height = party?.lastHeight {
-                row("Last change at height") { Text("\(height)").monospacedDigit() }
+                row(String(localized: "Last change at height")) { Text("\(height)").monospacedDigit() }
             }
             if let txid = party?.lastTxId, !txid.isEmpty {
-                row("Last transaction") {
+                row(String(localized: "Last transaction")) {
                     CopyableText.elidingMiddle(txid, head: 10, tail: 10, font: .caption.monospaced())
                 }
             }
-            row("Messages here") {
+            row(String(localized: "Messages here")) {
                 Text("\(party?.messageCount ?? 0)").monospacedDigit()
             }
         }

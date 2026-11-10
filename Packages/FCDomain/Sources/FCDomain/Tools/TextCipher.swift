@@ -20,15 +20,15 @@ public enum TextCipher {
         public var description: String {
             switch self {
             case .badEnvelope:
-                return "not a CryptoDataStr JSON envelope"
+                return String(localized: "not a CryptoDataStr JSON envelope")
             case .badField(let f):
-                return "envelope field '\(f)' missing or malformed"
+                return String(localized: "envelope field '\(f)' missing or malformed")
             case .unsupportedType(let t):
-                return "unsupported cipher type '\(t ?? "<nil>")'"
+                return String(localized: "unsupported cipher type '\(t ?? "<nil>")'")
             case .unsupportedAlgorithm(let a):
-                return "unsupported algorithm '\(a ?? "<nil>")'"
+                return String(localized: "unsupported algorithm '\(a ?? "<nil>")'")
             case .decryptFailed:
-                return "decryption failed — wrong key or corrupted cipher"
+                return String(localized: "decryption failed — wrong key or corrupted cipher")
             }
         }
     }

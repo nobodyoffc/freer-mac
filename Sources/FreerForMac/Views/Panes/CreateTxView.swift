@@ -212,7 +212,7 @@ struct CreateTxView: View {
             }
         }
         .sheet(isPresented: $showScan) {
-            QrScanSheet(title: "Scan payee FID") { scanned in
+            QrScanSheet(title: String(localized: "Scan payee FID")) { scanned in
                 payeeFid = scanned
                 showScan = false
             } onCancel: { showScan = false }
@@ -386,7 +386,7 @@ struct CreateTxView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 CopyableText(
-                    display: "\((slot.birthTxId ?? "?").elidingMiddle(head: 10, tail: 8)):\(slot.birthIndex ?? 0)",
+                    display: String(localized: "\((slot.birthTxId ?? "?").elidingMiddle(head: 10, tail: 8)):\(String(slot.birthIndex ?? 0))"),
                     copy: "\(slot.birthTxId ?? ""):\(slot.birthIndex ?? 0)",
                     font: .system(.caption, design: .monospaced)
                 )
@@ -525,8 +525,8 @@ struct CreateTxView: View {
 
                 Button {
                     pick = .many(
-                        title: "Who is this paying?",
-                        subtitle: "Pick one to fill the field, or several to pay them all the same amount.",
+                        title: String(localized: "Who is this paying?"),
+                        subtitle: String(localized: "Pick one to fill the field, or several to pay them all the same amount."),
                         initialQuery: payeeFid.trimmed
                     )
                 } label: {
@@ -587,11 +587,11 @@ struct CreateTxView: View {
     /// to be guessed — with the lock on there are three fields to fill
     /// and a disabled button says nothing about which one is missing.
     private var addOutputHelp: String {
-        if payeeFid.trimmed.isEmpty { return "Enter who to pay" }
-        if !payeeIsValid { return "\(payeeFid.trimmed) is not a valid FCH address" }
-        if payeeAmountSats == nil { return "Enter an amount to pay" }
-        if lockMode && lockDaysValue == nil { return "Enter how many days to lock this payment for" }
-        return "Add this output"
+        if payeeFid.trimmed.isEmpty { return String(localized: "Enter who to pay") }
+        if !payeeIsValid { return String(localized: "\(payeeFid.trimmed) is not a valid FCH address") }
+        if payeeAmountSats == nil { return String(localized: "Enter an amount to pay") }
+        if lockMode && lockDaysValue == nil { return String(localized: "Enter how many days to lock this payment for") }
+        return String(localized: "Add this output")
     }
 
     // MARK: - opReturn / settings
@@ -599,9 +599,9 @@ struct CreateTxView: View {
     private var opReturnSection: some View {
         GroupBox {
             LabeledField(
-                "On chain message",
+                String(localized: "On chain message"),
                 hint: opReturn.isEmpty
-                    ? "Optional. Written as OP_RETURN — public, permanent, and it costs a little extra fee."
+                    ? String(localized: "Optional. Written as OP_RETURN — public, permanent, and it costs a little extra fee.")
                     : "\(opReturn.utf8.count) bytes"
             ) {
                 TextField("", text: $opReturn, prompt: Text("Text carved into the chain"), axis: .vertical)
@@ -615,7 +615,7 @@ struct CreateTxView: View {
     private var settingsSection: some View {
         GroupBox {
             HStack(spacing: 16) {
-                LabeledField("Fee rate") {
+                LabeledField(String(localized: "Fee rate")) {
                     HStack(spacing: 6) {
                         TextField("", text: $feePerByte, prompt: Text("1"))
                             .fieldInputStyle()
@@ -661,8 +661,8 @@ struct CreateTxView: View {
             .lineLimit(1)
             .truncationMode(.middle)
             CopyableText(
-                "\(r.plan.selected.count) input(s) · fee \(r.plan.fee) sat · \(r.plan.estimatedSize) B"
-                    + (r.plan.hasChange ? " · change \(r.plan.change) sat" : " · no change"),
+                String(localized: "\(String(r.plan.selected.count)) input(s) · fee \(String(r.plan.fee)) sat · \(String(r.plan.estimatedSize)) B")
+                    + (r.plan.hasChange ? String(localized: " · change \(String(r.plan.change)) sat") : String(localized: " · no change")),
                 font: .caption.monospaced()
             )
             .foregroundStyle(.secondary)
@@ -728,7 +728,7 @@ struct CreateTxView: View {
 
     private func appendInput(_ slot: RawTxInfo.Slot) {
         guard !inputSlots.contains(where: { Self.key($0) == Self.key(slot) }) else {
-            status = .bad("That outpoint is already an input.")
+            status = .bad(String(localized: "That outpoint is already an input."))
             return
         }
         inputSlots.append(slot)
@@ -748,12 +748,12 @@ struct CreateTxView: View {
     @MainActor
     private func addOutput() async {
         guard let amount = payeeAmountSats else {
-            status = .bad("Amount must be between \(TxFee.minAmountCoins) and \(Int(TxFee.maxAmountCoins)) F.")
+            status = .bad(String(localized: "Amount must be between \(String(TxFee.minAmountCoins)) and \(String(Int(TxFee.maxAmountCoins))) F."))
             return
         }
         let fid = payeeFid.trimmed
         guard payeeIsValid else {
-            status = .bad("\(fid) is not a valid FCH address.")
+            status = .bad(String(localized: "\(fid) is not a valid FCH address."))
             return
         }
         status = nil
@@ -818,7 +818,7 @@ struct CreateTxView: View {
                 return
             }
         }
-        status = .ok("Added \(fids.count) output(s).")
+        status = .ok(String(localized: "Added \(String(fids.count)) output(s)."))
     }
 
     /// The block height `days` from now. Blocks are about a minute
@@ -829,7 +829,7 @@ struct CreateTxView: View {
     private func lockHeight(daysFromNow days: Int) async -> Int64? {
         if bestHeight <= 0 { await load(force: true) }
         guard bestHeight > 0 else {
-            status = .bad("The chain height is unknown, so a lock height can't be worked out. Refresh and try again.")
+            status = .bad(String(localized: "The chain height is unknown, so a lock height can't be worked out. Refresh and try again."))
             return nil
         }
         // Android's `daysToHeights` currently returns the day count
@@ -865,7 +865,7 @@ struct CreateTxView: View {
             )) ?? candidate
         }
         guard let value = session.wallet.maxValueForOutput(in: info, adding: candidate) else {
-            status = .bad("Nothing is left to spend.")
+            status = .bad(String(localized: "Nothing is left to spend."))
             return
         }
         payeeAmount = trimmedCoins(value)
@@ -878,7 +878,7 @@ struct CreateTxView: View {
             let json = try doc.exportJson()
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(json, forType: .string)
-            status = .ok("Transaction JSON copied.")
+            status = .ok(String(localized: "Transaction JSON copied."))
         } catch {
             status = .bad(String(describing: error))
         }
@@ -904,22 +904,22 @@ struct CreateTxView: View {
                     }
                 }
                 result = nil
-                status = .ok("Imported \(inputSlots.count) input(s) and \(outputSlots.count) output(s).")
+                status = .ok(String(localized: "Imported \(String(inputSlots.count)) input(s) and \(String(outputSlots.count)) output(s)."))
             } catch {
-                status = .bad("That is not a transaction document: \(error)")
+                status = .bad(String(localized: "That is not a transaction document: \(String(describing: error))"))
             }
         case .payees:
             do {
                 let slots = try JSONDecoder().decode([RawTxInfo.Slot].self, from: Data(trimmed.utf8))
                 let usable = slots.filter { ($0.owner?.isEmpty == false) && ($0.value ?? 0) > 0 }
                 guard !usable.isEmpty else {
-                    status = .bad("No payees in that list — each entry needs an `owner` and a `value`.")
+                    status = .bad(String(localized: "No payees in that list — each entry needs an `owner` and a `value`."))
                     return
                 }
                 outputSlots.append(contentsOf: usable)
-                status = .ok("Added \(usable.count) output(s).")
+                status = .ok(String(localized: "Added \(String(usable.count)) output(s)."))
             } catch {
-                status = .bad("That is not a payee list: \(error)")
+                status = .bad(String(localized: "That is not a payee list: \(String(describing: error))"))
             }
         }
     }
@@ -1022,9 +1022,9 @@ enum CreateTxFailure: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case .unknownMultisig(let fid):
-            return "\(fid) is a P2SH address with no multisig record on chain, so a time-locked payment to it can't be built. Ask the group for their redeem script, or pay it without a lock."
+            return String(localized: "\(fid) is a P2SH address with no multisig record on chain, so a time-locked payment to it can't be built. Ask the group for their redeem script, or pay it without a lock.")
         case .needsExplicitInputs:
-            return "Automatic coin selection funds a single plain payment. This draft has more than that — choose the cash to spend, and the exact transaction will be built from it."
+            return String(localized: "Automatic coin selection funds a single plain payment. This draft has more than that — choose the cash to spend, and the exact transaction will be built from it.")
         }
     }
 }

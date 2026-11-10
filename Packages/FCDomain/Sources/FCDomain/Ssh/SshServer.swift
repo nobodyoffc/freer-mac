@@ -151,9 +151,9 @@ public struct SshServer: Codable, Equatable, Hashable, Sendable, Identifiable {
         /// Short label for the list and the picker.
         public var summary: String {
             switch self {
-            case .freer: return "Freer key"
+            case .freer: return String(localized: "Freer key")
             case let .keyFile(path): return (path as NSString).lastPathComponent
-            case .systemDefaults: return "System ssh"
+            case .systemDefaults: return String(localized: "System ssh")
             }
         }
     }
@@ -210,12 +210,12 @@ public struct SshPortForward: Codable, Equatable, Hashable, Sendable, Identifiab
     /// shell injection; it is about a stray space or `@` making `ssh`
     /// print a usage error into the terminal instead of connecting.
     public var validationError: String? {
-        guard (1...65535).contains(localPort) else { return "Local port \(localPort) is outside 1–65535." }
-        guard (1...65535).contains(remotePort) else { return "Remote port \(remotePort) is outside 1–65535." }
-        guard !remoteHost.isEmpty else { return "A forward needs a remote host — localhost for the server itself." }
+        guard (1...65535).contains(localPort) else { return String(localized: "Local port \(String(localPort)) is outside 1–65535.") }
+        guard (1...65535).contains(remotePort) else { return String(localized: "Remote port \(String(remotePort)) is outside 1–65535.") }
+        guard !remoteHost.isEmpty else { return String(localized: "A forward needs a remote host — localhost for the server itself.") }
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_:")
         guard remoteHost.unicodeScalars.allSatisfy(allowed.contains) else {
-            return "\"\(remoteHost)\" is not a hostname or an IP address."
+            return String(localized: "\"\(remoteHost)\" is not a hostname or an IP address.")
         }
         return nil
     }
@@ -230,7 +230,7 @@ public struct SshPortForward: Codable, Equatable, Hashable, Sendable, Identifiab
         for forward in forwards {
             if let error = forward.validationError { return error }
             guard seen.insert(forward.localPort).inserted else {
-                return "Local port \(forward.localPort) is used by two forwards."
+                return String(localized: "Local port \(String(forward.localPort)) is used by two forwards.")
             }
         }
         return nil

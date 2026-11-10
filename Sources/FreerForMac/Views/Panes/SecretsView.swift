@@ -62,7 +62,7 @@ struct SecretsView: View {
 
                 Spacer()
 
-                SearchField("Search title, type, memo…", text: $search, minWidth: 140)
+                SearchField(String(localized: "Search title, type, memo…"), text: $search, minWidth: 140)
                     .help("Matches title, type, memo, and id — never the encrypted content")
 
                 Button {
@@ -95,14 +95,14 @@ struct SecretsView: View {
             if let err = syncError {
                 HStack(spacing: 6) {
                     Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
-                    CopyableText("Chain sync failed: \(err)", font: .caption)
+                    CopyableText(String(localized: "Chain sync failed: \(err)"), font: .caption)
                         .foregroundStyle(.orange)
                 }
             } else if let txid = carveTxid {
                 HStack(spacing: 6) {
                     Image(systemName: "checkmark.seal").foregroundStyle(.green)
                     CopyableText(
-                        display: "Carve broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). Shows as On-chain once a block confirms it.",
+                        display: String(localized: "Carve broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). Shows as On-chain once a block confirms it."),
                         copy: txid,
                         font: .caption
                     )
@@ -114,7 +114,7 @@ struct SecretsView: View {
 
             if let err = loadError {
                 card {
-                    CopyableLabel("Couldn't load secrets", systemImage: "exclamationmark.triangle")
+                    CopyableLabel(String(localized: "Couldn't load secrets"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                 }
@@ -284,7 +284,7 @@ struct SecretsView: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(s.name.isEmpty ? "Untitled" : s.name)
+                    Text(s.name.isEmpty ? String(localized: "Untitled") : s.name)
                         .font(.body.bold())
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -294,7 +294,7 @@ struct SecretsView: View {
                     if s.onChain {
                         chip("On-chain", color: .blue)
                     } else if isPendingCarve(s) {
-                        chip("Pending", color: .orange)
+                        chip(String(localized: "Pending"), color: .orange)
                     }
                 }
 
@@ -423,7 +423,7 @@ struct SecretsView: View {
             revealed[s.id] = try s.decryptContent(privkey: priv)
         } catch {
             syncError = nil
-            loadError = "Failed to decrypt: \(String(describing: error))"
+            loadError = String(localized: "Failed to decrypt: \(String(describing: error))")
         }
     }
 
@@ -439,17 +439,17 @@ struct SecretsView: View {
             )
             carveTxid = nil
             if result.total == 0 {
-                syncSummary = "No carved secrets on-chain."
+                syncSummary = String(localized: "No carved secrets on-chain.")
             } else {
                 var parts = ["\(result.merged) on-chain secret\(result.merged == 1 ? "" : "s") synced"]
                 if result.removed > 0 {
-                    parts.append("\(result.removed) removed (deleted on-chain)")
+                    parts.append(String(localized: "\(String(result.removed)) removed (deleted on-chain)"))
                 }
                 if result.expired > 0 {
-                    parts.append("\(result.expired) unconfirmed carve\(result.expired == 1 ? "" : "s") dropped — now local-only")
+                    parts.append(String(localized: "\(String(result.expired)) unconfirmed carve\(result.expired == 1 ? "" : "s") dropped — now local-only"))
                 }
                 if result.undecryptable > 0 {
-                    parts.append("\(result.undecryptable) could not be decrypted")
+                    parts.append(String(localized: "\(String(result.undecryptable)) could not be decrypted"))
                     parts.append(contentsOf: result.failureReasons)
                 }
                 syncSummary = parts.joined(separator: " · ")
@@ -581,7 +581,7 @@ private struct TotpCardList: View {
     private func cardRow(_ s: Secret) -> some View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(s.name.isEmpty ? "Untitled" : s.name)
+                Text(s.name.isEmpty ? String(localized: "Untitled") : s.name)
                     .font(.body.bold())
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -655,7 +655,7 @@ private struct TotpCardList: View {
         countdown = Totp.secondsRemaining(unixTime: Int64(Date().timeIntervalSince1970))
         guard session.canSign, let priv = try? session.livePrikey() else {
             if !secrets.isEmpty {
-                decryptError = "Watch-only identity — cannot decrypt TOTP seeds"
+                decryptError = String(localized: "Watch-only identity — cannot decrypt TOTP seeds")
             }
             return
         }
@@ -669,7 +669,7 @@ private struct TotpCardList: View {
             }
         }
         if failures > 0 {
-            decryptError = "\(failures) TOTP seed\(failures == 1 ? "" : "s") could not be decrypted/decoded"
+            decryptError = String(localized: "\(String(failures)) TOTP seed\(failures == 1 ? "" : "s") could not be decrypted/decoded")
         }
         regenerate()
     }
@@ -709,14 +709,14 @@ private struct SecretDetailSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 8) {
-                Text(secret.name.isEmpty ? "Untitled secret" : secret.name)
+                Text(secret.name.isEmpty ? String(localized: "Untitled secret") : secret.name)
                     .font(.title3.bold())
                     .lineLimit(2)
                     .truncationMode(.middle)
                 if let type = secret.type, !type.isEmpty {
                     chip(type, color: .purple)
                 }
-                chip(secret.onChain ? "On-chain" : "Local only",
+                chip(secret.onChain ? "On-chain" : String(localized: "Local only"),
                      color: secret.onChain ? .blue : .gray)
                 Spacer()
             }
@@ -724,19 +724,19 @@ private struct SecretDetailSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let title = secret.title, !title.isEmpty {
-                        field("Title") {
+                        field(String(localized: "Title")) {
                             CopyableText(title, font: .body)
                         }
                     }
 
                     if let memo = secret.memo, !memo.isEmpty {
-                        field("Memo") {
+                        field(String(localized: "Memo")) {
                             CopyableText(memo, font: .body)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
 
-                    field("Content") {
+                    field(String(localized: "Content")) {
                         if let content {
                             VStack(alignment: .leading, spacing: 6) {
                                 CopyableText(content, font: .system(.body, design: .monospaced))
@@ -765,7 +765,7 @@ private struct SecretDetailSheet: View {
                     }
 
                     if let carveId = secret.carveId, !carveId.isEmpty, carveId != secret.id {
-                        field("Carve ID") {
+                        field(String(localized: "Carve ID")) {
                             CopyableText.elidingMiddle(
                                 carveId, head: 12, tail: 12,
                                 font: .system(.caption, design: .monospaced)
@@ -775,19 +775,19 @@ private struct SecretDetailSheet: View {
 
                     HStack(spacing: 24) {
                         if let birthTime = secret.birthTime {
-                            field("Carved") {
+                            field(String(localized: "Carved")) {
                                 Text(Date(timeIntervalSince1970: TimeInterval(birthTime)),
                                      format: .dateTime.year().month().day().hour().minute())
                                     .font(.caption)
                             }
                         }
                         if let lastHeight = secret.lastHeight {
-                            field("Last height") {
+                            field(String(localized: "Last height")) {
                                 Text("\(lastHeight)")
                                     .font(.caption.monospacedDigit())
                             }
                         }
-                        field("Saved") {
+                        field(String(localized: "Saved")) {
                             Text(secret.addedAt,
                                  format: .dateTime.year().month().day().hour().minute())
                                 .font(.caption)
@@ -837,7 +837,7 @@ private struct SecretDetailSheet: View {
             let priv = try session.livePrikey()
             content = try secret.decryptContent(privkey: priv)
         } catch {
-            self.error = "Failed to decrypt: \(String(describing: error))"
+            self.error = String(localized: "Failed to decrypt: \(String(describing: error))")
         }
     }
 }

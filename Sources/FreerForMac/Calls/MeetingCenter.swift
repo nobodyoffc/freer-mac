@@ -92,23 +92,23 @@ final class MeetingCenter {
     /// cannot start, or nil once connecting.
     func start(type: ImType, entityId: String, title: String?, invitees: [String]?) async -> String? {
         if let busy = busyReason() { return busy }
-        guard let s = active, let fidPriv = try? s.livePrikey() else { return "This identity cannot sign, so it cannot hold meetings." }
+        guard let s = active, let fidPriv = try? s.livePrikey() else { return String(localized: "This identity cannot sign, so it cannot hold meetings.") }
         setPhase(.connecting)
         endReason = nil
         guard let relay = await relay(for: type, entityId: entityId, in: s), !relay.url.isEmpty else {
             setPhase(.idle)
-            return "This group has no CALL service in its home, so it cannot hold meetings. An admin can set one."
+            return String(localized: "This group has no CALL service in its home, so it cannot hold meetings. An admin can set one.")
         }
         guard await CallCenter.microphoneAllowed() else {
             setPhase(.idle)
-            return "Meetings need the microphone. Allow it in System Settings → Privacy & Security."
+            return String(localized: "Meetings need the microphone. Allow it in System Settings → Privacy & Security.")
         }
         guard phase == .connecting, session == nil else { return nil }
         let version = s.meetingSymkeyVersion(entityId: entityId)
         let held = version == 0 ? [] : s.meetingSymkeys(entityId: entityId, version: version)
         if invitees == nil && held.isEmpty {
             setPhase(.idle)
-            return "This device has no key for this chat yet, so it cannot start a meeting in it."
+            return String(localized: "This device has no key for this chat yet, so it cannot start a meeting in it.")
         }
         let meetingId = MeetingSignal.idPrefix + Hex.encode(MeetingCenter.random(12))
         let nonce = MeetingCenter.random(32)
@@ -129,11 +129,11 @@ final class MeetingCenter {
             }
         } catch {
             setPhase(.idle)
-            return "Could not make the meeting's key: \(error)"
+            return String(localized: "Could not make the meeting's key: \(String(describing: error))")
         }
         guard let authPub = try? CallKeys.authPub(authPriv: CallKeys.authPriv(callSecret: secret)) else {
             setPhase(.idle)
-            return "Could not make the meeting's key."
+            return String(localized: "Could not make the meeting's key.")
         }
         let m = MeetingBoard.Meeting(
             meetingId: meetingId, entityId: entityId, entityType: type == .team ? "TEAM" : "ROOM", hostFid: s.liveFid,
@@ -147,16 +147,16 @@ final class MeetingCenter {
 
     /// Join a meeting from its card. Returns why not, or nil once connecting.
     func join(meetingId: String) async -> String? {
-        guard let m = board?.get(meetingId) else { return "This device does not know that meeting." }
+        guard let m = board?.get(meetingId) else { return String(localized: "This device does not know that meeting.") }
         if isActive, meeting?.meetingId == meetingId {
             visible = true // already in it: just show it
             return nil
         }
-        if m.ended { return "The meeting is over." }
+        if m.ended { return String(localized: "The meeting is over.") }
         if let busy = busyReason() { return busy }
-        guard let s = active, let fidPriv = try? s.livePrikey() else { return "This identity cannot sign, so it cannot join meetings." }
+        guard let s = active, let fidPriv = try? s.livePrikey() else { return String(localized: "This identity cannot sign, so it cannot join meetings.") }
         guard await CallCenter.microphoneAllowed() else {
-            return "Meetings need the microphone. Allow it in System Settings → Privacy & Security."
+            return String(localized: "Meetings need the microphone. Allow it in System Settings → Privacy & Security.")
         }
         guard !isActive else { return busyReason() }
         run(m, creating: false, fidPriv: fidPriv)
@@ -262,7 +262,7 @@ final class MeetingCenter {
 
     /// Join the ringing meeting. Returns why not, or nil once connecting.
     func answerRing() async -> String? {
-        guard let m = ringing else { return "The meeting stopped ringing." }
+        guard let m = ringing else { return String(localized: "The meeting stopped ringing.") }
         let why = await join(meetingId: m.meetingId)
         if why != nil { stopRinging() }
         return why
@@ -283,8 +283,8 @@ final class MeetingCenter {
     /// The ring's line: who started which meeting.
     func ringText(_ m: MeetingBoard.Meeting, names: (String) -> String) -> String {
         let who = names(m.hostFid)
-        if let t = m.title, !t.isEmpty { return "\(who) started “\(t)”" }
-        return "\(who) started a meeting" + (entityName.map { " in \($0)" } ?? "")
+        if let t = m.title, !t.isEmpty { return String(localized: "\(who) started “\(t)”") }
+        return String(localized: "\(who) started a meeting") + (entityName.map { " in \($0)" } ?? "")
     }
 
     /// Another member says a meeting ended: believe it only once its relay
@@ -322,8 +322,8 @@ final class MeetingCenter {
 
     /// Why a meeting cannot start or be joined now, or nil.
     private func busyReason() -> String? {
-        if isActive { return "You are already in a meeting." }
-        if calls.phase != .idle && calls.phase != .ended { return "You are in a call." }
+        if isActive { return String(localized: "You are already in a meeting.") }
+        if calls.phase != .idle && calls.phase != .ended { return String(localized: "You are in a call.") }
         return nil
     }
 
@@ -422,12 +422,12 @@ final class MeetingCenter {
         sessionEvents = nil
         meetingDocks(nil, nil)
         endReason = switch why {
-        case .left: "You left the meeting."
-        case .endedByHost, .gone: "The meeting is over."
-        case .kicked: "The host removed you from the meeting."
-        case .noKey: "This device lacks the meeting's key; it has asked for it. Try again in a moment."
-        case .balance: "The host's balance on the relay ran out."
-        case .failed: "The meeting failed: \(detail ?? "")"
+        case .left: String(localized: "You left the meeting.")
+        case .endedByHost, .gone: String(localized: "The meeting is over.")
+        case .kicked: String(localized: "The host removed you from the meeting.")
+        case .noKey: String(localized: "This device lacks the meeting's key; it has asked for it. Try again in a moment.")
+        case .balance: String(localized: "The host's balance on the relay ran out.")
+        case .failed: String(localized: "The meeting failed: \(detail ?? "")")
         }
         if why == .failed { SystemLog.shared.error(SystemSource.messages, "A meeting failed", detail: detail ?? "") }
         setPhase(.ended)

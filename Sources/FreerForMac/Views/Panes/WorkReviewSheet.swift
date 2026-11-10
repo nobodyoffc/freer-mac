@@ -54,7 +54,7 @@ struct WorkReviewSheet: View {
         let c = review.original
         VStack(alignment: .leading, spacing: 12) {
             ReleaseReviewNote(status: review.status,
-                              text: "From the release: the file and its DID are locked. Edits are written back to freeverse-release.json.")
+                              text: String(localized: "From the release: the file and its DID are locked. Edits are written back to freeverse-release.json."))
             Text("\(c.targetId == nil ? "Publish" : "Update") \(c.kind.label)").font(.headline)
             Form {
                 TextField("Title", text: $title)

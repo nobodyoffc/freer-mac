@@ -67,17 +67,17 @@ public enum SshCommandParser {
         public var description: String {
             switch self {
             case .empty:
-                return "Paste an ssh command, like ssh -p 22 user@host."
+                return String(localized: "Paste an ssh command, like ssh -p 22 user@host.")
             case .unbalancedQuote:
-                return "There is an opening quote with no closing one."
+                return String(localized: "There is an opening quote with no closing one.")
             case .noHost:
-                return "No host in that line — it needs a user@host or a host."
+                return String(localized: "No host in that line — it needs a user@host or a host.")
             case let .missingValue(flag):
-                return "\(flag) is there with nothing after it."
+                return String(localized: "\(flag) is there with nothing after it.")
             case let .badPort(text):
-                return "\"\(text)\" is not a port from 1 to 65535."
+                return String(localized: "\"\(text)\" is not a port from 1 to 65535.")
             case let .badForward(text):
-                return "-L \(text) is not a forward this can store: local:host:remote."
+                return String(localized: "-L \(text) is not a forward this can store: local:host:remote.")
             }
         }
     }
@@ -138,7 +138,7 @@ public enum SshCommandParser {
                 // whole, however long.
                 guard target == nil else {
                     let command = ([token] + tokens[index...]).joined(separator: " ")
-                    parsed.ignored.append("remote command \(command)")
+                    parsed.ignored.append(String(localized: "remote command \(command)"))
                     break
                 }
                 target = token
@@ -191,13 +191,13 @@ public enum SshCommandParser {
             parsed.forwards.append(forward)
             if let narrowed { parsed.ignored.append(narrowed) }
         case "J":
-            parsed.ignored.append("jump host -J \(value)")
+            parsed.ignored.append(String(localized: "jump host -J \(value)"))
         case "R", "D", "W":
             parsed.ignored.append("-\(flag) \(value)")
         case "o":
             parsed.ignored.append("-o \(value)")
         case "F":
-            parsed.ignored.append("config file -F \(value)")
+            parsed.ignored.append(String(localized: "config file -F \(value)"))
         default:
             parsed.ignored.append("-\(flag)")
         }
@@ -225,7 +225,7 @@ public enum SshCommandParser {
         let narrowed = bindAddress.flatMap { address -> String? in
             let loopback = ["", "localhost", "127.0.0.1", "::1"]
             guard !loopback.contains(address) else { return nil }
-            return "bind address \(address) on -L, narrowed to this Mac's loopback"
+            return String(localized: "bind address \(address) on -L, narrowed to this Mac's loopback")
         }
         return (SshPortForward(localPort: local, remoteHost: fields[1], remotePort: remote), narrowed)
     }

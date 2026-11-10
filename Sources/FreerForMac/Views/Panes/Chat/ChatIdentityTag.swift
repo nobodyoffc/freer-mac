@@ -87,8 +87,8 @@ struct ChatIdentityTag: View {
             font: named ? size.font : size.font.monospaced(),
             color: color,
             help: named
-                ? "\(cid!) — click to copy the \(noun) behind this name"
-                : "Click to copy this \(noun)"
+                ? String(localized: "\(cid!) — click to copy the \(noun) behind this name")
+                : String(localized: "Click to copy this \(noun)")
         )
         .padding(.horizontal, size.hPadding)
         .padding(.vertical, size.vPadding)

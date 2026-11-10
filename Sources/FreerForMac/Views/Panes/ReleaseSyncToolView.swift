@@ -78,7 +78,7 @@ struct ReleaseSyncToolView: View {
             Text("Publishes or updates the protocols, codes, apps and works of your repos on chain, signed by \(signer.elidingMiddle(head: 8, tail: 6)). Each repo needs a \(ReleaseManifest.fileName) at its root.")
                 .font(.callout).foregroundStyle(.secondary)
             if !session.canSign {
-                CopyableLabel("This identity is watch-only, so it can scan but not carve.", systemImage: "eye")
+                CopyableLabel(String(localized: "This identity is watch-only, so it can scan but not carve."), systemImage: "eye")
                     .foregroundStyle(.orange).font(.callout)
             }
 
@@ -109,7 +109,7 @@ struct ReleaseSyncToolView: View {
                     reviewSheet(pending.draft)
                 } else {
                     ReleaseRunWorkingView(title: reviews.working.title,
-                                          step: reviews.stopRequested ? "Stopping after this carve…" : reviews.working.step,
+                                          step: reviews.stopRequested ? String(localized: "Stopping after this carve…") : reviews.working.step,
                                           status: reviews.done == 0 ? nil : reviews.status,
                                           stop: stopAfterCurrent)
                 }
@@ -192,7 +192,7 @@ struct ReleaseSyncToolView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = true
-        panel.prompt = "Add"
+        panel.prompt = String(localized: "Add")
         guard panel.runModal() == .OK else { return }
         for url in panel.urls where !repos.contains(where: { $0.path == url.path }) {
             repos.append(RepoRow(path: url.path))
@@ -221,7 +221,7 @@ struct ReleaseSyncToolView: View {
             try FileManager.default.createDirectory(at: reposURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try JSONEncoder().encode(repos.map(\.path)).write(to: reposURL, options: .atomic)
         } catch {
-            self.error = "Could not save the folder list: \(error)"
+            self.error = String(localized: "Could not save the folder list: \(String(describing: error))")
         }
     }
 
@@ -241,7 +241,7 @@ struct ReleaseSyncToolView: View {
                     do {
                         return (m, nil, try GitHubReleases(repo: m.github).releases(), nil)
                     } catch {
-                        return (m, nil, [], "Cannot list releases: \(error)")
+                        return (m, nil, [], String(localized: "Cannot list releases: \(String(describing: error))"))
                     }
                 } catch {
                     return (nil, String(describing: error), [], nil)
@@ -270,17 +270,17 @@ struct ReleaseSyncToolView: View {
             error = nil
             events = []
         }
-        busy = "Reading manifests…"
+        busy = String(localized: "Reading manifests…")
         defer { busy = nil }
         await refreshRepos(force: true)
-        busy = "Reading \(signer.elidingMiddle(head: 6, tail: 4))'s registry…"
+        busy = String(localized: "Reading \(signer.elidingMiddle(head: 6, tail: 4))'s registry…")
         do {
             let hasWorks = repos.contains { !($0.manifest?.works ?? []).isEmpty }
             let fetched = try await ReleaseChainState.fetch(owner: signer, fapi: session.fapi, works: hasWorks)
             let scanner = ReleaseScanner(workDir: workDir)
             var out: [RepoScan] = []
             for row in repos where row.manifest != nil {
-                busy = "Scanning \(URL(fileURLWithPath: row.path).lastPathComponent)…"
+                busy = String(localized: "Scanning \(URL(fileURLWithPath: row.path).lastPathComponent)…")
                 let root = URL(fileURLWithPath: row.path), tag = row.tag
                 out.append(try await Task.detached { try await scanner.scan(root: root, tag: tag) }.value)
             }
@@ -288,7 +288,7 @@ struct ReleaseSyncToolView: View {
             chain = fetched
             replan()
         } catch {
-            self.error = [self.error, "Scan failed: \(error)"].compactMap { $0 }.joined(separator: "\n")
+            self.error = [self.error, String(localized: "Scan failed: \(String(describing: error))")].compactMap { $0 }.joined(separator: "\n")
         }
     }
 
@@ -332,13 +332,13 @@ struct ReleaseSyncToolView: View {
     }
 
     private func rows(_ plan: ReleasePlan) -> [Row] {
-        plan.protocols.map { Row(key: ReleasePlanner.choiceKey(protocol: $0.doc.ref), kind: "Protocol",
+        plan.protocols.map { Row(key: ReleasePlanner.choiceKey(protocol: $0.doc.ref), kind: String(localized: "Protocol"),
                                  title: "\($0.doc.ref)V\($0.doc.ver) \($0.doc.name)", detail: $0.doc.relativePath, action: $0.action) }
-        + plan.codes.map { Row(key: ReleasePlanner.choiceKey(code: $0.local.entry.name), kind: "Code",
+        + plan.codes.map { Row(key: ReleasePlanner.choiceKey(code: $0.local.entry.name), kind: String(localized: "Code"),
                                title: "\($0.local.entry.name) \($0.local.tag)",
-                               detail: "\($0.local.fileCount) files, \(ByteCountFormatter.string(fromByteCount: Int64($0.local.byteCount), countStyle: .file))",
+                               detail: String(localized: "\(String($0.local.fileCount)) files, \(ByteCountFormatter.string(fromByteCount: Int64($0.local.byteCount), countStyle: .file))"),
                                action: $0.action) }
-        + plan.apps.map { Row(key: ReleasePlanner.choiceKey(app: $0.local.entry.stdName), kind: "App",
+        + plan.apps.map { Row(key: ReleasePlanner.choiceKey(app: $0.local.entry.stdName), kind: String(localized: "App"),
                               title: "\($0.local.entry.stdName) \($0.local.tag)", detail: $0.local.asset.name, action: $0.action) }
         + plan.works.map { Row(key: $0.key, kind: $0.local.entry.kind.label, title: $0.local.entry.title,
                                detail: $0.local.fileName + ($0.local.size.map { ", " + ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? ""),
@@ -432,9 +432,9 @@ struct ReleaseSyncToolView: View {
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        let orphans = plan.orphanProtocols.map { "Protocol \($0.type ?? "")\($0.sn ?? "") \($0.name ?? "") · \($0.id.prefix(12))…" }
-            + plan.orphanCodes.map { "Code \($0.name ?? "") · \($0.id.prefix(12))…" }
-            + plan.orphanApps.map { "App \($0.stdName ?? "") · \($0.id.prefix(12))…" }
+        let orphans = plan.orphanProtocols.map { String(localized: "Protocol \($0.type ?? "")\($0.sn ?? "") \($0.name ?? "") · \($0.id.prefix(12))…") }
+            + plan.orphanCodes.map { String(localized: "Code \($0.name ?? "") · \($0.id.prefix(12))…") }
+            + plan.orphanApps.map { String(localized: "App \($0.stdName ?? "") · \($0.id.prefix(12))…") }
         if !orphans.isEmpty {
             DisclosureGroup("\(orphans.count) on chain but not in these repos (left alone)") {
                 VStack(alignment: .leading, spacing: 4) {
@@ -596,7 +596,7 @@ struct ReleaseSyncToolView: View {
             } catch is CancellationError {
                 events.append(.failed(key: "", "stopped"))
             } catch {
-                self.error = "Run stopped: \(error)"
+                self.error = String(localized: "Run stopped: \(String(describing: error))")
             }
             // What went out is pending until the chain shows it, so the
             // chain is read again now and then each block while it is.
@@ -605,10 +605,10 @@ struct ReleaseSyncToolView: View {
             let written = events.compactMap { if case .pidWritten(let f) = $0 { return f }; return nil }
             var notes: [String] = []
             if !written.isEmpty {
-                notes.append("PIDs were written into \(written.count) documents. Commit them: \(written.joined(separator: ", "))")
+                notes.append(String(localized: "PIDs were written into \(String(written.count)) documents. Commit them: \(written.joined(separator: ", "))"))
             }
             if !manifests.isEmpty {
-                notes.append("Review edits were written into \(manifests.sorted().joined(separator: ", ")). Commit them too.")
+                notes.append(String(localized: "Review edits were written into \(manifests.sorted().joined(separator: ", ")). Commit them too."))
             }
             if !notes.isEmpty { self.error = notes.joined(separator: "\n") }
             runTask = nil
@@ -716,13 +716,13 @@ private extension ReleaseRunEvent {
     var line: String {
         switch self {
         case .step(let k, let s): return "\(k): \(s)"
-        case .carved(let k, let t): return "\(k): carved \(t)"
-        case .skipped(let k, let s): return "\(k): skipped, \(s)"
-        case .failed(let k, let s): return "\(k): FAILED \(s)"
-        case .waiting(let n): return "waiting for a block: \(n) carves unconfirmed"
-        case .confirmCheckFailed(let why): return "cannot check confirmations: \(why)"
-        case .pidWritten(let f): return "wrote PID into \(f)"
-        case .manifestUpdated(let f): return "wrote review edits into \(f)"
+        case .carved(let k, let t): return String(localized: "\(k): carved \(t)")
+        case .skipped(let k, let s): return String(localized: "\(k): skipped, \(s)")
+        case .failed(let k, let s): return String(localized: "\(k): FAILED \(s)")
+        case .waiting(let n): return String(localized: "waiting for a block: \(String(n)) carves unconfirmed")
+        case .confirmCheckFailed(let why): return String(localized: "cannot check confirmations: \(why)")
+        case .pidWritten(let f): return String(localized: "wrote PID into \(f)")
+        case .manifestUpdated(let f): return String(localized: "wrote review edits into \(f)")
         }
     }
 }
@@ -750,7 +750,7 @@ final class ReleaseReviewCoordinator: ObservableObject {
 
     @Published var isOpen = false
     @Published var pending: Pending?
-    @Published var working = Working(title: "Starting", step: "Preparing the first record…")
+    @Published var working = Working(title: String(localized: "Starting"), step: String(localized: "Preparing the first record…"))
     @Published private(set) var done = 0
     @Published private(set) var previous: ReleaseRunStatus.Outcome?
     @Published var stopRequested = false
@@ -759,7 +759,7 @@ final class ReleaseReviewCoordinator: ObservableObject {
     private var titles: [String: String] = [:]
 
     var status: ReleaseRunStatus {
-        ReleaseRunStatus(position: "Record \(min(done + 1, max(total, 1))) of \(total)", previous: previous)
+        ReleaseRunStatus(position: String(localized: "Record \(String(min(done + 1, max(total, 1)))) of \(String(total))"), previous: previous)
     }
 
     func begin(titles: [String: String], total: Int) {
@@ -769,7 +769,7 @@ final class ReleaseReviewCoordinator: ObservableObject {
         previous = nil
         stopRequested = false
         isWaitingForBlock = false
-        working = Working(title: "Starting", step: "Preparing the first record…")
+        working = Working(title: String(localized: "Starting"), step: String(localized: "Preparing the first record…"))
         isOpen = true
     }
 
@@ -794,11 +794,11 @@ final class ReleaseReviewCoordinator: ObservableObject {
         // Show the working state before the sheet would otherwise sit on
         // a page whose button has already been pressed.
         if case .success(.work(let c)?) = result {
-            working = Working(title: "\(c.kind.label) \(c.title)", step: "Preparing…")
+            working = Working(title: "\(c.kind.label) \(c.title)", step: String(localized: "Preparing…"))
         } else if case .success(let draft?) = result {
-            working = Working(title: titles[Self.key(of: draft)] ?? "Carving", step: "Preparing…")
+            working = Working(title: titles[Self.key(of: draft)] ?? String(localized: "Carving"), step: String(localized: "Preparing…"))
         } else {
-            working = Working(title: "Next record", step: "Preparing…")
+            working = Working(title: String(localized: "Next record"), step: String(localized: "Preparing…"))
         }
         pending = nil
         open.resume(result)
@@ -812,7 +812,7 @@ final class ReleaseReviewCoordinator: ObservableObject {
         case .carved(let key, let txid):
             done += 1
             previous = .carved(title: titles[key] ?? key, txid: txid)
-            working = Working(title: "Next record", step: "Preparing…")
+            working = Working(title: String(localized: "Next record"), step: String(localized: "Preparing…"))
         case .skipped(let key, _):
             guard titles[key] != nil else { return }
             done += 1
@@ -822,12 +822,12 @@ final class ReleaseReviewCoordinator: ObservableObject {
             done += 1
             previous = .failed(title: titles[key]!, reason: why)
         case .waiting(let n):
-            working = Working(title: "Waiting for a block",
-                              step: "\(n) carves are unconfirmed. The run goes on when some confirm; it checks every 30 seconds.")
+            working = Working(title: String(localized: "Waiting for a block"),
+                              step: String(localized: "\(String(n)) carves are unconfirmed. The run goes on when some confirm; it checks every 30 seconds."))
         case .confirmCheckFailed(let why):
             isWaitingForBlock = true
-            working = Working(title: "Waiting for a block",
-                              step: "The server cannot look the carves up, so the run cannot tell whether they confirmed. It keeps retrying every 30 seconds. \(why)")
+            working = Working(title: String(localized: "Waiting for a block"),
+                              step: String(localized: "The server cannot look the carves up, so the run cannot tell whether they confirmed. It keeps retrying every 30 seconds. \(why)"))
         case .pidWritten, .manifestUpdated:
             break
         }
@@ -835,7 +835,7 @@ final class ReleaseReviewCoordinator: ObservableObject {
 
     static func describe(_ step: String) -> String {
         if step == "carving" {
-            return "Signing and broadcasting. Approve the transaction if the dialog asks."
+            return String(localized: "Signing and broadcasting. Approve the transaction if the dialog asks.")
         }
         return step.prefix(1).uppercased() + step.dropFirst() + "…"
     }

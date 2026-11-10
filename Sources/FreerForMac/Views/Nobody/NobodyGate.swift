@@ -14,46 +14,46 @@ enum NobodyConsequence {
     var text: String {
         switch self {
         case .send:
-            return "Anything sent to it can be taken by anyone."
+            return String(localized: "Anything sent to it can be taken by anyone.")
         case .sendFrom:
-            return "The sender's prikey is public. Anyone can spend the same cash first, so this transaction may never confirm."
+            return String(localized: "The sender's prikey is public. Anyone can spend the same cash first, so this transaction may never confirm.")
         case .encrypt:
-            return "Anyone can decrypt what you encrypt to it."
+            return String(localized: "Anyone can decrypt what you encrypt to it.")
         case .mail:
-            return "Anyone can read this Cmail and reply as the recipient."
+            return String(localized: "Anyone can read this Cmail and reply as the recipient.")
         case .multisig:
-            return "Anyone can sign as this member, so the multisig needs fewer real signatures than it appears."
+            return String(localized: "Anyone can sign as this member, so the multisig needs fewer real signatures than it appears.")
         case .master:
-            return "Setting a master publishes your prikey encrypted to the master. Anyone can decrypt it and take this identity for good."
+            return String(localized: "Setting a master publishes your prikey encrypted to the master. Anyone can decrypt it and take this identity for good.")
         case .team:
-            return "Anyone can read the team's messages and act as these members, including giving their consent."
+            return String(localized: "Anyone can read the team's messages and act as these members, including giving their consent.")
         case .room:
-            return "Anyone can read the room's messages and speak as these members."
+            return String(localized: "Anyone can read the room's messages and speak as these members.")
         case .teamOwner:
-            return "Anyone could run the team as its owner."
+            return String(localized: "Anyone could run the team as its owner.")
         case .rate:
-            return "Anyone can act as it, so its reputation means nothing. The coin days you destroy to rate it are wasted."
+            return String(localized: "Anyone can act as it, so its reputation means nothing. The coin days you destroy to rate it are wasted.")
         case .contact:
-            return "Anyone can speak as it, change its CID, and read what you send it."
+            return String(localized: "Anyone can speak as it, change its CID, and read what you send it.")
         case .chat:
-            return "Anyone can read this conversation and write as it."
+            return String(localized: "Anyone can read this conversation and write as it.")
         case .importKey:
-            return "Anyone can spend this key's funds, read its messages and act as it. Use it only as a public identity."
+            return String(localized: "Anyone can spend this key's funds, read its messages and act as it. Use it only as a public identity.")
         }
     }
 }
 
 /// Lines shown under a nobody's name wherever the consequence needs saying.
 enum NobodyText {
-    static let identity = "Nobody: this identity's prikey is public. Anyone can act as it."
-    static let selfIdentity = "This identity's prikey is public. Anyone can spend its funds, read its messages and act as it."
-    static let receive = "This address's prikey is public. Anything paid here can be taken by anyone."
-    static let sender = "The sender is a nobody: its prikey is public, so anyone could have sent this."
-    static let inviter = "The inviter is a nobody: its prikey is public, so anyone could have sent this invitation."
-    static let partner = "This identity is a nobody: its prikey is public, so messages from it can be written by anyone and cannot be trusted."
-    static let signature = "Valid, but the signer is a nobody: its prikey is public, so anyone could have signed this. It proves nothing."
-    static let consensus = "Nobody members' prikeys are public: anyone can give their consent."
-    static let contentHidden = "[Content from an unverifiable (nobody) identity is not shown]"
+    static let identity = String(localized: "Nobody: this identity's prikey is public. Anyone can act as it.")
+    static let selfIdentity = String(localized: "This identity's prikey is public. Anyone can spend its funds, read its messages and act as it.")
+    static let receive = String(localized: "This address's prikey is public. Anything paid here can be taken by anyone.")
+    static let sender = String(localized: "The sender is a nobody: its prikey is public, so anyone could have sent this.")
+    static let inviter = String(localized: "The inviter is a nobody: its prikey is public, so anyone could have sent this invitation.")
+    static let partner = String(localized: "This identity is a nobody: its prikey is public, so messages from it can be written by anyone and cannot be trusted.")
+    static let signature = String(localized: "Valid, but the signer is a nobody: its prikey is public, so anyone could have signed this. It proves nothing.")
+    static let consensus = String(localized: "Nobody members' prikeys are public: anyone can give their consent.")
+    static let contentHidden = String(localized: "[Content from an unverifiable (nobody) identity is not shown]")
 }
 
 /// The confirmation before any action that involves a nobody.
@@ -104,12 +104,12 @@ enum NobodyGate {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.icon = badgeIcon()
-        alert.messageText = "Nobody identity"
+        alert.messageText = String(localized: "Nobody identity")
         let list = nobodies.map { "• \($0)" }.joined(separator: "\n")
-        alert.informativeText = "Prikey published on chain:\n\(list)\n\n\(consequence.text)"
+        alert.informativeText = String(localized: "Prikey published on chain:\n\(list)\n\n\(consequence.text)")
         // Cancel first: Return must never be the risky answer.
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Proceed Anyway")
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.addButton(withTitle: String(localized: "Proceed Anyway"))
         return alert.runModal() == .alertSecondButtonReturn
     }
 
@@ -119,8 +119,8 @@ enum NobodyGate {
         let alert = NSAlert()
         alert.alertStyle = .critical
         alert.icon = badgeIcon()
-        alert.messageText = "Your prikey is public"
-        alert.informativeText = "The prikey of \(fid) has been published on chain. Anyone can spend its funds, read its messages and act as it. Move your funds to a key only you hold."
+        alert.messageText = String(localized: "Your prikey is public")
+        alert.informativeText = String(localized: "The prikey of \(fid) has been published on chain. Anyone can spend its funds, read its messages and act as it. Move your funds to a key only you hold.")
         alert.addButton(withTitle: "OK")
         alert.runModal()
     }

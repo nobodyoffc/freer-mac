@@ -56,10 +56,10 @@ struct AskMembersSheet: View {
         var title: String {
             switch self {
             case .symkey(let version):
-                guard let version else { return "Ask for the key" }
-                return "Ask for \(SymkeyVersionText.inProse(version))"
-            case .roomInfo:      return "Ask for this room's details"
-            case .shareRoomInfo: return "Share this room's details"
+                guard let version else { return String(localized: "Ask for the key") }
+                return String(localized: "Ask for \(SymkeyVersionText.inProse(version))")
+            case .roomInfo:      return String(localized: "Ask for this room's details")
+            case .shareRoomInfo: return String(localized: "Share this room's details")
             }
         }
 
@@ -148,7 +148,7 @@ struct AskMembersSheet: View {
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                     if members.count >= MemberSearch.threshold {
-                        SearchField("Search name, FID…", text: $query, minWidth: 120, maxWidth: 180)
+                        SearchField(String(localized: "Search name, FID…"), text: $query, minWidth: 120, maxWidth: 180)
                     }
                 }
                 list
@@ -180,11 +180,11 @@ struct AskMembersSheet: View {
         guard ask.isSymkey, !wantedVersions.isEmpty else { return "" }
         let list = wantedVersions.map(versionPhrase).joined(separator: ", ")
         if ask.namedVersion != nil {
-            return "This asks for **\(list)** — the key one message in this transcript was sealed with. "
+            return String(localized: "This asks for **\(list)** — the key one message in this transcript was sealed with. ")
         }
         return wantedVersions.count == 1
-            ? "This asks for **\(list)** — the version this conversation needs and this device does not hold. "
-            : "This asks for **\(list)** — the versions this conversation needs and this device does not hold, in one request naming them all. "
+            ? String(localized: "This asks for **\(list)** — the version this conversation needs and this device does not hold. ")
+            : String(localized: "This asks for **\(list)** — the versions this conversation needs and this device does not hold, in one request naming them all. ")
     }
 
     /// One version, as a person should read it: the time it was minted,
@@ -208,13 +208,13 @@ struct AskMembersSheet: View {
     private var explanation: String {
         switch ask {
         case .symkey where style.mode == .team:
-            return "Any member who holds the team's key can send it. \(versionNote)It arrives on a later receive and is stored sealed to this identity."
+            return String(localized: "Any member who holds the team's key can send it. \(versionNote)It arrives on a later receive and is stored sealed to this identity.")
         case .symkey:
-            return "Any member who holds the room's key can send it. \(versionNote)Nothing here replaces a key already on this Mac — a copy that differs is kept beside it and tried when opening."
+            return String(localized: "Any member who holds the room's key can send it. \(versionNote)Nothing here replaces a key already on this Mac — a copy that differs is kept beside it and tried when opening.")
         case .roomInfo:
-            return "Only the **owner's** answer can rewrite who is in this room — a member's answer still carries the name and the key, which is usually the part that was missing. The owner is ticked for you."
+            return String(localized: "Only the **owner's** answer can rewrite who is in this room — a member's answer still carries the name and the key, which is usually the part that was missing. The owner is ticked for you.")
         case .shareRoomInfo:
-            return "Each member picked gets the room's membership, name, DOCK and current key, sealed to them — the same message an invitation is. Nothing is rotated. A member with no published DOCK has nowhere to receive it and is skipped."
+            return String(localized: "Each member picked gets the room's membership, name, DOCK and current key, sealed to them — the same message an invitation is. Nothing is rotated. A member with no published DOCK has nowhere to receive it and is skipped.")
         }
     }
 
@@ -228,10 +228,10 @@ struct AskMembersSheet: View {
     private func selectToggleTitle(allShown: Bool) -> String {
         let searching = shown.count != members.count
         switch (allShown, searching) {
-        case (true, false):  return "Select none"
-        case (false, false): return "Select all"
-        case (true, true):   return "Deselect shown"
-        case (false, true):  return "Select shown"
+        case (true, false):  return String(localized: "Select none")
+        case (false, false): return String(localized: "Select all")
+        case (true, true):   return String(localized: "Deselect shown")
+        case (false, true):  return String(localized: "Select shown")
         }
     }
 
@@ -257,7 +257,7 @@ struct AskMembersSheet: View {
                                     .font(.callout)
                                 ContactLabelText(fid: fid, names: names, font: .callout)
                                 if fid == owner { ChatChip("owner", color: style.tint) }
-                                if fid == session.liveFid { ChatChip("your other devices", color: style.tint) }
+                                if fid == session.liveFid { ChatChip(String(localized: "your other devices"), color: style.tint) }
                                 Spacer(minLength: 0)
                             }
                             if fid == session.liveFid, ask != .shareRoomInfo {
@@ -291,8 +291,8 @@ struct AskMembersSheet: View {
     /// the only copy of the key that exists.
     private var ownRowHint: String {
         alreadyHeld
-            ? "Your other devices signed in as this identity. This device already holds a key — an answer can still bring a newer version."
-            : "Your other devices signed in as this identity. Whichever one still holds the key answers; this one stays quiet."
+            ? String(localized: "Your other devices signed in as this identity. This device already holds a key — an answer can still bring a newer version.")
+            : String(localized: "Your other devices signed in as this identity. Whichever one still holds the key answers; this one stays quiet.")
     }
 
     // MARK: - actions
@@ -374,8 +374,8 @@ struct AskMembersSheet: View {
             }
             Task { _ = try? await session.courier.drainOutbox(as: session.liveFid) }
             onSent(unreachable.isEmpty
-                   ? "\(outbound.count) update(s) queued."
-                   : "\(outbound.count) update(s) queued. \(unreachable.count) member(s) publish no DOCK, so there is nowhere to leave one for them.")
+                   ? String(localized: "\(String(outbound.count)) update(s) queued.")
+                   : String(localized: "\(String(outbound.count)) update(s) queued. \(String(unreachable.count)) member(s) publish no DOCK, so there is nowhere to leave one for them."))
             onClose()
         } catch {
             self.error = String(describing: error)
@@ -427,8 +427,10 @@ struct AskMembersSheet: View {
             guard !allowed.isEmpty else {
                 let soonest = waiting.map(\.until).min() ?? Date()
                 let seconds = max(1, Int(soonest.timeIntervalSinceNow.rounded(.up)))
-                error = "Already asked \(waiting.count == 1 ? "them" : "them all") just now. "
-                    + "Askable again in \(seconds)s."
+                error = String(localized: """
+                    Already asked \(waiting.count == 1 ? "them" : "them all") just now. \
+                    Askable again in \(String(seconds))s.
+                    """)
                 return
             }
 
@@ -479,11 +481,11 @@ struct AskMembersSheet: View {
             Task { _ = try? await session.courier.drainOutbox(as: session.liveFid) }
             let forWhat = versions.isEmpty
                 ? ""
-                : " for \(versions.map(versionPhrase).joined(separator: ", "))"
+                : String(localized: " for \(versions.map(versionPhrase).joined(separator: ", "))")
             let skipped = waiting.isEmpty
                 ? ""
-                : " \(Set(waiting.map(\.fid)).count) were asked too recently to ask again."
-            onSent("Asked \(sent.count) member\(sent.count == 1 ? "" : "s")\(forWhat). The answer arrives on a later receive.\(skipped)")
+                : String(localized: " \(String(Set(waiting.map(\.fid)).count)) were asked too recently to ask again.")
+            onSent(String(localized: "Asked \(String(sent.count)) member\(sent.count == 1 ? "" : "s")\(forWhat). The answer arrives on a later receive.\(skipped)"))
             onClose()
         } catch {
             self.error = String(describing: error)

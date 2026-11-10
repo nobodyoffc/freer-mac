@@ -51,7 +51,7 @@ struct ServicePickerSheet: View {
     /// Which component the picked service has to offer, e.g.
     /// ``ServiceName/dock``.
     var component: String = ServiceName.dock
-    var title: String = "Choose a DOCK"
+    var title: String = String(localized: "Choose a DOCK")
     var subtitle: String?
     /// Seeds the search box — normally whatever was already typed in the
     /// field that opened this.
@@ -96,7 +96,7 @@ struct ServicePickerSheet: View {
                 Text(title).font(.title2).bold()
                 Spacer()
             }
-            Text(subtitle ?? "Search the chain for a server offering \(component). Its service id is what gets published, so the server can move without anyone losing it.")
+            Text(subtitle ?? String(localized: "Search the chain for a server offering \(component). Its service id is what gets published, so the server can move without anyone losing it."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

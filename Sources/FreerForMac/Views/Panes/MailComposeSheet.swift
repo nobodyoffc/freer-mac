@@ -91,7 +91,7 @@ struct MailComposeSheet: View {
             if recipientLooksValid { Task { await refreshQuote() } }
         }
         .sheet(isPresented: $showScan) {
-            QrScanSheet(title: "Scan recipient FID") { scanned in
+            QrScanSheet(title: String(localized: "Scan recipient FID")) { scanned in
                 recipient = scanned
                 showScan = false
             } onCancel: {
@@ -116,11 +116,11 @@ struct MailComposeSheet: View {
 
     private var confirmMessage: String {
         let fee = quote?.fee.satoshis ?? 0
-        return """
+        return String(localized: """
         Pays \(NoticeFee.coinString(satoshis: fee)) F to \(recipient.elidingMiddle(head: 10, tail: 10)), plus a small miner fee.
 
         The body is encrypted to you and the recipient. The two FIDs, the time and the amount are written to the chain in the clear and cannot be taken back.
-        """
+        """)
     }
 
     // MARK: - sections
@@ -139,9 +139,9 @@ struct MailComposeSheet: View {
 
     private var recipientField: some View {
         LabeledField(
-            "To",
+            String(localized: "To"),
             hint: (!recipient.isEmpty && !recipientLooksValid)
-                ? "Not a valid FCH mainnet address."
+                ? String(localized: "Not a valid FCH mainnet address.")
                 : nil,
             hintIsError: true
         ) {
@@ -152,8 +152,8 @@ struct MailComposeSheet: View {
 
                 Button {
                     pick = .one(
-                        title: "Who is this Cmail for?",
-                        subtitle: "Search your contacts, or look up a FID or CID on chain."
+                        title: String(localized: "Who is this Cmail for?"),
+                        subtitle: String(localized: "Search your contacts, or look up a FID or CID on chain.")
                     )
                 } label: {
                     Image(systemName: "person.text.rectangle")
@@ -223,12 +223,12 @@ struct MailComposeSheet: View {
 
     private func feeExplanation(sats: Int64, published: String?) -> String {
         if let received = replyingTo?.noticeFee, received == sats, received > 0 {
-            return "Matching what they paid you on the Cmail you're answering. Turn that off in Settings if you'd rather always pay their published rate."
+            return String(localized: "Matching what they paid you on the Cmail you're answering. Turn that off in Settings if you'd rather always pay their published rate.")
         }
         if published == nil {
-            return "They publish no rate, so this is the default. It is paid to the recipient, not to miners — it is what makes the Cmail reach them."
+            return String(localized: "They publish no rate, so this is the default. It is paid to the recipient, not to miners — it is what makes the Cmail reach them.")
         }
-        return "The rate this FID publishes for receiving Cmail. It is paid to them, not to miners."
+        return String(localized: "The rate this FID publishes for receiving Cmail. It is paid to them, not to miners.")
     }
 
     private var bodyField: some View {
@@ -244,7 +244,7 @@ struct MailComposeSheet: View {
                 .font(.body)
                 .fieldEditorStyle(minHeight: 200, isError: overLimit)
             if overLimit {
-                CopyableText("Too long by \(bodyBytes - MailFeip.maxBodyBytes) bytes. A Cmail lives inside one transaction's data field; the limit is on the encrypted, encoded body, which is about a third larger than what you typed.")
+                CopyableText(String(localized: "Too long by \(String(bodyBytes - MailFeip.maxBodyBytes)) bytes. A Cmail lives inside one transaction's data field; the limit is on the encrypted, encoded body, which is about a third larger than what you typed."))
                     .font(.caption)
                     .foregroundStyle(.red)
                     .fixedSize(horizontal: false, vertical: true)
@@ -255,7 +255,7 @@ struct MailComposeSheet: View {
     private var footer: some View {
         HStack {
             if !session.canSign {
-                CopyableLabel("Watch-only identity — no key to sign or encrypt with", systemImage: "eye")
+                CopyableLabel(String(localized: "Watch-only identity — no key to sign or encrypt with"), systemImage: "eye")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }

@@ -162,7 +162,7 @@ struct TokensView: View {
 
             if let err = loadError, rowCount == 0 {
                 card {
-                    CopyableLabel("Couldn't load tokens", systemImage: "exclamationmark.triangle")
+                    CopyableLabel(String(localized: "Couldn't load tokens"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                     Text("Nothing is shown rather than the last list that loaded — a failed query has no answer, and rows left over from a different one would be read as this one's.")
@@ -211,7 +211,7 @@ struct TokensView: View {
                 showDeploySheet = false
                 guard let token else { return }
                 actionError = nil
-                actionNote = "Deployed — tx \(token.id.elidingMiddle(head: 8, tail: 8)). The token's ID is that transaction; it appears in the chain list once a block confirms it."
+                actionNote = String(localized: "Deployed — tx \(token.id.elidingMiddle(head: 8, tail: 8)). The token's ID is that transaction; it appears in the chain list once a block confirms it.")
                 tokensById[token.id] = token
                 tab = .tokens
                 Task { await refresh() }
@@ -222,7 +222,7 @@ struct TokensView: View {
                 issuing = nil
                 guard let txid else { return }
                 actionError = nil
-                actionNote = "Issue broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). Balances update when a block confirms it."
+                actionNote = String(localized: "Issue broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). Balances update when a block confirms it.")
                 Task { await refresh() }
             }
         }
@@ -231,7 +231,7 @@ struct TokensView: View {
                 sending = nil
                 guard let txid else { return }
                 actionError = nil
-                actionNote = "Send broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The balance moves when a block confirms it."
+                actionNote = String(localized: "Send broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The balance moves when a block confirms it.")
                 Task { await refresh() }
             }
         }
@@ -352,9 +352,9 @@ struct TokensView: View {
 
     private var searchPlaceholder: String {
         switch tab {
-        case .holdings: return "Search your holdings…"
-        case .tokens:   return "Search name, description, deployer…"
-        case .history:  return "Search ops, FIDs, token IDs…"
+        case .holdings: return String(localized: "Search your holdings…")
+        case .tokens:   return String(localized: "Search name, description, deployer…")
+        case .history:  return String(localized: "Search ops, FIDs, token IDs…")
         }
     }
 
@@ -378,16 +378,16 @@ struct TokensView: View {
             Text("\(rowCount) shown\(total.map { " of \($0)" } ?? "")")
                 .font(.caption).foregroundStyle(.secondary)
             if showingHidden {
-                countChip("hidden rows — local to this Mac", color: .orange)
+                countChip(String(localized: "hidden rows — local to this Mac"), color: .orange)
             }
             if tab == .holdings, !holders.isEmpty {
                 let unresolved = holders.filter { $0.tokenId.map { tokensById[$0] == nil } ?? true }.count
                 if unresolved > 0 {
-                    countChip("\(unresolved) token\(unresolved == 1 ? "" : "s") unresolved", color: .orange)
+                    countChip(String(localized: "\(String(unresolved)) token\(unresolved == 1 ? "" : "s") unresolved"), color: .orange)
                 }
             }
             if showingCache {
-                countChip("offline — showing the cached copy", color: .orange)
+                countChip(String(localized: "offline — showing the cached copy"), color: .orange)
             }
             Spacer(minLength: 0)
         }
@@ -487,7 +487,7 @@ struct TokensView: View {
                 HStack(spacing: 6) {
                     Text(token?.displayName
                          ?? holder.tokenId?.elidingMiddle(head: 8, tail: 8)
-                         ?? "Unknown token")
+                         ?? String(localized: "Unknown token"))
                         .font(.body.bold())
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -501,7 +501,7 @@ struct TokensView: View {
                         // in flight, or the token may have been pruned
                         // from the index. Either way the balance is real
                         // and the rules behind it are not known here.
-                        chip("token not resolved", color: .orange)
+                        chip(String(localized: "token not resolved"), color: .orange)
                     }
 
                     Spacer(minLength: 8)
@@ -691,24 +691,24 @@ struct TokensView: View {
     }
 
     private func sendHelp(token: Token, holder: TokenHolder) -> String {
-        if !session.canSign { return "Watch-only identity — no key to sign a carve with" }
-        if token.isClosed { return "This token is closed: balances are frozen where they sit" }
-        if token.transferable != true { return "This token was deployed non-transferable" }
-        if !holder.hasBalance { return "Nothing to send — this holding is empty" }
-        return "Send some of this balance to another FID"
+        if !session.canSign { return String(localized: "Watch-only identity — no key to sign a carve with") }
+        if token.isClosed { return String(localized: "This token is closed: balances are frozen where they sit") }
+        if token.transferable != true { return String(localized: "This token was deployed non-transferable") }
+        if !holder.hasBalance { return String(localized: "Nothing to send — this holding is empty") }
+        return String(localized: "Send some of this balance to another FID")
     }
 
     /// State chips, in the order that answers "can I do anything with
     /// this" before "what is it".
     private func chips(for token: Token) -> [(String, Color)] {
         var out: [(String, Color)] = []
-        if token.deployer == session.liveFid { out.append(("Yours", .blue)) }
+        if token.deployer == session.liveFid { out.append((String(localized: "Yours"), .blue)) }
         if token.isClosed {
-            out.append(("Closed", .red))
+            out.append((String(localized: "Closed"), .red))
         } else if token.transferable != true {
             out.append(("Non-transferable", .orange))
         }
-        if token.openIssue == true { out.append(("Open issue", .purple)) }
+        if token.openIssue == true { out.append((String(localized: "Open issue"), .purple)) }
         return out
     }
 
@@ -904,7 +904,7 @@ struct TokensView: View {
                 await resolveTokenNames(for: page.rows)
             }
         } catch {
-            note = "Couldn't load more: \(error)"
+            note = String(localized: "Couldn't load more: \(String(describing: error))")
         }
     }
 
@@ -964,10 +964,10 @@ struct TokensView: View {
         actionNote = nil
         do {
             let txid = try await session.carveTokenCloseOnChain(tokenIds: ids)
-            actionNote = "Close broadcast for \(ids.count) token\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8))."
+            actionNote = String(localized: "Close broadcast for \(String(ids.count)) token\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8)).")
             await refresh()
         } catch {
-            actionError = "Couldn't close: \(error)"
+            actionError = String(localized: "Couldn't close: \(String(describing: error))")
         }
     }
 
@@ -979,10 +979,10 @@ struct TokensView: View {
         actionNote = nil
         do {
             let txid = try await session.carveTokenDestroyOnChain(tokenId: tokenId)
-            actionNote = "Burn broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The balance goes to zero when a block confirms it."
+            actionNote = String(localized: "Burn broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The balance goes to zero when a block confirms it.")
             await refresh()
         } catch {
-            actionError = "Couldn't burn: \(error)"
+            actionError = String(localized: "Couldn't burn: \(String(describing: error))")
         }
     }
 
@@ -1005,18 +1005,18 @@ struct TokensView: View {
     }
 
     private var closeAlertTitle: String {
-        guard let first = pendingClose.first else { return "Close token?" }
+        guard let first = pendingClose.first else { return String(localized: "Close token?") }
         if pendingClose.count == 1 {
-            return "Close “\(first.displayName.elidingMiddle(head: 20, tail: 8))” for everybody?"
+            return String(localized: "Close “\(first.displayName.elidingMiddle(head: 20, tail: 8))” for everybody?")
         }
-        return "Close \(pendingClose.count) tokens for everybody?"
+        return String(localized: "Close \(String(pendingClose.count)) tokens for everybody?")
     }
 
     private var destroyAlertMessage: String {
         guard let holder = pendingDestroy else { return "" }
         let token = holder.tokenId.flatMap { tokensById[$0] }
         let amount = TokenAmount.string(holder.balance, scale: token?.decimalPlaces ?? 0)
-        return "The destroy op takes a token, not an amount — it burns your entire \(amount) of \(token?.displayName ?? "this token"). There is no partial burn: to keep some, send the rest away first. This cannot be undone."
+        return String(localized: "The destroy op takes a token, not an amount — it burns your entire \(amount) of \(token?.displayName ?? "this token"). There is no partial burn: to keep some, send the rest away first. This cannot be undone.")
     }
 
     // MARK: - small pieces

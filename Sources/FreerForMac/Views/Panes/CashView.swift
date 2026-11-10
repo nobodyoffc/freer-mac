@@ -143,7 +143,7 @@ struct CashView: View {
             }
         }
         .sheet(isPresented: $showExport) {
-            QrDisplaySheet(title: "Export cash", content: exportJson) { showExport = false }
+            QrDisplaySheet(title: String(localized: "Export cash"), content: exportJson) { showExport = false }
         }
         .alert("Rebuild the cash list from the server?", isPresented: $pendingPurge) {
             Button("Cancel", role: .cancel) {}
@@ -228,9 +228,9 @@ struct CashView: View {
             .disabled(spendableRows.isEmpty)
             .help("Select every spendable cash")
 
-            statistic("Selected", "\(selection.count) of \(rows.count)")
-            statistic("Amount", formatFch(selectedValue))
-            statistic("CoinDays", formatLargeNumber(selectedCd))
+            statistic(String(localized: "Selected"), "\(selection.count) of \(rows.count)")
+            statistic(String(localized: "Amount"), formatFch(selectedValue))
+            statistic(String(localized: "CoinDays"), formatLargeNumber(selectedCd))
                 .help("\(formatExactNumber(selectedCd)) CoinDays in the ticked cashes")
 
             Spacer()
@@ -271,7 +271,7 @@ struct CashView: View {
     private var content: some View {
         if let loadError {
             card {
-                CopyableLabel("Couldn't load cashes", systemImage: "exclamationmark.triangle")
+                CopyableLabel(String(localized: "Couldn't load cashes"), systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.red)
                 CopyableText(loadError, font: .callout)
                     .foregroundStyle(.red)
@@ -397,11 +397,13 @@ struct CashView: View {
 
     private func cdHelp(_ cash: Cash) -> String {
         guard let cd = cash.cd else {
-            return "CoinDays unknown — this cash isn't in a block yet, so it has no age to count."
+            return String(localized: "CoinDays unknown — this cash isn't in a block yet, so it has no age to count.")
         }
-        let at = snapshot?.bestHeight.map { " at block \($0)" } ?? ""
-        return "\(formatExactNumber(cd)) CoinDays\(at) — value × whole days held, counted in blocks. "
-             + "Carving a FEIP record destroys some, and merging resets the clock on what's merged."
+        let at = snapshot?.bestHeight.map { String(localized: " at block \(String($0))") } ?? ""
+        return String(localized: """
+            \(formatExactNumber(cd)) CoinDays\(at) — value × whole days held, counted in blocks. \
+            Carving a FEIP record destroys some, and merging resets the clock on what's merged.
+            """)
     }
 
     private struct Badge {
@@ -418,28 +420,28 @@ struct CashView: View {
         var out: [Badge] = []
         if cash.pendingSpend {
             out.append(Badge(
-                text: "Spending",
+                text: String(localized: "Spending"),
                 color: .orange,
-                help: "Already an input of a transaction we broadcast but haven't seen confirmed. Right-click to recover it if that transaction never lands."
+                help: String(localized: "Already an input of a transaction we broadcast but haven't seen confirmed. Right-click to recover it if that transaction never lands.")
             ))
         }
         if cash.localState == .unknown || cash.unconfirmedDepth > 0 {
             let depth = max(cash.unconfirmedDepth, 1)
             let atLimit = !cash.withinUnconfirmedChainLimit
             out.append(Badge(
-                text: atLimit ? "Chain limit \(depth)/\(Cash.maxUnconfirmedChain)"
-                              : "Unconfirmed ×\(depth)",
+                text: atLimit ? String(localized: "Chain limit \(String(depth))/\(String(Cash.maxUnconfirmedChain))")
+                              : String(localized: "Unconfirmed ×\(String(depth))"),
                 color: atLimit ? .red : .blue,
                 help: atLimit
-                    ? "This cash is \(depth) unconfirmed spends deep. The network carries at most \(Cash.maxUnconfirmedChain) links in a mempool chain, so it can't be spent again until a block confirms the ones ahead of it."
-                    : "Minted by one of your own transactions that hasn't confirmed yet, \(depth) link(s) behind the last block. It can be spent right now — up to \(Cash.maxUnconfirmedChain) links — but if the transaction that made it is ever dropped, this goes with it."
+                    ? String(localized: "This cash is \(String(depth)) unconfirmed spends deep. The network carries at most \(String(Cash.maxUnconfirmedChain)) links in a mempool chain, so it can't be spent again until a block confirms the ones ahead of it.")
+                    : String(localized: "Minted by one of your own transactions that hasn't confirmed yet, \(String(depth)) link(s) behind the last block. It can be spent right now — up to \(String(Cash.maxUnconfirmedChain)) links — but if the transaction that made it is ever dropped, this goes with it.")
             ))
         }
         if !cash.pendingSpend && cash.withinUnconfirmedChainLimit && !isSpendable(cash) {
             out.append(Badge(
-                text: "Not spendable here",
+                text: String(localized: "Not spendable here"),
                 color: .gray,
-                help: "This output doesn't pay the live FID as plain P2PKH — CLTV and multisig signing aren't wired up yet, so it can be seen but not spent."
+                help: String(localized: "This output doesn't pay the live FID as plain P2PKH — CLTV and multisig signing aren't wired up yet, so it can be seen but not spent.")
             ))
         }
         return out
@@ -458,7 +460,7 @@ struct CashView: View {
                 // spendable set already; they are still listed because
                 // Recover needs something to act on, and a total that
                 // silently included them would overstate the wallet.
-                CopyableText("\(heldBack.count) held back by a broadcast in flight")
+                CopyableText(String(localized: "\(String(heldBack.count)) held back by a broadcast in flight"))
                     .foregroundStyle(.orange)
             }
             if let h = snapshot?.bestHeight {
@@ -541,7 +543,7 @@ struct CashView: View {
             try session.wallet.purgeCashes(forFid: session.liveFid)
             snapshot = try await session.wallet.refreshCashes(forFid: session.liveFid)
             selection = []
-            banner = Banner(kind: .success, text: "Rebuilt: \(rows.count) cash(es) from the server.")
+            banner = Banner(kind: .success, text: String(localized: "Rebuilt: \(String(rows.count)) cash(es) from the server."))
         } catch {
             loadError = describe(error)
         }
@@ -554,7 +556,7 @@ struct CashView: View {
             )
             if changed {
                 loadCache()
-                banner = Banner(kind: .success, text: "Recovered — the cash is selectable again.")
+                banner = Banner(kind: .success, text: String(localized: "Recovered — the cash is selectable again."))
             }
         } catch {
             banner = Banner(kind: .failure, text: describe(error))
@@ -580,7 +582,7 @@ struct CashView: View {
             loadCache()
             Task { await refresh() }
         case .exported:
-            banner = Banner(kind: .success, text: "Unsigned transaction built — sign it where the key lives.")
+            banner = Banner(kind: .success, text: String(localized: "Unsigned transaction built — sign it where the key lives."))
         }
     }
 

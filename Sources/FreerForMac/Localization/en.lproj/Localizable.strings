@@ -1,0 +1,4 @@
+/* English is the source language: every key in the code is its own English
+   text, so nothing needs listing here. The folder has to exist all the same —
+   it is what tells macOS the app speaks English, and without it a Mac set to
+   any language other than Chinese would be handed zh-Hans as the only choice. */

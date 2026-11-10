@@ -83,27 +83,27 @@ struct DeployTokenSheet: View {
     /// check happens to run first.
     private var validationError: String? {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return "A token needs a name."
+            return String(localized: "A token needs a name.")
         }
         if !decimal.isEmpty, !Self.isNonNegativeInteger(decimal) {
-            return "Decimal places must be a whole number — 0 for an integer token, 8 for one divisible like FCH."
+            return String(localized: "Decimal places must be a whole number — 0 for an integer token, 8 for one divisible like FCH.")
         }
         if !capacity.isEmpty, !Self.isPositiveNumber(capacity) {
-            return "Capacity must be a positive number, or blank for no cap."
+            return String(localized: "Capacity must be a positive number, or blank for no cap.")
         }
         if openIssue {
             if !maxAmtPerIssue.isEmpty, !Self.isPositiveNumber(maxAmtPerIssue) {
-                return "Max amount per issue must be a positive number."
+                return String(localized: "Max amount per issue must be a positive number.")
             }
             if !minCddPerIssue.isEmpty, !Self.isNonNegativeInteger(minCddPerIssue) {
-                return "Min CDD per issue must be a whole number."
+                return String(localized: "Min CDD per issue must be a whole number.")
             }
             if !maxIssuesPerAddr.isEmpty, !Self.isNonNegativeInteger(maxIssuesPerAddr) {
-                return "Max issues per address must be a whole number."
+                return String(localized: "Max issues per address must be a whole number.")
             }
         }
         if carveSize > TokenFeip.maxOpReturnSize {
-            return "The rules are \(carveSize) bytes, over the \(TokenFeip.maxOpReturnSize)-byte limit. Shorten the description."
+            return String(localized: "The rules are \(String(carveSize)) bytes, over the \(String(TokenFeip.maxOpReturnSize))-byte limit. Shorten the description.")
         }
         return nil
     }
@@ -137,19 +137,19 @@ struct DeployTokenSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    field("Name") {
+                    field(String(localized: "Name")) {
                         TextField("What the token is called", text: $name)
                             .fieldInputStyle()
                     }
 
-                    field("Description") {
+                    field(String(localized: "Description")) {
                         TextField("What it is for (optional)", text: $desc)
                             .fieldInputStyle()
                     }
 
-                    CoverField(session: session, choice: $cover, label: "Logo", subject: "token")
+                    CoverField(session: session, choice: $cover, label: String(localized: "Logo"), subject: "token")
 
-                    field("Consensus FID") {
+                    field(String(localized: "Consensus FID")) {
                         TextField("Whose word settles disputes (optional)", text: $consensusId)
                             .fieldInputStyle()
                             .font(.system(.body, design: .monospaced))
@@ -158,13 +158,13 @@ struct DeployTokenSheet: View {
                     }
 
                     HStack(alignment: .top, spacing: 12) {
-                        field("Capacity") {
+                        field(String(localized: "Capacity")) {
                             TextField("No cap", text: $capacity)
                                 .fieldInputStyle()
                             Text("Total supply ceiling.")
                                 .font(.caption2).foregroundStyle(.tertiary)
                         }
-                        field("Decimal places") {
+                        field(String(localized: "Decimal places")) {
                             TextField("0", text: $decimal)
                                 .fieldInputStyle()
                             Text("How finely it divides.")
@@ -200,15 +200,15 @@ struct DeployTokenSheet: View {
 
                     if openIssue {
                         HStack(alignment: .top, spacing: 12) {
-                            field("Max per issue") {
+                            field(String(localized: "Max per issue")) {
                                 TextField("Unlimited", text: $maxAmtPerIssue)
                                     .fieldInputStyle()
                             }
-                            field("Min CDD per issue") {
+                            field(String(localized: "Min CDD per issue")) {
                                 TextField("None", text: $minCddPerIssue)
                                     .fieldInputStyle()
                             }
-                            field("Max issues per FID") {
+                            field(String(localized: "Max issues per FID")) {
                                 TextField("Unlimited", text: $maxIssuesPerAddr)
                                     .fieldInputStyle()
                             }
@@ -265,7 +265,7 @@ struct DeployTokenSheet: View {
         error = nil
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let carve = { (coverId: String?) async throws -> Token in
-            progressNote = "Deploying the token…"
+            progressNote = String(localized: "Deploying the token…")
             return try await session.carveTokenDeployOnChain(
                 name: trimmedName,
                 desc: desc, consensusId: consensusId,
@@ -280,11 +280,11 @@ struct DeployTokenSheet: View {
             if case .newFile(let file) = cover {
                 token = try await session.carveTogether(
                     then: .token,
-                    note: "Approving this also signs the deploy that names this image as the token's logo."
+                    note: String(localized: "Approving this also signs the deploy that names this image as the token's logo.")
                 ) {
-                    progressNote = "Publishing the logo image…"
+                    progressNote = String(localized: "Publishing the logo image…")
                     let id = try await session.publishCoverImage(
-                        at: file, title: "\(trimmedName) — logo", lang: nil, authors: nil)
+                        at: file, title: String(localized: "\(trimmedName) — logo"), lang: nil, authors: nil)
                     // A retry names this image rather than carving another.
                     cover = .image(id: id)
                     return try await carve(id)
@@ -296,7 +296,7 @@ struct DeployTokenSheet: View {
             onDone(token)
         } catch {
             progressNote = nil
-            self.error = "Couldn't deploy: \(error)"
+            self.error = String(localized: "Couldn't deploy: \(String(describing: error))")
         }
     }
 
@@ -398,11 +398,11 @@ struct IssueTokenSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 12) {
-                labelled("Circulating", TokenAmount.string(token.circulating, scale: token.decimalPlaces))
+                labelled(String(localized: "Circulating"), TokenAmount.string(token.circulating, scale: token.decimalPlaces))
                 if let cap = token.capacity, !cap.isEmpty {
-                    labelled("Capacity", cap)
+                    labelled(String(localized: "Capacity"), cap)
                 }
-                labelled("Decimals", "\(token.decimalPlaces)")
+                labelled(String(localized: "Decimals"), "\(token.decimalPlaces)")
             }
 
             Divider()
@@ -414,8 +414,8 @@ struct IssueTokenSheet: View {
                             Button {
                                 pickingFor = line.id
                                 pick = .one(
-                                    title: "Issue to",
-                                    subtitle: "They receive newly minted \(token.displayName).",
+                                    title: String(localized: "Issue to"),
+                                    subtitle: String(localized: "They receive newly minted \(token.displayName)."),
                                     excluded: []
                                 )
                             } label: {
@@ -525,7 +525,7 @@ struct IssueTokenSheet: View {
             )
             onDone(txid)
         } catch {
-            self.error = "Couldn't issue: \(error)"
+            self.error = String(localized: "Couldn't issue: \(String(describing: error))")
         }
     }
 
@@ -592,10 +592,10 @@ struct SendTokenSheet: View {
             return String(describing: error)
         }
         if let typed = Double(amount.trimmingCharacters(in: .whitespaces)), typed > balance {
-            return "That is more than the \(TokenAmount.string(balance, scale: scale)) you hold."
+            return String(localized: "That is more than the \(TokenAmount.string(balance, scale: scale)) you hold.")
         }
         if targetFid == session.liveFid {
-            return "That is your own FID — the carve would cost a fee and move nothing."
+            return String(localized: "That is your own FID — the carve would cost a fee and move nothing.")
         }
         return nil
     }
@@ -616,8 +616,8 @@ struct SendTokenSheet: View {
 
             if !token.canTransfer {
                 warning(token.isClosed
-                        ? "This token is closed. Balances are frozen where they sit and nothing can move."
-                        : "This token was deployed non-transferable. Balances can never move.")
+                        ? String(localized: "This token is closed. Balances are frozen where they sit and nothing can move.")
+                        : String(localized: "This token was deployed non-transferable. Balances can never move."))
             }
 
             HStack {
@@ -711,8 +711,8 @@ struct SendTokenSheet: View {
 
     private func openPicker() {
         pick = .one(
-            title: "Send to",
-            subtitle: "They receive the \(token.displayName) once the carve confirms.",
+            title: String(localized: "Send to"),
+            subtitle: String(localized: "They receive the \(token.displayName) once the carve confirms."),
             initialQuery: manualFid,
             excluded: [session.liveFid]
         )
@@ -743,7 +743,7 @@ struct SendTokenSheet: View {
             )
             onDone(txid)
         } catch {
-            self.error = "Couldn't send: \(error)"
+            self.error = String(localized: "Couldn't send: \(String(describing: error))")
         }
     }
 
@@ -791,9 +791,9 @@ struct TokenDetailSheet: View {
                     .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if token.isClosed { chip("Closed", color: .red) }
-                if token.openIssue == true { chip("Open issue", color: .orange) }
-                if token.transferable == true { chip("Transferable", color: .indigo) }
+                if token.isClosed { chip(String(localized: "Closed"), color: .red) }
+                if token.openIssue == true { chip(String(localized: "Open issue"), color: .orange) }
+                if token.transferable == true { chip(String(localized: "Transferable"), color: .indigo) }
             }
 
             if let desc = token.desc, !desc.isEmpty {
@@ -854,30 +854,30 @@ struct TokenDetailSheet: View {
         VStack(alignment: .leading, spacing: 0) {
             if let cover = token.cover {
                 // FEIP20 Cover rule 3: only the deployer's own Image is the logo.
-                CoverView(session: session, imageId: cover, title: "Logo") { publisher in
+                CoverView(session: session, imageId: cover, title: String(localized: "Logo")) { publisher in
                     token.showsCover(publishedBy: publisher)
                         ? nil
-                        : "Not shown: the logo image \(cover.elidingMiddle(head: 8, tail: 6)) was not published by this token's deployer."
+                        : String(localized: "Not shown: the logo image \(cover.elidingMiddle(head: 8, tail: 6)) was not published by this token's deployer.")
                 }
                 .padding(.bottom, 8)
             }
-            fidRow("Deployer", token.deployer)
-            row("Consensus FID", token.consensusId, mono: true)
-            row("Capacity", token.capacity?.isEmpty == false ? token.capacity : "no cap")
-            row("Decimal places", "\(token.decimalPlaces)")
-            row("Circulating", TokenAmount.string(token.circulating, scale: token.decimalPlaces))
-            row("Transferable", flag(token.transferable))
-            row("Closable", flag(token.closable))
-            row("Closed", flag(token.closed) )
-            row("Open issue", flag(token.openIssue))
+            fidRow(String(localized: "Deployer"), token.deployer)
+            row(String(localized: "Consensus FID"), token.consensusId, mono: true)
+            row(String(localized: "Capacity"), token.capacity?.isEmpty == false ? token.capacity : String(localized: "no cap"))
+            row(String(localized: "Decimal places"), "\(token.decimalPlaces)")
+            row(String(localized: "Circulating"), TokenAmount.string(token.circulating, scale: token.decimalPlaces))
+            row(String(localized: "Transferable"), flag(token.transferable))
+            row(String(localized: "Closable"), flag(token.closable))
+            row(String(localized: "Closed"), flag(token.closed) )
+            row(String(localized: "Open issue"), flag(token.openIssue))
             if token.openIssue == true {
-                row("Max per issue", token.maxAmtPerIssue ?? "unlimited")
-                row("Min CDD per issue", token.minCddPerIssue ?? "none")
-                row("Max issues per FID", token.maxIssuesPerAddr ?? "unlimited")
+                row(String(localized: "Max per issue"), token.maxAmtPerIssue ?? "unlimited")
+                row(String(localized: "Min CDD per issue"), token.minCddPerIssue ?? "none")
+                row(String(localized: "Max issues per FID"), token.maxIssuesPerAddr ?? "unlimited")
             }
-            row("Created", token.birthTime.map(Self.dateString))
-            row("Last activity", token.lastTime.map(Self.dateString))
-            row("Height", token.lastHeight.map(String.init))
+            row(String(localized: "Created"), token.birthTime.map(Self.dateString))
+            row(String(localized: "Last activity"), token.lastTime.map(Self.dateString))
+            row(String(localized: "Height"), token.lastHeight.map(String.init))
         }
     }
 
@@ -899,7 +899,7 @@ struct TokenDetailSheet: View {
                         if let fid = h.fid, fid != session.liveFid {
                             ContactLabelText(fid: fid)
                         }
-                        if h.fid == session.liveFid { chip("You", color: .blue) }
+                        if h.fid == session.liveFid { chip(String(localized: "You"), color: .blue) }
                         Spacer()
                         Text(TokenAmount.string(h.balance, scale: token.decimalPlaces))
                             .font(.caption.monospacedDigit())
@@ -1008,7 +1008,7 @@ struct TokenHistoryRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(entry.operation?.label ?? entry.op ?? "Unknown")
+                    Text(entry.operation?.label ?? entry.op ?? String(localized: "Unknown"))
                         .font(.caption.bold())
                         .foregroundStyle(color)
                     if let name = entry.name, !name.isEmpty {

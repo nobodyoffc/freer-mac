@@ -1581,19 +1581,19 @@ public struct WalletService {
             if cash.pendingSpend {
                 throw Failure.unspendableInput(
                     id: label,
-                    reason: "it is already an input of a broadcast transaction that hasn't confirmed. Recover it first if that transaction is never coming back."
+                    reason: String(localized: "it is already an input of a broadcast transaction that hasn't confirmed. Recover it first if that transaction is never coming back.")
                 )
             }
             guard cash.withinUnconfirmedChainLimit else {
                 throw Failure.unspendableInput(
                     id: label,
-                    reason: "it sits \(cash.unconfirmedDepth) unconfirmed spends deep and the network carries at most \(Cash.maxUnconfirmedChain). Wait for a block."
+                    reason: String(localized: "it sits \(String(cash.unconfirmedDepth)) unconfirmed spends deep and the network carries at most \(String(Cash.maxUnconfirmedChain)). Wait for a block.")
                 )
             }
             guard cash.locksToP2PKH(hash160: ownerHash160) else {
                 throw Failure.unspendableInput(
                     id: label,
-                    reason: "its lockScript doesn't pay \(fromAddress) as plain P2PKH (type '\(cash.type ?? "unknown")')"
+                    reason: String(localized: "its lockScript doesn't pay \(fromAddress) as plain P2PKH (type '\(cash.type ?? "unknown")')")
                 )
             }
         }

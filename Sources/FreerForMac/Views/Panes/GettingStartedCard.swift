@@ -95,7 +95,7 @@ struct GettingStartedCard: View {
             ContactEditorSheet(
                 session: session,
                 mode: .createFor(ob.guide ?? ""),
-                initialTitles: "My guide",
+                initialTitles: String(localized: "My guide"),
                 onSaved: { _ in
                     addingGuide = false
                     reloadLocal(guide: ob.guide)
@@ -187,13 +187,13 @@ struct GettingStartedCard: View {
                     case .pending(let txid):
                         carveNote(
                             item.step == .backupPrikey
-                            ? "Your master carve is on its way to the chain. It ticks this off once a block confirms it — until then nothing is backed up, so a copy of your own is still worth taking."
-                            : "Carved. Waiting for the chain to confirm it; this ticks itself once it does.",
+                            ? String(localized: "Your master carve is on its way to the chain. It ticks this off once a block confirms it — until then nothing is backed up, so a copy of your own is still worth taking.")
+                            : String(localized: "Carved. Waiting for the chain to confirm it; this ticks itself once it does."),
                             txid: txid, color: .secondary
                         )
                     case .stalled(let txid):
                         carveNote(
-                            "Still not on the chain a day after it was carved. The transaction may have failed. Check it, then try again.",
+                            String(localized: "Still not on the chain a day after it was carved. The transaction may have failed. Check it, then try again."),
                             txid: txid, color: .orange
                         )
                     default:
@@ -254,7 +254,7 @@ struct GettingStartedCard: View {
     /// exists is a copy only the master can open.
     private func statusLine(_ item: Onboarding.Item, ob: Onboarding) -> String? {
         if item.step == .backupPrikey, item.status == .done, let master = ob.backupMaster {
-            return "Backed up to master " + master.elidingMiddle(head: 8, tail: 8)
+            return String(localized: "Backed up to master ") + master.elidingMiddle(head: 8, tail: 8)
         }
         return statusLine(item.status)
     }
@@ -262,16 +262,16 @@ struct GettingStartedCard: View {
     private func statusLine(_ status: OnboardingStatus) -> String? {
         switch status {
         case .done, .open: return nil
-        case .skipped: return "Skipped"
-        case .unknown: return "Checking the chain…"
-        case .pending: return "Waiting for the chain"
-        case .stalled: return "Not on the chain after a day"
+        case .skipped: return String(localized: "Skipped")
+        case .unknown: return String(localized: "Checking the chain…")
+        case .pending: return String(localized: "Waiting for the chain")
+        case .stalled: return String(localized: "Not on the chain after a day")
         case .waiting(.step(let step)):
-            return "After “\(Self.title(step))”"
+            return String(localized: "After “\(Self.title(step))”")
         case .waiting(.coinDays(let have, let need, let days)):
-            let base = "Your coins are still aging: \(have) of \(need) CD"
+            let base = String(localized: "Your coins are still aging: \(String(have)) of \(String(need)) CD")
             guard let days else { return base }
-            return base + ", about \(days) day\(days == 1 ? "" : "s") to go"
+            return base + String(localized: ", about \(String(days)) day\(days == 1 ? "" : "s") to go")
         }
     }
 
@@ -355,7 +355,7 @@ struct GettingStartedCard: View {
     private func askForFirstFch() async {
         guard !askingForFirstFch else { return }
         guard let privkey = try? session.livePrikey() else {
-            askError = "This identity has no prikey, so there is nothing to seal a request with."
+            askError = String(localized: "This identity has no prikey, so there is nothing to seal a request with.")
             return
         }
         askError = nil
@@ -369,7 +369,7 @@ struct GettingStartedCard: View {
             try? session.firstFchBoardState.put(state, fid: fid)
             askedForFirstFch = true
         } catch {
-            askError = "Couldn't post your request: \(error)"
+            askError = String(localized: "Couldn't post your request: \(String(describing: error))")
         }
     }
 
@@ -439,50 +439,50 @@ struct GettingStartedCard: View {
 
     static func title(_ step: OnboardingStep) -> String {
         switch step {
-        case .backupPrikey: return "Back up your prikey"
-        case .firstFch: return "Get your first FCH"
-        case .registerCid: return "Register a CID"
-        case .setHome: return "Set your DOCK and DISK"
-        case .addGuide: return "Add your guide to contacts"
-        case .joinSquare: return "Join a square"
+        case .backupPrikey: return String(localized: "Back up your prikey")
+        case .firstFch: return String(localized: "Get your first FCH")
+        case .registerCid: return String(localized: "Register a CID")
+        case .setHome: return String(localized: "Set your DOCK and DISK")
+        case .addGuide: return String(localized: "Add your guide to contacts")
+        case .joinSquare: return String(localized: "Join a square")
         }
     }
 
     static func explanation(_ step: OnboardingStep) -> String {
         switch step {
         case .backupPrikey:
-            return """
+            return String(localized: """
                 Your prikey is the only proof this identity is yours, and it exists on this Mac \
                 alone. If the machine dies, so does the identity. Nobody can reissue it. Keep a \
                 copy on paper, or as an encrypted file you can store anywhere.
-                """
+                """)
         case .firstFch:
-            return """
+            return String(localized: """
                 Every carve, name and message costs a fee, so an empty FID can't do much yet. Ask \
                 on the public First FCH board, or have somebody send coins straight to your \
                 address. Whoever sends your first coins becomes your guide.
-                """
+                """)
         case .registerCid:
-            return """
+            return String(localized: """
                 A CID is a name people can find you by, like Alice_VkUV. The last characters of \
                 your FID keep it unique. Registering one also puts your pubkey on the chain, and \
                 nobody can write to you until it's there.
-                """
+                """)
         case .setHome:
-            return """
+            return String(localized: """
                 A DOCK holds messages for you while you're offline, and a DISK keeps your files. \
                 Until both are registered on the chain, other freers have nowhere to reach you.
-                """
+                """)
         case .addGuide:
-            return """
+            return String(localized: """
                 Your guide sent you your first coins. They're the one person here you already \
                 know, so keep them in your contacts.
-                """
+                """)
         case .joinSquare:
-            return """
+            return String(localized: """
                 Squares are open group chats that anyone can join. Find one about something you \
                 care about and say hello.
-                """
+                """)
         }
     }
 }

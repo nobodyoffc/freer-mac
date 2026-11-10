@@ -111,7 +111,7 @@ public final class QrCameraController: NSObject, ObservableObject,
               let input = try? AVCaptureDeviceInput(device: device),
               session.canAddInput(input)
         else {
-            setupError = "No usable camera found."
+            setupError = String(localized: "No usable camera found.")
             return false
         }
         session.addInput(input)
@@ -123,7 +123,7 @@ public final class QrCameraController: NSObject, ObservableObject,
         ]
         output.setSampleBufferDelegate(self, queue: frameQueue)
         guard session.canAddOutput(output) else {
-            setupError = "Camera does not support video capture."
+            setupError = String(localized: "Camera does not support video capture.")
             return false
         }
         session.addOutput(output)

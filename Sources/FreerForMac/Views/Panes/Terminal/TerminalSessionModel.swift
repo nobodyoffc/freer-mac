@@ -191,7 +191,7 @@ final class TerminalSessionModel {
         // fails it returns quietly and no delegate callback ever fires.
         // Checking first turns "nothing happened" into a message.
         guard SshLaunch.isAvailable(invocation.executable) else {
-            let message = "\(invocation.executable) is missing or not executable."
+            let message = String(localized: "\(invocation.executable) is missing or not executable.")
             endedMessage = message
             return message
         }
@@ -239,7 +239,7 @@ final class TerminalSessionModel {
         if !view.process.running {
             guard isRunning else { return nil }
             isRunning = false
-            let message = "Could not start \(invocation.executable)."
+            let message = String(localized: "Could not start \(invocation.executable).")
             endedMessage = message
             return message
         }
@@ -289,19 +289,19 @@ extension SshLaunch.Kind {
     var tabLabel: String {
         switch self {
         case .shell:
-            return "Shell"
+            return String(localized: "Shell")
         case .installKey:
-            return "Install key"
+            return String(localized: "Install key")
         case .removeKey:
-            return "Remove key"
+            return String(localized: "Remove key")
         case .sftp:
             return "SFTP"
         case let .upload(paths, _):
             return paths.count == 1
-                ? "Upload \((paths[0] as NSString).lastPathComponent)"
-                : "Upload \(paths.count) items"
+                ? String(localized: "Upload \((paths[0] as NSString).lastPathComponent)")
+                : String(localized: "Upload \(String(paths.count)) items")
         case let .tunnel(forwards):
-            return "Tunnel " + forwards.map { ":\($0.localPort)" }.joined(separator: " ")
+            return String(localized: "Tunnel ") + forwards.map { ":\($0.localPort)" }.joined(separator: " ")
         }
     }
 

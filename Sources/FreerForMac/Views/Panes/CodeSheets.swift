@@ -153,11 +153,11 @@ struct PublishCodeSheet: View {
     }
 
     private var heading: String {
-        if review != nil { return target.isUpdate ? "Review: update" : "Review: publish" }
+        if review != nil { return target.isUpdate ? String(localized: "Review: update") : String(localized: "Review: publish") }
         switch target {
-        case .new:    return "Publish a code record"
-        case .draft:  return "Edit draft"
-        case .update: return "Update this code record"
+        case .new:    return String(localized: "Publish a code record")
+        case .draft:  return String(localized: "Edit draft")
+        case .update: return String(localized: "Update this code record")
         }
     }
 
@@ -171,11 +171,11 @@ struct PublishCodeSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if review != nil {
-                ReleaseReviewNote(status: review?.status, text: "From the release. Name, version and DID come from the module and its archive and are locked. Edits to the description, languages and protocols are written back to freeverse-release.json.")
+                ReleaseReviewNote(status: review?.status, text: String(localized: "From the release. Name, version and DID come from the module and its archive and are locked. Edits to the description, languages and protocols are written back to freeverse-release.json."))
             }
 
             if target.isUpdate {
-                CopyableLabel("An update replaces what the record says. A field left blank here is a field cleared on chain.", systemImage: "exclamationmark.triangle")
+                CopyableLabel(String(localized: "An update replaces what the record says. A field left blank here is a field cleared on chain."), systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -184,12 +184,12 @@ struct PublishCodeSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 10) {
-                        field("Name") {
+                        field(String(localized: "Name")) {
                             TextField("What the implementation is called", text: $name)
                                 .disabled(review != nil)
                                 .fieldInputStyle()
                         }
-                        field("Version") {
+                        field(String(localized: "Version")) {
                             TextField("e.g. 1.4.2", text: $ver)
                                 .disabled(review != nil)
                                 .fieldInputStyle()
@@ -197,7 +197,7 @@ struct PublishCodeSheet: View {
                         .frame(maxWidth: 140)
                     }
 
-                    field("Description") {
+                    field(String(localized: "Description")) {
                         VStack(alignment: .leading, spacing: 4) {
                             TextEditor(text: $desc)
                                 .font(.body)
@@ -216,7 +216,7 @@ struct PublishCodeSheet: View {
                         }
                     }
 
-                    field("Languages") {
+                    field(String(localized: "Languages")) {
                         VStack(alignment: .leading, spacing: 5) {
                             TextField("swift, c, rust — comma separated", text: $langsText)
                                 .fieldInputStyle()
@@ -240,7 +240,7 @@ struct PublishCodeSheet: View {
                         }
                     }
 
-                    field("Protocols it speaks") {
+                    field(String(localized: "Protocols it speaks")) {
                         ProtocolIdListEditor(
                             session: session,
                             ids: $protocols,
@@ -248,7 +248,7 @@ struct PublishCodeSheet: View {
                         )
                     }
 
-                    field("Artefact DID") {
+                    field(String(localized: "Artefact DID")) {
                         TextField("digest of the code being registered", text: $did)
                             .disabled(review != nil)
                             .fieldInputStyle()
@@ -256,11 +256,11 @@ struct PublishCodeSheet: View {
                     }
                     .help("The code itself is not carved. This is its digest, so whoever fetches it can check it is what was registered.")
 
-                    field("Where to get it") {
+                    field(String(localized: "Where to get it")) {
                         HomeMapEditor(rows: $homeRows)
                     }
 
-                    field("Waiters") {
+                    field(String(localized: "Waiters")) {
                         VStack(alignment: .leading, spacing: 6) {
                             if waiters.isEmpty {
                                 Text("Nobody — the owner is the only contact for this implementation.")
@@ -288,8 +288,8 @@ struct PublishCodeSheet: View {
                             }
                             Button {
                                 pick = .many(
-                                    title: "Add waiters",
-                                    subtitle: "They are listed as serving this implementation. A waiter is not a co-owner — only you can carve against the record.",
+                                    title: String(localized: "Add waiters"),
+                                    subtitle: String(localized: "They are listed as serving this implementation. A waiter is not a co-owner — only you can carve against the record."),
                                     excluded: Set(waiters)
                                 )
                             } label: {
@@ -307,7 +307,7 @@ struct PublishCodeSheet: View {
             }
 
             if !session.canSign {
-                CopyableText("This identity is watch-only, so it cannot sign a carve. You can still save a draft and publish it later from an identity that holds the key.")
+                CopyableText(String(localized: "This identity is watch-only, so it cannot sign a carve. You can still save a draft and publish it later from an identity that holds the key."))
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -398,7 +398,7 @@ struct PublishCodeSheet: View {
             try persistDraft()
             onDone(.draft)
         } catch {
-            self.error = "Couldn't save the draft: \(error)"
+            self.error = String(localized: "Couldn't save the draft: \(String(describing: error))")
         }
     }
 
@@ -450,8 +450,8 @@ struct PublishCodeSheet: View {
             onDone(.published(code))
         } catch {
             self.error = target.isUpdate
-                ? "Couldn't update: \(error)"
-                : "Couldn't publish: \(error)"
+                ? String(localized: "Couldn't update: \(String(describing: error))")
+                : String(localized: "Couldn't publish: \(String(describing: error))")
         }
     }
 
@@ -598,7 +598,7 @@ struct ProtocolPickerSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack {
-                SearchField("Search the registry…", text: $searchText, minWidth: 200)
+                SearchField(String(localized: "Search the registry…"), text: $searchText, minWidth: 200)
                 Spacer()
                 if loading { ProgressView().controlSize(.small) }
                 Button {
@@ -691,7 +691,7 @@ struct ProtocolPickerSheet: View {
             )
             rows = page.protocols
         } catch {
-            self.error = "Couldn't load the protocol registry: \(error)"
+            self.error = String(localized: "Couldn't load the protocol registry: \(String(describing: error))")
         }
     }
 }
@@ -727,7 +727,7 @@ struct CodeDetailSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let desc = code.desc, !desc.isEmpty {
-                        field("Description") {
+                        field(String(localized: "Description")) {
                             CopyableText(desc, font: .body)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -735,19 +735,19 @@ struct CodeDetailSheet: View {
 
                     HStack(alignment: .top, spacing: 24) {
                         if let ver = code.ver, !ver.isEmpty {
-                            field("Version") { Text(ver).font(.caption) }
+                            field(String(localized: "Version")) { Text(ver).font(.caption) }
                         }
                         if let langs = code.langs, !langs.isEmpty {
-                            field("Languages") {
+                            field(String(localized: "Languages")) {
                                 Text(langs.joined(separator: ", ")).font(.caption)
                             }
                         }
                     }
 
-                    field("Owner") { fidValue(code.owner) }
+                    field(String(localized: "Owner")) { fidValue(code.owner) }
 
                     if let protocols = code.protocols, !protocols.isEmpty {
-                        field("Protocols it speaks") {
+                        field(String(localized: "Protocols it speaks")) {
                             VStack(alignment: .leading, spacing: 5) {
                                 ForEach(protocols, id: \.self) { id in
                                     HStack(spacing: 6) {
@@ -771,7 +771,7 @@ struct CodeDetailSheet: View {
                     }
 
                     if let waiters = code.waiters, !waiters.isEmpty {
-                        field("Waiters") {
+                        field(String(localized: "Waiters")) {
                             VStack(alignment: .leading, spacing: 5) {
                                 ForEach(waiters, id: \.self) { fid in
                                     fidValue(fid)
@@ -781,7 +781,7 @@ struct CodeDetailSheet: View {
                     }
 
                     if let home = code.home, !home.isEmpty {
-                        field("Where to get it") {
+                        field(String(localized: "Where to get it")) {
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(home.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
                                     HStack(spacing: 6) {
@@ -794,7 +794,7 @@ struct CodeDetailSheet: View {
                     }
 
                     if let did = code.did, !did.isEmpty {
-                        field("Artefact DID") {
+                        field(String(localized: "Artefact DID")) {
                             CopyableText.elidingMiddle(
                                 did, head: 12, tail: 12,
                                 font: .system(.caption, design: .monospaced)
@@ -803,14 +803,14 @@ struct CodeDetailSheet: View {
                     }
 
                     if code.isClosed, let statement = code.closeStatement, !statement.isEmpty {
-                        field("Closing statement") {
+                        field(String(localized: "Closing statement")) {
                             CopyableText(statement, font: .caption)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
 
                     HStack(spacing: 24) {
-                        field("Rating") {
+                        field(String(localized: "Rating")) {
                             RatingSummaryView(tRate: code.tRate, tCdd: code.tCdd)
                         }
                     }
@@ -826,7 +826,7 @@ struct CodeDetailSheet: View {
                         name: name
                     )
 
-                    field("Code ID") {
+                    field(String(localized: "Code ID")) {
                         CopyableText.elidingMiddle(
                             code.id, head: 12, tail: 12,
                             font: .system(.caption, design: .monospaced)
@@ -834,7 +834,7 @@ struct CodeDetailSheet: View {
                     }
 
                     if let txid = code.lastTxId, !txid.isEmpty, txid != code.id {
-                        field("Last transaction") {
+                        field(String(localized: "Last transaction")) {
                             CopyableText.elidingMiddle(
                                 txid, head: 12, tail: 12,
                                 font: .system(.caption, design: .monospaced)
@@ -844,21 +844,21 @@ struct CodeDetailSheet: View {
 
                     HStack(spacing: 24) {
                         if let t = code.birthTime {
-                            field("Published") {
+                            field(String(localized: "Published")) {
                                 Text(Date(timeIntervalSince1970: TimeInterval(t)),
                                      format: .dateTime.year().month().day().hour().minute())
                                     .font(.caption)
                             }
                         }
                         if let t = code.lastTime {
-                            field("Last change") {
+                            field(String(localized: "Last change")) {
                                 Text(Date(timeIntervalSince1970: TimeInterval(t)),
                                      format: .dateTime.year().month().day().hour().minute())
                                     .font(.caption)
                             }
                         }
                         if let h = code.lastHeight, h != CodesStore.unconfirmedHeight {
-                            field("Height") {
+                            field(String(localized: "Height")) {
                                 Text("\(h)").font(.caption.monospacedDigit())
                             }
                         }
@@ -912,11 +912,11 @@ struct CodeDetailSheet: View {
     @ViewBuilder
     private var stateChip: some View {
         switch code.state {
-        case .closed:    chip("Closed", color: .red)
-        case .stopped:   chip("Stopped", color: .orange)
-        case .draft:     chip("Draft", color: .gray)
-        case .broadcast: chip("Broadcast, unconfirmed", color: .orange)
-        case .live:      chip("In force", color: .blue)
+        case .closed:    chip(String(localized: "Closed"), color: .red)
+        case .stopped:   chip(String(localized: "Stopped"), color: .orange)
+        case .draft:     chip(String(localized: "Draft"), color: .gray)
+        case .broadcast: chip(String(localized: "Broadcast, unconfirmed"), color: .orange)
+        case .live:      chip(String(localized: "In force"), color: .blue)
         }
     }
 
@@ -943,12 +943,12 @@ struct CodeDetailSheet: View {
 
     private var rateHelp: String {
         if code.id.isEmpty {
-            return "This code record has no on-chain id yet."
+            return String(localized: "This code record has no on-chain id yet.")
         }
         if code.owner == session.liveFid {
-            return "You own this code record, and the protocol ignores a rating from its own owner."
+            return String(localized: "You own this code record, and the protocol ignores a rating from its own owner.")
         }
-        return "Rate this code record 0–5, weighted by the coin-days you spend."
+        return String(localized: "Rate this code record 0–5, weighted by the coin-days you spend.")
     }
 
     private func chip(_ text: String, color: Color) -> some View {
@@ -1001,7 +1001,7 @@ struct CloseCodeSheet: View {
                 }
             }
 
-            CopyableLabel("Closing is permanent. The record stays on the chain and stays readable, flagged closed, but there is no op that reopens it — Recover only undoes a Stop.", systemImage: "exclamationmark.triangle")
+            CopyableLabel(String(localized: "Closing is permanent. The record stays on the chain and stays readable, flagged closed, but there is no op that reopens it — Recover only undoes a Stop."), systemImage: "exclamationmark.triangle")
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1047,7 +1047,7 @@ struct CloseCodeSheet: View {
             )
             onDone(txid)
         } catch {
-            self.error = "Couldn't close: \(error)"
+            self.error = String(localized: "Couldn't close: \(String(describing: error))")
         }
     }
 }

@@ -232,7 +232,7 @@ struct FirstFchBoardView: View {
     /// For the reader who has coins: what helping is, then what to watch
     /// for. The caution is about the *rows*, which is the only part of
     /// the board a helper has to make a judgement about.
-    private static let helperText = """
+    private static let helperText = String(localized: """
         Every action on chain costs a fee, so a brand-new FID can do nothing at all — \
         not buy a name, not send a message, not record anything — until somebody who \
         already has coins sends it a few. The people below are in exactly that position \
@@ -243,18 +243,18 @@ struct FirstFchBoardView: View {
         and a sentence somebody typed — none of it is checked. Click a FID to see how \
         old it is and what others have said about it on chain, and send only what you \
         are content to give away.
-        """
+        """)
 
     /// For the reader who has none: how to ask, then the one rule that
     /// keeps them from being fleeced on their way in.
-    private static let askerText = """
+    private static let askerText = String(localized: """
         Every action on chain costs a fee, and this FID has none, so there is nothing it \
         can do yet. Post below and any freer who opens this page can send you enough to \
         start.
 
         You never need to pay, click a link, or share anything to receive coins. The only \
         sign that somebody helped is your own balance going up.
-        """
+        """)
 
     /// Where the rows come from, said once and quietly. The board FID's
     /// private key is published — that is what lets a newcomer with no
@@ -355,7 +355,7 @@ struct FirstFchBoardView: View {
 
             if requests.isEmpty {
                 Text(boardError
-                     ?? "No one is asking right now. Anybody who has been funded since they asked has already dropped off this list.")
+                     ?? String(localized: "No one is asking right now. Anybody who has been funded since they asked has already dropped off this list."))
                     .font(.callout)
                     .foregroundStyle(boardError == nil
                                      ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.red))
@@ -414,7 +414,7 @@ struct FirstFchBoardView: View {
         if funded > 0 { parts.append("\(funded) funded") }
         if skipped > 0 { parts.append("\(skipped) skipped") }
         return parts.joined(separator: ", ")
-            + " — hidden until you have not acted on them for \(Self.dismissalDays) days"
+            + String(localized: " — hidden until you have not acted on them for \(String(Self.dismissalDays)) days")
     }
 
     private func hiddenRow(
@@ -547,7 +547,7 @@ struct FirstFchBoardView: View {
 
                 Spacer()
                 if !session.canSign {
-                    CopyableText("Watch-only identity — no key to sign a payment with.")
+                    CopyableText(String(localized: "Watch-only identity — no key to sign a payment with."))
                         .font(.caption)
                         .foregroundStyle(.orange)
                 }
@@ -694,7 +694,7 @@ struct FirstFchBoardView: View {
     @MainActor
     private func post() async {
         guard let privkey = try? session.livePrikey() else {
-            status = .bad("This identity has no prikey, so there is nothing to seal a post with.")
+            status = .bad(String(localized: "This identity has no prikey, so there is nothing to seal a post with."))
             return
         }
         posting = true
@@ -706,9 +706,9 @@ struct FirstFchBoardView: View {
             boardState.askedAt = Int64(Date().timeIntervalSince1970 * 1000)
             try? session.firstFchBoardState.put(boardState, fid: session.liveFid)
             note = ""
-            status = .ok("Your request is on the board.")
+            status = .ok(String(localized: "Your request is on the board."))
         } catch {
-            status = .bad("Couldn't post your request: \(error)")
+            status = .bad(String(localized: "Couldn't post your request: \(String(describing: error))"))
         }
     }
 
@@ -758,7 +758,7 @@ struct FirstFchBoardView: View {
             let result = try await session.sendAdvancedFromLive(
                 info: info, inputCashes: inputs, bestHeight: fresh.bestHeight ?? 0
             )
-            status = .ok("Sent — \(result.remoteTxid). \(payees.count) newcomer\(payees.count == 1 ? "" : "s") funded.")
+            status = .ok(String(localized: "Sent — \(result.remoteTxid). \(String(payees.count)) newcomer\(payees.count == 1 ? "" : "s") funded."))
 
             // They are answered now, so they stop being rows — and the
             // decision is written down rather than held in this view.
@@ -825,8 +825,10 @@ enum BoardSendFailure: Error, CustomStringConvertible {
     var description: String {
         switch self {
         case let .notEnoughFch(needed, have):
-            return "Not enough spendable FCH: this needs \(needed) satoshi including the fee, "
-                + "and the confirmed cashes on this FID come to \(have)."
+            return String(localized: """
+                Not enough spendable FCH: this needs \(String(needed)) satoshi including the fee, \
+                and the confirmed cashes on this FID come to \(String(have)).
+                """)
         }
     }
 }

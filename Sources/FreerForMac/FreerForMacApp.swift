@@ -1,7 +1,8 @@
 import SwiftUI
 import AppKit
 
-@main
+/// Started by ``Launcher`` (DevLocalization.swift), not `@main`: the language
+/// folders have to be in place before SwiftUI first reads the main bundle.
 struct FreerForMacApp: App {
 
     /// SwiftPM-built executables ship without an Info.plist, so the

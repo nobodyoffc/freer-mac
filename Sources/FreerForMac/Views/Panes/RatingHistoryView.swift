@@ -146,8 +146,8 @@ struct RatingHistoryView: View {
     }
 
     private func weightText(_ row: RatingHist) -> String {
-        guard let cdd = row.cdd else { return "weight unknown" }
-        return "\(RateRecordSheet.grouped(cdd)) CDD"
+        guard let cdd = row.cdd else { return String(localized: "weight unknown") }
+        return String(localized: "\(RateRecordSheet.grouped(cdd)) CDD")
     }
 
     private func timeText(_ row: RatingHist) -> String? {
@@ -172,7 +172,7 @@ struct RatingHistoryView: View {
             cursor = page.last
             total = page.total
         } catch {
-            loadError = "Couldn't read the ratings — \(error)"
+            loadError = String(localized: "Couldn't read the ratings — \(String(describing: error))")
         }
     }
 
@@ -192,7 +192,7 @@ struct RatingHistoryView: View {
             self.cursor = page.last
             if let t = page.total { total = t }
         } catch {
-            loadError = "Couldn't read more ratings — \(error)"
+            loadError = String(localized: "Couldn't read more ratings — \(String(describing: error))")
         }
     }
 }

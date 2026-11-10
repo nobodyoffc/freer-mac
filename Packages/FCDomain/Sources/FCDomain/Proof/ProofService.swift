@@ -56,13 +56,13 @@ public struct ProofService {
         /// Display label. English only for now; Phase 11 localises.
         public var label: String {
             switch self {
-            case .title:            return "Title"
-            case .content:          return "Content"
-            case .issuer:           return "Issuer"
-            case .owner:            return "Owner"
-            case .cosignersInvited: return "Cosigner"
-            case .lastHeight:       return "Height"
-            case .lastTime:         return "Time"
+            case .title:            return String(localized: "Title")
+            case .content:          return String(localized: "Content")
+            case .issuer:           return String(localized: "Issuer")
+            case .owner:            return String(localized: "Owner")
+            case .cosignersInvited: return String(localized: "Cosigner")
+            case .lastHeight:       return String(localized: "Height")
+            case .lastTime:         return String(localized: "Time")
             case .id:               return "ID"
             }
         }

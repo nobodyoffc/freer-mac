@@ -123,8 +123,10 @@ struct FidDetailSheet: View {
         .sheet(isPresented: $rating) {
             RateFreerSheet(session: session, ratee: fid, freer: freer) { txid in
                 rating = false
-                rateNote = "Rating broadcast — \(txid.elidingMiddle(head: 8, tail: 8)). "
-                    + "It moves this FID's score when the block confirms."
+                rateNote = String(localized: """
+                    Rating broadcast — \(txid.elidingMiddle(head: 8, tail: 8)). \
+                    It moves this FID's score when the block confirms.
+                    """)
                 Task { await load() }
             } onCancel: {
                 rating = false
@@ -200,18 +202,18 @@ struct FidDetailSheet: View {
             Label("Rate", systemImage: "hand.thumbsup")
         }
         .disabled(blocked != nil)
-        .help(blocked ?? "Rate this FID good or bad — an on-chain statement weighted by the coin-days it destroys")
+        .help(blocked ?? String(localized: "Rate this FID good or bad — an on-chain statement weighted by the coin-days it destroys"))
     }
 
     private var rateBlockedReason: String? {
         if isLive {
-            return "You are living as this FID — a FID cannot rate itself."
+            return String(localized: "You are living as this FID — a FID cannot rate itself.")
         }
         if !session.canSign {
-            return "This identity has no prikey on this Mac, so it cannot sign a rating."
+            return String(localized: "This identity has no prikey on this Mac, so it cannot sign a rating.")
         }
         if freer == nil && !loading {
-            return "This FID has no on-chain record, and a rating only applies to a FID that has one."
+            return String(localized: "This FID has no on-chain record, and a rating only applies to a FID that has one.")
         }
         return nil
     }
@@ -234,8 +236,8 @@ struct FidDetailSheet: View {
     }
 
     private var fetchedNote: String {
-        guard let fetchedAt else { return "Chain record not loaded" }
-        return "Chain record read \(fetchedAt.formatted(.relative(presentation: .named)))"
+        guard let fetchedAt else { return String(localized: "Chain record not loaded") }
+        return String(localized: "Chain record read \(fetchedAt.formatted(.relative(presentation: .named)))")
     }
 
     /// What this FID is *to the person reading*. For an identity in the
@@ -251,9 +253,9 @@ struct FidDetailSheet: View {
         if let keyInfo {
             var name: String
             if fid == session.mainFid {
-                name = "Main FID"
+                name = String(localized: "Main FID")
             } else if let master = session.mainKeyInfo.master, master == fid {
-                name = "Master"
+                name = String(localized: "Master")
             } else {
                 switch keyInfo.kind {
                 case .main:     name = "Main FID"
@@ -262,20 +264,20 @@ struct FidDetailSheet: View {
                 case .servant:  name = "Servant FID"
                 }
             }
-            if isLive { name += " — live" }
+            if isLive { name += String(localized: " — live") }
             if keyInfo.kind != .multisig {
                 name += " · " + keyState(keyInfo).headline.lowercased()
             }
             return name
         }
-        if contact != nil { return "In your contacts" }
-        return "Another FID"
+        if contact != nil { return String(localized: "In your contacts") }
+        return String(localized: "Another FID")
     }
 
     // MARK: - local sections
 
     private var identitySection: some View {
-        section("Identity") {
+        section(String(localized: "Identity")) {
             row("FID") {
                 // Whole, not elided. Somebody opening this page wants
                 // the string itself — the bar already has the short form.
@@ -287,27 +289,27 @@ struct FidDetailSheet: View {
                     VStack(alignment: .leading, spacing: 2) {
                         CopyableText(cid, font: .body)
                         if !formerCids.isEmpty {
-                            caption("Formerly " + formerCids.joined(separator: ", "))
+                            caption(String(localized: "Formerly ") + formerCids.joined(separator: ", "))
                         }
                     }
                 } else {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("None registered").foregroundStyle(.secondary)
-                        caption("A CID is a name bought on chain. Without one this FID is known by its address.")
+                        caption(String(localized: "A CID is a name bought on chain. Without one this FID is known by its address."))
                     }
                 }
             }
             if let hex = pubkeyHex {
-                row("Pubkey") {
+                row(String(localized: "Pubkey")) {
                     CopyableText(hex, font: .system(.caption, design: .monospaced))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if freer?.isNobody == true {
-                row("Nobody") {
+                row(String(localized: "Nobody")) {
                     VStack(alignment: .leading, spacing: 2) {
-                        CopyableText("The prikey behind this FID is public").foregroundStyle(.orange)
-                        caption("Anyone can spend from it. Never send value here.", warning: true)
+                        CopyableText(String(localized: "The prikey behind this FID is public")).foregroundStyle(.orange)
+                        caption(String(localized: "Anyone can spend from it. Never send value here."), warning: true)
                     }
                 }
             }
@@ -320,23 +322,23 @@ struct FidDetailSheet: View {
     @ViewBuilder
     private var contactSection: some View {
         if let contact {
-            section("In your contacts") {
+            section(String(localized: "In your contacts")) {
                 if let titles = contact.titles, !titles.isEmpty {
-                    row("Titles") { Text(titles.joined(separator: " · ")) }
+                    row(String(localized: "Titles")) { Text(titles.joined(separator: " · ")) }
                 }
                 if let memo = contact.memo, !memo.isEmpty {
-                    row("Memo") {
+                    row(String(localized: "Memo")) {
                         Text(memo).fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                row("Saved") {
+                row(String(localized: "Saved")) {
                     Text(Self.stamp.string(from: contact.addedAt)).foregroundStyle(.secondary)
                 }
                 if contact.onChain == true {
-                    row("Carved") {
+                    row(String(localized: "Carved")) {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Yes")
-                            caption("Your note about this FID is on chain, encrypted so only you can read it.")
+                            caption(String(localized: "Your note about this FID is on chain, encrypted so only you can read it."))
                         }
                     }
                 }
@@ -350,99 +352,105 @@ struct FidDetailSheet: View {
     private func keyState(_ info: KeyInfo) -> (headline: String, detail: String) {
         let signable = info.hasPrivkey && info.kind.canSign
         if signable {
-            return ("Prikey held",
+            return (String(localized: "Prikey held"),
                     isLive
-                        ? "This vault can sign transactions and decrypt messages for this FID."
-                        : "This vault holds the key. Switch to this identity to sign as it.")
+                        ? String(localized: "This vault can sign transactions and decrypt messages for this FID.")
+                        : String(localized: "This vault holds the key. Switch to this identity to sign as it."))
         }
         switch info.kind {
         case .multisig:
-            return ("Group address",
-                    "Spending needs signatures from the other members too — collect them in the co-sign sheet.")
+            return (String(localized: "Group address"),
+                    String(localized: "Spending needs signatures from the other members too — collect them in the co-sign sheet."))
         case .watched:
             return ("Watch-only",
-                    "No prikey here. Transactions can be built but must be signed elsewhere.")
+                    String(localized: "No prikey here. Transactions can be built but must be signed elsewhere."))
         default:
-            return ("No prikey",
-                    "This identity can be read but not spent from on this Mac.")
+            return (String(localized: "No prikey"),
+                    String(localized: "This identity can be read but not spent from on this Mac."))
         }
     }
 
     // MARK: - chain sections
 
     private var noRecordSection: some View {
-        section("On chain") {
+        section(String(localized: "On chain")) {
             Text("No record yet").foregroundStyle(.secondary)
             caption(
-                "The index has never seen this FID. That is normal for an identity that has "
-                    + "not received or sent anything — the record appears with its first transaction."
+                String(localized: """
+                    The index has never seen this FID. That is normal for an identity that has \
+                    not received or sent anything — the record appears with its first transaction.
+                    """)
             )
         }
     }
 
     private var balanceSection: some View {
-        section("Balance") {
-            row("Spendable") {
+        section(String(localized: "Balance")) {
+            row(String(localized: "Spendable")) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(Self.coins(freer?.balance) + " F")
                         .font(.body.monospacedDigit())
                     if let sats = freer?.balance {
-                        caption("\(Self.grouped(sats)) satoshis, exactly")
+                        caption(String(localized: "\(Self.grouped(sats)) satoshis, exactly"))
                     }
                 }
             }
-            row("Cash", freer?.cash.map { "\(Self.grouped($0)) UTXOs" })
-            row("Received", freer?.income.map { Self.coins($0) + " F" })
-            row("Spent", freer?.expend.map { Self.coins($0) + " F" })
+            row(String(localized: "Cash"), freer?.cash.map { String(localized: "\(Self.grouped($0)) UTXOs") })
+            row(String(localized: "Received"), freer?.income.map { Self.coins($0) + " F" })
+            row(String(localized: "Spent"), freer?.expend.map { Self.coins($0) + " F" })
         }
     }
 
     /// The numbers the bar compacts to "1.2k". Here they are whole.
     private var standingSection: some View {
-        section("Standing") {
+        section(String(localized: "Standing")) {
             row("CD", freer?.cd.map(Self.grouped), note:
-                "Coin-days accumulated — the fuel most on-chain operations are priced in.")
+                String(localized: "Coin-days accumulated — the fuel most on-chain operations are priced in."))
             row("CDD", freer?.cdd.map(Self.grouped), note:
-                "Coin-days destroyed — how much of that fuel this FID has spent over its life.")
-            row("Weight", freer?.weight.map(Self.grouped), note:
-                "This FID's share of the chain's total coin-days — \(WeightMethod.cdPercent)% CD, "
-                    + "\(WeightMethod.cddPercent)% CDD, \(WeightMethod.reputationPercent)% reputation.")
-            row("Reputation", freer?.reputation.map(Self.grouped), note:
-                "The CDD-weighted score others have carved about this FID. Good ratings add their "
-                    + "coin-days, bad ones subtract them, so this can be negative.")
-            row("Hot", freer?.hot.map(Self.grouped), note:
-                "Coin-days spent rating this FID at all, whichever way. Attention, not approval.")
+                String(localized: "Coin-days destroyed — how much of that fuel this FID has spent over its life."))
+            row(String(localized: "Weight"), freer?.weight.map(Self.grouped), note:
+                String(localized: """
+                    This FID's share of the chain's total coin-days — \(String(WeightMethod.cdPercent))% CD, \
+                    \(String(WeightMethod.cddPercent))% CDD, \(String(WeightMethod.reputationPercent))% reputation.
+                    """))
+            row(String(localized: "Reputation"), freer?.reputation.map(Self.grouped), note:
+                String(localized: """
+                    The CDD-weighted score others have carved about this FID. Good ratings add their \
+                    coin-days, bad ones subtract them, so this can be negative.
+                    """))
+            row(String(localized: "Hot"), freer?.hot.map(Self.grouped), note:
+                String(localized: "Coin-days spent rating this FID at all, whichever way. Attention, not approval."))
         }
     }
 
     private var recordSection: some View {
-        section("Record") {
-            row("Born at height", freer?.birthHeight.map(Self.grouped))
-            row("Last active at height", freer?.lastHeight.map(Self.grouped))
-            row("Named", freer?.nameTime.map(Self.chainTime))
+        section(String(localized: "Record")) {
+            row(String(localized: "Born at height"), freer?.birthHeight.map(Self.grouped))
+            row(String(localized: "Last active at height"), freer?.lastHeight.map(Self.grouped))
+            row(String(localized: "Named"), freer?.nameTime.map(Self.chainTime))
             if let master = freer?.master ?? keyInfo?.master, !master.isEmpty {
-                row("Master") {
+                row(String(localized: "Master")) {
                     VStack(alignment: .leading, spacing: 2) {
                         CopyableText.elidingMiddle(
                             master, head: 10, tail: 10,
                             font: .system(.caption, design: .monospaced)
                         )
-                        caption("The FID this one has published its prikey to.")
+                        caption(String(localized: "The FID this one has published its prikey to."))
                     }
                 }
             }
             if let guide = freer?.guide, !guide.isEmpty {
-                row("Guide") {
+                row(String(localized: "Guide")) {
                     CopyableText.elidingMiddle(guide, head: 10, tail: 10, font: .caption)
                 }
             }
             if let fee = freer?.noticeFee, !fee.isEmpty {
-                row("Notice fee") {
+                row(String(localized: "Notice fee")) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(fee) F").monospacedDigit()
                         caption(isLive
-                                ? "What this FID charges to accept Cmail. Change it in Settings."
-                                : "What this FID charges to accept Cmail — a Cmail to them pays it.")
+                                ? String(localized: "What this FID charges to accept Cmail. Change it in Settings.")
+                                : String(localized: "What this FID charges to accept Cmail — a Cmail to them pays it."))
                     }
                 }
             }
@@ -454,7 +462,7 @@ struct FidDetailSheet: View {
     /// is a DOCK nobody can deliver to.
     @ViewBuilder
     private var homeSection: some View {
-        section("Home services") {
+        section(String(localized: "Home services")) {
             if let home = freer?.home, !home.isEmpty {
                 ForEach(home.keys.sorted(), id: \.self) { key in
                     row(key) {
@@ -466,10 +474,14 @@ struct FidDetailSheet: View {
                 Text("None published").foregroundStyle(.secondary)
                 caption(
                     isLive
-                        ? "This FID carries no home map on chain, so nobody can look up where to reach it. "
-                            + "Publish one from the Services pane if you want Cmail or chat to find you."
-                        : "This FID carries no home map on chain, so there is nowhere to look up for "
-                            + "chat delivery. Cmail still reaches it — Cmail rests on the chain itself."
+                        ? String(localized: """
+                            This FID carries no home map on chain, so nobody can look up where to reach it. \
+                            Publish one from the Services pane if you want Cmail or chat to find you.
+                            """)
+                        : String(localized: """
+                            This FID carries no home map on chain, so there is nowhere to look up for \
+                            chat delivery. Cmail still reaches it — Cmail rests on the chain itself.
+                            """)
                 )
             }
         }
@@ -479,7 +491,7 @@ struct FidDetailSheet: View {
     private var otherChainsSection: some View {
         let addrs = otherChainAddresses
         if !addrs.isEmpty {
-            section("Other chains") {
+            section(String(localized: "Other chains")) {
                 ForEach(addrs, id: \.0) { name, value in
                     row(name) {
                         CopyableText(value, font: .system(.caption, design: .monospaced))
@@ -513,7 +525,7 @@ struct FidDetailSheet: View {
     /// much a given rating counted for.
     @ViewBuilder
     private var ratingsSection: some View {
-        section("Ratings\(ratingsTotal.map { " (\($0))" } ?? "")") {
+        section(String(localized: "Ratings\(ratingsTotal.map { " (\($0))" } ?? "")")) {
             if ratingsLoading && ratings.isEmpty {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -527,8 +539,10 @@ struct FidDetailSheet: View {
             } else if ratings.isEmpty {
                 Text("Nobody has rated this FID").foregroundStyle(.secondary)
                 caption(
-                    "A rating is an on-chain act weighted by the coin-days it destroys, so it costs "
-                        + "the rater something to make. Most FIDs have none."
+                    String(localized: """
+                        A rating is an on-chain act weighted by the coin-days it destroys, so it costs \
+                        the rater something to make. Most FIDs have none.
+                        """)
                 )
             } else {
                 VStack(alignment: .leading, spacing: 8) {
@@ -607,17 +621,17 @@ struct FidDetailSheet: View {
             // A rate string outside the protocol's two: it burned the
             // coin-days but moved no score, and pretending otherwise
             // would misread the row.
-            return "\(Self.grouped(hot)) CDD — no score change"
+            return String(localized: "\(Self.grouped(hot)) CDD — no score change")
         }
         let signed = kind == .good ? "+\(Self.grouped(hot))" : "−\(Self.grouped(hot))"
-        return "\(signed) reputation · \(Self.grouped(hot)) CDD"
+        return String(localized: "\(signed) reputation · \(Self.grouped(hot)) CDD")
     }
 
     @ViewBuilder
     private var groupSection: some View {
         if let ms = keyInfo?.multisig ?? freer?.multisig {
-            section("Group") {
-                row("Signatures needed") {
+            section(String(localized: "Group")) {
+                row(String(localized: "Signatures needed")) {
                     if let m = ms.m, let n = ms.n {
                         Text("\(m) of \(n)").monospacedDigit()
                     } else {
@@ -625,7 +639,7 @@ struct FidDetailSheet: View {
                     }
                 }
                 if let fids = ms.fids, !fids.isEmpty {
-                    row("Members") {
+                    row(String(localized: "Members")) {
                         VStack(alignment: .leading, spacing: 3) {
                             ForEach(fids, id: \.self) { member in
                                 HStack(spacing: 6) {
@@ -645,13 +659,13 @@ struct FidDetailSheet: View {
                     }
                 }
                 if let script = ms.redeemScript, !script.isEmpty {
-                    row("Redeem script") {
+                    row(String(localized: "Redeem script")) {
                         VStack(alignment: .leading, spacing: 2) {
                             CopyableText.elidingMiddle(
                                 script, head: 16, tail: 16,
                                 font: .system(.caption2, design: .monospaced)
                             )
-                            caption("Click to copy the whole script — a spend from this group is signed against it.")
+                            caption(String(localized: "Click to copy the whole script — a spend from this group is signed against it."))
                         }
                     }
                 }
@@ -798,7 +812,7 @@ struct FidDetailSheet: View {
             freer = try await session.directory.freer(byId: fid)
             fetchedAt = Date()
         } catch {
-            loadError = "Couldn't read the chain record — \(error)"
+            loadError = String(localized: "Couldn't read the chain record — \(String(describing: error))")
         }
         await loadRatings(more: false)
     }
@@ -831,7 +845,7 @@ struct FidDetailSheet: View {
                 ? nil
                 : (page.last ?? page.ratings.last?.cursor)
         } catch {
-            ratingsError = "Couldn't read the rating history — \(error)"
+            ratingsError = String(localized: "Couldn't read the rating history — \(String(describing: error))")
         }
     }
 }

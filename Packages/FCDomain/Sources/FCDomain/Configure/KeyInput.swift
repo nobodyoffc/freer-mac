@@ -49,9 +49,9 @@ public enum KeyInput {
         public var description: String {
             switch self {
             case .notACipher:
-                return "not an encrypted cipher — expected the JSON envelope or a Base64 bundle"
+                return String(localized: "not an encrypted cipher — expected the JSON envelope or a Base64 bundle")
             case .notPasswordEncrypted:
-                return "that cipher wasn't encrypted with a password, so a password can't open it"
+                return String(localized: "that cipher wasn't encrypted with a password, so a password can't open it")
             case .underlying(let e):
                 return String(describing: e)
             }

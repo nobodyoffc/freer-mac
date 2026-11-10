@@ -91,7 +91,7 @@ struct ContactEditorSheet: View {
                     LabeledField(
                         "FID",
                         hint: (!fid.isEmpty && !fidLooksValid)
-                            ? "Not a FID — use Find… to search CIDs."
+                            ? String(localized: "Not a FID — use Find… to search CIDs.")
                             : nil,
                         hintIsError: false
                     ) {
@@ -115,8 +115,8 @@ struct ContactEditorSheet: View {
                             if !isEdit {
                                 Button {
                                     pick = .one(
-                                        title: "Find a contact",
-                                        subtitle: "Search your contacts, or look up a FID or CID on chain.",
+                                        title: String(localized: "Find a contact"),
+                                        subtitle: String(localized: "Search your contacts, or look up a FID or CID on chain."),
                                         initialQuery: fid.trimmingCharacters(in: .whitespaces)
                                     )
                                 } label: {
@@ -153,7 +153,7 @@ struct ContactEditorSheet: View {
                     } else if lookupKnownOffChain {
                         HStack(spacing: 6) {
                             Image(systemName: "questionmark.circle")
-                            CopyableText("No on-chain record — this FID hasn't registered a Freer yet. You can still save the contact locally.")
+                            CopyableText(String(localized: "No on-chain record — this FID hasn't registered a Freer yet. You can still save the contact locally."))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .foregroundStyle(.orange)
@@ -167,15 +167,15 @@ struct ContactEditorSheet: View {
 
                 Section {
                     LabeledField(
-                        "Titles",
-                        hint: "Comma-separated. Shown under the contact's name."
+                        String(localized: "Titles"),
+                        hint: String(localized: "Comma-separated. Shown under the contact's name.")
                     ) {
                         TextField("", text: $titlesInput,
                                   prompt: Text("Friend, Engineer"))
                             .fieldInputStyle()
                     }
 
-                    LabeledField("Memo") {
+                    LabeledField(String(localized: "Memo")) {
                         TextEditor(text: $memo)
                             .font(.body)
                             .fieldEditorStyle(minHeight: 70, maxHeight: 140)
@@ -340,7 +340,7 @@ struct ContactEditorSheet: View {
             }
             if let pkHex = f.pubkey, !pkHex.isEmpty {
                 CopyableText(
-                    display: "pubkey: \(pkHex.elidingMiddle(head: 10, tail: 10))",
+                    display: String(localized: "pubkey: \(pkHex.elidingMiddle(head: 10, tail: 10))"),
                     copy: pkHex,
                     font: .caption.monospaced()
                 )

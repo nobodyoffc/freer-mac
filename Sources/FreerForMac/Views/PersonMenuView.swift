@@ -64,13 +64,13 @@ struct PersonMenuView: View {
     /// "Living: <role>" — Android's `determineFidType`: main and
     /// master are recognized by FID, everything else by its kind.
     private var liveRole: String {
-        if session.liveFid == session.mainFid { return "Main FID" }
-        if session.liveFid == masterFid { return "Master" }
+        if session.liveFid == session.mainFid { return String(localized: "Main FID") }
+        if session.liveFid == masterFid { return String(localized: "Master") }
         switch session.liveKeyInfo.kind {
-        case .main:     return "Main FID"
-        case .watched:  return "Watched"
-        case .multisig: return "Multisig"
-        case .servant:  return "Servant"
+        case .main:     return String(localized: "Main FID")
+        case .watched:  return String(localized: "Watched")
+        case .multisig: return String(localized: "Multisig")
+        case .servant:  return String(localized: "Servant")
         }
     }
 
@@ -85,16 +85,16 @@ struct PersonMenuView: View {
                     masterRow
 
                     kindSection(
-                        "My Watched FIDs", kind: .watched,
-                        emptyText: "No watched FIDs yet."
+                        String(localized: "My Watched FIDs"), kind: .watched,
+                        emptyText: String(localized: "No watched FIDs yet.")
                     )
                     kindSection(
-                        "My Multisig FIDs", kind: .multisig,
-                        emptyText: "No multisig groups yet — create one, or find the ones you are already in."
+                        String(localized: "My Multisig FIDs"), kind: .multisig,
+                        emptyText: String(localized: "No multisig groups yet — create one, or find the ones you are already in.")
                     )
                     kindSection(
-                        "My Servants", kind: .servant,
-                        emptyText: "No servants yet — adding them comes with the servant phase."
+                        String(localized: "My Servants"), kind: .servant,
+                        emptyText: String(localized: "No servants yet — adding them comes with the servant phase.")
                     )
                 }
                 .padding(8)
@@ -128,7 +128,7 @@ struct PersonMenuView: View {
                 Button("Copy redeem script first") {
                     copyToPasteboard(script)
                     noteIsError = false
-                    note = "Redeem script copied. Keep it somewhere safe before removing the group."
+                    note = String(localized: "Redeem script copied. Keep it somewhere safe before removing the group.")
                 }
             }
             Button("Remove", role: .destructive) { remove(info) }
@@ -176,7 +176,7 @@ struct PersonMenuView: View {
     private var mainFidRow: some View {
         row(
             avatarFid: session.mainFid,
-            title: "Main FID",
+            title: String(localized: "Main FID"),
             subtitle: session.mainFid.elidingMiddle(head: 8, tail: 8),
             disabled: livingAsMain,
             trailing: livingAsMain ? "checkmark" : nil
@@ -189,8 +189,8 @@ struct PersonMenuView: View {
         HStack(spacing: 0) {
             row(
                 avatarFid: masterFid,
-                title: "My Master",
-                subtitle: masterFid.map { $0.elidingMiddle(head: 8, tail: 8) } ?? "not set",
+                title: String(localized: "My Master"),
+                subtitle: masterFid.map { $0.elidingMiddle(head: 8, tail: 8) } ?? String(localized: "not set"),
                 disabled: !livingAsMain || fetchingMaster || masterFid == nil,
                 trailing: fetchingMaster ? "progress"
                     : (session.liveFid == masterFid ? "checkmark" : nil)
@@ -322,9 +322,9 @@ struct PersonMenuView: View {
     private func addAction(for kind: KeyKind) -> (help: String, run: () -> Void)? {
         switch kind {
         case .watched:
-            return ("Add a watched FID", onAddWatched)
+            return (String(localized: "Add a watched FID"), onAddWatched)
         case .servant:
-            return ("Find FIDs that have named this one as their master", onAddServants)
+            return (String(localized: "Find FIDs that have named this one as their master"), onAddServants)
         case .multisig, .main:
             // Multisig has its own two-way menu above.
             return nil
@@ -336,7 +336,7 @@ struct PersonMenuView: View {
     private func subtitle(for info: KeyInfo) -> String? {
         let elided = info.fid.elidingMiddle(head: 8, tail: 8)
         if info.kind == .multisig, let m = info.multisig?.m, let n = info.multisig?.n {
-            return "\(m)-of-\(n) · \(elided)"
+            return String(localized: "\(String(m))-of-\(String(n)) · \(elided)")
         }
         return info.label.isEmpty ? nil : elided
     }
@@ -462,13 +462,13 @@ struct PersonMenuView: View {
             let threshold = (info.multisig?.m).flatMap { m in
                 (info.multisig?.n).map { n in "\(m)-of-\(n) " }
             } ?? ""
-            return """
+            return String(localized: """
                 \(elided) is a \(threshold)group, and its redeem script goes with it.                 That script is not stored on chain — the address is only its hash — so it is                 the only way this wallet can ever spend the group's coins. Unless another                 member still has a copy, removing it locks whatever the group holds forever.
-                """
+                """)
         case .servant:
-            return "\(elided) is removed from this Setting's list. The servant relationship itself lives on chain and is untouched — you are only dropping the local entry, and can find it again any time."
+            return String(localized: "\(elided) is removed from this Setting's list. The servant relationship itself lives on chain and is untouched — you are only dropping the local entry, and can find it again any time.")
         case .watched, .main:
-            return "\(elided) is removed from this Setting's list. It is not a key you hold, so nothing is destroyed — add it again any time."
+            return String(localized: "\(elided) is removed from this Setting's list. It is not a key you hold, so nothing is destroyed — add it again any time.")
         }
     }
 
@@ -482,8 +482,8 @@ struct PersonMenuView: View {
             appState.bumpIdentityRevision()
             noteIsError = false
             note = renameText.trimmingCharacters(in: .whitespaces).isEmpty
-                ? "Label cleared."
-                : "Labelled “\(renameText.trimmingCharacters(in: .whitespaces))”."
+                ? String(localized: "Label cleared.")
+                : String(localized: "Labelled “\(renameText.trimmingCharacters(in: .whitespaces))”.")
         } catch {
             noteIsError = true
             note = String(describing: error)
@@ -500,7 +500,7 @@ struct PersonMenuView: View {
             appState.syncLiveFid()
             appState.bumpIdentityRevision()
             noteIsError = false
-            note = "Removed \(info.fid.elidingMiddle(head: 8, tail: 8))."
+            note = String(localized: "Removed \(info.fid.elidingMiddle(head: 8, tail: 8)).")
         } catch {
             noteIsError = true
             note = String(describing: error)
@@ -515,7 +515,7 @@ struct PersonMenuView: View {
     private func switchToMaster() async {
         guard let masterFid else {
             noteIsError = false
-            note = "No master is set for this FID — setting a master arrives in a later phase."
+            note = String(localized: "No master is set for this FID — setting a master arrives in a later phase.")
             return
         }
         if session.setting.keyInfoMap[masterFid] == nil {
@@ -526,7 +526,7 @@ struct PersonMenuView: View {
                       let info = KeyInfo.from(freer: freer)
                 else {
                     noteIsError = true
-                    note = "No on-chain record found for master \(masterFid.elidingMiddle(head: 8, tail: 8))."
+                    note = String(localized: "No on-chain record found for master \(masterFid.elidingMiddle(head: 8, tail: 8)).")
                     return
                 }
                 try session.addSubIdentity(info)

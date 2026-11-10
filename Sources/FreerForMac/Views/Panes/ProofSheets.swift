@@ -90,12 +90,12 @@ struct IssueProofSheet: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            field("Title") {
+            field(String(localized: "Title")) {
                 TextField("What this proof is", text: $title)
                     .fieldInputStyle()
             }
 
-            field("Content") {
+            field(String(localized: "Content")) {
                 VStack(alignment: .leading, spacing: 4) {
                     TextEditor(text: $content)
                         .font(.body)
@@ -114,7 +114,7 @@ struct IssueProofSheet: View {
                 }
             }
 
-            field("Cosigners") {
+            field(String(localized: "Cosigners")) {
                 VStack(alignment: .leading, spacing: 6) {
                     if cosigners.isEmpty {
                         Text("Nobody — the proof stands on your signature alone.")
@@ -143,8 +143,8 @@ struct IssueProofSheet: View {
                     Button {
                         pickingOwner = false
                         pick = .many(
-                            title: "Invite cosigners",
-                            subtitle: "They will be asked to countersign this proof on chain.",
+                            title: String(localized: "Invite cosigners"),
+                            subtitle: String(localized: "They will be asked to countersign this proof on chain."),
                             excluded: Set(cosigners).union([session.liveFid])
                         )
                     } label: {
@@ -154,7 +154,7 @@ struct IssueProofSheet: View {
                 }
             }
 
-            field("Issue to") {
+            field(String(localized: "Issue to")) {
                 HStack(spacing: 6) {
                     if let issueTo {
                         FidAvatarView(fid: issueTo, size: 20)
@@ -179,8 +179,8 @@ struct IssueProofSheet: View {
                     Button {
                         pickingOwner = true
                         pick = .one(
-                            title: "Issue to",
-                            subtitle: "They own this proof from the moment it is carved. If it is not transferable, it stays theirs.",
+                            title: String(localized: "Issue to"),
+                            subtitle: String(localized: "They own this proof from the moment it is carved. If it is not transferable, it stays theirs."),
                             excluded: [session.liveFid]
                         )
                     } label: {
@@ -204,7 +204,7 @@ struct IssueProofSheet: View {
             }
 
             if !session.canSign {
-                CopyableText("This identity is watch-only, so it cannot sign a carve. You can still save a draft and carve it later from an identity that holds the key.")
+                CopyableText(String(localized: "This identity is watch-only, so it cannot sign a carve. You can still save a draft and carve it later from an identity that holds the key."))
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -276,7 +276,7 @@ struct IssueProofSheet: View {
             try persistDraft()
             onDone(.draft)
         } catch {
-            self.error = "Couldn't save the draft: \(error)"
+            self.error = String(localized: "Couldn't save the draft: \(String(describing: error))")
         }
     }
 
@@ -306,7 +306,7 @@ struct IssueProofSheet: View {
             )
             onDone(.carved(proof))
         } catch {
-            self.error = "Couldn't issue: \(error)"
+            self.error = String(localized: "Couldn't issue: \(String(describing: error))")
         }
     }
 
@@ -332,7 +332,7 @@ struct ProofDetailSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
-                Text(proof.title?.isEmpty == false ? proof.title! : "Untitled proof")
+                Text(proof.title?.isEmpty == false ? proof.title! : String(localized: "Untitled proof"))
                     .font(.title3.bold())
                     .lineLimit(2)
                     .truncationMode(.middle)
@@ -343,18 +343,18 @@ struct ProofDetailSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let content = proof.content, !content.isEmpty {
-                        field("Content") {
+                        field(String(localized: "Content")) {
                             CopyableText(content, font: .body)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
 
                     HStack(alignment: .top, spacing: 24) {
-                        field("Issuer") { fidValue(proof.issuer) }
-                        field("Owner") { fidValue(proof.owner) }
+                        field(String(localized: "Issuer")) { fidValue(proof.issuer) }
+                        field(String(localized: "Owner")) { fidValue(proof.owner) }
                     }
 
-                    field("Cosigners") {
+                    field(String(localized: "Cosigners")) {
                         if let invited = proof.cosignersInvited, !invited.isEmpty {
                             VStack(alignment: .leading, spacing: 5) {
                                 ForEach(invited, id: \.self) { fid in
@@ -381,20 +381,20 @@ struct ProofDetailSheet: View {
                     }
 
                     HStack(spacing: 24) {
-                        field("Transferable") {
+                        field(String(localized: "Transferable")) {
                             Text(proof.transferable == true ? "Yes" : "No").font(.caption)
                         }
-                        field("In force") {
+                        field(String(localized: "In force")) {
                             Text(proof.active == true ? "Yes"
                                  : (proof.active == false ? "Not yet" : "—"))
                                 .font(.caption)
                         }
-                        field("Destroyed") {
+                        field(String(localized: "Destroyed")) {
                             Text(proof.destroyed == true ? "Yes" : "No").font(.caption)
                         }
                     }
 
-                    field("Proof ID") {
+                    field(String(localized: "Proof ID")) {
                         CopyableText.elidingMiddle(
                             proof.id, head: 12, tail: 12,
                             font: .system(.caption, design: .monospaced)
@@ -402,7 +402,7 @@ struct ProofDetailSheet: View {
                     }
 
                     if let txid = proof.lastTxId, !txid.isEmpty, txid != proof.id {
-                        field("Last transaction") {
+                        field(String(localized: "Last transaction")) {
                             CopyableText.elidingMiddle(
                                 txid, head: 12, tail: 12,
                                 font: .system(.caption, design: .monospaced)
@@ -412,21 +412,21 @@ struct ProofDetailSheet: View {
 
                     HStack(spacing: 24) {
                         if let t = proof.birthTime {
-                            field("Issued") {
+                            field(String(localized: "Issued")) {
                                 Text(Date(timeIntervalSince1970: TimeInterval(t)),
                                      format: .dateTime.year().month().day().hour().minute())
                                     .font(.caption)
                             }
                         }
                         if let t = proof.lastTime {
-                            field("Last change") {
+                            field(String(localized: "Last change")) {
                                 Text(Date(timeIntervalSince1970: TimeInterval(t)),
                                      format: .dateTime.year().month().day().hour().minute())
                                     .font(.caption)
                             }
                         }
                         if let h = proof.lastHeight, h != ProofsStore.unconfirmedHeight {
-                            field("Height") {
+                            field(String(localized: "Height")) {
                                 Text("\(h)").font(.caption.monospacedDigit())
                             }
                         }
@@ -453,13 +453,13 @@ struct ProofDetailSheet: View {
     @ViewBuilder
     private var stateChip: some View {
         if proof.destroyed == true {
-            chip("Destroyed", color: .red)
+            chip(String(localized: "Destroyed"), color: .red)
         } else if proof.onChain == false {
-            chip("Draft", color: .gray)
+            chip(String(localized: "Draft"), color: .gray)
         } else if proof.onChain == nil {
-            chip("Broadcast, unconfirmed", color: .orange)
+            chip(String(localized: "Broadcast, unconfirmed"), color: .orange)
         } else {
-            chip("On chain", color: .blue)
+            chip(String(localized: "On chain"), color: .blue)
         }
     }
 
@@ -510,7 +510,7 @@ struct TransferProofSheet: View {
             Text("Transfer this proof")
                 .font(.title3.bold())
 
-            Text(proof.title?.isEmpty == false ? proof.title! : "Untitled proof")
+            Text(proof.title?.isEmpty == false ? proof.title! : String(localized: "Untitled proof"))
                 .font(.body.bold())
                 .lineLimit(2)
 
@@ -571,8 +571,8 @@ struct TransferProofSheet: View {
 
     private func openPicker() {
         pick = .one(
-            title: "Transfer to",
-            subtitle: "They become the owner of this proof once the carve confirms.",
+            title: String(localized: "Transfer to"),
+            subtitle: String(localized: "They become the owner of this proof once the carve confirms."),
             excluded: [session.liveFid]
         )
     }
@@ -590,7 +590,7 @@ struct TransferProofSheet: View {
             )
             onDone(txid)
         } catch {
-            self.error = "Couldn't transfer: \(error)"
+            self.error = String(localized: "Couldn't transfer: \(String(describing: error))")
         }
     }
 }

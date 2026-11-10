@@ -75,21 +75,21 @@ struct SetMasterSheet: View {
     /// Why this candidate can't be set, or nil when it can.
     private var blockReason: String? {
         if let locked = lockedMaster {
-            return "This FID's master is already \(locked.elidingMiddle(head: 8, tail: 8)), on the chain or on its way there. A master is permanent: the protocol ignores any later master carve, after taking its fee."
+            return String(localized: "This FID's master is already \(locked.elidingMiddle(head: 8, tail: 8)), on the chain or on its way there. A master is permanent: the protocol ignores any later master carve, after taking its fee.")
         }
         guard let fid = candidate?.fid else { return nil }
         if fid == session.mainFid {
-            return "That's this FID itself — a FID cannot be its own master."
+            return String(localized: "That's this FID itself — a FID cannot be its own master.")
         }
         if fid == currentMaster {
-            return "Already the master of this FID."
+            return String(localized: "Already the master of this FID.")
         }
         if loading { return nil }
         if candidateFreer == nil {
-            return "No on-chain record for this FID yet, so it has no published pubkey."
+            return String(localized: "No on-chain record for this FID yet, so it has no published pubkey.")
         }
         if candidatePubkey == nil {
-            return "This FID has never published a pubkey — nothing has been signed from it — so there is no key to seal your prikey to."
+            return String(localized: "This FID has never published a pubkey — nothing has been signed from it — so there is no key to seal your prikey to.")
         }
         return nil
     }
@@ -151,7 +151,7 @@ struct SetMasterSheet: View {
                     .font(.title2).bold()
                 if let m = currentMaster {
                     CopyableText(
-                        display: "Current master: \(m.elidingMiddle(head: 8, tail: 8))",
+                        display: String(localized: "Current master: \(m.elidingMiddle(head: 8, tail: 8))"),
                         copy: m,
                         font: .caption
                     )
@@ -172,7 +172,7 @@ struct SetMasterSheet: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Image(systemName: "exclamationmark.triangle.fill")
-                CopyableText("This hands over your identity")
+                CopyableText(String(localized: "This hands over your identity"))
                     .font(.headline)
             }
             .foregroundStyle(.red)
@@ -181,9 +181,9 @@ struct SetMasterSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 4) {
-                bullet("Whoever holds the master's prikey can decrypt yours.")
-                bullet("From then on they can spend this FID's coins, sign as it, and read everything ever encrypted to it.")
-                bullet("It cannot be undone or changed. The first master is the only one: the protocol ignores any later master carve.")
+                bullet(String(localized: "Whoever holds the master's prikey can decrypt yours."))
+                bullet(String(localized: "From then on they can spend this FID's coins, sign as it, and read everything ever encrypted to it."))
+                bullet(String(localized: "It cannot be undone or changed. The first master is the only one: the protocol ignores any later master carve."))
             }
             .font(.callout)
 
@@ -252,8 +252,8 @@ struct SetMasterSheet: View {
                 if loading { ProgressView().controlSize(.small) }
                 Button {
                     pick = .one(
-                        title: "Choose a master",
-                        subtitle: "The FID that will own all this identity's rights.",
+                        title: String(localized: "Choose a master"),
+                        subtitle: String(localized: "The FID that will own all this identity's rights."),
                         excluded: [session.mainFid]
                     )
                 } label: {
@@ -275,7 +275,7 @@ struct SetMasterSheet: View {
             } else if let pk = candidatePubkey {
                 let hex = Hex.encode(pk)
                 CopyableText(
-                    display: "pubkey: \(hex.elidingMiddle(head: 10, tail: 10))",
+                    display: String(localized: "pubkey: \(hex.elidingMiddle(head: 10, tail: 10))"),
                     copy: hex,
                     font: .caption.monospaced()
                 )

@@ -73,9 +73,9 @@ public enum MediaKind: String, CaseIterable, Sendable, Identifiable, Codable {
     /// Plural, for the counts and empty states a pane writes.
     public var plural: String {
         switch self {
-        case .image: return "images"
-        case .sound: return "sounds"
-        case .video: return "videos"
+        case .image: return String(localized: "images")
+        case .sound: return String(localized: "sounds")
+        case .video: return String(localized: "videos")
         }
     }
 
@@ -91,9 +91,9 @@ public enum MediaKind: String, CaseIterable, Sendable, Identifiable, Codable {
     /// What the file-picker filter and the `format` hint should suggest.
     public var noun: String {
         switch self {
-        case .image: return "image"
-        case .sound: return "audio file"
-        case .video: return "video"
+        case .image: return String(localized: "image")
+        case .sound: return String(localized: "audio file")
+        case .video: return String(localized: "video")
         }
     }
 }

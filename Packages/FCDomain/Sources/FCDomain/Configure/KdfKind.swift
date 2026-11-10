@@ -57,9 +57,11 @@ public enum KdfKind: String, Codable, Sendable, CaseIterable {
         switch self {
         case .argon2id: return nil
         case .legacySha256:
-            return "Legacy SHA-256 is grindable on GPUs and exists only to "
-                 + "import Configures created with older Android Freer builds. "
-                 + "Don't pick it for a new vault."
+            return String(localized: """
+                Legacy SHA-256 is grindable on GPUs and exists only to \
+                import Configures created with older Android Freer builds. \
+                Don't pick it for a new vault.
+                """)
         }
     }
 

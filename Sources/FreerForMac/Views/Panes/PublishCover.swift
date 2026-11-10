@@ -29,7 +29,7 @@ struct CoverField: View {
     let session: ActiveSession
     @Binding var choice: CoverChoice
     /// "Cover" for a work; a token calls it its logo.
-    var label = "Cover"
+    var label = String(localized: "Cover")
     /// What names the image, for the captions: "work" or "token".
     var subject = "work"
     @State private var picking = false
@@ -55,7 +55,7 @@ struct CoverField: View {
             }
         }
         .sheet(isPresented: $picking) {
-            MyImagesPicker(session: session, title: "Choose a \(label.lowercased())") { id in
+            MyImagesPicker(session: session, title: String(localized: "Choose a \(label.lowercased())")) { id in
                 if let id { choice = .image(id: id) }
                 picking = false
             }
@@ -84,12 +84,12 @@ struct CoverField: View {
     private var caption: String {
         switch choice {
         case .none:
-            return "Optional. The \(label.lowercased()) is one of your Images, named by its id: update that Image later and the \(label.lowercased()) changes with it."
+            return String(localized: "Optional. The \(label.lowercased()) is one of your Images, named by its id: update that Image later and the \(label.lowercased()) changes with it.")
         case .newFile(let url):
-            return "\(url.lastPathComponent) is published as an Image first, then this \(subject) names it. One approval covers both carves."
+            return String(localized: "\(url.lastPathComponent) is published as an Image first, then this \(subject) names it. One approval covers both carves.")
         case .image(let id):
             let title = (try? session.media(.image).get(id: id))?.title
-            return "Image \(title.map { "“\($0)” " } ?? "")\(id.elidingMiddle(head: 8, tail: 6))"
+            return String(localized: "Image \(title.map { "“\($0)” " } ?? "")\(id.elidingMiddle(head: 8, tail: 6))")
         }
     }
 
@@ -98,7 +98,7 @@ struct CoverField: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.allowedContentTypes = [.image]
-        panel.prompt = "Choose"
+        panel.prompt = String(localized: "Choose")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         choice = .newFile(url)
     }
@@ -107,7 +107,7 @@ struct CoverField: View {
 /// The identity's published images, to pick one as a cover.
 struct MyImagesPicker: View {
     let session: ActiveSession
-    var title = "Choose a cover"
+    var title = String(localized: "Choose a cover")
     let done: (String?) -> Void
 
     private var images: [MediaRecord] {
@@ -158,7 +158,7 @@ struct MyImagesPicker: View {
 struct CoverView: View {
     let session: ActiveSession
     let imageId: String
-    var title = "Cover"
+    var title = String(localized: "Cover")
     /// Given the Image's publisher, whether it may be shown at all, with
     /// the reason when not. A token's logo must be its deployer's Image.
     var refusal: ((String?) -> String?)? = nil
@@ -206,11 +206,11 @@ struct CoverView: View {
             record = (try? await session.publish.mediaByIds(kind: .image, [imageId]))?[imageId]
         }
         guard let record, let did = record.did, did.count == 64 else {
-            note = "The cover \(imageId.elidingMiddle(head: 8, tail: 6)) is not an image on chain."
+            note = String(localized: "The cover \(imageId.elidingMiddle(head: 8, tail: 6)) is not an image on chain.")
             return
         }
         guard !record.isDeleted else {
-            note = "The \(title.lowercased()) image was deleted by its publisher."
+            note = String(localized: "The \(title.lowercased()) image was deleted by its publisher.")
             return
         }
         if let why = refusal?(record.publisher) {
@@ -228,8 +228,8 @@ struct CoverView: View {
         }
         web = (record.locas ?? []).compactMap(URL.init(string:)).filter { $0.scheme == "https" }
         note = web.isEmpty
-            ? "No DISK this Mac can reach holds the cover."
-            : "The cover is served by a website. It is fetched only when you ask, and shown only if it matches its DID."
+            ? String(localized: "No DISK this Mac can reach holds the cover.")
+            : String(localized: "The cover is served by a website. It is fetched only when you ask, and shown only if it matches its DID.")
     }
 
     /// Each listed website in turn, until one serves the right bytes.
@@ -244,7 +244,7 @@ struct CoverView: View {
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw URLError(.badServerResponse) }
                 guard data.count <= Self.maxBytes else { throw URLError(.dataLengthExceedsMaximum) }
                 guard Hex.encode(Hash.doubleSha256(data)).lowercased() == did else {
-                    problems.append("\(url.host ?? "?") served other bytes")
+                    problems.append(String(localized: "\(url.host ?? "?") served other bytes"))
                     continue
                 }
                 if let shown = NSImage(data: data) {
@@ -256,12 +256,12 @@ struct CoverView: View {
                     }
                     return
                 }
-                problems.append("\(url.host ?? "?") served no image")
+                problems.append(String(localized: "\(url.host ?? "?") served no image"))
             } catch {
                 problems.append("\(url.host ?? "?"): \(error.localizedDescription)")
             }
         }
-        note = "Not shown: " + problems.joined(separator: "; ")
+        note = String(localized: "Not shown: ") + problems.joined(separator: "; ")
     }
 }
 

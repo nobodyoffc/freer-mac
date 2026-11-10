@@ -147,7 +147,7 @@ struct GroupSettingsSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                LabeledField(mode == .team ? "Team name" : "Square name") {
+                LabeledField(mode == .team ? String(localized: "Team name") : String(localized: "Square name")) {
                     TextField("", text: $name, prompt: Text("required"))
                         .fieldInputStyle()
                 }
@@ -156,14 +156,14 @@ struct GroupSettingsSheet: View {
                     consensusField
                 }
 
-                LabeledField("Description") {
+                LabeledField(String(localized: "Description")) {
                     TextField("", text: $desc, prompt: Text("optional"))
                         .fieldInputStyle()
                 }
 
                 LabeledField(
                     "DOCK",
-                    hint: "Where this \(style.noun)'s messages rest until each member collects them. Emptying this box does not remove the \(style.noun)'s DOCK — the update op can move it, but has no way to say it has none."
+                    hint: String(localized: "Where this \(style.noun)'s messages rest until each member collects them. Emptying this box does not remove the \(style.noun)'s DOCK — the update op can move it, but has no way to say it has none.")
                 ) {
                     HStack(spacing: 8) {
                         TextField("", text: $dock, prompt: Text("service id, or host:port"))
@@ -179,7 +179,7 @@ struct GroupSettingsSheet: View {
                 if mode == .team {
                     LabeledField(
                         "DISK",
-                        hint: "Where the consensus document is stored, published in plain text so any member — or anyone weighing up joining — can fetch it without being sent anything. Move it and the current document is copied across first, because members who have not re-signed still need to read what they agreed to."
+                        hint: String(localized: "Where the consensus document is stored, published in plain text so any member — or anyone weighing up joining — can fetch it without being sent anything. Move it and the current document is copied across first, because members who have not re-signed still need to read what they agreed to.")
                     ) {
                         HStack(spacing: 8) {
                             TextField("", text: $disk, prompt: Text("service id"))
@@ -194,7 +194,7 @@ struct GroupSettingsSheet: View {
 
                     LabeledField(
                         "CALL",
-                        hint: "The relay this team's meetings run on, paid by whoever starts one. Empty: no meetings, and emptying a set one removes it."
+                        hint: String(localized: "The relay this team's meetings run on, paid by whoever starts one. Empty: no meetings, and emptying a set one removes it.")
                     ) {
                         HStack(spacing: 8) {
                             TextField("", text: $call, prompt: Text("service id, or fudp://host:port"))
@@ -241,8 +241,8 @@ struct GroupSettingsSheet: View {
             ServicePickerSheet(
                 session: session,
                 component: ServiceName.dock,
-                title: "Choose this \(style.noun)'s DOCK",
-                subtitle: "Every member re-resolves this id through the chain, so a server that moves does not take the \(style.noun) with it.",
+                title: String(localized: "Choose this \(style.noun)'s DOCK"),
+                subtitle: String(localized: "Every member re-resolves this id through the chain, so a server that moves does not take the \(style.noun) with it."),
                 initialQuery: dock
             ) { service in
                 dock = service.sid
@@ -255,8 +255,8 @@ struct GroupSettingsSheet: View {
             ServicePickerSheet(
                 session: session,
                 component: ServiceName.disk,
-                title: "Choose this team's DISK",
-                subtitle: "The consensus document is stored here, unencrypted and permanently, and its id is published so anyone can check the bytes hash back to what was carved.",
+                title: String(localized: "Choose this team's DISK"),
+                subtitle: String(localized: "The consensus document is stored here, unencrypted and permanently, and its id is published so anyone can check the bytes hash back to what was carved."),
                 initialQuery: disk
             ) { service in
                 disk = service.sid
@@ -269,7 +269,7 @@ struct GroupSettingsSheet: View {
             ServicePickerSheet(
                 session: session,
                 component: ServiceName.call,
-                title: "Choose this team's CALL service",
+                title: String(localized: "Choose this team's CALL service"),
                 initialQuery: call
             ) { service in
                 call = service.sid
@@ -316,8 +316,8 @@ struct GroupSettingsSheet: View {
     /// it missing — with the new document sitting right here on the Mac.
     private var consensusField: some View {
         LabeledField(
-            "Consensus document",
-            hint: "What members agree to when they join. Its id is the hash of the text, so a different document is always a different id. Carving a new one does not re-ask anybody: existing members keep the agreement they signed, and the chain lists them as not having agreed to the new one until each carves their own agreement."
+            String(localized: "Consensus document"),
+            hint: String(localized: "What members agree to when they join. Its id is the hash of the text, so a different document is always a different id. Carving a new one does not re-ask anybody: existing members keep the agreement they signed, and the chain lists them as not having agreed to the new one until each carves their own agreement.")
         ) {
             VStack(alignment: .leading, spacing: 6) {
                 TextField("", text: $consensusId, prompt: Text("required"))
@@ -328,7 +328,7 @@ struct GroupSettingsSheet: View {
                         document = DocumentRequest(
                             consensusId: viewableConsensusId,
                             editable: false,
-                            title: "This team's consensus"
+                            title: String(localized: "This team's consensus")
                         )
                     } label: {
                         Label("View…", systemImage: "eye")
@@ -340,7 +340,7 @@ struct GroupSettingsSheet: View {
                         document = DocumentRequest(
                             consensusId: viewableConsensusId,
                             editable: true,
-                            title: "Write a new consensus"
+                            title: String(localized: "Write a new consensus")
                         )
                     } label: {
                         Label("Write…", systemImage: "square.and.pencil")
@@ -387,8 +387,8 @@ struct GroupSettingsSheet: View {
         guard !typed.isEmpty, typed != original.consensusId else { return nil }
         let onDevice = session.teamConsensus.localURL(consensusId: typed) != nil
         return onDevice
-            ? "A new document, held on this Mac. Saving uploads it to the team's DISK first — a consensus nobody can fetch is a promise nobody can check."
-            : "This id does not match anything on this Mac. Saving will look for it on the team's DISK, and refuse rather than carve an id with nothing behind it."
+            ? String(localized: "A new document, held on this Mac. Saving uploads it to the team's DISK first — a consensus nobody can fetch is a promise nobody can check.")
+            : String(localized: "This id does not match anything on this Mac. Saving will look for it on the team's DISK, and refuse rather than carve an id with nothing behind it.")
     }
 
     // MARK: - warnings and costs
@@ -403,33 +403,33 @@ struct GroupSettingsSheet: View {
     /// carve itself raises that before a fee is spent.
     private var warning: String? {
         guard session.canSign else {
-            return "This is a watch-only identity, so there is no prikey here to sign a carve with."
+            return String(localized: "This is a watch-only identity, so there is no prikey here to sign a carve with.")
         }
         guard let original, mode == .team, !original.isTeamOwner else { return nil }
         if !original.ownerIsKnown {
-            return "This Mac has no owner on file for this team, so it cannot tell whether the chain will accept an update from you."
+            return String(localized: "This Mac has no owner on file for this team, so it cannot tell whether the chain will accept an update from you.")
         }
-        return "You do not own this team. The chain accepts an update only from its owner, so this carve would cost a fee and change nothing."
+        return String(localized: "You do not own this team. The chain accepts an update only from its owner, so this carve would cost a fee and change nothing.")
     }
 
     private var consensusChangeWarning: String {
         let others = original?.otherMembers ?? 0
         guard others > 0 else {
-            return "Carving a different consensus id replaces what this team runs on. You are its only member, so there is nobody to re-sign."
+            return String(localized: "Carving a different consensus id replaces what this team runs on. You are its only member, so there is nobody to re-sign.")
         }
-        return "Carving a different consensus id puts all \(others) other member(s) on the chain's list of people who have not agreed to it, until each of them carves an agreement of their own — a transaction each, which they pay for. Until they do, what they signed and what the team runs on are two different documents. They can also leave instead."
+        return String(localized: "Carving a different consensus id puts all \(String(others)) other member(s) on the chain's list of people who have not agreed to it, until each of them carves an agreement of their own — a transaction each, which they pay for. Until they do, what they signed and what the team runs on are two different documents. They can also leave instead.")
     }
 
     private var costNote: String {
         switch mode {
         case .team:
-            return "Saving is a transaction: it costs a miner fee and is public. Nothing changes here until the carve confirms and you refresh."
+            return String(localized: "Saving is a transaction: it costs a miner fee and is public. Nothing changes here until the carve confirms and you refresh.")
         case .square:
             let cdd = original?.cddToUpdate ?? 0
             let price = cdd > 0
-                ? "Anyone in a square may change it — what decides it is coin-days, not permission. The last change destroyed \(cdd) CD, so this one has to destroy more than that, and whatever you destroy becomes the price of the next change. CD is value that has sat still: an old coin carries more of it than a large one."
-                : "Anyone in a square may change it — what decides it is coin-days, not permission. Nobody has changed this one yet, so it costs what any carve costs: a miner fee and 1 CD. Whatever this destroys becomes the price of the next change."
-            return "\(price) Nothing changes here until the carve confirms and you refresh."
+                ? String(localized: "Anyone in a square may change it — what decides it is coin-days, not permission. The last change destroyed \(String(cdd)) CD, so this one has to destroy more than that, and whatever you destroy becomes the price of the next change. CD is value that has sat still: an old coin carries more of it than a large one.")
+                : String(localized: "Anyone in a square may change it — what decides it is coin-days, not permission. Nobody has changed this one yet, so it costs what any carve costs: a miner fee and 1 CD. Whatever this destroys becomes the price of the next change.")
+            return String(localized: "\(price) Nothing changes here until the carve confirms and you refresh.")
         default:
             return ""
         }
@@ -455,7 +455,7 @@ struct GroupSettingsSheet: View {
             switch mode {
             case .team:
                 guard let team = try session.teams.get(id: groupId) else {
-                    error = "This team is not on this Mac. Refresh the Teams tab and try again."
+                    error = String(localized: "This team is not on this Mac. Refresh the Teams tab and try again.")
                     return
                 }
                 let owner = team.owner
@@ -477,7 +477,7 @@ struct GroupSettingsSheet: View {
                 )
             case .square:
                 guard let square = try session.squares.get(id: groupId) else {
-                    error = "This square is not on this Mac. Refresh the Squares tab and try again."
+                    error = String(localized: "This square is not on this Mac. Refresh the Squares tab and try again.")
                     return
                 }
                 original = Loaded(
@@ -494,7 +494,7 @@ struct GroupSettingsSheet: View {
                     otherMembers: 0
                 )
             default:
-                error = "Only a team or a square is changed this way."
+                error = String(localized: "Only a team or a square is changed this way.")
                 return
             }
             guard let original else { return }
@@ -513,7 +513,7 @@ struct GroupSettingsSheet: View {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
-        panel.message = "Choose the document this team's members agree to."
+        panel.message = String(localized: "Choose the document this team's members agree to.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             consensusId = try session.teamConsensus.importFile(at: url)
@@ -592,7 +592,7 @@ struct GroupSettingsSheet: View {
                         consensusChanged: consensusChanged
                     )
                 }
-                await MainActor.run { workingNote = "Carving…" }
+                await MainActor.run { workingNote = String(localized: "Carving…") }
                 let txid: String
                 switch mode {
                 case .team:
@@ -616,10 +616,10 @@ struct GroupSettingsSheet: View {
                     working = false
                     workingNote = nil
                     var lines = [
-                        "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The \(style.noun)'s new details appear here once the carve confirms and you refresh."
+                        String(localized: "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The \(style.noun)'s new details appear here once the carve confirms and you refresh.")
                     ]
                     if consensusChanged, original.otherMembers > 0 {
-                        lines.append("Every other member is now asked to agree to the new consensus before the chain counts them as having done so.")
+                        lines.append(String(localized: "Every other member is now asked to agree to the new consensus before the chain counts them as having done so."))
                     }
                     onSaved(lines.joined(separator: " "))
                 }
@@ -663,7 +663,7 @@ struct GroupSettingsSheet: View {
             }
             return
         }
-        await MainActor.run { workingNote = "Checking the team's DISK for the document…" }
+        await MainActor.run { workingNote = String(localized: "Checking the team's DISK for the document…") }
         let placement = try await session.teamConsensus.place(
             consensusId: consensusId,
             onDiskSid: targetDiskSid,
@@ -683,7 +683,7 @@ struct GroupSettingsSheet: View {
                 // would describe a loss that never happened.
                 if hadOtherDisk {
                     await MainActor.run {
-                        error = "The current consensus document could not be copied to the new DISK. It stays readable on the old one until that server drops it."
+                        error = String(localized: "The current consensus document could not be copied to the new DISK. It stays readable on the old one until that server drops it.")
                     }
                 }
                 return
@@ -699,9 +699,9 @@ struct GroupSettingsSheet: View {
         var description: String {
             switch self {
             case .newConsensusNeedsDisk:
-                return "A new consensus needs a DISK to live on: the id carved on chain is only a hash, and without a server publishing the bytes no member can read what they are agreeing to. Set this team's DISK and save again."
+                return String(localized: "A new consensus needs a DISK to live on: the id carved on chain is only a hash, and without a server publishing the bytes no member can read what they are agreeing to. Set this team's DISK and save again.")
             case .documentNotPlaceable:
-                return "That consensus id names no document this Mac can find — not on the team's DISK, not here, and not on the DISK the team is moving from. Nothing was carved. Write the document or choose its file, and the id will follow from its contents."
+                return String(localized: "That consensus id names no document this Mac can find — not on the team's DISK, not here, and not on the DISK the team is moving from. Nothing was carved. Write the document or choose its file, and the id will follow from its contents.")
             }
         }
     }

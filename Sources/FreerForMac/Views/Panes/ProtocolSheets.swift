@@ -135,11 +135,11 @@ struct PublishProtocolSheet: View {
     }
 
     private var heading: String {
-        if review != nil { return target.isUpdate ? "Review: update" : "Review: publish" }
+        if review != nil { return target.isUpdate ? String(localized: "Review: update") : String(localized: "Review: publish") }
         switch target {
-        case .new:    return "Publish a protocol"
-        case .draft:  return "Edit draft"
-        case .update: return "Update this protocol"
+        case .new:    return String(localized: "Publish a protocol")
+        case .draft:  return String(localized: "Edit draft")
+        case .update: return String(localized: "Update this protocol")
         }
     }
 
@@ -153,11 +153,11 @@ struct PublishProtocolSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if review != nil {
-                ReleaseReviewNote(status: review?.status, text: "From the document. Name, type, serial number, version, language, description and DID come from the .md file and are locked; to change them, edit the document and scan again.")
+                ReleaseReviewNote(status: review?.status, text: String(localized: "From the document. Name, type, serial number, version, language, description and DID come from the .md file and are locked; to change them, edit the document and scan again."))
             }
 
             if target.isUpdate {
-                CopyableLabel("An update replaces what the record says. A field left blank here is a field cleared on chain.", systemImage: "exclamationmark.triangle")
+                CopyableLabel(String(localized: "An update replaces what the record says. A field left blank here is a field cleared on chain."), systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -165,30 +165,30 @@ struct PublishProtocolSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    field("Name") {
+                    field(String(localized: "Name")) {
                         TextField("What the protocol is called", text: $name)
                             .disabled(review != nil)
                             .fieldInputStyle()
                     }
 
                     HStack(spacing: 10) {
-                        field("Type") {
+                        field(String(localized: "Type")) {
                             TextField("e.g. FEIP", text: $type)
                                 .disabled(review != nil)
                                 .fieldInputStyle()
                         }
-                        field("Serial number") {
+                        field(String(localized: "Serial number")) {
                             TextField("the protocol's own sn", text: $sn)
                                 .disabled(review != nil)
                                 .fieldInputStyle()
                         }
                         .help("The number this protocol goes by — not the FEIP envelope's sn, which is always 1 for a protocol registration.")
-                        field("Version") {
+                        field(String(localized: "Version")) {
                             TextField("e.g. 3", text: $ver)
                                 .disabled(review != nil)
                                 .fieldInputStyle()
                         }
-                        field("Language") {
+                        field(String(localized: "Language")) {
                             TextField("en", text: $lang)
                                 .disabled(review != nil)
                                 .fieldInputStyle()
@@ -196,7 +196,7 @@ struct PublishProtocolSheet: View {
                         .frame(maxWidth: 90)
                     }
 
-                    field("Description") {
+                    field(String(localized: "Description")) {
                         VStack(alignment: .leading, spacing: 4) {
                             TextEditor(text: $desc)
                                 .disabled(review != nil)
@@ -216,7 +216,7 @@ struct PublishProtocolSheet: View {
                         }
                     }
 
-                    field("Document DID") {
+                    field(String(localized: "Document DID")) {
                         TextField("digest of the specification document", text: $did)
                             .disabled(review != nil)
                             .fieldInputStyle()
@@ -224,18 +224,18 @@ struct PublishProtocolSheet: View {
                     }
                     .help("The spec itself is not carved. This is its digest, so a reader who fetches the document can check it is the one that was registered.")
 
-                    field("Supersedes") {
+                    field(String(localized: "Supersedes")) {
                         TextField("id of the protocol record this replaces", text: $preDid)
                             .fieldInputStyle()
                             .font(.system(.body, design: .monospaced))
                     }
                     .help("A published version is not editable in place: a new version is a new record that points back at the old one.")
 
-                    field("Where it lives") {
+                    field(String(localized: "Where it lives")) {
                         HomeMapEditor(rows: $homeRows)
                     }
 
-                    field("Waiters") {
+                    field(String(localized: "Waiters")) {
                         VStack(alignment: .leading, spacing: 6) {
                             if waiters.isEmpty {
                                 Text("Nobody — the owner is the only contact for this protocol.")
@@ -263,8 +263,8 @@ struct PublishProtocolSheet: View {
                             }
                             Button {
                                 pick = .many(
-                                    title: "Add waiters",
-                                    subtitle: "They are listed as serving this protocol. A waiter is not a co-owner — only you can carve against the record.",
+                                    title: String(localized: "Add waiters"),
+                                    subtitle: String(localized: "They are listed as serving this protocol. A waiter is not a co-owner — only you can carve against the record."),
                                     excluded: Set(waiters)
                                 )
                             } label: {
@@ -282,7 +282,7 @@ struct PublishProtocolSheet: View {
             }
 
             if !session.canSign {
-                CopyableText("This identity is watch-only, so it cannot sign a carve. You can still save a draft and publish it later from an identity that holds the key.")
+                CopyableText(String(localized: "This identity is watch-only, so it cannot sign a carve. You can still save a draft and publish it later from an identity that holds the key."))
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -364,7 +364,7 @@ struct PublishProtocolSheet: View {
             try persistDraft()
             onDone(.draft)
         } catch {
-            self.error = "Couldn't save the draft: \(error)"
+            self.error = String(localized: "Couldn't save the draft: \(String(describing: error))")
         }
     }
 
@@ -403,8 +403,8 @@ struct PublishProtocolSheet: View {
             onDone(.published(spec))
         } catch {
             self.error = target.isUpdate
-                ? "Couldn't update: \(error)"
-                : "Couldn't publish: \(error)"
+                ? String(localized: "Couldn't update: \(String(describing: error))")
+                : String(localized: "Couldn't publish: \(String(describing: error))")
         }
     }
 
@@ -473,10 +473,10 @@ struct HomeRow: Identifiable, Equatable {
 /// in it at all.
 struct HomeMapEditor: View {
     @Binding var rows: [HomeRow]
-    var emptyText = "Nowhere — the registration names the protocol without saying where to read it."
+    var emptyText = String(localized: "Nowhere — the registration names the protocol without saying where to read it.")
     var keyPlaceholder = "label"
     var valuePlaceholder = "https://…"
-    var addLabel = "Add a location"
+    var addLabel = String(localized: "Add a location")
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -538,7 +538,7 @@ struct ProtocolDetailSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let desc = spec.desc, !desc.isEmpty {
-                        field("Description") {
+                        field(String(localized: "Description")) {
                             CopyableText(desc, font: .body)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -546,23 +546,23 @@ struct ProtocolDetailSheet: View {
 
                     HStack(alignment: .top, spacing: 24) {
                         if let type = spec.type, !type.isEmpty {
-                            field("Type") { Text(type).font(.caption) }
+                            field(String(localized: "Type")) { Text(type).font(.caption) }
                         }
                         if let sn = spec.sn, !sn.isEmpty {
-                            field("Serial number") { Text(sn).font(.caption.monospacedDigit()) }
+                            field(String(localized: "Serial number")) { Text(sn).font(.caption.monospacedDigit()) }
                         }
                         if let ver = spec.ver, !ver.isEmpty {
-                            field("Version") { Text(ver).font(.caption) }
+                            field(String(localized: "Version")) { Text(ver).font(.caption) }
                         }
                         if let lang = spec.lang, !lang.isEmpty {
-                            field("Language") { Text(lang).font(.caption) }
+                            field(String(localized: "Language")) { Text(lang).font(.caption) }
                         }
                     }
 
-                    field("Owner") { fidValue(spec.owner) }
+                    field(String(localized: "Owner")) { fidValue(spec.owner) }
 
                     if let waiters = spec.waiters, !waiters.isEmpty {
-                        field("Waiters") {
+                        field(String(localized: "Waiters")) {
                             VStack(alignment: .leading, spacing: 5) {
                                 ForEach(waiters, id: \.self) { fid in
                                     fidValue(fid)
@@ -572,7 +572,7 @@ struct ProtocolDetailSheet: View {
                     }
 
                     if let home = spec.home, !home.isEmpty {
-                        field("Where it lives") {
+                        field(String(localized: "Where it lives")) {
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(home.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
                                     HStack(spacing: 6) {
@@ -585,7 +585,7 @@ struct ProtocolDetailSheet: View {
                     }
 
                     if let did = spec.did, !did.isEmpty {
-                        field("Document DID") {
+                        field(String(localized: "Document DID")) {
                             CopyableText.elidingMiddle(
                                 did, head: 12, tail: 12,
                                 font: .system(.caption, design: .monospaced)
@@ -594,7 +594,7 @@ struct ProtocolDetailSheet: View {
                     }
 
                     if let pre = spec.prePid, !pre.isEmpty {
-                        field("Supersedes") {
+                        field(String(localized: "Supersedes")) {
                             CopyableText.elidingMiddle(
                                 pre, head: 12, tail: 12,
                                 font: .system(.caption, design: .monospaced)
@@ -603,14 +603,14 @@ struct ProtocolDetailSheet: View {
                     }
 
                     if spec.isClosed, let statement = spec.closeStatement, !statement.isEmpty {
-                        field("Closing statement") {
+                        field(String(localized: "Closing statement")) {
                             CopyableText(statement, font: .caption)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
 
                     HStack(spacing: 24) {
-                        field("Rating") {
+                        field(String(localized: "Rating")) {
                             RatingSummaryView(tRate: spec.tRate, tCdd: spec.tCdd)
                         }
                     }
@@ -626,7 +626,7 @@ struct ProtocolDetailSheet: View {
                         name: name
                     )
 
-                    field("Protocol ID") {
+                    field(String(localized: "Protocol ID")) {
                         CopyableText.elidingMiddle(
                             spec.id, head: 12, tail: 12,
                             font: .system(.caption, design: .monospaced)
@@ -634,7 +634,7 @@ struct ProtocolDetailSheet: View {
                     }
 
                     if let txid = spec.lastTxId, !txid.isEmpty, txid != spec.id {
-                        field("Last transaction") {
+                        field(String(localized: "Last transaction")) {
                             CopyableText.elidingMiddle(
                                 txid, head: 12, tail: 12,
                                 font: .system(.caption, design: .monospaced)
@@ -644,21 +644,21 @@ struct ProtocolDetailSheet: View {
 
                     HStack(spacing: 24) {
                         if let t = spec.birthTime {
-                            field("Published") {
+                            field(String(localized: "Published")) {
                                 Text(Date(timeIntervalSince1970: TimeInterval(t)),
                                      format: .dateTime.year().month().day().hour().minute())
                                     .font(.caption)
                             }
                         }
                         if let t = spec.lastTime {
-                            field("Last change") {
+                            field(String(localized: "Last change")) {
                                 Text(Date(timeIntervalSince1970: TimeInterval(t)),
                                      format: .dateTime.year().month().day().hour().minute())
                                     .font(.caption)
                             }
                         }
                         if let h = spec.lastHeight, h != ProtocolsStore.unconfirmedHeight {
-                            field("Height") {
+                            field(String(localized: "Height")) {
                                 Text("\(h)").font(.caption.monospacedDigit())
                             }
                         }
@@ -705,11 +705,11 @@ struct ProtocolDetailSheet: View {
     @ViewBuilder
     private var stateChip: some View {
         switch spec.state {
-        case .closed:    chip("Closed", color: .red)
-        case .stopped:   chip("Stopped", color: .orange)
-        case .draft:     chip("Draft", color: .gray)
-        case .broadcast: chip("Broadcast, unconfirmed", color: .orange)
-        case .live:      chip("In force", color: .blue)
+        case .closed:    chip(String(localized: "Closed"), color: .red)
+        case .stopped:   chip(String(localized: "Stopped"), color: .orange)
+        case .draft:     chip(String(localized: "Draft"), color: .gray)
+        case .broadcast: chip(String(localized: "Broadcast, unconfirmed"), color: .orange)
+        case .live:      chip(String(localized: "In force"), color: .blue)
         }
     }
 
@@ -736,12 +736,12 @@ struct ProtocolDetailSheet: View {
 
     private var rateHelp: String {
         if spec.id.isEmpty {
-            return "This protocol has no on-chain id yet."
+            return String(localized: "This protocol has no on-chain id yet.")
         }
         if spec.owner == session.liveFid {
-            return "You own this protocol, and the protocol ignores a rating from its own owner."
+            return String(localized: "You own this protocol, and the protocol ignores a rating from its own owner.")
         }
-        return "Rate this protocol 0–5, weighted by the coin-days you spend."
+        return String(localized: "Rate this protocol 0–5, weighted by the coin-days you spend.")
     }
 
     private func chip(_ text: String, color: Color) -> some View {
@@ -793,7 +793,7 @@ struct CloseProtocolSheet: View {
                 }
             }
 
-            CopyableLabel("Closing is permanent. The record stays on the chain and stays readable, flagged closed, but there is no op that reopens it — Recover only undoes a Stop.", systemImage: "exclamationmark.triangle")
+            CopyableLabel(String(localized: "Closing is permanent. The record stays on the chain and stays readable, flagged closed, but there is no op that reopens it — Recover only undoes a Stop."), systemImage: "exclamationmark.triangle")
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
@@ -839,7 +839,7 @@ struct CloseProtocolSheet: View {
             )
             onDone(txid)
         } catch {
-            self.error = "Couldn't close: \(error)"
+            self.error = String(localized: "Couldn't close: \(String(describing: error))")
         }
     }
 }

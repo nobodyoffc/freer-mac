@@ -185,7 +185,7 @@ struct PublishDocumentView: View {
         let format = self.format
         let loaded: (PublishDocument.Kind, String?, AttributedString?, String?) = await Task.detached(priority: .userInitiated) {
             guard let data = try? Data(contentsOf: url) else {
-                return (.other, nil, nil, "The fetched file could not be read back from this Mac.")
+                return (.other, nil, nil, String(localized: "The fetched file could not be read back from this Mac."))
             }
             let kind = PublishDocument.kind(of: data, format: format)
             switch kind {
@@ -209,7 +209,7 @@ struct PublishDocumentView: View {
                     )
                     return (kind, ns.string, AttributedString(ns), nil)
                 } catch {
-                    return (.other, nil, nil, "The document could not be read: \(error.localizedDescription)")
+                    return (.other, nil, nil, String(localized: "The document could not be read: \(error.localizedDescription)"))
                 }
             case .pdf, .other:
                 return (kind, nil, nil, nil)
@@ -238,7 +238,7 @@ struct PublishDocumentView: View {
         do {
             NSWorkspace.shared.open(try namedCopy())
         } catch {
-            note = "Couldn't hand the file to another app: \(error.localizedDescription)"
+            note = String(localized: "Couldn't hand the file to another app: \(error.localizedDescription)")
         }
     }
 
@@ -253,7 +253,7 @@ struct PublishDocumentView: View {
             }
             try FileManager.default.copyItem(at: url, to: dest)
         } catch {
-            note = "Couldn't save the copy: \(error.localizedDescription)"
+            note = String(localized: "Couldn't save the copy: \(error.localizedDescription)")
         }
     }
 }

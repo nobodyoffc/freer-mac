@@ -91,7 +91,7 @@ struct SshServerEditorSheet: View {
     private var forwardsError: String? {
         var parsed: [SshPortForward] = []
         for draft in forwards {
-            guard let forward = draft.forward else { return "Ports are numbers from 1 to 65535." }
+            guard let forward = draft.forward else { return String(localized: "Ports are numbers from 1 to 65535.") }
             parsed.append(forward)
         }
         return SshPortForward.firstProblem(in: parsed)
@@ -108,11 +108,11 @@ struct SshServerEditorSheet: View {
     private var identityHint: String {
         switch identityKind {
         case .freer:
-            return "The ed25519 key derived from your main FID. After saving, put it on the server with Install Freer key in the server's menu."
+            return String(localized: "The ed25519 key derived from your main FID. After saving, put it on the server with Install Freer key in the server's menu.")
         case .keyFile:
-            return "A prikey you already have. Freer's agent is never started; ssh reads the file, and asks here if it has a passphrase."
+            return String(localized: "A prikey you already have. Freer's agent is never started; ssh reads the file, and asks here if it has a passphrase.")
         case .systemDefaults:
-            return "Plain ssh: your ~/.ssh/config, your own agent, your default keys. Freer adds no options at all."
+            return String(localized: "Plain ssh: your ~/.ssh/config, your own agent, your default keys. Freer adds no options at all.")
         }
     }
 
@@ -133,24 +133,24 @@ struct SshServerEditorSheet: View {
 
                     Divider()
 
-                    LabeledField("Label", hint: "Optional. Falls back to user@host.") {
+                    LabeledField(String(localized: "Label"), hint: String(localized: "Optional. Falls back to user@host.")) {
                         TextField("prod web", text: $label).fieldInputStyle()
                     }
 
-                    LabeledField("Host", hint: "Hostname, IP, or a Host alias from ~/.ssh/config.") {
+                    LabeledField(String(localized: "Host"), hint: String(localized: "Hostname, IP, or a Host alias from ~/.ssh/config.")) {
                         TextField("vps01.example.com", text: $host)
                             .fieldInputStyle()
                             .autocorrectionDisabled()
                     }
 
                     HStack(alignment: .top, spacing: 12) {
-                        LabeledField("User") {
+                        LabeledField(String(localized: "User")) {
                             TextField("root", text: $user)
                                 .fieldInputStyle()
                                 .autocorrectionDisabled()
                         }
                         LabeledField(
-                            "Port",
+                            String(localized: "Port"),
                             hint: portValue == nil ? "1–65535" : nil,
                             hintIsError: portValue == nil
                         ) {
@@ -160,7 +160,7 @@ struct SshServerEditorSheet: View {
                         }
                     }
 
-                    LabeledField("Key", hint: identityHint) {
+                    LabeledField(String(localized: "Key"), hint: identityHint) {
                         VStack(alignment: .leading, spacing: 8) {
                             Picker("Key", selection: $identityKind) {
                                 ForEach(IdentityKind.allCases) { Text($0.rawValue).tag($0) }
@@ -181,7 +181,7 @@ struct SshServerEditorSheet: View {
 
                     forwardsField
 
-                    LabeledField("Memo", hint: "Optional.") {
+                    LabeledField(String(localized: "Memo"), hint: String(localized: "Optional.")) {
                         TextField("what this box is for", text: $memo).fieldInputStyle()
                     }
 
@@ -221,8 +221,8 @@ struct SshServerEditorSheet: View {
     /// saved fields as it always did.
     private var commandField: some View {
         LabeledField(
-            "From an ssh command",
-            hint: commandError ?? commandNote ?? "Optional. Paste the line you were given — host, user, port, -i key and -L forwards are read out of it. Nothing is run.",
+            String(localized: "From an ssh command"),
+            hint: commandError ?? commandNote ?? String(localized: "Optional. Paste the line you were given — host, user, port, -i key and -L forwards are read out of it. Nothing is run."),
             hintIsError: commandError != nil
         ) {
             HStack(spacing: 8) {
@@ -280,8 +280,8 @@ struct SshServerEditorSheet: View {
             }
             commandError = nil
             commandNote = parsed.ignored.isEmpty
-                ? "Filled in below. Check them before saving."
-                : "Filled in below. Not stored: \(parsed.ignored.joined(separator: ", "))."
+                ? String(localized: "Filled in below. Check them before saving.")
+                : String(localized: "Filled in below. Not stored: \(parsed.ignored.joined(separator: ", ")).")
         } catch {
             commandError = "\(error)"
             commandNote = nil
@@ -290,10 +290,10 @@ struct SshServerEditorSheet: View {
 
     private var forwardsField: some View {
         LabeledField(
-            "Port forwards",
+            String(localized: "Port forwards"),
             hint: forwardsError ?? (forwards.isEmpty
-                ? "Optional. Open tunnel, in the server's menu, opens these."
-                : "Each port opens on this Mac's loopback only. The host on the right is looked up by the server, so localhost means the server itself."),
+                ? String(localized: "Optional. Open tunnel, in the server's menu, opens these.")
+                : String(localized: "Each port opens on this Mac's loopback only. The host on the right is looked up by the server, so localhost means the server itself.")),
             hintIsError: forwardsError != nil
         ) {
             VStack(alignment: .leading, spacing: 8) {
@@ -384,7 +384,7 @@ struct SshServerEditorSheet: View {
         panel.allowsMultipleSelection = false
         panel.showsHiddenFiles = true
         panel.treatsFilePackagesAsDirectories = true
-        panel.message = "Pick the prikey, not the .pub."
+        panel.message = String(localized: "Pick the prikey, not the .pub.")
         panel.directoryURL = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(".ssh")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         keyFilePath = url.path

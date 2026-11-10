@@ -36,9 +36,12 @@ let package = Package(
                 "FCVoice",
                 .product(name: "SwiftTerm", package: "SwiftTerm")
             ],
-            // Linked into the binary, not copied as a resource — see the
-            // linker settings below.
-            exclude: ["Info.plist"],
+            // Info.plist is linked into the binary, not copied as a resource —
+            // see the linker settings below. Localization/*.lproj has to sit
+            // in the *main* bundle, which a SwiftPM resource never does:
+            // make-dmg.sh copies it into Freer.app, and DevLocalization links
+            // it beside a development binary.
+            exclude: ["Info.plist", "Localization"],
             linkerSettings: [
                 // **The microphone and camera need this.** macOS kills a process
                 // that touches a TCC-protected device with no usage

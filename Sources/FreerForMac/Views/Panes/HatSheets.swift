@@ -27,39 +27,39 @@ struct HatDetailSheet: View {
                     .lineLimit(2)
                     .truncationMode(.middle)
                 if hat.isCipherHat {
-                    chip("Encrypted copy", color: .purple)
+                    chip(String(localized: "Encrypted copy"), color: .purple)
                 }
                 Spacer()
             }
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    field("Data id (DID)") {
+                    field(String(localized: "Data id (DID)")) {
                         CopyableText(hat.id ?? "—", font: .system(.callout, design: .monospaced))
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
 
                     if let size = hat.size {
-                        field("Size") { Text(FilesView.formatBytes(size)) }
+                        field(String(localized: "Size")) { Text(FilesView.formatBytes(size)) }
                     }
                     if let desc = hat.desc, !desc.isEmpty {
-                        field("Description") { CopyableText(desc, font: .body) }
+                        field(String(localized: "Description")) { CopyableText(desc, font: .body) }
                     }
                     if let types = hat.types, !types.isEmpty {
-                        field("Types") { Text(types.joined(separator: ", ")) }
+                        field(String(localized: "Types")) { Text(types.joined(separator: ", ")) }
                     }
                     if let born = hat.born {
-                        field("Added") { Text(FilesView.formatDate(born)) }
+                        field(String(localized: "Added")) { Text(FilesView.formatDate(born)) }
                     }
                     if let last = hat.last {
-                        field("Last used") { Text(FilesView.formatDate(last)) }
+                        field(String(localized: "Last used")) { Text(FilesView.formatDate(last)) }
                     }
 
                     locationsSection
 
                     if let cipherIds = hat.cipherIds, !cipherIds.isEmpty {
-                        field("Encrypted copies on DISK") {
+                        field(String(localized: "Encrypted copies on DISK")) {
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(cipherIds, id: \.self) { id in
                                     CopyableText(
@@ -73,9 +73,9 @@ struct HatDetailSheet: View {
                     }
 
                     if hat.key != nil {
-                        field("Sharing key") {
+                        field(String(localized: "Sharing key")) {
                             CopyableLabel(
-                                "This record carries a plaintext key, so anyone it is shared with can open the file.",
+                                String(localized: "This record carries a plaintext key, so anyone it is shared with can open the file."),
                                 systemImage: "exclamationmark.triangle"
                             )
                             .font(.caption)
@@ -84,7 +84,7 @@ struct HatDetailSheet: View {
                     }
 
                     if let srcDid = hat.srcDid, !srcDid.isEmpty {
-                        field("First version") {
+                        field(String(localized: "First version")) {
                             CopyableText(
                                 display: srcDid.elidingMiddle(head: 10, tail: 8),
                                 copy: srcDid,
@@ -92,7 +92,7 @@ struct HatDetailSheet: View {
                         }
                     }
                     if let preDid = hat.preDid, !preDid.isEmpty {
-                        field("Previous version") {
+                        field(String(localized: "Previous version")) {
                             CopyableText(
                                 display: preDid.elidingMiddle(head: 10, tail: 8),
                                 copy: preDid,
@@ -121,7 +121,7 @@ struct HatDetailSheet: View {
 
     @ViewBuilder
     private var locationsSection: some View {
-        field("Where it is") {
+        field(String(localized: "Where it is")) {
             VStack(alignment: .leading, spacing: 6) {
                 let locas = hat.locas ?? []
                 if locas.isEmpty {
@@ -138,9 +138,9 @@ struct HatDetailSheet: View {
                         if loca.hasPrefix(Hat.localLocationPrefix) {
                             let path = String(loca.dropFirst(Hat.localLocationPrefix.count))
                             if !FileManager.default.fileExists(atPath: path) {
-                                chip("Missing", color: .orange)
+                                chip(String(localized: "Missing"), color: .orange)
                             } else if record?.local.stamps[path] == nil {
-                                chip("Unverified", color: .gray)
+                                chip(String(localized: "Unverified"), color: .gray)
                             }
                         }
                     }
@@ -225,7 +225,7 @@ struct HatExportSheet: View {
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(json, forType: .string)
-                    saved = "Copied to the clipboard."
+                    saved = String(localized: "Copied to the clipboard.")
                 } label: {
                     Label("Copy", systemImage: "doc.on.doc")
                 }
@@ -249,9 +249,9 @@ struct HatExportSheet: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try Data(json.utf8).write(to: url)
-            saved = "Saved to \(url.lastPathComponent)."
+            saved = String(localized: "Saved to \(url.lastPathComponent).")
         } catch {
-            saved = "Couldn't save: \(String(describing: error))"
+            saved = String(localized: "Couldn't save: \(String(describing: error))")
         }
     }
 }
@@ -334,7 +334,7 @@ struct HatImportSheet: View {
             error = nil
         } else {
             preview = []
-            error = "That doesn't look like a file record."
+            error = String(localized: "That doesn't look like a file record.")
         }
     }
 
@@ -368,7 +368,7 @@ struct HatImportSheet: View {
         if failures.isEmpty {
             onDone(imported)
         } else {
-            error = "Imported \(imported); \(failures.count) failed — \(failures.joined(separator: "; "))"
+            error = String(localized: "Imported \(String(imported)); \(String(failures.count)) failed — \(failures.joined(separator: "; "))")
         }
     }
 }

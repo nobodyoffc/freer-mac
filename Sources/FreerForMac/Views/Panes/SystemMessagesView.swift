@@ -104,7 +104,7 @@ struct SystemMessagesView: View {
     private var countSummary: String {
         let errors = messages.count { $0.level == .error }
         let warnings = messages.count { $0.level == .warning }
-        if errors == 0 && warnings == 0 { return "Nothing wrong so far." }
+        if errors == 0 && warnings == 0 { return String(localized: "Nothing wrong so far.") }
         var parts: [String] = []
         if errors > 0 { parts.append("\(errors) error\(errors == 1 ? "" : "s")") }
         if warnings > 0 { parts.append("\(warnings) warning\(warnings == 1 ? "" : "s")") }

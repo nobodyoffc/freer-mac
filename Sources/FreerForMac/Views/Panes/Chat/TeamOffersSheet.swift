@@ -217,9 +217,9 @@ struct TeamOffersSheet: View {
         if let offer = selected {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
-                    Text(offer.teamName ?? "A team").font(.headline).lineLimit(1)
+                    Text(offer.teamName ?? String(localized: "A team")).font(.headline).lineLimit(1)
                     ChatChip(
-                        offer.kind == .transfer ? "handed to you" : "invited",
+                        offer.kind == .transfer ? String(localized: "handed to you") : "invited",
                         color: offer.kind == .transfer ? .orange : .accentColor
                     )
                     if !offer.isOnChain { ChatChip("unconfirmed", color: .secondary) }
@@ -232,12 +232,12 @@ struct TeamOffersSheet: View {
                 .foregroundStyle(.tertiary)
 
                 if let owner = offer.owner {
-                    fidRow("Owner", owner)
+                    fidRow(String(localized: "Owner"), owner)
                     // A team a nobody owns can be run by anyone.
                     NobodyBanner(fid: owner, message: NobodyConsequence.teamOwner.text)
                 }
                 if let sender = offer.notifiedBy, sender != offer.owner {
-                    fidRow("Told by", sender)
+                    fidRow(String(localized: "Told by"), sender)
                     NobodyBanner(fid: sender, message: NobodyText.inviter)
                 }
                 if let members = offer.memberNum {
@@ -325,13 +325,13 @@ struct TeamOffersSheet: View {
 
     private func explanation(_ offer: TeamOffer) -> String {
         if !offer.isOnChain {
-            return "Nothing on the chain says this yet. Invitations take a few minutes to confirm — check again shortly. If it never appears, the notice was not true."
+            return String(localized: "Nothing on the chain says this yet. Invitations take a few minutes to confirm — check again shortly. If it never appears, the notice was not true.")
         }
         switch offer.kind {
         case .invitation:
-            return "Joining is a transaction: it costs a miner fee, it is public, and it signs your agreement to the team's consensus document."
+            return String(localized: "Joining is a transaction: it costs a miner fee, it is public, and it signs your agreement to the team's consensus document.")
         case .transfer:
-            return "Taking over makes you the owner and the only manager. It is a transaction, it is public, and it signs your agreement to the team's consensus document."
+            return String(localized: "Taking over makes you the owner and the only manager. It is a transaction, it is public, and it signs your agreement to the team's consensus document.")
         }
     }
 
@@ -342,7 +342,7 @@ struct TeamOffersSheet: View {
     private var searchSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                SearchField("Find a team by name…", text: $searchText, minWidth: 200)
+                SearchField(String(localized: "Find a team by name…"), text: $searchText, minWidth: 200)
                     .onSubmit { Task { await search() } }
                 Button("Search") { Task { await search() } }
                     .disabled(searching || searchText.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -388,10 +388,10 @@ struct TeamOffersSheet: View {
         let me = session.liveFid
         if !team.isActive { return "disbanded" }
         if team.isOwner(me) { return "yours" }
-        if team.transferee == me { return "handed to you" }
+        if team.transferee == me { return String(localized: "handed to you") }
         if team.isMember(me) { return "member" }
         if team.isInvited(me) { return "invited" }
-        return "not invited"
+        return String(localized: "not invited")
     }
 
     // MARK: - actions
@@ -413,14 +413,14 @@ struct TeamOffersSheet: View {
             let fresh = try await session.refreshTeamOffers()
             await MainActor.run {
                 refreshing = false
-                if fresh > 0 { note = "\(fresh) new from the chain." }
+                if fresh > 0 { note = String(localized: "\(String(fresh)) new from the chain.") }
                 load()
                 onChanged()
             }
         } catch {
             await MainActor.run {
                 refreshing = false
-                self.error = "Couldn't check the chain: \(error)"
+                self.error = String(localized: "Couldn't check the chain: \(String(describing: error))")
                 load()
             }
         }
@@ -436,7 +436,7 @@ struct TeamOffersSheet: View {
         } catch {
             await MainActor.run {
                 searching = false
-                self.error = "Search failed: \(error)"
+                self.error = String(localized: "Search failed: \(String(describing: error))")
             }
         }
     }
@@ -446,7 +446,7 @@ struct TeamOffersSheet: View {
         guard let id = offer.consensusId, !id.isEmpty else { return }
         document = DocumentRequest(
             consensusId: id,
-            title: "\(offer.teamName ?? "The team")'s consensus",
+            title: String(localized: "\(offer.teamName ?? "The team")'s consensus"),
             diskSids: [offer.diskSid].compactMap { $0 }
         )
     }
@@ -463,17 +463,17 @@ struct TeamOffersSheet: View {
 
     private func confirmTitle(_ offer: TeamOffer?) -> String {
         guard let offer else { return "" }
-        let name = offer.teamName ?? "this team"
-        return offer.kind == .transfer ? "Take over \(name)?" : "Join \(name)?"
+        let name = offer.teamName ?? String(localized: "this team")
+        return offer.kind == .transfer ? String(localized: "Take over \(name)?") : String(localized: "Join \(name)?")
     }
 
     private func confirmMessage(_ offer: TeamOffer) -> String {
         let sentence = offer.kind == .transfer ? TeamFeip.takeOverConfirm : TeamFeip.joinConfirm
-        let consensus = offer.consensusId.map { " The consensus quoted is the one the chain holds when you sign — \($0.elidingMiddle(head: 8, tail: 8)) as of the last check." } ?? ""
+        let consensus = offer.consensusId.map { String(localized: " The consensus quoted is the one the chain holds when you sign — \($0.elidingMiddle(head: 8, tail: 8)) as of the last check.") } ?? ""
         let role = offer.kind == .transfer
-            ? " You become the owner and the only manager: anyone the current owner appointed loses the role."
+            ? String(localized: " You become the owner and the only manager: anyone the current owner appointed loses the role.")
             : ""
-        return "This broadcasts a transaction that signs “\(sentence)”\(consensus)\(role) It costs a miner fee and is public."
+        return String(localized: "This broadcasts a transaction that signs “\(sentence)”\(consensus)\(role) It costs a miner fee and is public.")
     }
 
     /// Carve the join or the take-over, after reading the team again.
@@ -511,7 +511,7 @@ struct TeamOffersSheet: View {
                 await MainActor.run {
                     working = false
                     _ = try? session.teamOffers.markAnswered(fid: offer.fid, teamId: offer.teamId)
-                    note = "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The team's thread appears once the carve confirms and the Teams tab refreshes."
+                    note = String(localized: "Broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The team's thread appears once the carve confirms and the Teams tab refreshes.")
                     load()
                     onChanged()
                 }

@@ -194,9 +194,9 @@ public enum RunFailure: Error, CustomStringConvertible, Equatable {
 
     public var description: String {
         switch self {
-        case .unresolved(let what): return "\(what) has no id: its own carve did not go out"
-        case .didChanged(let file): return "\(file) changed after the scan; scan again"
-        case .noFile(let name): return "\(name) was not downloaded, so it cannot go onto DISK; scan again"
+        case .unresolved(let what): return String(localized: "\(what) has no id: its own carve did not go out")
+        case .didChanged(let file): return String(localized: "\(file) changed after the scan; scan again")
+        case .noFile(let name): return String(localized: "\(name) was not downloaded, so it cannot go onto DISK; scan again")
         }
     }
 }
@@ -298,7 +298,7 @@ public struct ReleaseRunner: Sendable {
                     }
                 }
                 if let first = failures.first {
-                    events(.confirmCheckFailed("\(failures.count) of \(pending.count) lookups failed, e.g. \(first)"))
+                    events(.confirmCheckFailed(String(localized: "\(String(failures.count)) of \(String(pending.count)) lookups failed, e.g. \(first)")))
                 }
                 pending = still
             }
@@ -352,7 +352,7 @@ public struct ReleaseRunner: Sendable {
                     let did = Hex.encode(Hash.doubleSha256(try Data(contentsOf: item.doc.url))).lowercased()
                     guard did == item.carveDid else { throw RunFailure.didChanged(item.doc.relativePath) }
                 }
-                events(.step(key: key, "storing \(item.doc.url.lastPathComponent) on DISK"))
+                events(.step(key: key, String(localized: "storing \(item.doc.url.lastPathComponent) on DISK")))
                 try await backend.storeOnDisk(item.doc.url, name: item.doc.url.lastPathComponent)
                 try await waitForRoom()
                 events(.step(key: key, "carving"))
@@ -389,9 +389,9 @@ public struct ReleaseRunner: Sendable {
                     }
                     carve = reviewed
                 }
-                events(.step(key: key, "storing \(item.local.assetName) on DISK"))
+                events(.step(key: key, String(localized: "storing \(item.local.assetName) on DISK")))
                 try await backend.storeOnDisk(item.local.zipURL, name: item.local.assetName)
-                events(.step(key: key, "uploading \(item.local.assetName) to GitHub"))
+                events(.step(key: key, String(localized: "uploading \(item.local.assetName) to GitHub")))
                 try await backend.uploadAsset(item.local.zipURL, repo: item.repo.manifest.github, tag: item.local.tag)
                 try await waitForRoom()
                 events(.step(key: key, "carving"))
@@ -470,7 +470,7 @@ public struct ReleaseRunner: Sendable {
                     var carve = reviewed
                     if carve.disk {
                         guard let file = item.local.fileURL else { throw RunFailure.noFile(item.local.fileName) }
-                        events(.step(key: key, "storing \(item.local.fileName) on DISK"))
+                        events(.step(key: key, String(localized: "storing \(item.local.fileName) on DISK")))
                         try await backend.storeOnDisk(file, name: item.local.fileName)
                         carve = carve.withDisk(await backend.diskLocas(did: carve.did))
                     }

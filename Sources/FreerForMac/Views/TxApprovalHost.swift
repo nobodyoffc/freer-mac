@@ -58,7 +58,7 @@ final class TxApprovalWindow {
             rootView: TxApprovalWindowContent(center: center, session: session)
         )
         let panel = NSWindow(contentViewController: hosting)
-        panel.title = "Approve transaction"
+        panel.title = String(localized: "Approve transaction")
         // No `.closable`: answering is the only way out.
         panel.styleMask = [.titled]
         panel.level = .modalPanel

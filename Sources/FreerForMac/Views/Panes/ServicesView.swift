@@ -196,7 +196,7 @@ struct ServicesView: View {
 
             if let err = loadError, source.isEmpty {
                 card {
-                    CopyableLabel("Couldn't load the service registry", systemImage: "exclamationmark.triangle")
+                    CopyableLabel(String(localized: "Couldn't load the service registry"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                     Text("Nothing is shown rather than the last list that loaded — a failed query has no answer, and rows left over from a different one would be read as this one's.")
@@ -258,16 +258,16 @@ struct ServicesView: View {
                 switch result {
                 case .published(let service):
                     actionError = nil
-                    actionNote = "Published — tx \(service.sid.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it."
+                    actionNote = String(localized: "Published — tx \(service.sid.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it.")
                     tab = .mine
                     Task { await refresh() }
                 case .updated(let txid):
                     actionError = nil
-                    actionNote = "Update broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The record changes when a block confirms it."
+                    actionNote = String(localized: "Update broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). The record changes when a block confirms it.")
                     Task { await refresh() }
                 case .draft:
                     actionError = nil
-                    actionNote = "Saved as a draft. Nothing is on the chain until you publish it."
+                    actionNote = String(localized: "Saved as a draft. Nothing is on the chain until you publish it.")
                     tab = .drafts
                 case .cancelled:
                     break
@@ -293,7 +293,7 @@ struct ServicesView: View {
                     selection = []
                     selecting = false
                     actionError = nil
-                    actionNote = "Close broadcast for \(ids.count) service\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8)). Nothing reopens a closed record."
+                    actionNote = String(localized: "Close broadcast for \(String(ids.count)) service\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8)). Nothing reopens a closed record.")
                     Task { await refresh() }
                 }
             }
@@ -349,7 +349,7 @@ struct ServicesView: View {
 
             Spacer(minLength: 8)
 
-            SearchField("Search name, description, component…", text: $searchText, minWidth: 150)
+            SearchField(String(localized: "Search name, description, component…"), text: $searchText, minWidth: 150)
                 .onSubmit {
                     guard tab.isChainQuery else { return }
                     Task { await searchChain() }
@@ -483,7 +483,7 @@ struct ServicesView: View {
                     .disabled(!selected.contains { $0.canClose(as: session.liveFid) })
                 }
                 if showingCache {
-                    countChip("offline — showing the cached window", color: .orange)
+                    countChip(String(localized: "offline — showing the cached window"), color: .orange)
                 }
             }
             Spacer(minLength: 0)
@@ -609,7 +609,7 @@ struct ServicesView: View {
                 }
 
                 HStack(spacing: 10) {
-                    fidLine("Owner", service.owner)
+                    fidLine(String(localized: "Owner"), service.owner)
                     if let codes = service.codes, !codes.isEmpty {
                         Text("\(codes.count) code\(codes.count == 1 ? "" : "s")")
                             .font(.caption2)
@@ -749,14 +749,14 @@ struct ServicesView: View {
     /// this to me" before "what state is it in".
     private func chips(for service: Service) -> [(String, Color)] {
         var out: [(String, Color)] = []
-        if service.owner == session.liveFid { out.append(("Mine", .blue)) }
-        if service.waiters?.contains(session.liveFid) == true { out.append(("Waiter", .teal)) }
+        if service.owner == session.liveFid { out.append((String(localized: "Mine"), .blue)) }
+        if service.waiters?.contains(session.liveFid) == true { out.append((String(localized: "Waiter"), .teal)) }
 
         switch service.state {
-        case .closed:    out.append(("Closed", .red))
-        case .stopped:   out.append(("Stopped", .orange))
-        case .draft:     out.append(("Draft", .gray))
-        case .broadcast: out.append(("Broadcast", .orange))
+        case .closed:    out.append((String(localized: "Closed"), .red))
+        case .stopped:   out.append((String(localized: "Stopped"), .orange))
+        case .draft:     out.append((String(localized: "Draft"), .gray))
+        case .broadcast: out.append((String(localized: "Broadcast"), .orange))
         case .live:      break
         }
 
@@ -782,9 +782,9 @@ struct ServicesView: View {
     private func priceSummary(_ service: Service) -> String? {
         let unit = service.currency?.trimmingCharacters(in: .whitespaces)
         let headline: (String, String)? =
-            service.pricePerRequest.map { ($0, "per request") }
-            ?? service.pricePerKB.map { ($0, "per KB") }
-            ?? service.pricePerKBOut.map { ($0, "per KB out") }
+            service.pricePerRequest.map { ($0, String(localized: "per request")) }
+            ?? service.pricePerKB.map { ($0, String(localized: "per KB")) }
+            ?? service.pricePerKBOut.map { ($0, String(localized: "per KB out")) }
             ?? service.minPayment.map { ($0, "minimum") }
         guard let (value, label) = headline, !value.isEmpty else { return nil }
         return unit.map { "\(value) \($0) \(label)" } ?? "\(value) \(label)"
@@ -833,7 +833,7 @@ struct ServicesView: View {
 
     private func noteServerFilterMismatch(_ dropped: Int, of total: Int) {
         guard dropped > 0 else { return }
-        note = "The server returned \(dropped) of \(total) row\(total == 1 ? "" : "s") that don't match the filters — it ignored a clause, so this list is filtered here instead and Load more may return fewer rows than it fetches."
+        note = String(localized: "The server returned \(String(dropped)) of \(String(total)) row\(total == 1 ? "" : "s") that don't match the filters — it ignored a clause, so this list is filtered here instead and Load more may return fewer rows than it fetches.")
     }
 
     private func loadLocal() {
@@ -1007,7 +1007,7 @@ struct ServicesView: View {
             hasMore = page.services.count >= Self.pageSize
             await resolveNames(for: page.services)
         } catch {
-            note = "Couldn't load more: \(error)"
+            note = String(localized: "Couldn't load more: \(String(describing: error))")
         }
     }
 
@@ -1047,10 +1047,10 @@ struct ServicesView: View {
             let txid = try await session.carveServiceStopOnChain(sids: ids)
             selection = []
             selecting = false
-            actionNote = "Stop broadcast for \(ids.count) service\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8))."
+            actionNote = String(localized: "Stop broadcast for \(String(ids.count)) service\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8)).")
             await refresh()
         } catch {
-            actionError = "Couldn't stop: \(error)"
+            actionError = String(localized: "Couldn't stop: \(String(describing: error))")
         }
     }
 
@@ -1065,10 +1065,10 @@ struct ServicesView: View {
             let txid = try await session.carveServiceRecoverOnChain(sids: ids)
             selection = []
             selecting = false
-            actionNote = "Recover broadcast for \(ids.count) service\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8))."
+            actionNote = String(localized: "Recover broadcast for \(String(ids.count)) service\(ids.count == 1 ? "" : "s") — tx \(txid.elidingMiddle(head: 8, tail: 8)).")
             await refresh()
         } catch {
-            actionError = "Couldn't recover: \(error)"
+            actionError = String(localized: "Couldn't recover: \(String(describing: error))")
         }
     }
 
@@ -1093,12 +1093,12 @@ struct ServicesView: View {
                 pricing: draft.pricing,
                 draftId: draft.sid
             )
-            actionNote = "Published — tx \(service.sid.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it."
+            actionNote = String(localized: "Published — tx \(service.sid.elidingMiddle(head: 8, tail: 8)). It shows as On-chain once a block confirms it.")
             loadLocal()
             tab = .mine
             await refresh()
         } catch {
-            actionError = "Couldn't publish: \(error)"
+            actionError = String(localized: "Couldn't publish: \(String(describing: error))")
         }
     }
 

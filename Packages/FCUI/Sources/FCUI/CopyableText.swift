@@ -166,7 +166,7 @@ private struct CopyOnClick: ViewModifier {
             .contentShape(Rectangle())
             .onTapGesture { copy() }
             .pointingHand()
-            .help(copied.wrappedValue ? "Copied!" : (help ?? "Click to copy"))
+            .help(copied.wrappedValue ? String(localized: "Copied!") : (help ?? String(localized: "Click to copy")))
             .overlay(alignment: .trailing) {
                 if copied.wrappedValue {
                     Image(systemName: "checkmark.circle.fill")

@@ -227,7 +227,7 @@ final class MacMeetingSession: CallRelayLink.Events, CallMedia.Listener, @unchec
     /// can derive; an older one if the relay refuses it, as when a rekey's
     /// update has not reached this device yet (§3.3).
     private func join() async throws {
-        guard let link = currentLink() else { throw Ended(why: .failed, detail: "no relay link") }
+        guard let link = currentLink() else { throw Ended(why: .failed, detail: String(localized: "no relay link")) }
         var last: Error?
         var anyKey = false
         for k in meeting.keys {
@@ -252,7 +252,7 @@ final class MacMeetingSession: CallRelayLink.Events, CallMedia.Listener, @unchec
             } catch let e as CallRelayLink.Refused {
                 last = e
                 switch e.code {
-                case 404: throw Ended(why: .gone, detail: "the meeting is over")
+                case 404: throw Ended(why: .gone, detail: String(localized: "the meeting is over"))
                 case 403: throw Ended(why: .kicked, detail: e.message)
                 case 402: throw Ended(why: .balance, detail: e.message)
                 case 401: continue // that key is no longer the meeting's: try an older one
@@ -264,9 +264,9 @@ final class MacMeetingSession: CallRelayLink.Events, CallMedia.Listener, @unchec
             let newest = meeting.newestKeys
             // A chat's key can be asked for; a chosen-people meeting's key only comes with its invitation.
             if let newest, !meeting.invited { keys.request(meeting.entityId, newest.symkeyVersion) }
-            throw Ended(why: .noKey, detail: "no key for symkey version \(newest.map { "\($0.symkeyVersion)" } ?? "?")")
+            throw Ended(why: .noKey, detail: String(localized: "no key for symkey version \(newest.map { "\($0.symkeyVersion)" } ?? "?")"))
         }
-        throw last ?? Ended(why: .failed, detail: "could not join")
+        throw last ?? Ended(why: .failed, detail: String(localized: "could not join"))
     }
 
     private func startMedia(secret: Data, epoch: Int) throws {
@@ -392,7 +392,7 @@ final class MacMeetingSession: CallRelayLink.Events, CallMedia.Listener, @unchec
             return pendingEpoch
         }
         applyMute()
-        if pending >= 0 && MacMeetingSession.everyoneHas(roster, pending) { switchSending(pending, why: "everyone has it") }
+        if pending >= 0 && MacMeetingSession.everyoneHas(roster, pending) { switchSending(pending, why: String(localized: "everyone has it")) }
         listener?.changed()
     }
 
@@ -448,7 +448,7 @@ final class MacMeetingSession: CallRelayLink.Events, CallMedia.Listener, @unchec
             let left = max(0, since + within - MacMeetingSession.nowMs())
             Task { [weak self] in
                 try? await Task.sleep(nanoseconds: UInt64(left) * 1_000_000)
-                self?.switchSending(epoch, why: "the relay's deadline")
+                self?.switchSending(epoch, why: String(localized: "the relay's deadline"))
             }
         }
         lock.withLock { symkeyVersion = version }
@@ -516,8 +516,8 @@ final class MacMeetingSession: CallRelayLink.Events, CallMedia.Listener, @unchec
         for (s, c) in counts {
             let j = mix?.stats(s)
             step("  from \(fids[s] ?? "?") ssrc \(s): arrived \(c.arrived), opened \(c.opened)"
-                 + (m?.isPaused(ssrc: s) == true ? ", PAUSED" : "") + (m?.isUnverified(ssrc: s) == true ? ", UNVERIFIED" : "")
-                 + (j.map { " | played \($0.played), target \($0.targetMs) ms" } ?? ""))
+                 + (m?.isPaused(ssrc: s) == true ? String(localized: ", PAUSED") : "") + (m?.isUnverified(ssrc: s) == true ? String(localized: ", UNVERIFIED") : "")
+                 + (j.map { String(localized: " | played \(String($0.played)), target \(String($0.targetMs)) ms") } ?? ""))
         }
     }
 

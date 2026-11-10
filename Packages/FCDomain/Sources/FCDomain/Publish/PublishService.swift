@@ -101,22 +101,22 @@ public struct PublishService {
         /// Display label. English only for now; Phase 11 localises.
         public var label: String {
             switch self {
-            case .title:       return "Title"
-            case .content:     return "Content"
-            case .summary:     return "Summary"
-            case .publisher:   return "Publisher"
-            case .authors:     return "Author"
-            case .type:        return "Type"
-            case .lang:        return "Language"
-            case .did:         return "Document"
-            case .onDid:       return "Target"
-            case .ver:         return "Edition"
-            case .tRate:       return "Rating"
-            case .tCdd:        return "Rating weight"
-            case .birthTime:   return "Published"
-            case .birthHeight: return "Height"
-            case .lastHeight:  return "Height"
-            case .lastTime:    return "Time"
+            case .title:       return String(localized: "Title")
+            case .content:     return String(localized: "Content")
+            case .summary:     return String(localized: "Summary")
+            case .publisher:   return String(localized: "Publisher")
+            case .authors:     return String(localized: "Author")
+            case .type:        return String(localized: "Type")
+            case .lang:        return String(localized: "Language")
+            case .did:         return String(localized: "Document")
+            case .onDid:       return String(localized: "Target")
+            case .ver:         return String(localized: "Edition")
+            case .tRate:       return String(localized: "Rating")
+            case .tCdd:        return String(localized: "Rating weight")
+            case .birthTime:   return String(localized: "Published")
+            case .birthHeight: return String(localized: "Height")
+            case .lastHeight:  return String(localized: "Height")
+            case .lastTime:    return String(localized: "Time")
             case .id:          return "ID"
             }
         }

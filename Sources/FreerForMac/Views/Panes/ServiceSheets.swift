@@ -187,9 +187,9 @@ struct PublishServiceSheet: View {
 
     private var heading: String {
         switch target {
-        case .new:    return "Publish a service"
-        case .draft:  return "Edit draft"
-        case .update: return "Update this service"
+        case .new:    return String(localized: "Publish a service")
+        case .draft:  return String(localized: "Edit draft")
+        case .update: return String(localized: "Update this service")
         }
     }
 
@@ -203,7 +203,7 @@ struct PublishServiceSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             if target.isUpdate {
-                CopyableLabel("An update replaces what the record says. A field left blank here is a field cleared on chain — including the endpoint under Home, which is how clients find this service.", systemImage: "exclamationmark.triangle")
+                CopyableLabel(String(localized: "An update replaces what the record says. A field left blank here is a field cleared on chain — including the endpoint under Home, which is how clients find this service."), systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -212,18 +212,18 @@ struct PublishServiceSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 10) {
-                        field("Standard name") {
+                        field(String(localized: "Standard name")) {
                             TextField("e.g. DOCK@No1_NrC7", text: $stdName)
                                 .fieldInputStyle()
                         }
-                        field("Version") {
+                        field(String(localized: "Version")) {
                             TextField("e.g. 3", text: $ver)
                                 .fieldInputStyle()
                         }
                         .frame(maxWidth: 120)
                     }
 
-                    field("Type") {
+                    field(String(localized: "Type")) {
                         HStack(spacing: 6) {
                             TextField("e.g. FAPI@No1_NrC7", text: $type)
                                 .fieldInputStyle()
@@ -237,18 +237,18 @@ struct PublishServiceSheet: View {
                     }
                     .help("Free text. The component list below is what a client filters on — the type only says this is an FC service at all.")
 
-                    field("Dealer pubkey") {
+                    field(String(localized: "Dealer pubkey")) {
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("02… or 03… — 66 hex characters", text: $dealerPubkey)
                                 .font(.system(.body, design: .monospaced))
                                 .fieldInputStyle()
                             if dealerPubkeyIsBad {
-                                CopyableText("Not a pubkey. The indexer would drop the whole record, not just this field.")
+                                CopyableText(String(localized: "Not a pubkey. The indexer would drop the whole record, not just this field."))
                                     .font(.caption2)
                                     .foregroundStyle(.red)
                             } else if let key = dealerPubkeyValue,
                                       let fid = Service.dealerFid(ofPubkey: key) {
-                                FidLine("Dealer", fid, name: names[fid])
+                                FidLine(String(localized: "Dealer"), fid, name: names[fid])
                             } else {
                                 Text("Optional. Who runs the server day to day; the indexer derives the dealer's FID from this key.")
                                     .font(.caption2)
@@ -257,7 +257,7 @@ struct PublishServiceSheet: View {
                         }
                     }
 
-                    field("Description") {
+                    field(String(localized: "Description")) {
                         VStack(alignment: .leading, spacing: 4) {
                             TextEditor(text: $desc)
                                 .font(.body)
@@ -276,42 +276,42 @@ struct PublishServiceSheet: View {
                         }
                     }
 
-                    field("Components it offers") {
+                    field(String(localized: "Components it offers")) {
                         ComponentListEditor(components: $components)
                     }
 
-                    field("Where to reach it") {
+                    field(String(localized: "Where to reach it")) {
                         VStack(alignment: .leading, spacing: 4) {
                             HomeMapEditor(
                                 rows: $homeRows,
-                                emptyText: "Nowhere — a service with no endpoint is a claim that something exists, not something a client can call.",
+                                emptyText: String(localized: "Nowhere — a service with no endpoint is a claim that something exists, not something a client can call."),
                                 keyPlaceholder: "API",
                                 valuePlaceholder: "https://…",
-                                addLabel: "Add an endpoint"
+                                addLabel: String(localized: "Add an endpoint")
                             )
                             if home?.keys.contains(where: { $0.lowercased() == "api" }) != true {
                                 // The resolver reads `API` (either case)
                                 // and nothing else. A home map without it
                                 // resolves to no URL at all, which is a
                                 // silent failure at the far end.
-                                CopyableText("No API key yet — clients read the endpoint from “API”, so a home map without one leaves this service unreachable.")
+                                CopyableText(String(localized: "No API key yet — clients read the endpoint from “API”, so a home map without one leaves this service unreachable."))
                                     .font(.caption2)
                                     .foregroundStyle(.orange)
                             }
                         }
                     }
 
-                    field("Local names") {
+                    field(String(localized: "Local names")) {
                         HomeMapEditor(
                             rows: $localNameRows,
-                            emptyText: "None — readers see the standard name.",
+                            emptyText: String(localized: "None — readers see the standard name."),
                             keyPlaceholder: "zh",
-                            valuePlaceholder: "what to call it in that language",
-                            addLabel: "Add a local name"
+                            valuePlaceholder: String(localized: "what to call it in that language"),
+                            addLabel: String(localized: "Add a local name")
                         )
                     }
 
-                    field("Code it runs") {
+                    field(String(localized: "Code it runs")) {
                         CodeIdListEditor(
                             session: session,
                             ids: $codes,
@@ -319,7 +319,7 @@ struct PublishServiceSheet: View {
                         )
                     }
 
-                    field("Protocols it speaks") {
+                    field(String(localized: "Protocols it speaks")) {
                         ProtocolIdListEditor(
                             session: session,
                             ids: $protocols,
@@ -327,11 +327,11 @@ struct PublishServiceSheet: View {
                         )
                     }
 
-                    field("Other services it depends on") {
+                    field(String(localized: "Other services it depends on")) {
                         SidListEditor(session: session, ids: $serviceIds)
                     }
 
-                    field("Waiters") {
+                    field(String(localized: "Waiters")) {
                         VStack(alignment: .leading, spacing: 6) {
                             if waiters.isEmpty {
                                 Text("Nobody — the owner is the only contact for this service.")
@@ -359,8 +359,8 @@ struct PublishServiceSheet: View {
                             }
                             Button {
                                 pick = .many(
-                                    title: "Add waiters",
-                                    subtitle: "They are listed as serving this service. A waiter is not a co-owner — only you can carve against the record.",
+                                    title: String(localized: "Add waiters"),
+                                    subtitle: String(localized: "They are listed as serving this service. A waiter is not a co-owner — only you can carve against the record."),
                                     excluded: Set(waiters)
                                 )
                             } label: {
@@ -398,7 +398,7 @@ struct PublishServiceSheet: View {
             }
 
             if !session.canSign {
-                CopyableText("This identity is watch-only, so it cannot sign a carve. You can still save a draft and publish it later from an identity that holds the key.")
+                CopyableText(String(localized: "This identity is watch-only, so it cannot sign a carve. You can still save a draft and publish it later from an identity that holds the key."))
                     .font(.caption)
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
@@ -503,7 +503,7 @@ struct PublishServiceSheet: View {
             try persistDraft()
             onDone(.draft)
         } catch {
-            self.error = "Couldn't save the draft: \(error)"
+            self.error = String(localized: "Couldn't save the draft: \(String(describing: error))")
         }
     }
 
@@ -558,8 +558,8 @@ struct PublishServiceSheet: View {
             onDone(.published(service))
         } catch {
             self.error = target.isUpdate
-                ? "Couldn't update: \(error)"
-                : "Couldn't publish: \(error)"
+                ? String(localized: "Couldn't update: \(String(describing: error))")
+                : String(localized: "Couldn't publish: \(String(describing: error))")
         }
     }
 
@@ -636,7 +636,7 @@ struct ComponentListEditor: View {
                     .buttonStyle(.plain)
                     .disabled(on && !neededBy.isEmpty)
                     .help(on && !neededBy.isEmpty
-                          ? "\(name) — required by \(neededBy.joined(separator: ", "))"
+                          ? String(localized: "\(name) — required by \(neededBy.joined(separator: ", "))")
                           : name)
                 }
                 Spacer()
@@ -670,7 +670,7 @@ struct ComponentListEditor: View {
             }
 
             if components.isEmpty {
-                CopyableText("Nothing — a service that offers no component is invisible to every picker on the network, which all filter on this list.")
+                CopyableText(String(localized: "Nothing — a service that offers no component is invisible to every picker on the network, which all filter on this list."))
                     .font(.caption2)
                     .foregroundStyle(.orange)
             }
@@ -800,7 +800,7 @@ struct CodePickerSheet: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack {
-                SearchField("Search the registry…", text: $searchText, minWidth: 200)
+                SearchField(String(localized: "Search the registry…"), text: $searchText, minWidth: 200)
                 Spacer()
                 if loading { ProgressView().controlSize(.small) }
                 Button {
@@ -893,7 +893,7 @@ struct CodePickerSheet: View {
             )
             rows = page.codes
         } catch {
-            self.error = "Couldn't load the code registry: \(error)"
+            self.error = String(localized: "Couldn't load the code registry: \(String(describing: error))")
         }
     }
 }
@@ -988,27 +988,27 @@ struct PricingEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                money("Currency", $pricing.currency, placeholder: "FCH", numeric: false)
-                money("Per request", $pricing.pricePerRequest)
-                money("Per KB", $pricing.pricePerKB)
+                money(String(localized: "Currency"), $pricing.currency, placeholder: "FCH", numeric: false)
+                money(String(localized: "Per request"), $pricing.pricePerRequest)
+                money(String(localized: "Per KB"), $pricing.pricePerKB)
             }
             HStack(spacing: 10) {
-                money("Per KB in", $pricing.pricePerKBIn)
-                money("Per KB out", $pricing.pricePerKBOut)
-                money("Per KB per day", $pricing.pricePerKBDay)
+                money(String(localized: "Per KB in"), $pricing.pricePerKBIn)
+                money(String(localized: "Per KB out"), $pricing.pricePerKBOut)
+                money(String(localized: "Per KB per day"), $pricing.pricePerKBDay)
             }
             HStack(spacing: 10) {
-                money("Minimum payment", $pricing.minPayment)
-                money("Minimum credit", $pricing.minCredit)
-                money("Session days", $pricing.sessionDays)
+                money(String(localized: "Minimum payment"), $pricing.minPayment)
+                money(String(localized: "Minimum credit"), $pricing.minCredit)
+                money(String(localized: "Session days"), $pricing.sessionDays)
             }
             HStack(spacing: 10) {
-                money("Max item bytes", $pricing.maxDataSize)
-                money("Data expires (days)", $pricing.dataExpiresInDays)
-                money("Consume via share", $pricing.consumeViaShare, numeric: false)
+                money(String(localized: "Max item bytes"), $pricing.maxDataSize)
+                money(String(localized: "Data expires (days)"), $pricing.dataExpiresInDays)
+                money(String(localized: "Consume via share"), $pricing.consumeViaShare, numeric: false)
             }
             HStack(spacing: 10) {
-                money("Order via share", $pricing.orderViaShare, numeric: false)
+                money(String(localized: "Order via share"), $pricing.orderViaShare, numeric: false)
                 Spacer()
             }
             Text("Every field is optional and every one goes on chain as text. Max item bytes is the ceiling a DOCK enforces per item — leave it unset and the server applies its own default.")
@@ -1037,7 +1037,7 @@ struct PricingEditor: View {
             if numeric, let raw = value.wrappedValue,
                !raw.trimmingCharacters(in: .whitespaces).isEmpty,
                Double(raw.trimmingCharacters(in: .whitespaces)) == nil {
-                CopyableText("not a number")
+                CopyableText(String(localized: "not a number"))
                     .font(.caption2)
                     .foregroundStyle(.orange)
             }
@@ -1076,7 +1076,7 @@ struct ServiceDetailSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if let desc = service.desc, !desc.isEmpty {
-                        field("Description") {
+                        field(String(localized: "Description")) {
                             CopyableText(desc, font: .body)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -1084,15 +1084,15 @@ struct ServiceDetailSheet: View {
 
                     HStack(alignment: .top, spacing: 24) {
                         if let type = service.type, !type.isEmpty {
-                            field("Type") { Text(type).font(.caption) }
+                            field(String(localized: "Type")) { Text(type).font(.caption) }
                         }
                         if let ver = service.ver, !ver.isEmpty {
-                            field("Version") { Text(ver).font(.caption) }
+                            field(String(localized: "Version")) { Text(ver).font(.caption) }
                         }
                     }
 
                     if let components = service.components, !components.isEmpty {
-                        field("Components it offers") {
+                        field(String(localized: "Components it offers")) {
                             VStack(alignment: .leading, spacing: 3) {
                                 ForEach(components, id: \.self) { c in
                                     Text(c).font(.system(.caption, design: .monospaced))
@@ -1105,7 +1105,7 @@ struct ServiceDetailSheet: View {
                     }
 
                     if let home = service.home, !home.isEmpty {
-                        field("Where to reach it") {
+                        field(String(localized: "Where to reach it")) {
                             VStack(alignment: .leading, spacing: 4) {
                                 ForEach(home.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
                                     HStack(spacing: 6) {
@@ -1114,7 +1114,7 @@ struct ServiceDetailSheet: View {
                                     }
                                 }
                                 if service.apiUrl == nil {
-                                    CopyableText("No API key — clients read the endpoint from “API”, so nothing here resolves to a URL.")
+                                    CopyableText(String(localized: "No API key — clients read the endpoint from “API”, so nothing here resolves to a URL."))
                                         .font(.caption2)
                                         .foregroundStyle(.orange)
                                 }
@@ -1123,7 +1123,7 @@ struct ServiceDetailSheet: View {
                     }
 
                     if let localNames = service.localNames, !localNames.isEmpty {
-                        field("Local names") {
+                        field(String(localized: "Local names")) {
                             VStack(alignment: .leading, spacing: 3) {
                                 ForEach(localNames.sorted(by: { $0.key < $1.key }), id: \.key) { key, value in
                                     HStack(spacing: 6) {
@@ -1135,17 +1135,17 @@ struct ServiceDetailSheet: View {
                         }
                     }
 
-                    field("Owner") { fidValue(service.owner) }
+                    field(String(localized: "Owner")) { fidValue(service.owner) }
                     if let dealer = service.dealer, !dealer.isEmpty, dealer != service.owner {
-                        field("Dealer") { fidValue(dealer) }
+                        field(String(localized: "Dealer")) { fidValue(dealer) }
                     }
 
-                    linkedList("Code it runs", service.codes, symbol: "chevron.left.forwardslash.chevron.right")
-                    linkedList("Protocols it speaks", service.protocols, symbol: "doc.text")
-                    linkedList("Other services it depends on", service.services, symbol: "server.rack")
+                    linkedList(String(localized: "Code it runs"), service.codes, symbol: "chevron.left.forwardslash.chevron.right")
+                    linkedList(String(localized: "Protocols it speaks"), service.protocols, symbol: "doc.text")
+                    linkedList(String(localized: "Other services it depends on"), service.services, symbol: "server.rack")
 
                     if let waiters = service.waiters, !waiters.isEmpty {
-                        field("Waiters") {
+                        field(String(localized: "Waiters")) {
                             VStack(alignment: .leading, spacing: 5) {
                                 ForEach(waiters, id: \.self) { fid in
                                     fidValue(fid)
@@ -1156,7 +1156,7 @@ struct ServiceDetailSheet: View {
 
                     let prices = service.pricing.wirePairs
                     if !prices.isEmpty {
-                        field("Pricing and limits") {
+                        field(String(localized: "Pricing and limits")) {
                             VStack(alignment: .leading, spacing: 3) {
                                 ForEach(prices, id: \.0) { key, value in
                                     HStack(spacing: 6) {
@@ -1172,14 +1172,14 @@ struct ServiceDetailSheet: View {
                     }
 
                     if service.isClosed, let statement = service.closeStatement, !statement.isEmpty {
-                        field("Closing statement") {
+                        field(String(localized: "Closing statement")) {
                             CopyableText(statement, font: .caption)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
 
                     HStack(spacing: 24) {
-                        field("Rating") {
+                        field(String(localized: "Rating")) {
                             RatingSummaryView(tRate: service.tRate, tCdd: service.tCdd)
                         }
                     }
@@ -1203,7 +1203,7 @@ struct ServiceDetailSheet: View {
                     }
 
                     if let txid = service.lastTxId, !txid.isEmpty, txid != service.sid {
-                        field("Last transaction") {
+                        field(String(localized: "Last transaction")) {
                             CopyableText.elidingMiddle(
                                 txid, head: 12, tail: 12,
                                 font: .system(.caption, design: .monospaced)
@@ -1213,21 +1213,21 @@ struct ServiceDetailSheet: View {
 
                     HStack(spacing: 24) {
                         if let t = service.birthTime {
-                            field("Published") {
+                            field(String(localized: "Published")) {
                                 Text(Date(timeIntervalSince1970: TimeInterval(t)),
                                      format: .dateTime.year().month().day().hour().minute())
                                     .font(.caption)
                             }
                         }
                         if let t = service.lastTime {
-                            field("Last change") {
+                            field(String(localized: "Last change")) {
                                 Text(Date(timeIntervalSince1970: TimeInterval(t)),
                                      format: .dateTime.year().month().day().hour().minute())
                                     .font(.caption)
                             }
                         }
                         if let h = service.lastHeight, h != ServicesStore.unconfirmedHeight {
-                            field("Height") {
+                            field(String(localized: "Height")) {
                                 Text("\(h)").font(.caption.monospacedDigit())
                             }
                         }
@@ -1316,11 +1316,11 @@ struct ServiceDetailSheet: View {
     @ViewBuilder
     private var stateChip: some View {
         switch service.state {
-        case .closed:    chip("Closed", color: .red)
-        case .stopped:   chip("Stopped", color: .orange)
-        case .draft:     chip("Draft", color: .gray)
-        case .broadcast: chip("Broadcast, unconfirmed", color: .orange)
-        case .live:      chip("In force", color: .blue)
+        case .closed:    chip(String(localized: "Closed"), color: .red)
+        case .stopped:   chip(String(localized: "Stopped"), color: .orange)
+        case .draft:     chip(String(localized: "Draft"), color: .gray)
+        case .broadcast: chip(String(localized: "Broadcast, unconfirmed"), color: .orange)
+        case .live:      chip(String(localized: "In force"), color: .blue)
         }
     }
 
@@ -1347,12 +1347,12 @@ struct ServiceDetailSheet: View {
 
     private var rateHelp: String {
         if (service.id ?? "").isEmpty {
-            return "This service has no on-chain id yet."
+            return String(localized: "This service has no on-chain id yet.")
         }
         if service.owner == session.liveFid {
-            return "You own this service, and the protocol ignores a rating from its own owner."
+            return String(localized: "You own this service, and the protocol ignores a rating from its own owner.")
         }
-        return "Rate this service 0–5, weighted by the coin-days you spend."
+        return String(localized: "Rate this service 0–5, weighted by the coin-days you spend.")
     }
 
     private func chip(_ text: String, color: Color) -> some View {
@@ -1405,7 +1405,7 @@ struct CloseServiceSheet: View {
                 }
             }
 
-            CopyableLabel("Closing is permanent. The record stays on the chain and stays readable, flagged closed, but there is no op that reopens it — Recover only undoes a Stop.", systemImage: "exclamationmark.triangle")
+            CopyableLabel(String(localized: "Closing is permanent. The record stays on the chain and stays readable, flagged closed, but there is no op that reopens it — Recover only undoes a Stop."), systemImage: "exclamationmark.triangle")
                 .font(.caption)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1456,7 +1456,7 @@ struct CloseServiceSheet: View {
             )
             onDone(txid)
         } catch {
-            self.error = "Couldn't close: \(error)"
+            self.error = String(localized: "Couldn't close: \(String(describing: error))")
         }
     }
 }

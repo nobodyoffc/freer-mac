@@ -142,12 +142,12 @@ struct InputPickerSheet: View {
     private var requirementText: String {
         let paying = preview.payments.reduce(Int64(0)) { $0 + $1.amount }
         var text = paying > 0
-            ? "It must cover \(formatFch(paying)) plus the miner fee"
-            : "It must cover the miner fee"
+            ? String(localized: "It must cover \(formatFch(paying)) plus the miner fee")
+            : String(localized: "It must cover the miner fee")
         if preview.requiredCd > 0 {
-            text += " and destroy at least \(preview.requiredCd) CoinDays"
+            text += String(localized: " and destroy at least \(String(preview.requiredCd)) CoinDays")
         }
-        return text + ". The transaction is rebuilt and shown to you again before anything is signed."
+        return text + String(localized: ". The transaction is rebuilt and shown to you again before anything is signed.")
     }
 
     private var toolbar: some View {
@@ -202,7 +202,7 @@ struct InputPickerSheet: View {
                 HStack(spacing: 6) {
                     Text(formatFch(cash.value)).font(.body.monospacedDigit().bold())
                     if currentKeys.contains(id) {
-                        chip("in this transaction", color: .blue)
+                        chip(String(localized: "in this transaction"), color: .blue)
                     }
                     if cash.unconfirmedDepth > 0 {
                         chip("unconfirmed", color: .orange)
@@ -233,21 +233,21 @@ struct InputPickerSheet: View {
     /// the numbers are then the wallet's choice, not this one.
     private var forecast: some View {
         HStack(alignment: .top, spacing: 12) {
-            forecastCard("Outputs", systemImage: "arrow.up.right") {
+            forecastCard(String(localized: "Outputs"), systemImage: "arrow.up.right") {
                 ForEach(Array(shown.outputs.enumerated()), id: \.offset) { _, out in
                     outputRow(out)
                 }
             }
-            forecastCard("Cost", systemImage: "tag") {
-                costRow("Leaves this identity", formatFch(shown.leaving),
+            forecastCard(String(localized: "Cost"), systemImage: "tag") {
+                costRow(String(localized: "Leaves this identity"), formatFch(shown.leaving),
                         changed: shown.leaving != preview.leaving)
-                costRow("Miner fee", "\(shown.fee) sat", changed: shown.fee != preview.fee)
-                costRow("Size", "\(shown.estimatedSize) B at \(shown.feePerByte) sat/B",
+                costRow(String(localized: "Miner fee"), "\(shown.fee) sat", changed: shown.fee != preview.fee)
+                costRow(String(localized: "Size"), String(localized: "\(String(shown.estimatedSize)) B at \(String(shown.feePerByte)) sat/B"),
                         changed: shown.estimatedSize != preview.estimatedSize)
                 costRow(
-                    "CoinDays destroyed",
+                    String(localized: "CoinDays destroyed"),
                     shown.requiredCd > 0
-                        ? "\(shown.coinDaysDestroyed) of \(shown.requiredCd) needed"
+                        ? String(localized: "\(String(shown.coinDaysDestroyed)) of \(String(shown.requiredCd)) needed")
                         : "\(shown.coinDaysDestroyed)",
                     changed: shown.coinDaysDestroyed != preview.coinDaysDestroyed
                 )
@@ -353,9 +353,9 @@ struct InputPickerSheet: View {
     private func explain(_ error: Error) -> String {
         switch error as? CoinSelector.Failure {
         case let .insufficientFunds(needed, have)?:
-            return "Short by \(formatFch(needed - have)) — tick more cash."
+            return String(localized: "Short by \(formatFch(needed - have)) — tick more cash.")
         case let .insufficientCoinDays(required, have)?:
-            return "Destroys \(have) CoinDays; this transaction needs \(required)."
+            return String(localized: "Destroys \(String(have)) CoinDays; this transaction needs \(String(required)).")
         default:
             return String(describing: error)
         }
@@ -367,7 +367,7 @@ struct InputPickerSheet: View {
         do {
             rows = try session.wallet.cachedSnapshot(forAddress: preview.from)?.cashes ?? []
         } catch {
-            loadError = "Couldn't read the cash cache: \(error)"
+            loadError = String(localized: "Couldn't read the cash cache: \(String(describing: error))")
         }
         // Inputs named from outside the cache (the Cash pane's Send can
         // pass rows the cache no longer has) still belong on the list.

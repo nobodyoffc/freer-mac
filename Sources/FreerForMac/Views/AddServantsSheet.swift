@@ -178,7 +178,7 @@ struct AddServantsSheet: View {
             }
             FidAvatarView(fid: fid, size: 28)
             VStack(alignment: .leading, spacing: 1) {
-                Text(freer.cid?.isEmpty == false ? freer.cid! : "No CID")
+                Text(freer.cid?.isEmpty == false ? freer.cid! : String(localized: "No CID"))
                     .lineLimit(1)
                 CopyableText(
                     display: fid.elidingMiddle(head: 10, tail: 10),

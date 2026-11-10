@@ -708,9 +708,9 @@ public struct ChatService {
             case .noSuchConversation(let id):
                 return "ChatService: no conversation \(id)"
             case .noRecipientKey(let fid):
-                return "\(fid) has never published a pubkey, so there is nothing to encrypt a message to. They need to spend from that FID at least once."
+                return String(localized: "\(fid) has never published a pubkey, so there is nothing to encrypt a message to. They need to spend from that FID at least once.")
             case .tooLateToAmend:
-                return "A message can only be edited or withdrawn within 10 minutes of sending."
+                return String(localized: "A message can only be edited or withdrawn within 10 minutes of sending.")
             }
         }
     }

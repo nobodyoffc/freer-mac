@@ -89,13 +89,13 @@ public enum SshLaunch {
         public var description: String {
             switch self {
             case .unsafeAuthorizedKeysLine:
-                return "The key line holds characters that cannot be sent safely inside a remote command."
+                return String(localized: "The key line holds characters that cannot be sent safely inside a remote command.")
             case .nothingToUpload:
-                return "Nothing to upload."
+                return String(localized: "Nothing to upload.")
             case let .relativeUploadPath(path):
-                return "\(path) is not an absolute path."
+                return String(localized: "\(path) is not an absolute path.")
             case .badRemoteDirectory:
-                return "The folder on the server cannot contain line breaks or other control characters."
+                return String(localized: "The folder on the server cannot contain line breaks or other control characters.")
             case let .badForwards(reason):
                 return reason
             }
@@ -176,7 +176,7 @@ public enum SshLaunch {
             )
 
         case let .tunnel(forwards):
-            guard !forwards.isEmpty else { throw Failure.badForwards("A tunnel needs at least one port forward.") }
+            guard !forwards.isEmpty else { throw Failure.badForwards(String(localized: "A tunnel needs at least one port forward.")) }
             if let error = SshPortForward.firstProblem(in: forwards) { throw Failure.badForwards(error) }
             // `ExitOnForwardFailure`: without it a port already taken on
             // this Mac is a warning scrolled past, and the tab sits
@@ -538,32 +538,32 @@ public enum SshLaunch {
     /// as 65280 (`255 << 8`). Printing it raw is how "weird number in
     /// the status bar" bug reports happen.
     public static func exitDescription(rawStatus: Int32?, kind: Kind = .shell) -> String {
-        guard let status = rawStatus else { return "Disconnected." }
+        guard let status = rawStatus else { return String(localized: "Disconnected.") }
         guard status & 0x7f == 0 else {
-            return "Session killed by signal \(status & 0x7f)."
+            return String(localized: "Session killed by signal \(String(status & 0x7f)).")
         }
         let code = (status >> 8) & 0xff
         switch kind {
         case .shell:
-            if code == 0 { return "Session ended." }
+            if code == 0 { return String(localized: "Session ended.") }
             // 255 is ssh's own catch-all for a connection that never
             // established — bad host, refused, auth exhausted.
-            if code == 255 { return "ssh could not connect (exit 255)." }
-            return "Session ended with exit code \(code)."
+            if code == 255 { return String(localized: "ssh could not connect (exit 255).") }
+            return String(localized: "Session ended with exit code \(String(code)).")
         case .installKey:
-            if code == 0 { return "The key is in the server's authorized_keys." }
+            if code == 0 { return String(localized: "The key is in the server's authorized_keys.") }
             if code == 255 {
-                return "ssh could not log in (exit 255). The server has to accept a password, or a key you already have, this once."
+                return String(localized: "ssh could not log in (exit 255). The server has to accept a password, or a key you already have, this once.")
             }
-            return "Could not install the key (exit \(code))."
+            return String(localized: "Could not install the key (exit \(String(code))).")
         case .removeKey:
-            if code == 0 { return "The Freer key is not in the server's authorized_keys." }
-            if code == 255 { return "ssh could not log in (exit 255)." }
-            return "Could not remove the key (exit \(code))."
+            if code == 0 { return String(localized: "The Freer key is not in the server's authorized_keys.") }
+            if code == 255 { return String(localized: "ssh could not log in (exit 255).") }
+            return String(localized: "Could not remove the key (exit \(String(code))).")
         case .sftp:
-            if code == 0 { return "SFTP session ended." }
-            if code == 255 { return "sftp could not connect (exit 255)." }
-            return "SFTP session ended with exit code \(code)."
+            if code == 0 { return String(localized: "SFTP session ended.") }
+            if code == 255 { return String(localized: "sftp could not connect (exit 255).") }
+            return String(localized: "SFTP session ended with exit code \(String(code)).")
         case let .upload(_, directory):
             // scp says 1 for everything from a refused login to one
             // unreadable file; the reason is on the line above. A
@@ -573,18 +573,18 @@ public enum SshLaunch {
             let isHome = folder.isEmpty || folder == "~" || folder == "~/"
             if code == 0 {
                 return isHome
-                    ? "Upload finished — the files are in your home directory on the server."
-                    : "Upload finished — the files are in \(folder) on the server."
+                    ? String(localized: "Upload finished — the files are in your home directory on the server.")
+                    : String(localized: "Upload finished — the files are in \(folder) on the server.")
             }
             return isHome
-                ? "Upload failed (exit \(code))."
-                : "Upload failed (exit \(code)). scp does not create folders — check that \(folder) exists."
+                ? String(localized: "Upload failed (exit \(String(code))).")
+                : String(localized: "Upload failed (exit \(String(code))). scp does not create folders — check that \(folder) exists.")
         case .tunnel:
-            if code == 0 { return "Tunnel closed." }
+            if code == 0 { return String(localized: "Tunnel closed.") }
             if code == 255 {
-                return "ssh could not connect, or could not open a forward — is the local port already in use? (exit 255)"
+                return String(localized: "ssh could not connect, or could not open a forward — is the local port already in use? (exit 255)")
             }
-            return "Tunnel closed with exit code \(code)."
+            return String(localized: "Tunnel closed with exit code \(String(code)).")
         }
     }
 }

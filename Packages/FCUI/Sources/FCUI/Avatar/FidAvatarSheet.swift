@@ -67,7 +67,7 @@ public struct FidAvatarSheet: View {
                 identityLine
                 if isNobody || NobodyRegistry.shared.isNobody(fid) {
                     CopyableLabel(
-                        "Nobody FID — its prikey is public, so anyone can spend from it.",
+                        String(localized: "Nobody FID — its prikey is public, so anyone can spend from it."),
                         systemImage: "exclamationmark.triangle.fill"
                     )
                     .font(.caption)
@@ -208,13 +208,13 @@ public struct FidAvatarSheet: View {
                 pb.writeObjects([image])
             }
             copied = true
-            note("Copied at \(pixels)×\(pixels).")
+            note(String(localized: "Copied at \(String(pixels))×\(String(pixels))."))
             Task {
                 try? await Task.sleep(nanoseconds: 1_200_000_000)
                 await MainActor.run { copied = false }
             }
         } catch {
-            note("Couldn't copy: \(error)", isError: true)
+            note(String(localized: "Couldn't copy: \(String(describing: error))"), isError: true)
         }
     }
 
@@ -225,9 +225,9 @@ public struct FidAvatarSheet: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try AvatarMaker.pngData(for: fid, pixels: pixels).write(to: url)
-            note("Saved \(pixels)×\(pixels) to \(url.lastPathComponent)")
+            note(String(localized: "Saved \(String(pixels))×\(String(pixels)) to \(url.lastPathComponent)"))
         } catch {
-            note("Save failed: \(error.localizedDescription)", isError: true)
+            note(String(localized: "Save failed: \(error.localizedDescription)"), isError: true)
         }
     }
 

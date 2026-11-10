@@ -38,10 +38,10 @@ struct AddWatchedFidSheet: View {
         let trimmed = fid.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, fidLooksValid else { return nil }
         if trimmed == session.mainFid {
-            return "That's this Setting's main FID — it's already here."
+            return String(localized: "That's this Setting's main FID — it's already here.")
         }
         if let existing = session.setting.keyInfoMap[trimmed] {
-            return "Already registered as \(existing.kind.rawValue)\(existing.label.isEmpty ? "" : " “\(existing.label)”")."
+            return String(localized: "Already registered as \(existing.kind.rawValue)\(existing.label.isEmpty ? "" : " “\(existing.label)”").")
         }
         return nil
     }
@@ -63,7 +63,7 @@ struct AddWatchedFidSheet: View {
                     LabeledField(
                         "FID",
                         hint: (!fid.isEmpty && !fidLooksValid)
-                            ? "Not a FID — use Find… to search CIDs."
+                            ? String(localized: "Not a FID — use Find… to search CIDs.")
                             : blockReason,
                         hintIsError: blockReason != nil
                     ) {
@@ -88,8 +88,8 @@ struct AddWatchedFidSheet: View {
 
                             Button {
                                 pick = .one(
-                                    title: "Find a FID to watch",
-                                    subtitle: "Search your contacts, or look up a FID or CID on chain.",
+                                    title: String(localized: "Find a FID to watch"),
+                                    subtitle: String(localized: "Search your contacts, or look up a FID or CID on chain."),
                                     initialQuery: fid.trimmingCharacters(in: .whitespaces),
                                     excluded: Set(session.setting.keyInfoMap.keys)
                                 )
@@ -126,7 +126,7 @@ struct AddWatchedFidSheet: View {
                     } else if lookupKnownOffChain {
                         HStack(spacing: 6) {
                             Image(systemName: "questionmark.circle")
-                            CopyableText("No on-chain record — this FID hasn't registered a Freer yet. You can still watch it.")
+                            CopyableText(String(localized: "No on-chain record — this FID hasn't registered a Freer yet. You can still watch it."))
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                         .foregroundStyle(.orange)
@@ -136,8 +136,8 @@ struct AddWatchedFidSheet: View {
                     }
 
                     LabeledField(
-                        "Label",
-                        hint: "Optional. Shown in the person menu; defaults to the CID when looked up."
+                        String(localized: "Label"),
+                        hint: String(localized: "Optional. Shown in the person menu; defaults to the CID when looked up.")
                     ) {
                         TextField("", text: $label, prompt: Text("Cold wallet"))
                             .fieldInputStyle()
@@ -174,7 +174,7 @@ struct AddWatchedFidSheet: View {
         }
         .frame(minWidth: 540, minHeight: 420)
         .sheet(isPresented: $showScan) {
-            QrScanSheet(title: "Scan FID") { scanned in
+            QrScanSheet(title: String(localized: "Scan FID")) { scanned in
                 fid = scanned
                 showScan = false
                 Task { await runLookup() }
@@ -250,7 +250,7 @@ struct AddWatchedFidSheet: View {
             }
             if let pkHex = f.pubkey, !pkHex.isEmpty {
                 CopyableText(
-                    display: "pubkey: \(pkHex.elidingMiddle(head: 10, tail: 10))",
+                    display: String(localized: "pubkey: \(pkHex.elidingMiddle(head: 10, tail: 10))"),
                     copy: pkHex,
                     font: .caption.monospaced()
                 )

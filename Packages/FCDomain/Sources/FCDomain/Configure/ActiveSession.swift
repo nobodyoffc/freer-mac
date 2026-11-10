@@ -60,9 +60,9 @@ public final class ActiveSession {
             case let .notAMultisigMember(fid, group):
                 return "ActiveSession: \(fid) is not a member of \(group), so this Setting could never sign for it"
             case .masterAlreadySet(let master):
-                return "This FID's master is already \(master) on the chain. FEIP6 makes a master permanent, so another master carve would be paid for and ignored"
+                return String(localized: "This FID's master is already \(master) on the chain. FEIP6 makes a master permanent, so another master carve would be paid for and ignored")
             case .homeUnchanged:
-                return "The chain already has this DOCK and DISK, so there is nothing to carve"
+                return String(localized: "The chain already has this DOCK and DISK, so there is nothing to carve")
             case .underlying(let err):
                 return "ActiveSession: \(err)"
             }
@@ -2136,11 +2136,11 @@ public final class ActiveSession {
         public var description: String {
             switch self {
             case .recipientHasNoPubkey(let fid):
-                return "\(fid) has never published a pubkey, so there is nothing to encrypt a Cmail to. They need to spend from that FID at least once."
+                return String(localized: "\(fid) has never published a pubkey, so there is nothing to encrypt a Cmail to. They need to spend from that FID at least once.")
             case let .feeOverLimit(requested, limit):
-                return "This FID charges \(NoticeFee.coinString(satoshis: requested)) F to receive Cmail, over your \(NoticeFee.coinString(satoshis: limit)) F limit."
+                return String(localized: "This FID charges \(NoticeFee.coinString(satoshis: requested)) F to receive Cmail, over your \(NoticeFee.coinString(satoshis: limit)) F limit.")
             case .noFee:
-                return "the Cmail could not be prepared for sending"
+                return String(localized: "the Cmail could not be prepared for sending")
             }
         }
     }
@@ -2155,11 +2155,11 @@ public final class ActiveSession {
         public var description: String {
             switch self {
             case .rateSelf(let fid):
-                return "\(fid) is the identity you are living as — a FID cannot rate itself."
+                return String(localized: "\(fid) is the identity you are living as — a FID cannot rate itself.")
             case .rateeHasNoRecord(let fid):
-                return "\(fid) has no on-chain record yet, and FEIP16 only applies a rating to a FID that has one. The rating would cost the fee and change nothing."
+                return String(localized: "\(fid) has no on-chain record yet, and FEIP16 only applies a rating to a FID that has one. The rating would cost the fee and change nothing.")
             case .weightBelowMinimum(let cd):
-                return "A rating has to destroy at least 1 CoinDay to be counted; \(cd) is below that."
+                return String(localized: "A rating has to destroy at least 1 CoinDay to be counted; \(String(cd)) is below that.")
             }
         }
     }
@@ -2265,11 +2265,11 @@ public final class ActiveSession {
         public var description: String {
             switch self {
             case .noSubject(let kind):
-                return "No \(kind.label.lowercased()) was given to rate. A rating names its subject in the payload, and a carve naming an empty one confirms and changes nothing."
+                return String(localized: "No \(kind.label.lowercased()) was given to rate. A rating names its subject in the payload, and a carve naming an empty one confirms and changes nothing.")
             case .rateOwnRecord(let kind):
-                return "You are the \(kind.ownerNoun) of this \(kind.label.lowercased()), and the protocol ignores a rating from its own \(kind.ownerNoun). The carve would cost the fee and the CoinDays and change nothing."
+                return String(localized: "You are the \(kind.ownerNoun) of this \(kind.label.lowercased()), and the protocol ignores a rating from its own \(kind.ownerNoun). The carve would cost the fee and the CoinDays and change nothing.")
             case .weightBelowMinimum(let cd):
-                return "A rating has to destroy at least 1 CoinDay to be counted; \(cd) is below that."
+                return String(localized: "A rating has to destroy at least 1 CoinDay to be counted; \(String(cd)) is below that.")
             }
         }
     }

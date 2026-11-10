@@ -58,7 +58,7 @@ struct FidLine: View {
                     display: name ?? fid.elidingMiddle(head: 6, tail: 6),
                     copy: fid,
                     font: .system(.caption2, design: .monospaced),
-                    help: name == nil ? nil : "Copy the FID behind this name"
+                    help: name == nil ? nil : String(localized: "Copy the FID behind this name")
                 )
                 .foregroundStyle(.secondary)
                 ContactLabelText(fid: fid, font: .caption2)
@@ -122,7 +122,7 @@ struct FidValue: View {
                     display: name ?? fid.elidingMiddle(head: 10, tail: 10),
                     copy: fid,
                     font: .system(.caption, design: .monospaced),
-                    help: name == nil ? nil : "Copy the FID behind this name"
+                    help: name == nil ? nil : String(localized: "Copy the FID behind this name")
                 )
 
                 Button { inspectFid(fid) } label: {
@@ -180,7 +180,7 @@ struct FidBadge: View {
                 display: name ?? fid.elidingMiddle(head: head, tail: tail),
                 copy: fid,
                 font: font,
-                help: name == nil ? nil : "Copy the FID behind this name"
+                help: name == nil ? nil : String(localized: "Copy the FID behind this name")
             )
             .foregroundStyle(.secondary)
 

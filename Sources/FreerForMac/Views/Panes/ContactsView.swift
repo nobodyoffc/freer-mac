@@ -74,7 +74,7 @@ struct ContactsView: View {
                         .background(Capsule().fill(Color.secondary.opacity(0.15)))
                 }
                 Spacer()
-                SearchField("Search name, FID, title…", text: $search)
+                SearchField(String(localized: "Search name, FID, title…"), text: $search)
                 Button {
                     Task { await syncFromChain() }
                 } label: {
@@ -103,7 +103,7 @@ struct ContactsView: View {
                     Image(systemName: "checkmark.seal")
                         .foregroundStyle(.green)
                     CopyableText(
-                        display: "Carve broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). Shows as On-chain once a block confirms it.",
+                        display: String(localized: "Carve broadcast — tx \(txid.elidingMiddle(head: 8, tail: 8)). Shows as On-chain once a block confirms it."),
                         copy: txid,
                         font: .caption
                     )
@@ -244,7 +244,7 @@ struct ContactsView: View {
                     if c.onChain == true {
                         chip("On-chain", color: .blue)
                     } else if isPendingCarve(c) {
-                        chip("Pending", color: .orange)
+                        chip(String(localized: "Pending"), color: .orange)
                     } else if c.onChain == nil && c.lastHeight == nil {
                         // never touched the chain
                     }
@@ -381,7 +381,7 @@ struct ContactsView: View {
 
     private func errorCard(_ err: String) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            CopyableLabel("Couldn't load contacts", systemImage: "exclamationmark.triangle")
+            CopyableLabel(String(localized: "Couldn't load contacts"), systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.red)
             CopyableText(err, font: .callout)
                 .foregroundStyle(.red)
@@ -397,7 +397,7 @@ struct ContactsView: View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle")
                 .foregroundStyle(.orange)
-            CopyableText("Chain sync failed: \(err)", font: .caption)
+            CopyableText(String(localized: "Chain sync failed: \(err)"), font: .caption)
                 .foregroundStyle(.orange)
         }
     }
@@ -421,20 +421,20 @@ struct ContactsView: View {
             )
             carveTxid = nil
             if result.total == 0 && result.demoted == 0 && result.expired == 0 {
-                syncSummary = "No carved contacts on-chain."
+                syncSummary = String(localized: "No carved contacts on-chain.")
             } else {
                 var parts = ["\(result.merged) on-chain contact\(result.merged == 1 ? "" : "s") synced"]
                 if result.removed > 0 {
-                    parts.append("\(result.removed) removed (deleted on-chain)")
+                    parts.append(String(localized: "\(String(result.removed)) removed (deleted on-chain)"))
                 }
                 if result.demoted > 0 {
-                    parts.append("\(result.demoted) unmarked (no carve found on-chain)")
+                    parts.append(String(localized: "\(String(result.demoted)) unmarked (no carve found on-chain)"))
                 }
                 if result.expired > 0 {
-                    parts.append("\(result.expired) unconfirmed carve\(result.expired == 1 ? "" : "s") dropped — now local-only")
+                    parts.append(String(localized: "\(String(result.expired)) unconfirmed carve\(result.expired == 1 ? "" : "s") dropped — now local-only"))
                 }
                 if result.undecryptable > 0 {
-                    parts.append("\(result.undecryptable) could not be decrypted")
+                    parts.append(String(localized: "\(String(result.undecryptable)) could not be decrypted"))
                     parts.append(contentsOf: result.failureReasons)
                 }
                 syncSummary = parts.joined(separator: " · ")

@@ -17,7 +17,7 @@ struct FidPickerView: View {
 
     /// Placeholder for the search box. Callers with a narrower job
     /// ("who is this room for?") can say so here.
-    var prompt: String = "FID, or part of a CID"
+    var prompt: String = String(localized: "FID, or part of a CID")
 
     @FocusState private var searchFocused: Bool
 
@@ -120,7 +120,7 @@ struct FidPickerView: View {
         } else if model.exactFidUnknown {
             HStack(spacing: 6) {
                 Image(systemName: "questionmark.circle")
-                CopyableText("That FID is valid but has no on-chain record yet. You can still pick it — messages to it can't be encrypted until it publishes a key.")
+                CopyableText(String(localized: "That FID is valid but has no on-chain record yet. You can still pick it — messages to it can't be encrypted until it publishes a key."))
                     .fixedSize(horizontal: false, vertical: true)
             }
             .foregroundStyle(.orange)
@@ -128,7 +128,7 @@ struct FidPickerView: View {
         } else if model.noChainMatches {
             HStack(spacing: 6) {
                 Image(systemName: "questionmark.circle")
-                CopyableText("No CID on chain contains “\(model.searchTerm ?? "")”.")
+                CopyableText(String(localized: "No CID on chain contains “\(model.searchTerm ?? "")”."))
             }
             .foregroundStyle(.orange)
             .font(.caption)
@@ -199,7 +199,7 @@ struct FidPickerView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 if let typed = model.typedCandidate {
-                    sectionHeader("Typed", count: nil)
+                    sectionHeader(String(localized: "Typed"), count: nil)
                     row(typed)
                     Divider()
                 }
@@ -207,7 +207,7 @@ struct FidPickerView: View {
                 let local = model.localMatches
                 if !local.isEmpty {
                     sectionHeader(
-                        model.searchesChain ? "On this device" : "Members",
+                        model.searchesChain ? String(localized: "On this device") : String(localized: "Members"),
                         count: local.count
                     )
                     ForEach(local) { picked in
@@ -217,7 +217,7 @@ struct FidPickerView: View {
                 }
 
                 if !model.chainResults.isEmpty {
-                    sectionHeader("On chain", count: model.chainResults.count)
+                    sectionHeader(String(localized: "On chain"), count: model.chainResults.count)
                     ForEach(model.chainResults) { picked in
                         row(picked)
                         Divider()

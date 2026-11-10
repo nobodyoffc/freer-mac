@@ -152,9 +152,9 @@ struct CashReorgSheet: View {
 
     private var spending: some View {
         HStack(spacing: 18) {
-            stat("Spending", "\(inputs.count) cash(es)")
-            stat("Amount", formatFch(totalIn))
-            stat("CoinDays", "\(totalCd)")
+            stat(String(localized: "Spending"), "\(inputs.count) cash(es)")
+            stat(String(localized: "Amount"), formatFch(totalIn))
+            stat(String(localized: "CoinDays"), "\(totalCd)")
             Spacer()
         }
         .padding(12)
@@ -167,10 +167,10 @@ struct CashReorgSheet: View {
         Form {
             Section {
                 LabeledField(
-                    "How many cashes",
+                    String(localized: "How many cashes"),
                     hint: countText.isEmpty
-                        ? "Leave blank to let the amount decide."
-                        : (countIsValid ? nil : "Whole number, 1 or more."),
+                        ? String(localized: "Leave blank to let the amount decide.")
+                        : (countIsValid ? nil : String(localized: "Whole number, 1 or more.")),
                     hintIsError: !countText.isEmpty && !countIsValid
                 ) {
                     TextField("", text: $countText, prompt: Text("e.g. 4"))
@@ -179,10 +179,10 @@ struct CashReorgSheet: View {
                 }
 
                 LabeledField(
-                    "Each worth",
+                    String(localized: "Each worth"),
                     hint: amountText.isEmpty
-                        ? "Leave blank to split the total evenly."
-                        : (amountSats.map { "= \($0) sat" } ?? "Not a valid amount."),
+                        ? String(localized: "Leave blank to split the total evenly.")
+                        : (amountSats.map { String(localized: "= \(String($0)) sat") } ?? String(localized: "Not a valid amount.")),
                     hintIsError: !amountText.isEmpty && amountSats == nil
                 ) {
                     HStack(spacing: 8) {
@@ -193,7 +193,7 @@ struct CashReorgSheet: View {
                     }
                 }
 
-                LabeledField("Fee rate") {
+                LabeledField(String(localized: "Fee rate")) {
                     HStack(spacing: 8) {
                         TextField("", text: $feePerByte, prompt: Text("1"))
                             .fieldInputStyle()
@@ -215,11 +215,11 @@ struct CashReorgSheet: View {
 
     private var shapeName: String {
         switch shape {
-        case .consolidate?:      return "Merge into one"
-        case .byCount?:          return "Split evenly"
-        case .byAmount?:         return "Split into fixed denominations"
-        case .exact?:            return "Exact bills plus change"
-        case nil:                return "Check the fields"
+        case .consolidate?:      return String(localized: "Merge into one")
+        case .byCount?:          return String(localized: "Split evenly")
+        case .byAmount?:         return String(localized: "Split into fixed denominations")
+        case .exact?:            return String(localized: "Exact bills plus change")
+        case nil:                return String(localized: "Check the fields")
         }
     }
 
@@ -276,7 +276,7 @@ struct CashReorgSheet: View {
             lines.append("\(current.count) × \(formatFch(current.value))")
         }
         if plan.hasChange, let change = plan.outputs.last {
-            lines.append("1 × \(formatFch(change))  (change)")
+            lines.append(String(localized: "1 × \(formatFch(change))  (change)"))
         }
         return lines
     }
@@ -338,7 +338,7 @@ struct CashReorgSheet: View {
             )
             onDone(.broadcast(
                 txid: result.remoteTxid,
-                note: "Reorganized \(inputs.count) cash(es) into \(result.plan.outputs.count) — txid \(result.remoteTxid.elidingMiddle())"
+                note: String(localized: "Reorganized \(String(inputs.count)) cash(es) into \(String(result.plan.outputs.count)) — txid \(result.remoteTxid.elidingMiddle())")
             ))
         } catch {
             actionError = describe(error)
@@ -368,7 +368,7 @@ struct CashReorgSheet: View {
     }
 
     private func summaryLine(_ plan: CashReorg.Plan) -> String {
-        "\(plan.inputs.count) in · \(plan.outputs.count) out · fee \(plan.fee) sat · \(plan.estimatedSize) B"
+        String(localized: "\(String(plan.inputs.count)) in · \(String(plan.outputs.count)) out · fee \(String(plan.fee)) sat · \(String(plan.estimatedSize)) B")
     }
 
     private func formatFch(_ sats: Int64) -> String {
@@ -455,8 +455,8 @@ struct CashSendSheet: View {
     /// use — the question a fixed input set raises and an ordinary
     /// send doesn't.
     private var changeSentence: String {
-        guard let plan, plan.hasChange else { return "the remainder goes to the miner" }
-        return "\(plan.change) sat comes back as change"
+        guard let plan, plan.hasChange else { return String(localized: "the remainder goes to the miner") }
+        return String(localized: "\(String(plan.change)) sat comes back as change")
     }
 
     var body: some View {
@@ -481,7 +481,7 @@ struct CashSendSheet: View {
         }
         .frame(minWidth: 560, minHeight: 480)
         .sheet(isPresented: $showScan) {
-            QrScanSheet(title: "Scan recipient FID") { scanned in
+            QrScanSheet(title: String(localized: "Scan recipient FID")) { scanned in
                 recipient = scanned
                 showScan = false
             } onCancel: {
@@ -533,8 +533,8 @@ struct CashSendSheet: View {
 
     private var spending: some View {
         HStack(spacing: 18) {
-            stat("Spending", "\(inputs.count) cash(es)")
-            stat("Available", formatFch(totalIn))
+            stat(String(localized: "Spending"), "\(inputs.count) cash(es)")
+            stat(String(localized: "Available"), formatFch(totalIn))
             Spacer()
         }
         .padding(12)
@@ -547,9 +547,9 @@ struct CashSendSheet: View {
         Form {
             Section("To") {
                 LabeledField(
-                    "Recipient FID",
+                    String(localized: "Recipient FID"),
                     hint: (!recipient.isEmpty && !recipientLooksValid)
-                        ? "Not a valid FCH mainnet address."
+                        ? String(localized: "Not a valid FCH mainnet address.")
                         : nil,
                     hintIsError: true
                 ) {
@@ -559,8 +559,8 @@ struct CashSendSheet: View {
                             .fieldInputStyle()
                         Button {
                             pick = .one(
-                                title: "Who is this payment for?",
-                                subtitle: "Search your contacts, or look up a FID or CID on chain. A payment cannot be undone."
+                                title: String(localized: "Who is this payment for?"),
+                                subtitle: String(localized: "Search your contacts, or look up a FID or CID on chain. A payment cannot be undone.")
                             )
                         } label: {
                             Image(systemName: "person.text.rectangle")
@@ -577,7 +577,7 @@ struct CashSendSheet: View {
             }
 
             Section("Amount") {
-                LabeledField("Amount", hint: amountSats.map { "= \($0) sat" }) {
+                LabeledField(String(localized: "Amount"), hint: amountSats.map { String(localized: "= \(String($0)) sat") }) {
                     HStack(spacing: 8) {
                         TextField("", text: $amountText, prompt: Text("0.001"))
                             .fieldInputStyle()
@@ -587,7 +587,7 @@ struct CashSendSheet: View {
                             .help("Pay out everything the selected cashes hold, less the fee")
                     }
                 }
-                LabeledField("Fee rate") {
+                LabeledField(String(localized: "Fee rate")) {
                     HStack(spacing: 8) {
                         TextField("", text: $feePerByte, prompt: Text("1"))
                             .fieldInputStyle()
@@ -605,8 +605,8 @@ struct CashSendSheet: View {
     private var preview: some View {
         switch planResult {
         case .success(let plan):
-            Text("\(plan.selected.count) input(s) · fee \(plan.fee) sat · \(plan.estimatedSize) B" +
-                 (plan.hasChange ? " · change \(plan.change) sat" : " · no change (remainder becomes fee)"))
+            Text(String(localized: "\(String(plan.selected.count)) input(s) · fee \(String(plan.fee)) sat · \(String(plan.estimatedSize)) B") +
+                 (plan.hasChange ? String(localized: " · change \(String(plan.change)) sat") : String(localized: " · no change (remainder becomes fee)")))
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
         case .failure(let error):
@@ -686,7 +686,7 @@ struct CashSendSheet: View {
             )
             onDone(.broadcast(
                 txid: result.remoteTxid,
-                note: "Sent \(formatFch(amountSats)) from \(inputs.count) cash(es) — txid \(result.remoteTxid.elidingMiddle())"
+                note: String(localized: "Sent \(formatFch(amountSats)) from \(String(inputs.count)) cash(es) — txid \(result.remoteTxid.elidingMiddle())")
             ))
         } catch {
             actionError = describe(error)

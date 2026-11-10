@@ -67,14 +67,14 @@ public struct TokenService {
         /// Display label. English only for now; Phase 11 localises.
         public var label: String {
             switch self {
-            case .name:        return "Name"
-            case .desc:        return "Description"
-            case .consensusId: return "Consensus ID"
-            case .deployer:    return "Deployer"
-            case .circulating: return "Circulating"
-            case .birthTime:   return "Created"
-            case .lastHeight:  return "Height"
-            case .lastTime:    return "Time"
+            case .name:        return String(localized: "Name")
+            case .desc:        return String(localized: "Description")
+            case .consensusId: return String(localized: "Consensus ID")
+            case .deployer:    return String(localized: "Deployer")
+            case .circulating: return String(localized: "Circulating")
+            case .birthTime:   return String(localized: "Created")
+            case .lastHeight:  return String(localized: "Height")
+            case .lastTime:    return String(localized: "Time")
             case .id:          return "ID"
             }
         }
@@ -100,10 +100,10 @@ public struct TokenService {
         public var label: String {
             switch self {
             case .fid:         return "FID"
-            case .tokenId:     return "Token ID"
-            case .balance:     return "Balance"
-            case .firstHeight: return "First height"
-            case .lastHeight:  return "Height"
+            case .tokenId:     return String(localized: "Token ID")
+            case .balance:     return String(localized: "Balance")
+            case .firstHeight: return String(localized: "First height")
+            case .lastHeight:  return String(localized: "Height")
             case .id:          return "ID"
             }
         }

@@ -51,14 +51,14 @@ struct DockTopUpSheet: View {
     /// told the user nothing about a lookup that had failed above.
     private var blockReason: String? {
         if paidTxid != nil { return nil }
-        if loading { return "Asking the server who to pay…" }
-        guard let topUp else { return "No one to pay yet. See the problem above." }
-        guard let amountSats else { return "Enter an amount in F, like 0.01." }
+        if loading { return String(localized: "Asking the server who to pay…") }
+        guard let topUp else { return String(localized: "No one to pay yet. See the problem above.") }
+        guard let amountSats else { return String(localized: "Enter an amount in F, like 0.01.") }
         if let min = topUp.minPaymentSats, amountSats < min {
-            return "This service asks for at least \(NoticeFee.coinString(satoshis: min)) F per payment."
+            return String(localized: "This service asks for at least \(NoticeFee.coinString(satoshis: min)) F per payment.")
         }
         if !topUp.offeredCashes.isEmpty, amountSats >= topUp.offeredSats + topUp.localSats {
-            return "Only \(NoticeFee.coinString(satoshis: topUp.offeredSats + topUp.localSats)) F is available to pay from, and the miner fee comes out of it too. Pay less."
+            return String(localized: "Only \(NoticeFee.coinString(satoshis: topUp.offeredSats + topUp.localSats)) F is available to pay from, and the miner fee comes out of it too. Pay less.")
         }
         return nil
     }
@@ -168,28 +168,28 @@ struct DockTopUpSheet: View {
     // MARK: - panels
 
     private var whyPanel: some View {
-        panel("Why") {
+        panel(String(localized: "Why")) {
             Text("This server is up, but your prepaid balance with it has run out, so it is holding your messages instead of handing them over. Nothing is lost: they are collected once the top-up confirms.")
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             CopyableText(unpaid.message, font: .caption, color: .secondary)
             if !unpaid.recipientIds.isEmpty {
-                caption("\(unpaid.recipientIds.count) mailbox\(unpaid.recipientIds.count == 1 ? "" : "es") waiting here.")
+                caption(String(localized: "\(String(unpaid.recipientIds.count)) mailbox\(unpaid.recipientIds.count == 1 ? "" : "es") waiting here."))
             }
         }
     }
 
     private func payPanel(_ topUp: DockTopUp) -> some View {
-        panel("Payment") {
-            row("Service") {
+        panel(String(localized: "Payment")) {
+            row(String(localized: "Service")) {
                 Text(topUp.service.displayName).font(.callout)
             }
-            row("Pay to") { FidValue(topUp.dealer) }
-            row("Paid from") { FidValue(topUp.payer) }
+            row(String(localized: "Pay to")) { FidValue(topUp.dealer) }
+            row(String(localized: "Paid from")) { FidValue(topUp.payer) }
             if topUp.payer != session.liveFid {
-                caption("Your main FID pays, not the identity you are living as: the DOCK connection is the main's, so that is the balance the server draws on.")
+                caption(String(localized: "Your main FID pays, not the identity you are living as: the DOCK connection is the main's, so that is the balance the server draws on."))
             }
-            row("Amount") {
+            row(String(localized: "Amount")) {
                 HStack(spacing: 6) {
                     TextField("", text: $amountText)
                         .fieldInputStyle()
@@ -200,51 +200,51 @@ struct DockTopUpSheet: View {
                 }
             }
             if let min = topUp.minPaymentSats {
-                caption("Minimum payment: \(NoticeFee.coinString(satoshis: min)) F.")
+                caption(String(localized: "Minimum payment: \(NoticeFee.coinString(satoshis: min)) F."))
             }
             if !topUp.offeredCashes.isEmpty {
-                caption("Your balance here is spent, so this server refuses every call, including the ones a payment needs. It has offered \(topUp.offeredCashes.count) of your cashes (\(NoticeFee.coinString(satoshis: topUp.offeredSats)) F) and one free broadcast to pay with. Approve the payment within a minute of pressing Pay.")
+                caption(String(localized: "Your balance here is spent, so this server refuses every call, including the ones a payment needs. It has offered \(String(topUp.offeredCashes.count)) of your cashes (\(NoticeFee.coinString(satoshis: topUp.offeredSats)) F) and one free broadcast to pay with. Approve the payment within a minute of pressing Pay."))
                 if topUp.localSats > 0 {
-                    caption("To pay more, cashes from this Mac's cache (up to \(NoticeFee.coinString(satoshis: topUp.localSats)) F) are added after the offered ones. The server has not checked those; if one turns out to be spent, the payment is refused and you open this again.")
+                    caption(String(localized: "To pay more, cashes from this Mac's cache (up to \(NoticeFee.coinString(satoshis: topUp.localSats)) F) are added after the offered ones. The server has not checked those; if one turns out to be spent, the payment is refused and you open this again."))
                 }
                 if let amountSats, amountSats >= topUp.offeredSats, topUp.localSats > 0,
                    amountSats < topUp.offeredSats + topUp.localSats {
                     // Not `caption(_:)`: its own `.secondary` would beat
                     // an outer orange.
-                    CopyableText("This amount uses cashes from the local cache as well as the offered ones.", font: .caption, color: .orange)
+                    CopyableText(String(localized: "This amount uses cashes from the local cache as well as the offered ones."), font: .caption, color: .orange)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             if topUp.source == .chain {
-                caption("The server did not describe itself, so this dealer comes from its record on the chain.")
+                caption(String(localized: "The server did not describe itself, so this dealer comes from its record on the chain."))
             }
             if let out = topUp.service.pricePerKBOut ?? topUp.service.pricePerKB {
-                caption("Price: \(out) F per KB delivered to you.")
+                caption(String(localized: "Price: \(out) F per KB delivered to you."))
             }
-            caption("The server credits a payment once a block confirms it, usually within a minute or two.")
+            caption(String(localized: "The server credits a payment once a block confirms it, usually within a minute or two."))
         }
     }
 
     private func confirmingPanel(txid: String, sentAt: Date) -> some View {
-        panel("Top-up sent") {
+        panel(String(localized: "Top-up sent")) {
             HStack(spacing: 6) {
                 Image(systemName: "hourglass").foregroundStyle(.blue)
                 Text("Paid \(sentAt.formatted(.relative(presentation: .named))). Messages resume once a block confirms it and the server credits it, usually within a few minutes.")
                     .font(.callout)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            row("Txid") { txidText(txid) }
-            caption("This tile clears itself the first time the server serves again. If it is still here half an hour after paying, it turns orange and lets you pay again.")
+            row(String(localized: "Txid")) { txidText(txid) }
+            caption(String(localized: "This tile clears itself the first time the server serves again. If it is still here half an hour after paying, it turns orange and lets you pay again."))
         }
     }
 
     private func lapsedPanel(txid: String, sentAt: Date) -> some View {
-        panel("Earlier top-up not credited") {
-            CopyableText("A top-up sent \(sentAt.formatted(.relative(presentation: .named))) has not been credited. Check the txid before paying again: if it confirmed, the server may just be slow to scan.")
+        panel(String(localized: "Earlier top-up not credited")) {
+            CopyableText(String(localized: "A top-up sent \(sentAt.formatted(.relative(presentation: .named))) has not been credited. Check the txid before paying again: if it confirmed, the server may just be slow to scan."))
                 .font(.callout)
                 .foregroundStyle(.orange)
                 .fixedSize(horizontal: false, vertical: true)
-            row("Txid") { txidText(txid) }
+            row(String(localized: "Txid")) { txidText(txid) }
         }
     }
 
@@ -257,12 +257,12 @@ struct DockTopUpSheet: View {
     }
 
     private func paidPanel(_ txid: String) -> some View {
-        panel("Paid") {
+        panel(String(localized: "Paid")) {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
                 Text("Sent. Messages arrive once the payment confirms.").font(.callout)
             }
-            row("Txid") {
+            row(String(localized: "Txid")) {
                 CopyableText(
                     display: txid.elidingMiddle(head: 10, tail: 10),
                     copy: txid,

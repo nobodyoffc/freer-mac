@@ -87,16 +87,16 @@ public enum RatableKind: String, CaseIterable, Sendable, Identifiable, Codable {
     /// What to call one of these on screen.
     public var label: String {
         switch self {
-        case .protocolSpec: return "Protocol"
-        case .code:         return "Code"
-        case .service:      return "Service"
-        case .app:          return "App"
-        case .team:         return "Team"
-        case .text:         return "Text"
-        case .remark:       return "Remark"
-        case .image:        return "Image"
-        case .sound:        return "Sound"
-        case .video:        return "Video"
+        case .protocolSpec: return String(localized: "Protocol")
+        case .code:         return String(localized: "Code")
+        case .service:      return String(localized: "Service")
+        case .app:          return String(localized: "App")
+        case .team:         return String(localized: "Team")
+        case .text:         return String(localized: "Text")
+        case .remark:       return String(localized: "Remark")
+        case .image:        return String(localized: "Image")
+        case .sound:        return String(localized: "Sound")
+        case .video:        return String(localized: "Video")
         }
     }
 
@@ -106,8 +106,8 @@ public enum RatableKind: String, CaseIterable, Sendable, Identifiable, Codable {
     /// synonyms in the specs and the sheets should not blur them.
     public var ownerNoun: String {
         switch self {
-        case .protocolSpec, .code, .service, .app, .team: return "owner"
-        case .text, .remark, .image, .sound, .video:      return "publisher"
+        case .protocolSpec, .code, .service, .app, .team: return String(localized: "owner")
+        case .text, .remark, .image, .sound, .video:      return String(localized: "publisher")
         }
     }
 
@@ -157,12 +157,12 @@ public enum RateScore: Int, CaseIterable, Sendable, Identifiable, Codable, Compa
     /// The words Android puts beside each radio button.
     public var label: String {
         switch self {
-        case .zero:  return "Very bad"
-        case .one:   return "Bad"
-        case .two:   return "Poor"
-        case .three: return "Fair"
-        case .four:  return "Good"
-        case .five:  return "Excellent"
+        case .zero:  return String(localized: "Very bad")
+        case .one:   return String(localized: "Bad")
+        case .two:   return String(localized: "Poor")
+        case .three: return String(localized: "Fair")
+        case .four:  return String(localized: "Good")
+        case .five:  return String(localized: "Excellent")
         }
     }
 }

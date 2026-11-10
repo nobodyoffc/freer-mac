@@ -44,7 +44,7 @@ final class VoicePlayer {
             failure = nil
             follow()
         } catch {
-            failure = "Could not play that voice note: \(error)"
+            failure = String(localized: "Could not play that voice note: \(String(describing: error))")
         }
     }
 
@@ -77,6 +77,6 @@ final class VoicePlayer {
     private enum Failure: Error, CustomStringConvertible {
         case couldNotPlay
 
-        var description: String { "the audio device refused to play it" }
+        var description: String { String(localized: "the audio device refused to play it") }
     }
 }

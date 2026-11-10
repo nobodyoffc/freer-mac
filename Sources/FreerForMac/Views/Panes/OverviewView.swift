@@ -256,20 +256,20 @@ struct OverviewView: View {
             let title: String, symbol: String, tint: Color, help: String
             switch unpaid.stage() {
             case .needsPayment:
-                title = "Top up \(host)"
+                title = String(localized: "Top up \(host)")
                 symbol = "creditcard.trianglebadge.exclamationmark"
                 tint = .orange
-                help = "\(unpaid.dockUrl) stopped handing over messages: \(unpaid.message). Click to top up your balance there."
+                help = String(localized: "\(unpaid.dockUrl) stopped handing over messages: \(unpaid.message). Click to top up your balance there.")
             case .confirming:
-                title = "Top-up confirming: \(host)"
+                title = String(localized: "Top-up confirming: \(host)")
                 symbol = "hourglass"
                 tint = .blue
-                help = "Paid. Messages from \(unpaid.dockUrl) resume once a block confirms the payment and the server credits it. Click for the txid."
+                help = String(localized: "Paid. Messages from \(unpaid.dockUrl) resume once a block confirms the payment and the server credits it. Click for the txid.")
             case .lapsed:
-                title = "Top-up not credited: \(host)"
+                title = String(localized: "Top-up not credited: \(host)")
                 symbol = "exclamationmark.arrow.circlepath"
                 tint = .orange
-                help = "A top-up to \(unpaid.dockUrl) was sent over half an hour ago and the server still refuses. Click to check the txid or pay again."
+                help = String(localized: "A top-up to \(unpaid.dockUrl) was sent over half an hour ago and the server still refuses. Click to check the txid or pay again.")
             }
             tiles.append(AttentionTile(
                 id: "dock.unpaid.\(unpaid.dockUrl)",
@@ -283,7 +283,7 @@ struct OverviewView: View {
         }
         if unreadMail > 0 {
             tiles.append(AttentionTile(
-                id: "mail", title: "Cmail", count: unreadMail,
+                id: "mail", title: String(localized: "Cmail"), count: unreadMail,
                 systemImage: "envelope.fill", tint: .accentColor,
                 open: { appState.selectedPane = .mail }
             ))
@@ -293,7 +293,7 @@ struct OverviewView: View {
         // for a helper who opted in — see ``FirstFchBoardView``.
         if appState.newcomersWaiting > 0 {
             tiles.append(AttentionTile(
-                id: "firstFch", title: "Help beginners", count: appState.newcomersWaiting,
+                id: "firstFch", title: String(localized: "Help beginners"), count: appState.newcomersWaiting,
                 systemImage: "hand.raised.fill", tint: .teal,
                 open: { appState.openFirstFchBoard() }
             ))
@@ -320,7 +320,7 @@ struct OverviewView: View {
             guard count > 0 else { continue }
             tiles.append(AttentionTile(
                 id: "\(style.id).awaiting",
-                title: style.mode == .room ? "Room invitations" : "\(style.title): answers due",
+                title: style.mode == .room ? String(localized: "Room invitations") : String(localized: "\(style.title): answers due"),
                 count: count,
                 systemImage: "envelope.badge", tint: .orange,
                 // A team's count is cleared by answering, not by looking,
@@ -365,8 +365,8 @@ struct OverviewView: View {
         // nothing, and the count stands until it is answered. Calling it
         // unread is what made a tile that would not clear look broken.
         .help(tile.help ?? (tile.awaitingAnswer
-              ? "Open \(tile.title) — \(tile.count) waiting on your answer, and counted until you give one"
-              : "Open \(tile.title) — \(tile.count) unread"))
+              ? String(localized: "Open \(tile.title) — \(String(tile.count)) waiting on your answer, and counted until you give one")
+              : String(localized: "Open \(tile.title) — \(String(tile.count)) unread")))
     }
 
     // MARK: - recent activity
@@ -374,13 +374,13 @@ struct OverviewView: View {
     private var recentActivityCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionHeader(
-                "Recent activity",
+                String(localized: "Recent activity"),
                 systemImage: "arrow.left.arrow.right",
                 open: .transactions
             )
 
             if recentGroups.isEmpty {
-                emptyNote("No transactions yet for this FID.")
+                emptyNote(String(localized: "No transactions yet for this FID."))
             } else {
                 ForEach(recentGroups.prefix(Self.feedRows), id: \.txid) { group in
                     activityRow(group)
@@ -426,10 +426,10 @@ struct OverviewView: View {
 
     private var newsCard: some View {
         VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("Latest news", systemImage: "dot.radiowaves.left.and.right", open: .news)
+            sectionHeader(String(localized: "Latest news"), systemImage: "dot.radiowaves.left.and.right", open: .news)
 
             if latestNews.isEmpty {
-                emptyNote("The chain-wide feed hasn't loaded yet.")
+                emptyNote(String(localized: "The chain-wide feed hasn't loaded yet."))
             } else {
                 ForEach(Array(latestNews.prefix(Self.feedRows).enumerated()), id: \.offset) { _, item in
                     newsRow(item)

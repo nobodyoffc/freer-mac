@@ -27,20 +27,20 @@ struct ChatModeStyle: Identifiable {
     /// The tab label, and the pane heading.
     var title: String {
         switch mode {
-        case .p2p:    return "Freers"
-        case .room:   return "Rooms"
-        case .team:   return "Teams"
-        case .square: return "Squares"
+        case .p2p:    return String(localized: "Freers")
+        case .room:   return String(localized: "Rooms")
+        case .team:   return String(localized: "Teams")
+        case .square: return String(localized: "Squares")
         }
     }
 
     /// The word for one of these, mid-sentence.
     var noun: String {
         switch mode {
-        case .p2p:    return "chat"
-        case .room:   return "room"
-        case .team:   return "team"
-        case .square: return "square"
+        case .p2p:    return String(localized: "chat")
+        case .room:   return String(localized: "room")
+        case .team:   return String(localized: "team")
+        case .square: return String(localized: "square")
         }
     }
 
@@ -83,13 +83,13 @@ struct ChatModeStyle: Identifiable {
     var sealingNote: String {
         switch mode {
         case .p2p:
-            return "Encrypted to them. Your copy stays on this Mac; the copy that travels is readable only by the two of you."
+            return String(localized: "Encrypted to them. Your copy stays on this Mac; the copy that travels is readable only by the two of you.")
         case .room:
-            return "Encrypted with this room's key. Members who join later cannot read what came before."
+            return String(localized: "Encrypted with this room's key. Members who join later cannot read what came before.")
         case .team:
-            return "Encrypted with this team's key. Who is in the team is public on the chain; what is said is not."
+            return String(localized: "Encrypted with this team's key. Who is in the team is public on the chain; what is said is not.")
         case .square:
-            return "Not encrypted. Anyone may join a square, so treat everything here as public."
+            return String(localized: "Not encrypted. Anyone may join a square, so treat everything here as public.")
         }
     }
 
@@ -98,33 +98,33 @@ struct ChatModeStyle: Identifiable {
     var summary: String {
         switch mode {
         case .p2p:
-            return "A direct conversation with one FID. Nothing about it is on the chain and nobody else can read it."
+            return String(localized: "A direct conversation with one FID. Nothing about it is on the chain and nobody else can read it.")
         case .room:
-            return "A private group nobody can enumerate: no carve, no on-chain member list. The owner decides who is in it, and everyone else holds a copy of what the owner last said."
+            return String(localized: "A private group nobody can enumerate: no carve, no on-chain member list. The owner decides who is in it, and everyone else holds a copy of what the owner last said.")
         case .team:
-            return "A group whose membership lives on the chain. Joining and leaving are transactions, and who belongs is public — messages are sealed with the team's key."
+            return String(localized: "A group whose membership lives on the chain. Joining and leaving are transactions, and who belongs is public — messages are sealed with the team's key.")
         case .square:
-            return "An open group. Anyone may join, so there is no key and no privacy: every message here is in the clear."
+            return String(localized: "An open group. Anyone may join, so there is no key and no privacy: every message here is in the clear.")
         }
     }
 
     /// What the primary button in this tab makes.
     var newActionTitle: String {
         switch mode {
-        case .p2p:    return "New chat"
-        case .room:   return "New room"
-        case .team:   return "New team"
-        case .square: return "New square"
+        case .p2p:    return String(localized: "New chat")
+        case .room:   return String(localized: "New room")
+        case .team:   return String(localized: "New team")
+        case .square: return String(localized: "New square")
         }
     }
 
     /// What the empty list should say.
     var emptyTitle: String {
         switch mode {
-        case .p2p:    return "No chats yet"
-        case .room:   return "No rooms yet"
-        case .team:   return "No teams yet"
-        case .square: return "No squares yet"
+        case .p2p:    return String(localized: "No chats yet")
+        case .room:   return String(localized: "No rooms yet")
+        case .team:   return String(localized: "No teams yet")
+        case .square: return String(localized: "No squares yet")
         }
     }
 

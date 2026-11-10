@@ -335,15 +335,15 @@ public struct HistoryShareService {
         public var description: String {
             switch self {
             case .emptyRange:
-                return "The start of the range has to be before its end."
+                return String(localized: "The start of the range has to be before its end.")
             case .nothingInRange:
-                return "This Mac holds no messages from that conversation in that range, so there is nothing to share. Decline it, or ask them for a different range."
+                return String(localized: "This Mac holds no messages from that conversation in that range, so there is nothing to share. Decline it, or ask them for a different range.")
             case .exportNotRegistered:
-                return "The history export could not be registered for upload."
+                return String(localized: "The history export could not be registered for upload.")
             case .notAHat:
-                return "The history share does not point at a file."
+                return String(localized: "The history share does not point at a file.")
             case .noFileKey:
-                return "The history share carries no key to open the file with."
+                return String(localized: "The history share carries no key to open the file with.")
             }
         }
     }

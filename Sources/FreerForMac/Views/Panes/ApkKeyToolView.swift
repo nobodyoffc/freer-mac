@@ -28,9 +28,9 @@ struct ApkKeyToolView: View {
     private var passwordProblem: String? {
         if password.isEmpty { return nil }
         if !ApkSigningKey.isKeystorePassword(password) {
-            return "Use plain ASCII — Java refuses to open a keystore whose password has any other character."
+            return String(localized: "Use plain ASCII — Java refuses to open a keystore whose password has any other character.")
         }
-        if !confirm.isEmpty, confirm != password { return "The two passwords differ." }
+        if !confirm.isEmpty, confirm != password { return String(localized: "The two passwords differ.") }
         return nil
     }
 
@@ -48,13 +48,13 @@ struct ApkKeyToolView: View {
                     .font(.callout)
             } else if let key {
                 LabeledField(
-                    "Certificate SHA-256",
-                    hint: "What apksigner verify --print-certs, keytool and the Play Console show for this signer."
+                    String(localized: "Certificate SHA-256"),
+                    hint: String(localized: "What apksigner verify --print-certs, keytool and the Play Console show for this signer.")
                 ) {
                     CopyableText(key.fingerprint, font: .system(.caption, design: .monospaced))
                 }
-                LabeledField("Owner") {
-                    CopyableText("CN=\(key.mainFid), O=\(ApkSigningKey.organizationName)",
+                LabeledField(String(localized: "Owner")) {
+                    CopyableText(String(localized: "CN=\(key.mainFid), O=\(ApkSigningKey.organizationName)"),
                                  font: .system(.body, design: .monospaced))
                 }
 
@@ -75,8 +75,8 @@ struct ApkKeyToolView: View {
     private func exportSection(_ key: ApkSigningKey) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             LabeledField(
-                "Keystore password",
-                hint: passwordProblem ?? "Protects the exported file only. The key itself needs no backup — it comes back from this vault.",
+                String(localized: "Keystore password"),
+                hint: passwordProblem ?? String(localized: "Protects the exported file only. The key itself needs no backup — it comes back from this vault."),
                 hintIsError: passwordProblem != nil
             ) {
                 SecureField("Password", text: $password).fieldInputStyle()
@@ -105,7 +105,7 @@ struct ApkKeyToolView: View {
         """
         return LabeledField(
             "~/.gradle/gradle.properties",
-            hint: "Click to copy. One PKCS#12 password covers both the store and the key."
+            hint: String(localized: "Click to copy. One PKCS#12 password covers both the store and the key.")
         ) {
             CopyableText(lines, font: .system(.caption, design: .monospaced))
         }
@@ -115,7 +115,7 @@ struct ApkKeyToolView: View {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "p12") ?? .data]
         panel.nameFieldStringValue = "freer-apk-signing.p12"
-        panel.message = "Holds the signing prikey, encrypted with the password you chose."
+        panel.message = String(localized: "Holds the signing prikey, encrypted with the password you chose.")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             let data = try key.keystore(password: password)
@@ -123,11 +123,11 @@ struct ApkKeyToolView: View {
             try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
             savedPath = url.path
             noteIsError = false
-            note = "Saved \(url.lastPathComponent)."
+            note = String(localized: "Saved \(url.lastPathComponent).")
             password = ""; confirm = ""
         } catch {
             noteIsError = true
-            note = "Save failed: \(errorText(error))"
+            note = String(localized: "Save failed: \(errorText(error))")
         }
     }
 
@@ -139,10 +139,10 @@ struct ApkKeyToolView: View {
         do {
             try Data(key.certificatePem.utf8).write(to: url, options: [.atomic])
             noteIsError = false
-            note = "Saved \(url.lastPathComponent)."
+            note = String(localized: "Saved \(url.lastPathComponent).")
         } catch {
             noteIsError = true
-            note = "Save failed: \(errorText(error))"
+            note = String(localized: "Save failed: \(errorText(error))")
         }
     }
 
@@ -153,23 +153,23 @@ struct ApkKeyToolView: View {
             Divider()
             note(
                 "checkmark.shield",
-                "This key cannot spend.",
-                "It is a separate P-256 key on a different curve, derived one way from your main prikey. Nothing it signs reveals anything about the key that holds your coins."
+                String(localized: "This key cannot spend."),
+                String(localized: "It is a separate P-256 key on a different curve, derived one way from your main prikey. Nothing it signs reveals anything about the key that holds your coins.")
             )
             note(
                 "arrow.triangle.2.circlepath",
-                "Nothing to back up.",
-                "The key and its certificate are re-derived byte for byte, so restoring the same main FID on another Mac gives the same signer. A lost keystore file is just exported again."
+                String(localized: "Nothing to back up."),
+                String(localized: "The key and its certificate are re-derived byte for byte, so restoring the same main FID on another Mac gives the same signer. A lost keystore file is just exported again.")
             )
             note(
                 "exclamationmark.triangle",
-                "It is tied to this main FID.",
-                "Android pins an app to its signing certificate. Change or re-mint the main identity and apps signed here can no longer be updated by the new key."
+                String(localized: "It is tied to this main FID."),
+                String(localized: "Android pins an app to its signing certificate. Change or re-mint the main identity and apps signed here can no longer be updated by the new key.")
             )
             note(
                 "arrow.right.arrow.left",
-                "An app already signed with another key needs a rotation first.",
-                "Users of an app signed with an older keystore cannot update to a build signed with this one unless the build carries a v3 rotation proof: apksigner rotate --old-signer --ks <old> --new-signer --ks <this .p12>."
+                String(localized: "An app already signed with another key needs a rotation first."),
+                String(localized: "Users of an app signed with an older keystore cannot update to a build signed with this one unless the build carries a v3 rotation proof: apksigner rotate --old-signer --ks <old> --new-signer --ks <this .p12>.")
             )
         }
     }
@@ -192,7 +192,7 @@ struct ApkKeyToolView: View {
         do {
             key = try session.apkSigningKey()
         } catch {
-            self.error = "Could not derive the signing key — \(errorText(error))"
+            self.error = String(localized: "Could not derive the signing key — \(errorText(error))")
         }
     }
 }

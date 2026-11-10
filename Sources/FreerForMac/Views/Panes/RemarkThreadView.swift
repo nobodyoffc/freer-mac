@@ -83,7 +83,7 @@ struct RemarkThreadView: View {
                 session: session,
                 kind: .remark,
                 subjectId: remark.id,
-                title: remark.title ?? "Untitled remark",
+                title: remark.title ?? String(localized: "Untitled remark"),
                 owner: remark.publisher,
                 currentRate: remark.tRate,
                 currentCdd: remark.tCdd,
@@ -105,7 +105,7 @@ struct RemarkThreadView: View {
             // only the second reads as a description of the field above
             // it — which is exactly how "A line, carved on chain" got
             // mistaken for the title.
-            LabeledField("Title") {
+            LabeledField(String(localized: "Title")) {
                 VStack(alignment: .leading, spacing: 2) {
                     TextField("What this remark says, in a few words", text: $remarkTitle)
                         .fieldInputStyle()
@@ -115,7 +115,7 @@ struct RemarkThreadView: View {
                 }
             }
 
-            LabeledField("Summary") {
+            LabeledField(String(localized: "Summary")) {
                 VStack(alignment: .leading, spacing: 2) {
                     TextField("Optional — a line under the title", text: $remarkNote, axis: .vertical)
                         .lineLimit(1...3)
@@ -182,7 +182,7 @@ struct RemarkThreadView: View {
             .help("Show this FID's details, standing and ratings")
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(remark.title ?? "Untitled remark").font(.callout.bold())
+                    Text(remark.title ?? String(localized: "Untitled remark")).font(.callout.bold())
                     if remark.publisher == session.liveFid {
                         Text("You")
                             .font(.caption2.bold())
@@ -292,7 +292,7 @@ struct RemarkThreadView: View {
             remarkBody = ""
             showRemarkComposer = false
             remarkError = nil
-            actionNote = "Remark carved — tx \(remark.id.elidingMiddle(head: 8, tail: 8))."
+            actionNote = String(localized: "Remark carved — tx \(remark.id.elidingMiddle(head: 8, tail: 8)).")
         } catch {
             remarkError = String(describing: error)
         }
@@ -301,7 +301,7 @@ struct RemarkThreadView: View {
     private func deleteRemark(_ remark: Remark) async {
         do {
             let txid = try await session.carveRemarkDeleteOnChain(remarkIds: [remark.id])
-            actionNote = "Remark deleted — tx \(txid.elidingMiddle(head: 8, tail: 8))."
+            actionNote = String(localized: "Remark deleted — tx \(txid.elidingMiddle(head: 8, tail: 8)).")
             remarks.removeAll { $0.id == remark.id }
         } catch {
             remarkError = String(describing: error)

@@ -1,0 +1,5 @@
+/* The permission prompts macOS shows on the app's behalf. Read from the
+   packaged Freer.app only — a bare `swift run` binary has no bundle to hold
+   them and shows the English text linked into the executable. */
+"NSCameraUsageDescription" = "Freer 用摄像头扫描二维码——FID、私钥备份、已签名的交易。摄像头仅在扫描界面打开时运行。";
+"NSMicrophoneUsageDescription" = "Freer 用麦克风录制你在聊天中发送的语音消息，并在通话和会议中传送你的声音。麦克风仅在你录音或通话时运行。";

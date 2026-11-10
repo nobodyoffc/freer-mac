@@ -56,9 +56,9 @@ extension Hat {
 
         public var description: String {
             switch self {
-            case .badDid(let did): return "Not a content DID (64 hex characters): \(did ?? "nil")"
-            case .didMismatch:     return "The two HATs describe different data"
-            case .cipherHat:       return "This record is an encrypted copy; publish the original file instead"
+            case .badDid(let did): return String(localized: "Not a content DID (64 hex characters): \(did ?? "nil")")
+            case .didMismatch:     return String(localized: "The two HATs describe different data")
+            case .cipherHat:       return String(localized: "This record is an encrypted copy; publish the original file instead")
             }
         }
     }

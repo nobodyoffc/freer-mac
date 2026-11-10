@@ -86,7 +86,7 @@ struct NewsView: View {
 
             if let err = loadError, rows.isEmpty {
                 card {
-                    CopyableLabel("Couldn't load the feed", systemImage: "exclamationmark.triangle")
+                    CopyableLabel(String(localized: "Couldn't load the feed"), systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.red)
                     CopyableText(err, font: .callout).foregroundStyle(.red)
                 }
@@ -125,7 +125,7 @@ struct NewsView: View {
                 session: session,
                 mode: .createFor(contact.id),
                 onSaved: { _ in
-                    note = "Added \(contact.id.elidingMiddle(head: 8, tail: 8)) to contacts."
+                    note = String(localized: "Added \(contact.id.elidingMiddle(head: 8, tail: 8)) to contacts.")
                     addingContact = nil
                 },
                 onCancel: { addingContact = nil }
@@ -147,7 +147,7 @@ struct NewsView: View {
 
             Spacer()
 
-            SearchField("Filter loaded, or search the chain…", text: $searchText)
+            SearchField(String(localized: "Filter loaded, or search the chain…"), text: $searchText)
 
             Menu {
                 Picker("Search in", selection: $inField) {
@@ -219,10 +219,10 @@ struct NewsView: View {
     /// reader that the window is a window.
     private var statusText: String {
         var parts = ["Showing \(filtered.count)"]
-        if let total { parts.append("of \(total) on-chain") }
+        if let total { parts.append(String(localized: "of \(String(total)) on-chain")) }
         if let at = showingCacheFrom {
             let when = Self.dateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval(at)))
-            parts.append("cached \(when) — offline")
+            parts.append(String(localized: "cached \(when) — offline"))
         }
         return parts.joined(separator: " · ")
     }
@@ -519,7 +519,7 @@ struct NewsView: View {
             showingCacheFrom = nil
             // A search result is not the feed — caching it would make
             // the next launch open on someone's old query.
-            if page.news.isEmpty { note = "No news matched “\(query)”." }
+            if page.news.isEmpty { note = String(localized: "No news matched “\(query)”.") }
             Task { await resolveNames(for: page.news) }
         } catch {
             loadError = String(describing: error)
@@ -612,18 +612,18 @@ private struct NewsDetailSheet: View {
                         }
                     }
 
-                    field("Action", news.act)
-                    field("Type", FeipProtocol.displayName(forSn: news.objectType).map {
-                        news.objectType == $0 ? $0 : "\($0) (sn \(news.objectType ?? ""))"
+                    field(String(localized: "Action"), news.act)
+                    field(String(localized: "Type"), FeipProtocol.displayName(forSn: news.objectType).map {
+                        news.objectType == $0 ? $0 : String(localized: "\($0) (sn \(news.objectType ?? ""))")
                     })
-                    field("Name", news.objectName)
-                    field("Brief", news.objectBrief)
-                    field("Object ID", news.objectId, mono: true)
-                    field("Height", news.height.map(String.init))
-                    field("Time", news.time.map {
+                    field(String(localized: "Name"), news.objectName)
+                    field(String(localized: "Brief"), news.objectBrief)
+                    field(String(localized: "Object ID"), news.objectId, mono: true)
+                    field(String(localized: "Height"), news.height.map(String.init))
+                    field(String(localized: "Time"), news.time.map {
                         Self.dateFormatter.string(from: Date(timeIntervalSince1970: TimeInterval($0)))
                     })
-                    field("Record ID", news.id, mono: true)
+                    field(String(localized: "Record ID"), news.id, mono: true)
                 }
                 .padding()
             }

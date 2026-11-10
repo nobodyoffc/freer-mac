@@ -72,25 +72,25 @@ struct RateFreerSheet: View {
     /// learns it before paying a fee to find out.
     private var blockReason: String? {
         if ratee == session.liveFid {
-            return "You are living as this FID — a FID cannot rate itself."
+            return String(localized: "You are living as this FID — a FID cannot rate itself.")
         }
         if !session.canSign {
-            return "This identity has no prikey on this Mac, so it cannot sign a rating."
+            return String(localized: "This identity has no prikey on this Mac, so it cannot sign a rating.")
         }
         if loading { return nil }
         if record == nil {
-            return "This FID has no on-chain record. FEIP16 only applies a rating to a FID that has one, so the carve would cost the fee and change nothing."
+            return String(localized: "This FID has no on-chain record. FEIP16 only applies a rating to a FID that has one, so the carve would cost the fee and change nothing.")
         }
-        guard let weightCd else { return "The weight has to be a whole number of coin-days." }
-        if weightCd < 1 { return "A rating has to destroy at least 1 coin-day to be counted." }
+        guard let weightCd else { return String(localized: "The weight has to be a whole number of coin-days.") }
+        if weightCd < 1 { return String(localized: "A rating has to destroy at least 1 coin-day to be counted.") }
         if let availableCd, weightCd > availableCd {
-            return "This identity holds about \(Self.grouped(availableCd)) coin-days, which is less than the weight you asked for."
+            return String(localized: "This identity holds about \(Self.grouped(availableCd)) coin-days, which is less than the weight you asked for.")
         }
         // Asked of the builder rather than estimated: the limit is on
         // encoded bytes, and a counter that guessed would let a cause
         // full of emoji through and refuse one that fits.
         if (try? ReputationFeip.carve(ratee: ratee, rate: rate, cause: cause)) == nil {
-            return "The cause is too long to fit in the carve — shorten it."
+            return String(localized: "The cause is too long to fit in the carve — shorten it.")
         }
         return nil
     }
@@ -150,8 +150,8 @@ struct RateFreerSheet: View {
                         .truncationMode(.middle)
                 }
                 HStack(spacing: 10) {
-                    standing("Reputation", record?.reputation)
-                    standing("Hot", record?.hot)
+                    standing(String(localized: "Reputation"), record?.reputation)
+                    standing(String(localized: "Hot"), record?.hot)
                 }
             }
             Spacer()
@@ -209,15 +209,15 @@ struct RateFreerSheet: View {
     /// wrong way cannot be taken back — there is no update op, only
     /// another rating pulling the other way.
     private var verdictPanel: some View {
-        panel("Your verdict") {
+        panel(String(localized: "Your verdict")) {
             HStack(spacing: 10) {
-                verdictButton(.good, "hand.thumbsup.fill", "Good", .green)
-                verdictButton(.bad, "hand.thumbsdown.fill", "Bad", .red)
+                verdictButton(.good, "hand.thumbsup.fill", String(localized: "Good"), .green)
+                verdictButton(.bad, "hand.thumbsdown.fill", String(localized: "Bad"), .red)
             }
             caption(
                 rate == .good
-                    ? "Adds the weight below to this FID's reputation."
-                    : "Subtracts the weight below from this FID's reputation. Reputation can go negative."
+                    ? String(localized: "Adds the weight below to this FID's reputation.")
+                    : String(localized: "Subtracts the weight below from this FID's reputation. Reputation can go negative.")
             )
         }
     }
@@ -252,7 +252,7 @@ struct RateFreerSheet: View {
     /// not a question most people can answer cold, and a typo of one
     /// extra zero here spends ten times the stake.
     private var weightPanel: some View {
-        panel("Weight") {
+        panel(String(localized: "Weight")) {
             HStack(spacing: 8) {
                 TextField("", text: $weightText)
                     .fieldInputStyle()
@@ -268,8 +268,10 @@ struct RateFreerSheet: View {
                 }
             }
             caption(
-                "A rating's force is the coin-days it destroys — \(rate == .good ? "added to" : "subtracted from") "
-                    + "this FID's reputation, and added to their hot either way. The coin-days are spent, not lent."
+                String(localized: """
+                    A rating's force is the coin-days it destroys — \(rate == .good ? "added to" : "subtracted from") \
+                    this FID's reputation, and added to their hot either way. The coin-days are spent, not lent.
+                    """)
             )
             caption(availableNote)
         }
@@ -280,23 +282,29 @@ struct RateFreerSheet: View {
     /// a build in flight, so this reads as "about".
     private var availableNote: String {
         guard let availableCd else {
-            return "Coin selection takes whole cashes, so it may destroy more than you ask for — "
-                + "the approval sheet shows the real number before you sign."
+            return String(localized: """
+                Coin selection takes whole cashes, so it may destroy more than you ask for — \
+                the approval sheet shows the real number before you sign.
+                """)
         }
-        return "This identity holds about \(Self.grouped(availableCd)) coin-days. Selection takes whole "
-            + "cashes, so it may destroy more than you ask for — the approval sheet shows the real "
-            + "number before you sign."
+        return String(localized: """
+            This identity holds about \(Self.grouped(availableCd)) coin-days. Selection takes whole \
+            cashes, so it may destroy more than you ask for — the approval sheet shows the real \
+            number before you sign.
+            """)
     }
 
     private var causePanel: some View {
-        panel("Cause (optional)") {
+        panel(String(localized: "Cause (optional)")) {
             TextEditor(text: $cause)
                 .font(.body)
                 .fieldEditorStyle(minHeight: 70, maxHeight: 70)
             HStack {
                 caption(
-                    "Public and permanent, like everything else in the carve. Left blank, the field is "
-                        + "omitted rather than carved empty."
+                    String(localized: """
+                        Public and permanent, like everything else in the carve. Left blank, the field is \
+                        omitted rather than carved empty.
+                        """)
                 )
                 Spacer(minLength: 8)
                 if let budget = causeBudget {
@@ -311,16 +319,18 @@ struct RateFreerSheet: View {
     /// What this transaction actually does, in the order somebody
     /// deciding to send it would ask.
     private var costPanel: some View {
-        panel("What gets carved") {
-            costRow("About", ratee.elidingMiddle(head: 10, tail: 10))
-            costRow("Verdict", rate == .good ? "good" : "bad")
-            costRow("Coin-days", "at least \(weightCd.map(Self.grouped) ?? "—")")
-            costRow("Paid to them", "nothing")
+        panel(String(localized: "What gets carved")) {
+            costRow(String(localized: "About"), ratee.elidingMiddle(head: 10, tail: 10))
+            costRow(String(localized: "Verdict"), rate == .good ? "good" : "bad")
+            costRow("Coin-days", String(localized: "at least \(weightCd.map(Self.grouped) ?? "—")"))
+            costRow(String(localized: "Paid to them"), "nothing")
             caption(
-                "A rating names its subject in the carve itself, so nothing is sent to them — "
-                    + "you can rate a FID you have never paid and would never pay. What it costs "
-                    + "you is the miner fee and the coin-days above, and the coin-days are not a "
-                    + "fee: they are the weight."
+                String(localized: """
+                    A rating names its subject in the carve itself, so nothing is sent to them — \
+                    you can rate a FID you have never paid and would never pay. What it costs \
+                    you is the miner fee and the coin-days above, and the coin-days are not a \
+                    fee: they are the weight.
+                    """)
             )
         }
     }
@@ -364,8 +374,8 @@ struct RateFreerSheet: View {
     }
 
     private func summary(of row: RepuHist) -> String {
-        let verdict = row.kind.map { $0 == .good ? "Good" : "Bad" } ?? (row.rate ?? "—")
-        let weight = row.hot.map { "\(Self.grouped($0)) CDD" } ?? "unknown weight"
+        let verdict = row.kind.map { $0 == .good ? String(localized: "Good") : String(localized: "Bad") } ?? (row.rate ?? "—")
+        let weight = row.hot.map { String(localized: "\(Self.grouped($0)) CDD") } ?? String(localized: "unknown weight")
         guard let time = row.time else { return "\(verdict) · \(weight)" }
         let seconds = time > 10_000_000_000 ? Double(time) / 1000 : Double(time)
         return "\(verdict) · \(weight) · \(Self.stamp.string(from: Date(timeIntervalSince1970: seconds)))"
@@ -449,7 +459,7 @@ struct RateFreerSheet: View {
         do {
             quote = try await session.quoteRating(of: ratee)
         } catch {
-            loadError = "Couldn't check this FID before rating — \(error)"
+            loadError = String(localized: "Couldn't check this FID before rating — \(String(describing: error))")
         }
     }
 

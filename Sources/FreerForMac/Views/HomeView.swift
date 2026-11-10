@@ -93,7 +93,7 @@ struct HomeView: View {
                 showSetMaster = false
                 appState.bumpIdentityRevision()
                 Task { await appState.refreshLiveFidInfo() }
-                identityNote = "Master carve broadcast — \(txid.elidingMiddle(head: 8, tail: 8)). It takes effect when the block confirms."
+                identityNote = String(localized: "Master carve broadcast — \(txid.elidingMiddle(head: 8, tail: 8)). It takes effect when the block confirms.")
             } onCancel: {
                 showSetMaster = false
             }
@@ -102,7 +102,7 @@ struct HomeView: View {
             CreateMultisigSheet(session: session) { info in
                 showCreateMultisig = false
                 appState.bumpIdentityRevision()
-                identityNote = "Created \(info.fid.elidingMiddle(head: 8, tail: 8)). Give every member its redeem script — without it the group's coins cannot be moved."
+                identityNote = String(localized: "Created \(info.fid.elidingMiddle(head: 8, tail: 8)). Give every member its redeem script — without it the group's coins cannot be moved.")
             } onCancel: {
                 showCreateMultisig = false
             }
@@ -112,8 +112,8 @@ struct HomeView: View {
                 showAddMultisig = false
                 appState.bumpIdentityRevision()
                 identityNote = count == 1
-                    ? "Added 1 multisig group."
-                    : "Added \(count) multisig groups."
+                    ? String(localized: "Added 1 multisig group.")
+                    : String(localized: "Added \(String(count)) multisig groups.")
             } onCancel: {
                 showAddMultisig = false
             }
@@ -121,7 +121,7 @@ struct HomeView: View {
         .sheet(item: $signingGroup) { target in
             SignMultisigTxSheet(session: session, groupFid: target.fid) { txid in
                 signingGroup = nil
-                identityNote = "Broadcast \(txid.elidingMiddle(head: 8, tail: 8))."
+                identityNote = String(localized: "Broadcast \(txid.elidingMiddle(head: 8, tail: 8)).")
             } onCancel: {
                 signingGroup = nil
             }
@@ -131,8 +131,8 @@ struct HomeView: View {
                 showAddServants = false
                 appState.bumpIdentityRevision()
                 identityNote = count == 1
-                    ? "Added 1 servant."
-                    : "Added \(count) servants."
+                    ? String(localized: "Added 1 servant.")
+                    : String(localized: "Added \(String(count)) servants.")
             } onCancel: {
                 showAddServants = false
             }
@@ -158,7 +158,7 @@ struct HomeView: View {
             BackupPrikeySheet(session: session) {
                 showBackupPrikey = false
                 appState.markPrikeyBackedUp()
-                identityNote = "Backup recorded. The reminder stops — the copy itself is yours to keep safe."
+                identityNote = String(localized: "Backup recorded. The reminder stops — the copy itself is yours to keep safe.")
             } onLater: {
                 showBackupPrikey = false
             } onSetMaster: {

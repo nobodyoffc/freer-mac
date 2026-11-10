@@ -349,8 +349,10 @@ public struct FirstFchBoard {
         guard let client = await boardDock(timeoutMs: timeoutMs) else {
             return FetchResult(
                 requests: [], dismissed: [], maxCreateTime: cursor,
-                error: "The board's DOCK could not be reached. It publishes where it lives "
-                    + "on chain, so this needs a working connection to the index as well."
+                error: String(localized: """
+                    The board's DOCK could not be reached. It publishes where it lives \
+                    on chain, so this needs a working connection to the index as well.
+                    """)
             )
         }
 
@@ -365,7 +367,7 @@ public struct FirstFchBoard {
         } catch {
             return FetchResult(
                 requests: [], dismissed: [], maxCreateTime: cursor,
-                error: "The board's DOCK refused the read: \(error)"
+                error: String(localized: "The board's DOCK refused the read: \(String(describing: error))")
             )
         }
 
@@ -437,7 +439,7 @@ public struct FirstFchBoard {
         public var description: String {
             switch self {
             case .boardUnreachable:
-                return "The first-FCH board's DOCK could not be reached — check your connection and try again."
+                return String(localized: "The first-FCH board's DOCK could not be reached — check your connection and try again.")
             }
         }
     }

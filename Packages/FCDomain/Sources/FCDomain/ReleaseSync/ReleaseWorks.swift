@@ -18,10 +18,10 @@ public enum WorkKind: String, Codable, CaseIterable, Sendable {
 
     public var label: String {
         switch self {
-        case .text: return "Text"
-        case .image: return "Image"
-        case .sound: return "Sound"
-        case .video: return "Video"
+        case .text: return String(localized: "Text")
+        case .image: return String(localized: "Image")
+        case .sound: return String(localized: "Sound")
+        case .video: return String(localized: "Video")
         }
     }
 
@@ -242,13 +242,13 @@ extension ReleasePlanner {
                             item.record = record
                             item.action = workAction(local, record)
                         } else {
-                            item.action = .invalid("its id \(id.prefix(6))…\(id.suffix(6)) is a \(record.kind.rawValue) on chain, not a \(entry.kind.rawValue)")
+                            item.action = .invalid(String(localized: "its id \(id.prefix(6))…\(id.suffix(6)) is a \(record.kind.rawValue) on chain, not a \(entry.kind.rawValue)"))
                         }
                     } else if let logged = log.entries[key], logged.id == id {
                         item.action = .pending(id: id, txid: logged.txid, since: logged.at,
                                                stale: now.timeIntervalSince(logged.at) > pendingExpiry)
                     } else {
-                        item.action = .invalid("its id \(id.prefix(6))…\(id.suffix(6)) is not a \(entry.kind.rawValue) of \(owner)")
+                        item.action = .invalid(String(localized: "its id \(id.prefix(6))…\(id.suffix(6)) is not a \(entry.kind.rawValue) of \(owner)"))
                     }
                 } else {
                     // Matched by title; the id written back after the
@@ -294,7 +294,7 @@ extension ReleasePlanner {
             items[i].cover = resolved
             if case .unchanged(let id) = items[i].action, items[i].record?.cover != resolved.knownId {
                 items[i].action = items[i].record?.deleted == true
-                    ? .blocked(id: id, reason: "deleted on chain; recover it first") : .update(id: id)
+                    ? .blocked(id: id, reason: String(localized: "deleted on chain; recover it first")) : .update(id: id)
             }
         }
         for i in items.indices where items[i].local.entry.cover == nil {
@@ -321,7 +321,7 @@ extension ReleasePlanner {
             && recordLocas.filter { !LocalWork.isDisk($0) } == local.locas
             && (e.disk != true || recordLocas.contains(where: LocalWork.isDisk))
         if same { return .unchanged(id: record.id) }
-        if record.deleted == true { return .blocked(id: record.id, reason: "deleted on chain; recover it first") }
+        if record.deleted == true { return .blocked(id: record.id, reason: String(localized: "deleted on chain; recover it first")) }
         return .update(id: record.id)
     }
 }

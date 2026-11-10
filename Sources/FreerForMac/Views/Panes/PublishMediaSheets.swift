@@ -302,12 +302,12 @@ struct PublishMediaComposer: View {
                         CoverField(session: session, choice: $cover)
                     }
 
-                    LabeledField("Title") {
+                    LabeledField(String(localized: "Title")) {
                         TextField("What the work is called", text: $title)
                             .fieldInputStyle()
                     }
 
-                    LabeledField("Summary") {
+                    LabeledField(String(localized: "Summary")) {
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("A line or two, carved on chain so a list can show it", text: $summary, axis: .vertical)
                                 .lineLimit(2...5)
@@ -321,17 +321,17 @@ struct PublishMediaComposer: View {
                     }
 
                     HStack(spacing: 12) {
-                        LabeledField("Format") {
+                        LabeledField(String(localized: "Format")) {
                             TextField(formatPlaceholder, text: $format)
                                 .fieldInputStyle()
                         }
-                        LabeledField("Language") {
+                        LabeledField(String(localized: "Language")) {
                             TextField("en, zh…", text: $lang)
                                 .fieldInputStyle()
                         }
                     }
 
-                    LabeledField("Authors") {
+                    LabeledField(String(localized: "Authors")) {
                         VStack(alignment: .leading, spacing: 4) {
                             TextField("FIDs or names, comma separated", text: $authorsText)
                                 .fieldInputStyle()
@@ -362,7 +362,7 @@ struct PublishMediaComposer: View {
                 CopyableText(e, font: .caption).foregroundStyle(.red)
             }
             if !session.canSign {
-                CopyableLabel("This identity is watch-only — there is no key here to sign a carve with.", systemImage: "eye")
+                CopyableLabel(String(localized: "This identity is watch-only — there is no key here to sign a carve with."), systemImage: "eye")
                     .font(.caption)
                     .foregroundStyle(.orange)
             }
@@ -407,7 +407,7 @@ struct PublishMediaComposer: View {
 
     @ViewBuilder
     private var filePicker: some View {
-        LabeledField("The \(kind.noun)") {
+        LabeledField(String(localized: "The \(kind.noun)")) {
             HStack(alignment: .top, spacing: 12) {
                 Group {
                     if let preview {
@@ -462,7 +462,7 @@ struct PublishMediaComposer: View {
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.allowedContentTypes = contentTypes
-        panel.prompt = "Choose"
+        panel.prompt = String(localized: "Choose")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         pickedURL = url
         pickedSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)??.int64Value
@@ -525,12 +525,12 @@ struct PublishMediaComposer: View {
         do {
             var did = effectiveDid
             if let url = pickedURL {
-                progressNote = "Uploading the \(kind.noun) to DISK…"
+                progressNote = String(localized: "Uploading the \(kind.noun) to DISK…")
                 did = try await session.publishBody.storeFile(at: url)
             }
 
             let carve = { (coverId: String?) async throws in
-                progressNote = "Carving the record…"
+                progressNote = String(localized: "Carving the record…")
                 if isNewEdition, let record = editing {
                     let txid = try await session.carveMediaUpdateOnChain(
                         kind: kind,
@@ -565,11 +565,11 @@ struct PublishMediaComposer: View {
             if hasCover, case .newFile(let file) = cover {
                 try await session.carveTogether(
                     then: kind.feip,
-                    note: "Approving this also signs the \(kind.noun) carve that names this image as its cover."
+                    note: String(localized: "Approving this also signs the \(kind.noun) carve that names this image as its cover.")
                 ) {
-                    progressNote = "Publishing the cover image…"
+                    progressNote = String(localized: "Publishing the cover image…")
                     let id = try await session.publishCoverImage(
-                        at: file, title: "\(title) — cover", lang: lang.isEmpty ? nil : lang,
+                        at: file, title: String(localized: "\(title) — cover"), lang: lang.isEmpty ? nil : lang,
                         authors: authors.isEmpty ? nil : authors)
                     // A retry names this image rather than carving another.
                     cover = .image(id: id)
@@ -670,7 +670,7 @@ struct MediaViewerSheet: View {
                 session: session,
                 kind: RatableKind(mediaKind: kind),
                 subjectId: record.id,
-                title: record.title?.isEmpty == false ? record.title! : "Untitled",
+                title: record.title?.isEmpty == false ? record.title! : String(localized: "Untitled"),
                 owner: record.publisher,
                 currentRate: record.tRate,
                 currentCdd: record.tCdd,
@@ -690,12 +690,12 @@ struct MediaViewerSheet: View {
 
     private var rateHelp: String {
         if record.id.isEmpty {
-            return "This \(kind.noun) has no on-chain id yet."
+            return String(localized: "This \(kind.noun) has no on-chain id yet.")
         }
         if record.publisher == session.liveFid {
-            return "You published this \(kind.noun), and the protocol ignores a rating from its own publisher."
+            return String(localized: "You published this \(kind.noun), and the protocol ignores a rating from its own publisher.")
         }
-        return "Rate this \(kind.noun) 0–5, weighted by the coin-days you spend."
+        return String(localized: "Rate this \(kind.noun) 0–5, weighted by the coin-days you spend.")
     }
 
     // MARK: - header
@@ -703,7 +703,7 @@ struct MediaViewerSheet: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(record.title?.isEmpty == false ? record.title! : "Untitled")
+                Text(record.title?.isEmpty == false ? record.title! : String(localized: "Untitled"))
                     .font(.title3.bold())
                 if record.isDeleted {
                     Text("Deleted")
@@ -745,8 +745,8 @@ struct MediaViewerSheet: View {
             }
 
             HStack(spacing: 12) {
-                idLine("Record", record.id)
-                if let did = record.did { idLine("Document", did) }
+                idLine(String(localized: "Record"), record.id)
+                if let did = record.did { idLine(String(localized: "Document"), did) }
             }
             PublishLocasLine(locas: record.locas)
         }
@@ -798,7 +798,7 @@ struct MediaViewerSheet: View {
                 .foregroundStyle(.secondary)
         } else {
             VStack(alignment: .leading, spacing: 6) {
-                CopyableLabel("The \(kind.noun) could not be fetched", systemImage: "exclamationmark.triangle")
+                CopyableLabel(String(localized: "The \(kind.noun) could not be fetched"), systemImage: "exclamationmark.triangle")
                     .font(.callout)
                     .foregroundStyle(.orange)
                 if let e = loadError {
@@ -815,7 +815,7 @@ struct MediaViewerSheet: View {
     /// ``PublishBody/Failure/notUtf8(did:)``.
     private var undecodable: some View {
         VStack(alignment: .leading, spacing: 6) {
-            CopyableLabel("Fetched, but not something macOS can show", systemImage: "questionmark.square")
+            CopyableLabel(String(localized: "Fetched, but not something macOS can show"), systemImage: "questionmark.square")
                 .font(.callout)
                 .foregroundStyle(.orange)
             Text("The bytes hash to the carved document ID, so this is the right file — it is simply not \(kind == .image ? "an image" : "a \(kind.noun)") this Mac can decode. Open it to hand it to another app.")

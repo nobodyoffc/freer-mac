@@ -29,7 +29,7 @@ public enum CidFeip {
         public var description: String {
             switch self {
             case .badName(let name):
-                return "“\(name)” can't be a CID name: it must not be empty or contain spaces, @, # or /."
+                return String(localized: "“\(name)” can't be a CID name: it must not be empty or contain spaces, @, # or /.")
             }
         }
     }

@@ -73,23 +73,23 @@ public struct ServiceRegistry {
         /// Display label. English only for now; Phase 11 localises.
         public var label: String {
             switch self {
-            case .stdName:    return "Name"
-            case .localNames: return "Local name"
-            case .type:       return "Type"
-            case .desc:       return "Description"
-            case .components: return "Component"
-            case .ver:        return "Version"
-            case .waiters:    return "Waiter"
-            case .protocols:  return "Protocol"
-            case .codes:      return "Code"
-            case .services:   return "Service"
-            case .owner:      return "Owner"
-            case .dealer:     return "Dealer"
-            case .birthTime:  return "Published"
-            case .lastTime:   return "Time"
-            case .lastHeight: return "Height"
+            case .stdName:    return String(localized: "Name")
+            case .localNames: return String(localized: "Local name")
+            case .type:       return String(localized: "Type")
+            case .desc:       return String(localized: "Description")
+            case .components: return String(localized: "Component")
+            case .ver:        return String(localized: "Version")
+            case .waiters:    return String(localized: "Waiter")
+            case .protocols:  return String(localized: "Protocol")
+            case .codes:      return String(localized: "Code")
+            case .services:   return String(localized: "Service")
+            case .owner:      return String(localized: "Owner")
+            case .dealer:     return String(localized: "Dealer")
+            case .birthTime:  return String(localized: "Published")
+            case .lastTime:   return String(localized: "Time")
+            case .lastHeight: return String(localized: "Height")
             case .tCdd:       return "CDD"
-            case .tRate:      return "Rating"
+            case .tRate:      return String(localized: "Rating")
             case .id:         return "SID"
             }
         }

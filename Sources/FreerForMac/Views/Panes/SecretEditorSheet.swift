@@ -133,7 +133,7 @@ struct SecretEditorSheet: View {
         do {
             content = try secret.decryptContent(privkey: try session.livePrikey())
         } catch {
-            self.error = "Failed to decrypt: \(String(describing: error))"
+            self.error = String(localized: "Failed to decrypt: \(String(describing: error))")
         }
     }
 
@@ -145,7 +145,7 @@ struct SecretEditorSheet: View {
         // Android refuses a TOTP whose content is not Base32 — a broken
         // seed would render useless codes forever.
         if type == .totp, (try? Base32.decode(trimmedContent)) == nil {
-            error = "A TOTP secret must be Base32 (letters A–Z and digits 2–7)."
+            error = String(localized: "A TOTP secret must be Base32 (letters A–Z and digits 2–7).")
             return
         }
 
@@ -166,7 +166,7 @@ struct SecretEditorSheet: View {
                 ownPubkey: pubkey
             )
             if try session.secrets.get(id: secret.id) != nil {
-                error = "An identical secret already exists."
+                error = String(localized: "An identical secret already exists.")
                 return
             }
             var txid: String?

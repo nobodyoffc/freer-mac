@@ -151,9 +151,9 @@ public enum SquareJoinFailure: Error, Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .noSuchSquare:
-            return "The chain has no square with this id. It may not have confirmed yet, or the id is mistyped."
+            return String(localized: "The chain has no square with this id. It may not have confirmed yet, or the id is mistyped.")
         case .alreadyAMember:
-            return "You are already a member of this square. A second join would be paid for and ignored."
+            return String(localized: "You are already a member of this square. A second join would be paid for and ignored.")
         }
     }
 }
