@@ -78,6 +78,7 @@ struct HomeView: View {
                 // rows (Settings).
                 .safeAreaInset(edge: .bottom) { identityNoteBanner }
         }
+        .background { NoTitlebarSeparator() }
         .sheet(isPresented: $showQrTool) {
             QrToolSheet { showQrTool = false }
         }
@@ -358,6 +359,25 @@ struct HomeView: View {
             }
             .keyboardShortcut("l", modifiers: [.command])
             .help("Lock vault (⌘L)")
+        }
+    }
+}
+
+/// Scrolled, the sidebar drew a black rule across the title bar, through the
+/// window buttons: the window's title bar separator. The window does without
+/// it, which is public API. Set again on every update, because SwiftUI may
+/// reset the window's chrome when the toolbar changes.
+private struct NoTitlebarSeparator: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { WindowHook() }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { nsView.window?.titlebarSeparatorStyle = .none }
+    }
+
+    private final class WindowHook: NSView {
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            window?.titlebarSeparatorStyle = .none
         }
     }
 }
