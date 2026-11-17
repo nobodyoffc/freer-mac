@@ -451,26 +451,28 @@
 "Saved %@ images to %@" = "已将 %@ 张图片保存到 %@";
 "Saved %@ of %@ images — some writes failed" = "已保存 %2$@ 张图片中的 %1$@ 张——部分写入失败";
 
-/* ---- FCUI/FCUI/Qr/QrWorkbenchView.swift ---- */
-"Camera access denied — enable it in System Settings › Privacy & Security › Camera." = "摄像头访问被拒绝——请在“系统设置 › 隐私与安全性 › 摄像头”中开启。";
-"Point a QR code at the camera" = "将二维码对准摄像头";
-"Scan" = "扫描";
-"Stop" = "停止";
-"Scan a QR code with the camera. Scanning pauses after each code — press Scan again for the next part." = "用摄像头扫描二维码。每扫到一个码会暂停——再按“扫描”继续下一部分。";
+/* ---- FCUI/FCUI/Qr/QrCodeView.swift ---- */
+"Long content is split into %@-byte QR codes; scanning appends each code, so a text split across several codes comes back whole." = "较长的内容会拆分为 %@ 字节的二维码；扫描时会逐个拼接，因此分在多个二维码中的文本会完整还原。";
+"Decode QR codes from images. Select several to merge a multi-part payload." = "从图片中解码二维码。可选择多张以合并分段内容。";
 "From images…" = "从图片…";
-"Decode QR codes from image files. Select several to merge a multi-part payload — you can also drop images onto the text area." = "从图片文件中解码二维码。可选择多张以合并分段内容——也可以把图片拖到文本区域。";
+"Click Scan to scan a QR code." = "点击“扫描”开始扫描二维码。";
+"Camera access denied — enable it in System Settings › Privacy & Security › Camera." = "摄像头访问被拒绝——请在“系统设置 › 隐私与安全性 › 摄像头”中开启。";
+"Tap the Scan button to scan a QR code." = "点击扫描按钮开始扫描二维码。";
+"Camera access denied — enable it in Settings › %@ › Camera." = "摄像头访问被拒绝——请在“设置 › %@ › 相机”中开启。";
+"Clear" = "清除";
 "Make QR" = "生成二维码";
 "Render the content as QR codes — long content is split across several." = "将内容生成二维码——较长的内容会分成多个。";
+"Done" = "完成";
+"Copied" = "已复制";
 "Copy" = "复制";
-"Clear" = "清除";
-"Scanned 1 code (%@)." = "已扫描 1 个二维码（%@）。";
+"Stop" = "停止";
+"Scan" = "扫描";
+"Scan a QR code with the camera. The camera stops after each code — press Scan again for the next part." = "用摄像头扫描二维码。每扫到一个码摄像头会停止——再按“扫描”继续下一部分。";
+"Scanned 1 code." = "已扫描 1 个二维码。";
 "Scanned %@ codes so far — parts are appended in scan order." = "目前已扫描 %@ 个二维码——各部分按扫描顺序拼接。";
 "Decode" = "解码";
-"Added %@ code%@ from %@ image%@." = "已从 %3$@ 张图片添加 %1$@ 个二维码。";
-" %@ image%@ no readable QR code." = " %1$@ 张图片中没有可识别的二维码。";
-"Scan QR code" = "扫描二维码";
-"Cancel" = "取消";
-"Use content" = "使用内容";
+"Added %@ code(s) from %@ image(s)." = "已从 %2$@ 张图片添加 %1$@ 个二维码。";
+"%@ image(s) had no readable QR code." = "%@ 张图片中没有可识别的二维码。";
 
 /* ---- FCUI/FCUI/SearchField.swift ---- */
 "Clear the search" = "清除搜索";
@@ -3763,7 +3765,8 @@
 
 /* ---- Views/QrToolSheet.swift ---- */
 "QR workbench" = "二维码工作台";
-"Long content is split into %lld-byte QR codes; scanning appends each code, so multi-part payloads from the Android app reassemble here (and vice versa)." = "较长的内容会拆分为 %lld 字节的二维码；扫描时会逐个拼接，因此来自 Android 应用的分段内容可在这里重新组合（反之亦然）。";
+"Scan QR code" = "扫描二维码";
+"Cancel" = "取消";
 
 /* ---- Views/ServicePicker/ServicePickerSheet.swift ---- */
 "Choose a DOCK" = "选择 DOCK";
