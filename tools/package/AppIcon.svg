@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- The Freer mark: the Freecash ƒ drawn as a bird. The top hook is the head,
+       the two slanted bars are wings on its back, and the lower stroke is a long
+       tail feather that ends in a point. White on a sky gradient, full-bleed.
+       The source of every app's icon: tools/package/make-icon.swift (Mac),
+       the iOS repo's tools/make-icon.swift, and the Android repo's
+       ic_launcher_foreground / ic_launcher_background drawables. -->
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0.3" y2="1">
+      <stop offset="0" stop-color="#0A3A96"/>
+      <stop offset="0.6" stop-color="#1F7BE0"/>
+      <stop offset="1" stop-color="#5BBBFA"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#sky)"/>
+  <g fill="#fff" stroke="#fff" stroke-width="16" stroke-linejoin="miter" stroke-miterlimit="12"
+     transform="translate(512 512) scale(1.05) translate(-420 -490)">
+    <!-- head, body and tail -->
+    <path d="M 588,156 L 556,161 C 543,161 522,172 507,225 C 495,258 480.75,300 474,360 L 447,600 C 435.75,700 412,790 325,862 C 380,790 400.312,710 411,615 L 438,375 C 448.125,285 452,221 490,172 C 514,146 534,134 552,134 C 566,135 580,144 588,156 Z"/>
+    <!-- wings -->
+    <path d="M 329.25,228 L 538,228 L 509,258 L 300.25,258 Z"/>
+    <path d="M 304.75,296 L 516,296 L 488,325 L 276.75,325 Z"/>
+  </g>
+</svg>
+

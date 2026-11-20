@@ -1,14 +1,18 @@
-// Generates Freer.icns from nothing but AppKit — the project has no icon
-// asset, and Android's launcher mark is a 192px PNG that will not upscale.
-// The mark itself is simple enough to redraw: Material blue #2196F3 behind
-// a light "Fr". Redrawn per size so every slot is crisp rather than resampled.
+// Generates Freer.icns from AppIcon.svg beside this script — the mark every
+// Freer app uses (the iOS and Android icons are made from the same drawing).
+// AppKit draws the SVG itself, once per size, so every slot is crisp rather
+// than resampled.
 //
 //   swift tools/package/make-icon.swift <out.icns>
 
 import AppKit
 
-let blue = NSColor(srgbRed: 0x21 / 255.0, green: 0x96 / 255.0, blue: 0xF3 / 255.0, alpha: 1)
-let ink = NSColor(srgbRed: 0xEC / 255.0, green: 0xEC / 255.0, blue: 0xEC / 255.0, alpha: 1)
+let source = URL(fileURLWithPath: #filePath)
+    .deletingLastPathComponent()
+    .appendingPathComponent("AppIcon.svg")
+guard let mark = NSImage(contentsOf: source) else {
+    fatalError("could not read \(source.path)")
+}
 
 /// One icon slot. `px` is the pixel size of the whole canvas; the mark sits
 /// inside it at macOS's squircle proportions (824/1024 of the canvas, corner
@@ -27,20 +31,8 @@ func draw(px: Int) -> NSBitmapImageRep {
     let s = CGFloat(px)
     let inset = s * (1024 - 824) / 2 / 1024
     let body = NSRect(x: inset, y: inset, width: s - inset * 2, height: s - inset * 2)
-    blue.setFill()
-    NSBezierPath(roundedRect: body, xRadius: s * 185.4 / 1024, yRadius: s * 185.4 / 1024).fill()
-
-    let font = NSFont.systemFont(ofSize: body.height * 0.52, weight: .medium)
-    let text = "Fr" as NSString
-    let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink]
-    let size = text.size(withAttributes: attrs)
-    // Optically centred: cap-height text sits high off the baseline, so centre
-    // on the glyph box rather than on the line box.
-    let origin = NSPoint(
-        x: body.midX - size.width / 2,
-        y: body.midY - size.height / 2 + font.descender / 2
-    )
-    text.draw(at: origin, withAttributes: attrs)
+    NSBezierPath(roundedRect: body, xRadius: s * 185.4 / 1024, yRadius: s * 185.4 / 1024).addClip()
+    mark.draw(in: body)
 
     NSGraphicsContext.restoreGraphicsState()
     return rep
