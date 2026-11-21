@@ -1,7 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
-  <!-- The Freer mark: the Freecash ƒ drawn as a bird. The top hook is the head,
-       the two slanted bars are wings on its back, and the lower stroke is a long
-       tail feather that ends in a point. White on a sky gradient, full-bleed.
+  <!-- The Freer mark: the Freecash ƒ, an integral-style f whose stroke swells
+       in the middle and ends in a hook at each tip, crossed on the left by two
+       slanted bars. White on a sky gradient, full-bleed. The paths are in the
+       units of the 334x402 reference drawing.
        The source of every app's icon: tools/package/make-icon.swift (Mac),
        the iOS repo's tools/make-icon.swift, and the Android repo's
        ic_launcher_foreground / ic_launcher_background drawables. -->
@@ -13,13 +14,11 @@
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" fill="url(#sky)"/>
-  <g fill="#fff" stroke="#fff" stroke-width="16" stroke-linejoin="miter" stroke-miterlimit="12"
-     transform="translate(512 512) scale(1.05) translate(-420 -490)">
-    <!-- head, body and tail -->
-    <path d="M 588,156 L 556,161 C 543,161 522,172 507,225 C 495,258 480.75,300 474,360 L 447,600 C 435.75,700 412,790 325,862 C 380,790 400.312,710 411,615 L 438,375 C 448.125,285 452,221 490,172 C 514,146 534,134 552,134 C 566,135 580,144 588,156 Z"/>
-    <!-- wings -->
-    <path d="M 329.25,228 L 538,228 L 509,258 L 300.25,258 Z"/>
-    <path d="M 304.75,296 L 516,296 L 488,325 L 276.75,325 Z"/>
+  <g fill="#fff" transform="translate(43.0 -106.8) scale(2.8)">
+    <!-- stem -->
+    <path d="M253.5,88.5 C240,85.5 214,88 197,102.5 C181,116.5 175.5,140 171.5,165 L166.5,200 L161.5,250 C158.5,285 155.5,311 146.5,327.5 C137.5,339.5 120,340.5 108,336.5 L93.5,351.5 C97,355.5 106,355.5 115,355 C137,352 153.5,339 161.5,326 C173.5,306 177,281 180,250 L185,205 L189,168 C192,140 197,120 206,108 C216,100.5 229,102 238.5,105.5 Z"/>
+    <!-- bars -->
+    <path d="M115,172.5 L228,172.5 L214,190 L101.5,190 Z"/>
+    <path d="M96,207.5 L208,207.5 L193.5,226 L81.5,226 Z"/>
   </g>
 </svg>
-
