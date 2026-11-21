@@ -58,6 +58,18 @@ struct ChatView: View {
 
     @State private var page: MessagesStore.Page = .init(messages: [], olderCursor: nil)
 
+    /// The conversation `page` was read from.
+    ///
+    /// The selection changes a frame before `openSelected` runs, so for
+    /// that frame `page` still holds the *previous* thread. A transcript
+    /// drawn from it lays out the old messages in the new thread's fresh
+    /// scroll view, and the bottom anchor pins that first layout — when
+    /// the real, shorter page replaces it, the offset is left past the
+    /// end of the content and the pane shows nothing until the thread is
+    /// opened again. So the transcript is drawn only from a page that is
+    /// this thread's.
+    @State private var pageFor: String?
+
     /// Messages typed here that the store has not taken yet, per
     /// conversation. Pressing Send has to fetch the recipient's key
     /// before anything can be sealed and filed, and a round trip is a
@@ -1298,20 +1310,27 @@ struct ChatView: View {
                 }
                 Divider()
 
-                TranscriptView(
-                    session: session,
-                    style: style,
-                    conversation: conversation,
-                    page: page,
-                    player: player,
-                    names: names,
-                    onLoadOlder: loadOlder,
-                    downloads: downloads,
-                    onDownload: download,
-                    onAskForKey: { version in asking = .symkey(version: version) },
-                    onEdit: { beginEdit($0, in: conversation) },
-                    onWithdraw: { confirmWithdraw = $0 }
-                )
+                if pageFor != conversation.id {
+                    // One frame, until `openSelected` has read this
+                    // thread's page. See `pageFor`.
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color(NSColor.textBackgroundColor))
+                } else {
+                    TranscriptView(
+                        session: session,
+                        style: style,
+                        conversation: conversation,
+                        page: page,
+                        player: player,
+                        names: names,
+                        onLoadOlder: loadOlder,
+                        downloads: downloads,
+                        onDownload: download,
+                        onAskForKey: { version in asking = .symkey(version: version) },
+                        onEdit: { beginEdit($0, in: conversation) },
+                        onWithdraw: { confirmWithdraw = $0 }
+                    )
+                }
 
                 if let editing, editing.conversationId == conversation.id {
                     editBanner(editing)
@@ -1674,6 +1693,7 @@ struct ChatView: View {
     private func openSelected() {
         guard let id = selection[mode] else {
             page = .init(messages: [], olderCursor: nil)
+            pageFor = nil
             return
         }
         do {
@@ -1690,6 +1710,7 @@ struct ChatView: View {
                 try session.chat.openSealed(forEntity: targetId, as: session.liveFid)
             }
             page = withInFlight(try session.chat.page(id), of: id)
+            pageFor = id
             // Everyone who has spoken in this thread. A transcript is a
             // handful of people saying many things, so the set is small
             // however long the page is — and the book drops the ones it
@@ -1727,7 +1748,7 @@ struct ChatView: View {
     }
 
     private func loadOlder() {
-        guard let id = selection[mode], let cursor = page.olderCursor else { return }
+        guard let id = selection[mode], pageFor == id, let cursor = page.olderCursor else { return }
         do {
             let older = try session.chat.page(id, before: cursor)
             names.resolve(older.messages.compactMap(\.senderId), session: session)
@@ -1790,7 +1811,7 @@ struct ChatView: View {
 
         drafts[conversation.id] = ""
         inFlight[conversation.id, default: []].append(shown)
-        page = withInFlight(page, of: conversation.id)
+        if pageFor == conversation.id { page = withInFlight(page, of: conversation.id) }
 
         Task {
             do {
