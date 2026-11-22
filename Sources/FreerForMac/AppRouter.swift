@@ -9,10 +9,11 @@ struct AppRouter: View {
     var body: some View {
         Group {
             switch appState.route {
-            case .password:     PasswordView()
-            case .chooseMain:   ChooseMainView()
-            case .addMain:      AddMainView()
-            case .home:         HomeView()
+            case .password:       PasswordView()
+            case .createPassword: CreatePasswordView()
+            case .chooseMain:     ChooseMainView()
+            case .addMain:        AddMainView()
+            case .home:           HomeView()
             }
         }
         .animation(.snappy, value: appState.route)

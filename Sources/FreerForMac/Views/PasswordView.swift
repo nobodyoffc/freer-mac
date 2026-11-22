@@ -4,7 +4,8 @@ import FCDomain
 import FCUI
 
 /// Single password field plus two explicit actions: **Check** opens
-/// an existing vault, **Create new** mints a fresh one. The view
+/// an existing vault, **Create new password** goes to
+/// ``CreatePasswordView``, where a new one is typed twice. The view
 /// shows nothing about how many vaults already exist on this Mac —
 /// observable state would leak whether the device has any vaults
 /// without the password.
@@ -18,7 +19,7 @@ struct PasswordView: View {
     @State private var password: String = ""
     @State private var working: Working = .none
 
-    enum Working: Equatable { case none, checking, creating }
+    enum Working: Equatable { case none, checking }
 
     var body: some View {
         VStack(spacing: 24) {
@@ -60,20 +61,15 @@ struct PasswordView: View {
                 }
 
                 HStack(spacing: 12) {
+                    // What is typed here is not carried over: a new
+                    // password is typed fresh, twice, on its own screen.
                     Button {
-                        Task { await runCreate() }
+                        password = ""
+                        appState.showCreatePassword(true)
                     } label: {
-                        if working == .creating {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small)
-                                Text("Creating…")
-                            }
-                            .frame(width: 150)
-                        } else {
-                            Text("Create new password").frame(width: 150)
-                        }
+                        Text("Create new password").frame(width: 150)
                     }
-                    .disabled(working != .none || password.isEmpty)
+                    .disabled(working != .none)
 
                     Button {
                         Task { await runCheck() }
@@ -106,23 +102,7 @@ struct PasswordView: View {
         working = .checking
         defer { working = .none }
         let pwd = Data(password.utf8)
-        await appState.openOrCreate(
-            password: pwd,
-            createIfMissing: false
-        )
-        password = ""
-    }
-
-    @MainActor
-    private func runCreate() async {
-        guard working == .none, !password.isEmpty else { return }
-        working = .creating
-        defer { working = .none }
-        let pwd = Data(password.utf8)
-        await appState.openOrCreate(
-            password: pwd,
-            createIfMissing: true
-        )
+        await appState.open(password: pwd)
         password = ""
     }
 }

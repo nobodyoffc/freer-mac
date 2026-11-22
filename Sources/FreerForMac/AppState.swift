@@ -16,6 +16,10 @@ enum AppRoute: Equatable {
     /// `Create new` actions. Default entry point at every launch.
     case password
 
+    /// A new password, typed twice, for a new vault. Reached only
+    /// from ``password``, by its Create new password button.
+    case createPassword
+
     /// Configure is unlocked; pick which main FID to operate as
     /// (or add a new one).
     case chooseMain
@@ -673,43 +677,48 @@ final class AppState {
 
     // MARK: - password flow
 
-    /// Try to open the Configure whose `passwordName` matches this
-    /// password. Falls through to creating a new Configure when none
-    /// exists yet (`createIfMissing == true`).
+    /// Open the Configure whose `passwordName` matches this password.
     ///
-    /// Errors are deliberately generic — "Couldn't open vault" /
-    /// "Couldn't create vault" — so a wrong password vs. an unknown
-    /// password are indistinguishable on screen.
-    func openOrCreate(
-        password: Data,
-        createIfMissing: Bool,
-        kdfKind: KdfKind = .argon2id
-    ) async {
+    /// The error is deliberately generic — "Couldn't open vault" — so a
+    /// wrong password vs. an unknown password are indistinguishable on
+    /// screen.
+    func open(password: Data) async {
         lastError = nil
         lockNotice = nil
         let passwordName = ConfigureCrypto.passwordName(from: password)
         let manager = self.manager
 
-        if let _ = configures.first(where: { $0.passwordName == passwordName }) {
-            // Existing Configure — try to open.
-            do {
-                let cs = try await Task.detached(priority: .userInitiated) {
-                    try manager.openConfigure(passwordName: passwordName, password: password)
-                }.value
-                self.configureSession = cs
-                self.route = .chooseMain
-            } catch {
-                lastError = String(localized: "Couldn't open vault.")
-            }
-            return
-        }
-
-        // No Configure with this passwordName.
-        guard createIfMissing else {
+        guard configures.contains(where: { $0.passwordName == passwordName }) else {
             lastError = String(localized: "Couldn't open vault.")
             return
         }
+        do {
+            let cs = try await Task.detached(priority: .userInitiated) {
+                try manager.openConfigure(passwordName: passwordName, password: password)
+            }.value
+            self.configureSession = cs
+            self.route = .chooseMain
+        } catch {
+            lastError = String(localized: "Couldn't open vault.")
+        }
+    }
 
+    /// Mint a new Configure for a password no vault has yet, from the
+    /// Create new password screen, which has had it typed twice.
+    ///
+    /// A password that already opens a vault is refused rather than
+    /// opened, as on Android: whoever typed it knows it, so saying so
+    /// tells them nothing the Check button would not.
+    func create(password: Data, kdfKind: KdfKind = .argon2id) async {
+        lastError = nil
+        lockNotice = nil
+        let passwordName = ConfigureCrypto.passwordName(from: password)
+        let manager = self.manager
+
+        if configures.contains(where: { $0.passwordName == passwordName }) {
+            lastError = String(localized: "This password already opens a vault. Go back and use Check password.")
+            return
+        }
         do {
             let cs = try await Task.detached(priority: .userInitiated) {
                 try manager.createConfigure(password: password, label: "", kdfKind: kdfKind)
@@ -720,6 +729,13 @@ final class AppState {
         } catch {
             lastError = String(localized: "Couldn't create vault.")
         }
+    }
+
+    /// From the password screen to Create new password, and back.
+    func showCreatePassword(_ show: Bool) {
+        lastError = nil
+        lockNotice = nil
+        route = show ? .createPassword : .password
     }
 
     // MARK: - configure-level lock

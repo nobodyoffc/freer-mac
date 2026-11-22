@@ -3720,6 +3720,12 @@
 "Locations" = "位置";
 "This DISK, once the file is stored" = "文件存入后即为此 DISK";
 
+/* ---- Views/CreatePasswordView.swift ---- */
+"This password is the only key to the new vault. It can't be recovered or shown again, so type it twice." = "此密码是新密钥库的唯一钥匙，无法找回，也不会再显示，所以请输入两次。";
+"Confirm password" = "确认密码";
+"Use at least %@ characters." = "密码至少需要 %@ 个字符。";
+"This password already opens a vault. Go back and use Check password." = "此密码已对应一个密钥库。请返回并使用“验证密码”。";
+
 /* ---- Views/PasswordView.swift ---- */
 "Creating…" = "正在创建…";
 "Create new password" = "创建新密码";
