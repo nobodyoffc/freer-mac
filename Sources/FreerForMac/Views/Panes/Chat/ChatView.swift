@@ -842,7 +842,7 @@ struct ChatView: View {
             Button {
                 showNewChat = true
             } label: {
-                Label(style.newActionTitle, systemImage: "square.and.pencil")
+                Label(style.newActionTitle, systemImage: "plus")
             }
             .buttonStyle(.borderedProminent)
 
