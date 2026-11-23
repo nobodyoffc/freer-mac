@@ -3888,3 +3888,22 @@
 "For this Mac, whichever FID is unlocked. Takes effect when Freer restarts." = "适用于这台 Mac，无论解锁的是哪个 FID。Freer 重启后生效。";
 "Freer shows the new language after it restarts. Restarting locks the vault and closes any terminal sessions." = "Freer 重启后显示新语言。重启会锁定密钥库，并关闭所有终端会话。";
 "Restart Freer" = "重启 Freer";
+
+/* ---- Chat: replies and @mentions ---- */
+"Mention" = "@ 提及";
+"Someone" = "某人";
+"someone" = "某人";
+"yourself" = "自己";
+"The original message is not on this device." = "原消息不在此设备上。";
+"Replying to %@" = "回复 %@";
+"Cancel the reply" = "取消回复";
+"Reply or copy" = "回复或复制";
+"Reply, copy, edit or withdraw — editing and withdrawing are possible for 10 minutes after sending" = "回复、复制、编辑或撤回——发送后 10 分钟内可编辑和撤回";
+"@ you" = "有人@我";
+"Somebody mentioned you in a message you have not read" = "有人在你未读的消息中提到了你";
+"No member matches." = "没有匹配的成员。";
+"%@ (you)" = "%@（自己）";
+"%@ — you were mentioned" = "%@——有人@了你";
+"%@ — you were mentioned %@ times" = "%@——有人@了你 %@ 次";
+"Mentioned you in %@" = "%@ 中有人@我";
+"Open %@ — %@ messages that mention you" = "打开 %@——%@ 条提到你的消息";

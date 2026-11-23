@@ -44,6 +44,8 @@ struct OverviewView: View {
     @State private var unreadChat: [ImType: Int] = [:]
     /// Invitations and agreements waiting on an answer, per chat flavour.
     @State private var awaitingChat: [ImType: Int] = [:]
+    /// Group threads where somebody `@`ed us in a message not yet read.
+    @State private var mentions: [UnreadMention] = []
 
     /// The DOCK whose top-up sheet is open.
     @State private var toppingUp: DockRegistry.Unpaid?
@@ -298,6 +300,18 @@ struct OverviewView: View {
                 open: { appState.openFirstFchBoard() }
             ))
         }
+        // Somebody waiting on you in a group, first of the chat tiles:
+        // the most direct question there is. One per group, opening it.
+        for mention in mentions {
+            tiles.append(AttentionTile(
+                id: "mention.\(mention.id)",
+                title: String(localized: "Mentioned you in \(mention.groupName)"),
+                count: mention.count,
+                systemImage: "at", tint: .red,
+                open: { appState.openChat(conversation: mention.conversation) },
+                help: String(localized: "Open \(mention.groupName) — \(String(mention.count)) messages that mention you")
+            ))
+        }
         // Chat flavours keep the colour, word and icon they have
         // everywhere else — ChatModeStyle is the single table those come
         // from, and a square being red here and red there is the whole
@@ -531,6 +545,9 @@ struct OverviewView: View {
             awaiting[style.mode] = session.awaitingAnswer(type: style.mode)
         }
         awaitingChat = awaiting
+        // Our CID, so an `@` of it counts here before Chat is opened.
+        appState.chatNames.resolve([session.liveFid], session: session)
+        mentions = session.unreadMentions(myCid: appState.chatNames.cid(of: session.liveFid))
     }
 
     private func reloadRecentActivity() {

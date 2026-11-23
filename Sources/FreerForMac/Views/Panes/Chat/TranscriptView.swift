@@ -37,6 +37,13 @@ struct TranscriptView: View {
     var onEdit: (ImMessage) -> Void = { _ in }
     /// Ask to withdraw one of our sent messages. The pane confirms.
     var onWithdraw: (ImMessage) -> Void = { _ in }
+    /// Quote a message in the reply being written.
+    var onReply: (ImMessage) -> Void = { _ in }
+    /// Write `@` and this FID's name into the draft. Nil in a P2P
+    /// thread, where there is nobody else to point at.
+    var onMention: ((String) -> Void)? = nil
+    /// The live identity's CID, so a mention of it by name is found.
+    var myCid: String? = nil
 
     /// The empty row pinned under the last bubble. Scrolling to a bubble
     /// would stop at the top of a tall one; scrolling here always lands
@@ -59,6 +66,11 @@ struct TranscriptView: View {
 
     /// The message whose earlier versions are showing, by id.
     @State private var historyFor: String?
+
+    /// The message a tap on a quote asked to be shown, until it has been
+    /// scrolled to; and the one lit up for a moment once it is there.
+    @State private var jumpTo: String?
+    @State private var flashed: String?
 
     /// The speaker's circle, and the gutter every bubble in their run
     /// is indented by. One constant so the two cannot drift apart and
@@ -122,6 +134,16 @@ struct TranscriptView: View {
             }
             .onChange(of: conversation.id) { _, _ in
                 scrollToBottom(proxy)
+            }
+            .onChange(of: jumpTo) { _, target in
+                guard let target else { return }
+                withAnimation { proxy.scrollTo(String?.some(target), anchor: .center) }
+                jumpTo = nil
+                flashed = target
+                Task {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    if flashed == target { withAnimation { flashed = nil } }
+                }
             }
         }
         .background(Color(NSColor.textBackgroundColor))
@@ -231,6 +253,16 @@ struct TranscriptView: View {
                 .buttonStyle(.plain)
                 .disabled(sender == nil)
                 .help("Show this FID's details, standing and ratings")
+                // A long press on a face in a group, the usual way to
+                // name its owner in a reply.
+                .contextMenu {
+                    if let sender {
+                        if let onMention {
+                            Button { onMention(sender) } label: { Label("Mention", systemImage: "at") }
+                        }
+                        Button("Show FID details") { inspectFid(sender) }
+                    }
+                }
             } else {
                 Color.clear.frame(width: Self.avatarSize, height: 1)
             }
@@ -251,10 +283,18 @@ struct TranscriptView: View {
                         }
                     }
                     .contextMenu {
+                        if let onMention {
+                            Button { onMention(sender) } label: { Label("Mention", systemImage: "at") }
+                        }
                         Button("Show FID details") { inspectFid(sender) }
                     }
                 }
-                body(of: message)
+                VStack(alignment: .leading, spacing: 5) {
+                    if let quoted = message.replyToId, !quoted.isEmpty {
+                        quote(of: quoted, mine: mine)
+                    }
+                    body(of: message)
+                }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
                     .background(
@@ -262,6 +302,21 @@ struct TranscriptView: View {
                             .fill(mine ? style.tint.opacity(0.18)
                                        : Color(NSColor.controlBackgroundColor))
                     )
+                    // A message that names us, outlined so it is found
+                    // when scrolling back through a busy group.
+                    .overlay {
+                        if mentionsMe(message) {
+                            RoundedRectangle(cornerRadius: 12)
+                                .strokeBorder(style.tint, lineWidth: 1.5)
+                        }
+                    }
+                    .overlay {
+                        if let id = message.id, flashed == id {
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(style.tint.opacity(0.25))
+                                .allowsHitTesting(false)
+                        }
+                    }
                     .contextMenu { messageMenu(message, mine: mine) }
                 HStack(spacing: 4) {
                     if let time = message.timestamp {
@@ -283,7 +338,7 @@ struct TranscriptView: View {
                     if mine { statusLabel(message) }
                     // Visible, not only on right-click: a right-click on
                     // selectable text opens the text's own menu instead.
-                    if copyable(message) != nil
+                    if copyable(message) != nil || canReply(message)
                         || (mine && session.chat.canAmend(message, as: session.liveFid)) {
                         Menu { messageMenu(message, mine: mine) } label: {
                             Image(systemName: "ellipsis.circle")
@@ -297,8 +352,8 @@ struct TranscriptView: View {
                         .buttonStyle(.plain)
                         .menuIndicator(.hidden)
                         .fixedSize()
-                        .help(mine ? "Copy, edit or withdraw — editing and withdrawing are possible for 10 minutes after sending"
-                                   : "Copy")
+                        .help(mine ? "Reply, copy, edit or withdraw — editing and withdrawing are possible for 10 minutes after sending"
+                                   : "Reply or copy")
                     }
                     if !mine, message.status == .imported {
                         // Live messages are signed by their author and
@@ -321,6 +376,11 @@ struct TranscriptView: View {
     /// again when one is chosen, since a menu can stay open past it.
     @ViewBuilder
     private func messageMenu(_ message: ImMessage, mine: Bool) -> some View {
+        if canReply(message) {
+            Button { onReply(message) } label: {
+                Label("Reply", systemImage: "arrowshape.turn.up.left")
+            }
+        }
         if let copy = copyable(message) {
             Button(copy.label) {
                 NSPasteboard.general.clearContents()
@@ -347,6 +407,85 @@ struct TranscriptView: View {
         default:
             return nil
         }
+    }
+
+    /// Whether a message can be quoted: one that has been named (a reply
+    /// points at the id) and can be read, so the quote has something to show.
+    private func canReply(_ message: ImMessage) -> Bool {
+        guard let id = message.id, !id.isEmpty, !message.isWithdrawn, !message.isSealed else { return false }
+        switch message.contentType {
+        case .text, .hat, .stream, .voice, .forward: return true
+        default: return false
+        }
+    }
+
+    // MARK: - quotes and mentions
+
+    /// The quoted message, from the page on screen or else the store: a
+    /// reply can come long after what it answers.
+    private func original(_ id: String) -> ImMessage? {
+        if let shown = page.messages.first(where: { $0.id == id }) { return shown }
+        return (try? session.messages.get(messageId: id, in: conversation.id)) ?? nil
+    }
+
+    /// Who wrote the quoted message and the start of what they wrote,
+    /// above the reply. A tap goes to the original when it is on the page.
+    private func quote(of id: String, mine: Bool) -> some View {
+        let quoted = original(id)
+        let author: String? = quoted.map { q in
+            if q.isOutgoing(from: session.liveFid) { return String(localized: "You") }
+            return senderFid(of: q).map { names.label(for: $0) } ?? String(localized: "Someone")
+        }
+        let text: String
+        if let quoted {
+            text = quoted.isWithdrawn ? String(localized: "Message withdrawn")
+                : quoted.contentType == .text ? (quoted.content ?? "")
+                : (Conversation.preview(for: quoted) ?? "")
+        } else {
+            text = String(localized: "The original message is not on this device.")
+        }
+        let onPage = page.messages.contains { $0.id == id }
+        return HStack(alignment: .top, spacing: 6) {
+            RoundedRectangle(cornerRadius: 1.5)
+                .fill(style.tint)
+                .frame(width: 3)
+            VStack(alignment: .leading, spacing: 1) {
+                if let author {
+                    Text(author)
+                        .font(.caption.bold())
+                        .foregroundStyle(style.tint)
+                        .lineLimit(1)
+                }
+                Text(text)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
+        .contentShape(Rectangle())
+        .onTapGesture { if onPage { jumpTo = id } }
+        .accessibilityAddTraits(onPage ? .isButton : [])
+    }
+
+    /// Whether this message's text names the live identity after an `@`.
+    private func mentionsMe(_ message: ImMessage) -> Bool {
+        Mentions.mentions(message, fid: session.liveFid, cid: myCid)
+    }
+
+    /// A text message's words, with each `@` of somebody known drawn in
+    /// the flavour's colour.
+    private func textWithMentions(_ content: String) -> Text {
+        guard conversation.type != .p2p, content.contains("@") else { return Text(content) }
+        let known = Set(names.cids.values)
+        return Text(Mentions.highlighted(content, tint: style.tint) { name in
+            name == session.liveFid || name == myCid || known.contains(name)
+                || (name.count == 34 && name.hasPrefix("F"))
+        })
     }
 
     @ViewBuilder
@@ -408,7 +547,7 @@ struct TranscriptView: View {
         } else if message.contentType == .hat, let offer = session.fileShare.offer(in: message) {
             fileBubble(offer, message: message)
         } else if let content = message.content {
-            Text(content).textSelection(.enabled)
+            textWithMentions(content).textSelection(.enabled)
         } else {
             Text(Conversation.preview(for: message) ?? "")
                 .font(.caption)

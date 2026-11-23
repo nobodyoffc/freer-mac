@@ -29,6 +29,8 @@ struct ConversationListView: View {
     /// messages are not arriving, and a quiet thread would otherwise read
     /// as a quiet group.
     var unreachable: Set<String> = []
+    /// Threads with an unread message that `@`s us, by conversation id.
+    var mentioned: Set<String> = []
     /// Non-nil while the pane is choosing several threads to act on
     /// together (Android's long-press selection). A tap then ticks a row
     /// instead of opening it.
@@ -222,6 +224,10 @@ struct ConversationListView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer(minLength: 8)
+                    if mentioned.contains(conversation.id) {
+                        ChatChip(String(localized: "@ you"), color: .red)
+                            .help("Somebody mentioned you in a message you have not read")
+                    }
                     if let unread = conversation.unreadCount, unread > 0 {
                         Text("\(unread)")
                             .font(.caption2.bold())

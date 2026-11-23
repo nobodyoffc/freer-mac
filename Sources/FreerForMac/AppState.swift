@@ -219,6 +219,21 @@ final class AppState {
         return pendingTeamOffers
     }
 
+    /// Set with ``pendingChatMode`` when the Chat pane should open on one
+    /// thread — the Overview's "mentioned you", which is answered by
+    /// reading it.
+    private(set) var pendingConversationId: String?
+
+    func openChat(conversation: Conversation) {
+        pendingConversationId = conversation.id
+        openChat(mode: conversation.type)
+    }
+
+    func consumePendingConversationId() -> String? {
+        defer { pendingConversationId = nil }
+        return pendingConversationId
+    }
+
     func consumePendingChatMode() -> ImType? {
         defer { pendingChatMode = nil }
         return pendingChatMode

@@ -89,6 +89,14 @@ struct ChatView: View {
     @State private var sendError: String?
     /// The sent message the composer is editing, and the draft it displaced.
     @State private var editing: EditTarget?
+    /// The message the next send quotes, and the thread it is in.
+    @State private var replying: ReplyTarget?
+    /// Group threads with unread messages that `@` us, every flavour.
+    @State private var mentions: [UnreadMention] = []
+    /// The mention list on screen, for the group whose `@` opened it.
+    @State private var mentionPicker: MentionPick?
+    /// Bumped to give the composer the keyboard back, as the mention list closes.
+    @State private var composerFocus = 0
     @State private var confirmWithdraw: ImMessage?
     @State private var showNewChat = false
     @State private var showDetails = false
@@ -215,6 +223,7 @@ struct ChatView: View {
         return conversations.filter { $0.matches(query: needle) }
     }
 
+
     private var selectedId: Binding<String?> {
         Binding(
             get: { selection[mode] },
@@ -318,6 +327,9 @@ struct ChatView: View {
             if mode == .team, !rotationsDue.isEmpty {
                 rotationBanner
             }
+            if !mentionsHere.isEmpty {
+                mentionsBanner
+            }
             if !historyRequestsHere.isEmpty || !historyFailuresHere.isEmpty {
                 historyBanner
             }
@@ -348,6 +360,7 @@ struct ChatView: View {
                         selectedId: selectedId,
                         onDelete: { confirmDelete = $0 },
                         unreachable: unreachable[mode] ?? [],
+                        mentioned: Set(mentions.map(\.id)),
                         checked: checked == nil ? nil : Binding(
                             get: { checked ?? [] },
                             set: { checked = $0 }
@@ -371,6 +384,9 @@ struct ChatView: View {
             if appState.consumePendingNewChat() { showNewChat = true }
             if appState.consumePendingTeamOffers() { showTeamOffers = true }
             reload()
+            if let id = appState.consumePendingConversationId() {
+                selection[mode] = id
+            }
             if selection[mode] == nil { selection[mode] = conversations.first?.id }
             openSelected()
             appState.setChatOpen(true)
@@ -403,6 +419,7 @@ struct ChatView: View {
             updatePriorityDock()
             refreshTeamAnswers()
         }
+        // Opening the selected thread on a phone is when it is read.
         .onChange(of: selection[mode]) { _, _ in
             recorder.cancel()
             player.stop()
@@ -422,6 +439,16 @@ struct ChatView: View {
         .onChange(of: appState.meetingCenter.cardsRevision) { _, _ in
             reload()
             openSelected()
+        }
+        .sheet(item: $mentionPicker, onDismiss: { composerFocus += 1 }) { pick in
+            MentionPickerSheet(
+                session: session,
+                names: names,
+                fids: pick.fids,
+                contactKeys: pick.contactKeys,
+                onPick: { _, handle in pickMention(handle, in: pick.conversationId) },
+                onClose: { mentionPicker = nil }
+            )
         }
         .sheet(isPresented: Binding(get: { meetingPicker != nil }, set: { if !$0 { meetingPicker = nil } })) {
             if let conversation = meetingPicker {
@@ -1055,6 +1082,41 @@ struct ChatView: View {
         }
     }
 
+    private var mentionsHere: [UnreadMention] {
+        mentions.filter { $0.conversation.type == mode }
+    }
+
+    /// The groups on this page where somebody `@`ed us in a message not
+    /// yet read. A tap opens the thread, and reading it clears the row.
+    private var mentionsBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(mentionsHere) { mention in
+                Button {
+                    selection[mode] = mention.id
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "at")
+                            .foregroundStyle(.red)
+                        Text(mention.count == 1
+                             ? String(localized: "\(mention.groupName) — you were mentioned")
+                             : String(localized: "\(mention.groupName) — you were mentioned \(String(mention.count)) times"))
+                            .multilineTextAlignment(.leading)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .font(.callout)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.red.opacity(0.10)))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private var historyRequestsHere: [IncomingHistoryRequest] {
         historyRequests.filter { $0.type == mode }
     }
@@ -1328,12 +1390,21 @@ struct ChatView: View {
                         onDownload: download,
                         onAskForKey: { version in asking = .symkey(version: version) },
                         onEdit: { beginEdit($0, in: conversation) },
-                        onWithdraw: { confirmWithdraw = $0 }
+                        onWithdraw: { confirmWithdraw = $0 },
+                        onReply: { beginReply($0, in: conversation) },
+                        onMention: conversation.type == .p2p ? nil : { fid in
+                            drafts[conversation.id] = Mentions.complete(
+                                drafts[conversation.id] ?? "", with: Mentions.handle(for: fid, names: names)
+                            )
+                        },
+                        myCid: names.cid(of: session.liveFid)
                     )
                 }
 
                 if let editing, editing.conversationId == conversation.id {
                     editBanner(editing)
+                } else if let replying, replying.conversationId == conversation.id {
+                    replyBanner(replying)
                 }
 
                 MessageComposerView(
@@ -1351,8 +1422,18 @@ struct ChatView: View {
                     onSendVoice: { sendVoice(in: conversation) },
                     onCancelRecording: { recorder.cancel() },
                     onGenerateKey: { generateKey(for: conversation) },
-                    callControl: callControl(for: conversation)
+                    callControl: callControl(for: conversation),
+                    focusRequest: composerFocus
                 )
+                // An `@` just typed in a group opens the list of whom it
+                // can name.
+                .onChange(of: drafts[conversation.id] ?? "") { old, new in
+                    guard conversation.type != .p2p, verdict.canSend,
+                          new.count == old.count + 1, new.hasSuffix("@"),
+                          Mentions.pendingQuery(in: new) == ""
+                    else { return }
+                    mentionPicker = mentionPick(for: conversation)
+                }
             }
         } else {
             card {
@@ -1649,6 +1730,7 @@ struct ChatView: View {
                 rebuilt[style.mode] = try session.conversations.visible(type: style.mode)
             }
             threads = rebuilt
+            mentions = session.unreadMentions(myCid: names.cid(of: session.liveFid))
             requests = try session.messageRequests.pending()
             invites = try session.roomInvites.all()
             // Only the ones still asking: a member who put one off has
@@ -1680,8 +1762,9 @@ struct ChatView: View {
             // rows. Group targets are deliberately not asked about: a
             // room id is not a FID, and a group already carries its own
             // name.
+            // And our own CID, which is how a group names us after an `@`.
             names.resolve(
-                (rebuilt[.p2p] ?? []).map(\.targetId) + requests.map(\.fid),
+                (rebuilt[.p2p] ?? []).map(\.targetId) + requests.map(\.fid) + [session.liveFid],
                 session: session
             )
             loadError = nil
@@ -1716,6 +1799,7 @@ struct ChatView: View {
             // however long the page is — and the book drops the ones it
             // has already asked about before it asks anything.
             names.resolve(page.messages.compactMap(\.senderId), session: session)
+            markSelfMentionsSeen()
             let nowRead = try session.chat.markRead(id)
             reload()
             acknowledgeRead(nowRead)
@@ -1807,9 +1891,12 @@ struct ChatView: View {
             text
         )
         optimistic.setId(fudpId: ImMessage.newFudpId())
+        let quoting = replying?.conversationId == conversation.id ? replying : nil
+        optimistic.replyToId = quoting?.message.id
         let shown = optimistic
 
         drafts[conversation.id] = ""
+        if quoting != nil { replying = nil }
         inFlight[conversation.id, default: []].append(shown)
         if pageFor == conversation.id { page = withInFlight(page, of: conversation.id) }
 
@@ -1830,7 +1917,10 @@ struct ChatView: View {
             } catch {
                 await MainActor.run {
                     drop(shown, from: conversation.id)
-                    if drafts[conversation.id]?.isEmpty ?? true { drafts[conversation.id] = text }
+                    if drafts[conversation.id]?.isEmpty ?? true {
+                        drafts[conversation.id] = text
+                        if replying == nil { replying = quoting }
+                    }
                     sendError = String(describing: error)
                     openSelected()
                 }
@@ -1856,6 +1946,116 @@ struct ChatView: View {
         }
         editing = EditTarget(message: message, conversationId: conversation.id, draftBefore: before)
         drafts[conversation.id] = message.content ?? ""
+        replying = nil
+    }
+
+    // MARK: - reply and mention
+
+    /// A message the next send quotes.
+    struct ReplyTarget: Equatable {
+        let message: ImMessage
+        let conversationId: String
+    }
+
+    /// Quote `message` in what is typed next. Editing ends first: an
+    /// edit changes a message that was sent, and cannot become a reply.
+    private func beginReply(_ message: ImMessage, in conversation: Conversation) {
+        if editing != nil { endEdit() }
+        replying = ReplyTarget(message: message, conversationId: conversation.id)
+    }
+
+    private func replyBanner(_ target: ReplyTarget) -> some View {
+        let message = target.message
+        let author = message.isOutgoing(from: session.liveFid)
+            ? String(localized: "yourself")
+            : message.senderId.map { names.label(for: $0) } ?? String(localized: "someone")
+        let text = message.contentType == .text
+            ? message.content ?? "" : Conversation.preview(for: message) ?? ""
+        return HStack(spacing: 8) {
+            Image(systemName: "arrowshape.turn.up.left")
+                .foregroundStyle(style.tint)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Replying to \(author)")
+                    .font(.caption)
+                    .foregroundStyle(style.tint)
+                    .lineLimit(1)
+                Text(text)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer()
+            Button { replying = nil } label: { Image(systemName: "xmark.circle.fill") }
+                .buttonStyle(.borderless)
+                .help("Cancel the reply")
+                .accessibilityLabel(Text("Cancel the reply"))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 8).fill(style.tint.opacity(0.08)))
+    }
+
+    /// A group's members as this device holds them — the lists the
+    /// members sheet shows, owner first. A square's is on the chain too.
+    private func groupMembers(of conversation: Conversation) -> [String] {
+        let id = conversation.targetId
+        switch conversation.type {
+        case .room:
+            let room = (try? session.rooms.get(id: id)) ?? nil
+            return [room?.owner].compactMap { $0 } + (room?.members ?? [])
+        case .team:
+            let team = (try? session.teams.get(id: id)) ?? nil
+            return [team?.owner].compactMap { $0 } + (team?.members ?? [])
+        case .square:
+            return ((try? session.squares.get(id: id)) ?? nil)?.members ?? []
+        case .p2p:
+            return []
+        }
+    }
+
+    /// Our own `@`s of ourselves on the page count as seen: the
+    /// transcript is on screen whenever a thread is selected.
+    private func markSelfMentionsSeen() {
+        SeenSelfMentions.markSeen(page.messages, in: session, myCid: names.cid(of: session.liveFid))
+    }
+
+    /// What the mention list shows, and for which thread.
+    struct MentionPick: Identifiable {
+        var id: String { conversationId }
+        let conversationId: String
+        /// Every member, in the order the list offers them.
+        let fids: [String]
+        let contactKeys: [String: [String]]
+    }
+
+    /// Write the picked member's `@name ` over the `@` that opened the list.
+    private func pickMention(_ handle: String, in conversationId: String) {
+        drafts[conversationId] = Mentions.complete(drafts[conversationId] ?? "", with: handle)
+        mentionPicker = nil
+    }
+
+    /// Who an `@` can name in this group, in the order the list offers
+    /// them: ourselves (an `@` of yourself is how a message is flagged for
+    /// your other devices), then whoever spoke last, then the members as
+    /// this device knows them — for a square, possibly thousands.
+    ///
+    /// Nothing per member is fetched here: the sheet names its rows a
+    /// page at a time. The address book is read once, whole, and matched
+    /// against the membership, rather than asked about each member.
+    private func mentionPick(for conversation: Conversation) -> MentionPick {
+        let speakers = page.messages.reversed().compactMap(\.senderId)
+        let everyone = [session.liveFid] + speakers + groupMembers(of: conversation)
+        var seen = Set<String>()
+        let fids = everyone.filter { !$0.isEmpty && seen.insert($0).inserted }
+        var keys: [String: [String]] = [:]
+        for contact in (try? session.contacts.all()) ?? [] {
+            let fid = contact.id
+            guard seen.contains(fid) else { continue }
+            let all = [contact.cid].compactMap { $0 } + (contact.usedCids ?? []) + (contact.titles ?? [])
+            if !all.isEmpty { keys[fid] = all }
+        }
+        return MentionPick(conversationId: conversation.id, fids: fids, contactKeys: keys)
     }
 
     /// Leave edit mode and put the displaced draft back.
