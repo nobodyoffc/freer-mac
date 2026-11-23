@@ -44,6 +44,10 @@ struct TranscriptView: View {
     var onMention: ((String) -> Void)? = nil
     /// The live identity's CID, so a mention of it by name is found.
     var myCid: String? = nil
+    /// Who may announce here — a team's owner and managers, a room's
+    /// owner. Their announcements are drawn as one; anybody else's
+    /// `[ANNOUNCEMENT]` is the text it is.
+    var announcers: Set<String> = []
 
     /// The empty row pinned under the last bubble. Scrolling to a bubble
     /// would stop at the top of a tall one; scrolling here always lands
@@ -399,7 +403,7 @@ struct TranscriptView: View {
         guard !message.isWithdrawn, let content = message.content, !content.isEmpty else { return nil }
         switch message.contentType {
         case .text:
-            return (String(localized: "Copy"), content)
+            return (String(localized: "Copy"), announcement(in: message) ?? content)
         case .hat:
             let fromNobody = !message.isOutgoing(from: session.liveFid)
                 && senderFid(of: message).map(names.isNobody) == true
@@ -472,6 +476,15 @@ struct TranscriptView: View {
         .accessibilityAddTraits(onPage ? .isButton : [])
     }
 
+    /// What `message` announces, when it is an announcement from somebody
+    /// who may post one.
+    private func announcement(in message: ImMessage) -> String? {
+        guard !announcers.isEmpty, let sender = senderFid(of: message), announcers.contains(sender),
+              Announcements.isAnnouncement(message)
+        else { return nil }
+        return Announcements.body(of: message.content)
+    }
+
     /// Whether this message's text names the live identity after an `@`.
     private func mentionsMe(_ message: ImMessage) -> Bool {
         Mentions.mentions(message, fid: session.liveFid, cid: myCid)
@@ -490,7 +503,9 @@ struct TranscriptView: View {
 
     @ViewBuilder
     private func amendItems(_ message: ImMessage) -> some View {
-        if MessageAmend.isEditable(message) {
+        // An announcement is withdrawn and posted again rather than edited:
+        // members may already have confirmed what it said.
+        if MessageAmend.isEditable(message), announcement(in: message) == nil {
             Button("Edit") { onEdit(message) }
         }
         Button("Withdraw…", role: .destructive) { onWithdraw(message) }
@@ -546,6 +561,13 @@ struct TranscriptView: View {
             voiceBubble(message)
         } else if message.contentType == .hat, let offer = session.fileShare.offer(in: message) {
             fileBubble(offer, message: message)
+        } else if let text = announcement(in: message) {
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Announcement", systemImage: "megaphone.fill")
+                    .font(.caption.bold())
+                    .foregroundStyle(style.tint)
+                textWithMentions(text).textSelection(.enabled)
+            }
         } else if let content = message.content {
             textWithMentions(content).textSelection(.enabled)
         } else {

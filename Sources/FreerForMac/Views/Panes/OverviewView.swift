@@ -46,6 +46,8 @@ struct OverviewView: View {
     @State private var awaitingChat: [ImType: Int] = [:]
     /// Group threads where somebody `@`ed us in a message not yet read.
     @State private var mentions: [UnreadMention] = []
+    /// Announcements not yet confirmed, by group, oldest group first.
+    @State private var announcements: [[GroupAnnouncement]] = []
 
     /// The DOCK whose top-up sheet is open.
     @State private var toppingUp: DockRegistry.Unpaid?
@@ -300,6 +302,20 @@ struct OverviewView: View {
                 open: { appState.openFirstFchBoard() }
             ))
         }
+        // Announcements waiting to be read and confirmed, one per group.
+        // The thread opens with them pinned above its messages.
+        for group in announcements {
+            let conversation = group[0].conversation
+            let name = ChatFormat.title(of: conversation)
+            tiles.append(AttentionTile(
+                id: "announcement.\(conversation.id)",
+                title: String(localized: "Announcement in \(name)"),
+                count: group.count,
+                systemImage: "megaphone.fill", tint: ChatModeStyle.of(conversation.type).tint,
+                open: { appState.openChat(conversation: conversation) },
+                help: String(localized: "Open \(name) to read and confirm \(String(group.count)) announcement(s)")
+            ))
+        }
         // Somebody waiting on you in a group, first of the chat tiles:
         // the most direct question there is. One per group, opening it.
         for mention in mentions {
@@ -548,6 +564,9 @@ struct OverviewView: View {
         // Our CID, so an `@` of it counts here before Chat is opened.
         appState.chatNames.resolve([session.liveFid], session: session)
         mentions = session.unreadMentions(myCid: appState.chatNames.cid(of: session.liveFid))
+        announcements = Dictionary(grouping: session.unconfirmedAnnouncements(), by: \.conversation.id)
+            .values
+            .sorted { ($0.first?.message.timestamp ?? 0) < ($1.first?.message.timestamp ?? 0) }
     }
 
     private func reloadRecentActivity() {

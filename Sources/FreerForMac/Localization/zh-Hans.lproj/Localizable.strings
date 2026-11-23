@@ -3907,3 +3907,21 @@
 "%@ — you were mentioned %@ times" = "%@——有人@了你 %@ 次";
 "Mentioned you in %@" = "%@ 中有人@我";
 "Open %@ — %@ messages that mention you" = "打开 %@——%@ 条提到你的消息";
+
+/* Announcements in teams and rooms */
+"Announcement" = "公告";
+"Announcements…" = "群公告…";
+"New announcement" = "新公告";
+"New announcement…" = "发布公告…";
+"Announcement history" = "历史公告";
+"No announcements yet" = "还没有公告";
+"Post to everyone" = "发给所有成员";
+"Posting…" = "正在发布…";
+"Every member is asked to open it and confirm. Once they have, it leaves their list and stays in the announcement history." = "每位成员都需要打开并确认。确认后，公告不再提醒，但仍可在历史公告中查看。";
+"You have read it: it leaves your list and stays in the announcement history" = "已阅读：不再提醒，仍可在历史公告中查看";
+"An announcement waiting for you to read and confirm it" = "有一条公告等待你阅读并确认";
+"%@ of %@" = "第 %@ 条，共 %@ 条";
+"%@ — an announcement to confirm" = "%@——有一条公告待确认";
+"%@ — %@ announcements to confirm" = "%@——有 %@ 条公告待确认";
+"Announcement in %@" = "%@ 的公告";
+"Open %@ to read and confirm %@ announcement(s)" = "打开 %@，阅读并确认 %@ 条公告";

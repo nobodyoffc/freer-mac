@@ -93,6 +93,12 @@ struct ChatView: View {
     @State private var replying: ReplyTarget?
     /// Group threads with unread messages that `@` us, every flavour.
     @State private var mentions: [UnreadMention] = []
+    /// Announcements from a team's or a room's owner or managers that this
+    /// identity has not confirmed, every flavour, oldest first.
+    @State private var unconfirmed: [GroupAnnouncement] = []
+    /// The announcement sheet on screen: writing one, reading those
+    /// waiting, or a group's history.
+    @State private var announcementSheet: AnnouncementSheet?
     /// The mention list on screen, for the group whose `@` opened it.
     @State private var mentionPicker: MentionPick?
     /// Bumped to give the composer the keyboard back, as the mention list closes.
@@ -327,6 +333,9 @@ struct ChatView: View {
             if mode == .team, !rotationsDue.isEmpty {
                 rotationBanner
             }
+            if !unconfirmedHere.isEmpty {
+                announcementsBanner
+            }
             if !mentionsHere.isEmpty {
                 mentionsBanner
             }
@@ -560,6 +569,9 @@ struct ChatView: View {
             }
         }
         .sheet(isPresented: $showGroupSettings) { groupSettingsSheet }
+        .sheet(item: $announcementSheet, onDismiss: { reload() }) { sheet in
+            announcementSheetView(sheet)
+        }
         .confirmationDialog(
             leaveTitle,
             isPresented: $confirmLeave,
@@ -1082,6 +1094,147 @@ struct ChatView: View {
         }
     }
 
+    // MARK: - announcements
+
+    enum AnnouncementSheet: Identifiable {
+        case compose(Conversation)
+        case read([GroupAnnouncement])
+        case history(Conversation)
+
+        var id: String {
+            switch self {
+            case .compose(let c): return "compose|" + c.id
+            case .read(let items): return "read|" + items.map(\.id).joined(separator: ",")
+            case .history(let c): return "history|" + c.id
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func announcementSheetView(_ sheet: AnnouncementSheet) -> some View {
+        switch sheet {
+        case .compose(let conversation):
+            AnnouncementComposeSheet(
+                session: session,
+                conversation: conversation,
+                onClose: { announcementSheet = nil },
+                onPosted: {
+                    announcementSheet = nil
+                    reload()
+                    openSelected()
+                }
+            )
+        case .read(let items):
+            AnnouncementReadSheet(
+                session: session,
+                names: names,
+                announcements: items,
+                onClose: { announcementSheet = nil },
+                onChanged: { reload() }
+            )
+        case .history(let conversation):
+            AnnouncementHistorySheet(
+                session: session,
+                conversation: conversation,
+                names: names,
+                onClose: { announcementSheet = nil },
+                onChanged: { reload() },
+                onPost: session.mayAnnounce(in: conversation)
+                    ? { announcementSheet = .compose(conversation) } : nil
+            )
+        }
+    }
+
+    /// The thread menu's announcement items, for a team or a room.
+    @ViewBuilder
+    private func announcementItems(_ conversation: Conversation) -> some View {
+        Button("Announcements…") { announcementSheet = .history(conversation) }
+        if session.mayAnnounce(in: conversation), conversation.leftGroup != true {
+            Button("New announcement…") { announcementSheet = .compose(conversation) }
+        }
+    }
+
+    /// Who may announce in a group: a team's owner and managers, a room's
+    /// owner. The transcript draws their announcements as cards.
+    private func announcers(of conversation: Conversation) -> Set<String> {
+        switch conversation.type {
+        case .team:
+            guard let team = (try? session.teams.get(id: conversation.targetId)) ?? nil else { return [] }
+            return Set([team.owner].compactMap { $0 } + (team.managers ?? []))
+        case .room:
+            let owner = (try? session.rooms.get(id: conversation.targetId))??.owner
+            return Set([owner].compactMap { $0 })
+        case .p2p, .square:
+            return []
+        }
+    }
+
+    private var unconfirmedHere: [GroupAnnouncement] {
+        unconfirmed.filter { $0.conversation.type == mode }
+    }
+
+    /// The groups on this page with announcements not yet confirmed. A tap
+    /// reads them; confirming the last clears the row.
+    private var announcementsBanner: some View {
+        let groups = Dictionary(grouping: unconfirmedHere, by: \.conversation.id)
+            .values
+            .sorted { ($0.first?.message.timestamp ?? 0) < ($1.first?.message.timestamp ?? 0) }
+        return VStack(alignment: .leading, spacing: 8) {
+            ForEach(groups, id: \.first!.conversation.id) { items in
+                Button {
+                    announcementSheet = .read(items)
+                } label: {
+                    let name = ChatFormat.title(of: items[0].conversation)
+                    HStack(spacing: 8) {
+                        Image(systemName: "megaphone.fill")
+                            .foregroundStyle(style.tint)
+                        Text(items.count == 1
+                             ? String(localized: "\(name) — an announcement to confirm")
+                             : String(localized: "\(name) — \(String(items.count)) announcements to confirm"))
+                            .multilineTextAlignment(.leading)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                    .font(.callout)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(style.tint.opacity(0.12)))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    /// Pinned above an open thread while it has announcements waiting:
+    /// the oldest one's first line, and a tap to read and confirm.
+    private func announcementStrip(_ waiting: [GroupAnnouncement]) -> some View {
+        Button {
+            announcementSheet = .read(waiting)
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "megaphone.fill").foregroundStyle(style.tint)
+                Text(waiting[0].body)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if waiting.count > 1 {
+                    Text("+\(String(waiting.count - 1))")
+                        .font(.caption.bold())
+                        .foregroundStyle(style.tint)
+                }
+                Text("Read").font(.caption.bold()).foregroundStyle(style.tint)
+            }
+            .font(.callout)
+            .padding(8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(style.tint.opacity(0.12)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("An announcement waiting for you to read and confirm it")
+    }
+
     private var mentionsHere: [UnreadMention] {
         mentions.filter { $0.conversation.type == mode }
     }
@@ -1372,6 +1525,11 @@ struct ChatView: View {
                 }
                 Divider()
 
+                let waiting = unconfirmed.filter { $0.conversation.id == conversation.id }
+                if !waiting.isEmpty {
+                    announcementStrip(waiting)
+                }
+
                 if pageFor != conversation.id {
                     // One frame, until `openSelected` has read this
                     // thread's page. See `pageFor`.
@@ -1397,7 +1555,8 @@ struct ChatView: View {
                                 drafts[conversation.id] ?? "", with: Mentions.handle(for: fid, names: names)
                             )
                         },
-                        myCid: names.cid(of: session.liveFid)
+                        myCid: names.cid(of: session.liveFid),
+                        announcers: announcers(of: conversation)
                     )
                 }
 
@@ -1569,6 +1728,7 @@ struct ChatView: View {
                 Button("Symkey exchange…") { showKeyLedger = true }
                 Button("Ask for this room's details…") { asking = .roomInfo }
                 Button("Request history…") { showHistoryAsk = true }
+                announcementItems(conversation)
                 if facts.isOwner {
                     Divider()
                     Button("Room settings…") { showRoomSettings = true }
@@ -1599,6 +1759,7 @@ struct ChatView: View {
                 Button("Ask for the key…") { asking = .symkey(version: nil) }
                 Button("Symkey exchange…") { showKeyLedger = true }
                 Button("Request history…") { showHistoryAsk = true }
+                announcementItems(conversation)
                 if facts.isOwner {
                     // Owner-only, as on Android's owner sub-menu. The
                     // chain enforces it; this only declines to offer a
@@ -1731,6 +1892,7 @@ struct ChatView: View {
             }
             threads = rebuilt
             mentions = session.unreadMentions(myCid: names.cid(of: session.liveFid))
+            unconfirmed = session.unconfirmedAnnouncements()
             requests = try session.messageRequests.pending()
             invites = try session.roomInvites.all()
             // Only the ones still asking: a member who put one off has

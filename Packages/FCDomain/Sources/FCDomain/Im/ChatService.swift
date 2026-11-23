@@ -40,6 +40,8 @@ public struct ChatService {
     /// Edits and withdraws waiting for their original. Over the messages'
     /// own store unless one is given.
     private let amendments: AmendmentsStore
+    /// Announcements filed as they arrive — see ``AnnouncementsStore``.
+    private var announcements: AnnouncementsStore { AnnouncementsStore(kv: messages.kv) }
 
     public init(
         messages: MessagesStore,
@@ -148,6 +150,8 @@ public struct ChatService {
         try messages.put(stored, in: conversation.id)
         try conversations.record(stored, myFid: liveFid)
         try outbox.enqueue(outgoing, in: conversation.id, now: now)
+        // Ours, so there is nothing for us to confirm.
+        try? announcements.note(stored, in: conversation.id, confirmed: true, now: now)
         if conversation.type == .p2p, stored.contentType?.isDisplayable == true {
             acceptPeer(conversation.targetId, as: liveFid)
         }
@@ -326,6 +330,7 @@ public struct ChatService {
 
         try messages.put(stored, in: conversationId)
         try conversations.record(stored, myFid: liveFid)
+        try? announcements.note(stored, in: conversationId, confirmed: stored.isOutgoing(from: liveFid), now: now)
         return opened ? .message(stored) : .sealed(stored, symkeyVersion: stored.symkeyVersion)
     }
 
@@ -400,7 +405,12 @@ public struct ChatService {
                 stored.withdrawn = candidate.withdrawn
                 stored.withdrawnAt = candidate.withdrawnAt
             }
-            if let updated { opened.append(updated) }
+            if let updated {
+                opened.append(updated)
+                // A sealed row says nothing until now, so an announcement
+                // in it is first seen here.
+                try? announcements.note(updated, in: conversationId, confirmed: updated.isOutgoing(from: liveFid))
+            }
         }
         opened += try openHeldEdits(in: conversationId, entityId: entityId)
         // The thread's cached preview was built from a row that said
